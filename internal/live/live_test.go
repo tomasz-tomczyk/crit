@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -535,11 +536,13 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 	originalStart := startLiveDaemon
 	originalRunClient := runLiveClient
 	originalInstallSignalHandler := installLiveDaemonSignalHandler
+	originalOpenBrowser := openLiveBrowser
 	originalLaunchBrowser := launchLiveBrowser
 	t.Cleanup(func() {
 		startLiveDaemon = originalStart
 		runLiveClient = originalRunClient
 		installLiveDaemonSignalHandler = originalInstallSignalHandler
+		openLiveBrowser = originalOpenBrowser
 		launchLiveBrowser = originalLaunchBrowser
 	})
 
@@ -605,6 +608,69 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 				t.Fatalf("cold-start client launched the browser %d times; the daemon owns the initial browser open", browserOpenCalls)
 			}
 		})
+	}
+}
+
+func TestConnectToLiveDaemon_LaunchesBrowserWhenNoneAttached(t *testing.T) {
+	originalRunClient := runLiveClient
+	originalOpenBrowser := openLiveBrowser
+	t.Cleanup(func() {
+		runLiveClient = originalRunClient
+		openLiveBrowser = originalOpenBrowser
+	})
+
+	t.Setenv("HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": false})
+	}))
+	defer srv.Close()
+
+	serverURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	port, err := strconv.Atoi(serverURL.Port())
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	const key = "live-connect-test"
+	entry := daemon.SessionEntry{PID: os.Getpid(), Port: port}
+	if err := daemon.WriteSessionFile(key, entry); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+
+	type browserCall struct {
+		url     string
+		openCmd string
+	}
+	browserCalls := make(chan browserCall, 1)
+	openLiveBrowser = func(url, openCmd string) {
+		browserCalls <- browserCall{url: url, openCmd: openCmd}
+	}
+	clientRan := false
+	runLiveClient = func(gotEntry daemon.SessionEntry, gotKey string) bool {
+		clientRan = true
+		if gotEntry.Port != entry.Port || gotKey != key {
+			t.Fatalf("run client with entry/key = %+v/%q, want %+v/%q", gotEntry, gotKey, entry, key)
+		}
+		return false
+	}
+
+	if !connectToLiveDaemon(key, "custom-open") {
+		t.Fatal("connectToLiveDaemon returned false")
+	}
+	if !clientRan {
+		t.Fatal("review client did not run")
+	}
+	select {
+	case got := <-browserCalls:
+		wantURL := entry.BaseURL() + "/live"
+		if got.url != wantURL || got.openCmd != "custom-open" {
+			t.Fatalf("browser call = %+v, want URL %q with custom-open", got, wantURL)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("browser launch was not dispatched")
 	}
 }
 

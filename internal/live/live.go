@@ -66,8 +66,9 @@ var (
 	startLiveDaemon                = daemon.StartDaemon
 	runLiveClient                  = daemon.RunReviewClient
 	installLiveDaemonSignalHandler = installDaemonSignalHandler
+	openLiveBrowser                = browser.OpenBrowserWithCommand
 	launchLiveBrowser              = func(url, openCmd string) {
-		go browser.OpenBrowserWithCommand(url, openCmd)
+		go openLiveBrowser(url, openCmd)
 	}
 )
 
