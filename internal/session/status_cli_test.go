@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 func captureStatusJSON(t *testing.T) map[string]interface{} {
@@ -133,5 +135,91 @@ func TestRunStatusLiveSessionWinsOverConfiguredOutput(t *testing.T) {
 	want := filepath.Join(liveReviewPath, "review.json")
 	if result["review_file"] != want {
 		t.Fatalf("review_file = %q, want live session path %q", result["review_file"], want)
+	}
+}
+
+func TestRunStatusFindsRepoRootSessionFromNestedDirectory(t *testing.T) {
+	repoDir := testutil.InitTestRepo(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	configuredOutput := filepath.Join(repoDir, "configured-output")
+	if err := os.WriteFile(
+		filepath.Join(repoDir, ".crit.config.json"),
+		[]byte(fmt.Sprintf(`{"output":%q}`, configuredOutput)),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	writeStatusReview(t, filepath.Join(configuredOutput, ".crit"))
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(repoDir)
+	backend := vcs.DetectVCS("")
+	if backend == nil {
+		t.Fatal("expected git repository")
+	}
+	repoRoot, err := backend.RepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootReviewPath := filepath.Join(t.TempDir(), ".crit")
+	writeStatusReview(t, rootReviewPath)
+	const sessionKey = "status-repo-root"
+	if err := daemon.WriteSessionFile(sessionKey, daemon.SessionEntry{
+		PID:        os.Getpid(),
+		Port:       port,
+		CWD:        repoRoot,
+		Branch:     backend.CurrentBranch(),
+		ReviewPath: rootReviewPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(sessionKey) })
+
+	nestedDir := filepath.Join(repoDir, "pkg")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nestedDir)
+	nestedCWD, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wrongBranchSessionKey = "status-nested-wrong-branch"
+	if err := daemon.WriteSessionFile(wrongBranchSessionKey, daemon.SessionEntry{
+		PID:        os.Getpid(),
+		Port:       port,
+		CWD:        nestedCWD,
+		Branch:     "different-branch",
+		ReviewPath: filepath.Join(t.TempDir(), ".crit"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(wrongBranchSessionKey) })
+
+	result := captureStatusJSON(t)
+	want := filepath.Join(rootReviewPath, "review.json")
+	if result["review_file"] != want {
+		t.Fatalf("review_file = %q, want root daemon path %q", result["review_file"], want)
+	}
+	daemonStatus, ok := result["daemon"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("daemon status = %#v, want object", result["daemon"])
+	}
+	if daemonStatus["running"] != true {
+		t.Fatalf("daemon.running = %v, want true", daemonStatus["running"])
 	}
 }

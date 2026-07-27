@@ -26,20 +26,21 @@ func RunStatus(args []string) error {
 
 	vcsName := ""
 	branch := ""
-	if vcs := vcs.DetectVCS(""); vcs != nil {
-		vcsName = vcs.Name()
-		branch = vcs.CurrentBranch()
+	var backend vcs.VCS
+	if backend = vcs.DetectVCS(""); backend != nil {
+		vcsName = backend.Name()
+		branch = backend.CurrentBranch()
 	}
 
 	sessions, err := daemon.ListSessionsForCWD(cwd)
 	if err != nil {
 		return err
 	}
-	var matchedSession *daemon.SessionEntry
-	for i, s := range sessions {
-		if s.Branch == branch || (branch == "" && len(sessions) == 1) {
-			matchedSession = &sessions[i]
-			break
+	matchedSession := selectStatusSession(sessions, branch)
+	if matchedSession == nil && backend != nil {
+		if repoRoot, rootErr := backend.RepoRoot(); rootErr == nil {
+			repoSessions, _ := daemon.ListSessionsForRepoRoot(repoRoot)
+			matchedSession = selectStatusSession(repoSessions, branch)
 		}
 	}
 
@@ -59,6 +60,15 @@ func RunStatus(args []string) error {
 	}
 
 	printStatusHuman(vcsName, branch, revPath, revExists, matchedSession)
+	return nil
+}
+
+func selectStatusSession(sessions []daemon.SessionEntry, branch string) *daemon.SessionEntry {
+	for i, s := range sessions {
+		if s.Branch == branch || (branch == "" && len(sessions) == 1) {
+			return &sessions[i]
+		}
+	}
 	return nil
 }
 
