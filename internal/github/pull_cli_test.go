@@ -2,10 +2,25 @@ package github
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 )
+
+func configureOutputForTest(t *testing.T) string {
+	t.Helper()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(projectDir)
+	configuredOutput := filepath.Join(projectDir, "configured")
+	data := []byte(`{"output":"` + configuredOutput + `"}`)
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return configuredOutput
+}
 
 func TestParsePullFlags(t *testing.T) {
 	tests := []struct {
@@ -36,6 +51,49 @@ func TestParsePullFlags(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("parsePullFlags(%v) = %+v, want %+v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolvePullFlagsOutputPrecedence(t *testing.T) {
+	configuredOutput := configureOutputForTest(t)
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "configured output", want: configuredOutput},
+		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := pullFlags{outputDir: tt.in}
+			if err := resolvePullFlags(&f); err != nil {
+				t.Fatal(err)
+			}
+			if f.outputDir != tt.want {
+				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldRedirectReviewForPR(t *testing.T) {
+	tests := []struct {
+		name      string
+		prFlag    int
+		outputDir string
+		want      bool
+	}{
+		{name: "explicit PR without pinned output redirects", prFlag: 42, want: true},
+		{name: "auto-detected PR does not redirect", want: false},
+		{name: "explicit PR with CLI or configured output stays pinned", prFlag: 42, outputDir: "/pinned", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRedirectReviewForPR(tt.prFlag, tt.outputDir); got != tt.want {
+				t.Fatalf("shouldRedirectReviewForPR(%d, %q) = %v, want %v", tt.prFlag, tt.outputDir, got, tt.want)
 			}
 		})
 	}

@@ -272,6 +272,64 @@ func TestRunComments_PlanAndOutputConflict(t *testing.T) {
 	}
 }
 
+func TestResolveCommentsListFlagsOutputPrecedence(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(projectDir)
+
+	configuredOutput := filepath.Join(projectDir, "reviews")
+	configData := []byte(`{"output":` + `"` + configuredOutput + `"` + `}`)
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), configData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantOutput string
+		wantPlan   bool
+	}{
+		{name: "configured output", args: []string{"--json"}, wantOutput: configuredOutput},
+		{name: "explicit output wins", args: []string{"--output", "explicit", "--json"}, wantOutput: "explicit"},
+		{name: "plan storage wins without conflict", args: []string{"--plan", "my-plan", "--json"}, wantPlan: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := parseCommentsListFlags(tt.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := resolveCommentsListFlags(&f); err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantPlan {
+				if f.outputDir == "" || f.outputDir == configuredOutput {
+					t.Fatalf("outputDir = %q, want plan storage", f.outputDir)
+				}
+				return
+			}
+			if f.outputDir != tt.wantOutput {
+				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.wantOutput)
+			}
+		})
+	}
+}
+
+func TestResolveCommentsCritPathExplicitPathWinsConfiguredOutput(t *testing.T) {
+	explicitPath := writeTestReview(t, t.TempDir(), CritJSON{})
+	f := commentsListFlags{
+		outputDir:    filepath.Join(t.TempDir(), "configured"),
+		explicitPath: explicitPath,
+	}
+	got, err := resolveCommentsCritPath(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != explicitPath {
+		t.Fatalf("crit path = %q, want explicit review path %q", got, explicitPath)
+	}
+}
+
 func TestResolveExplicitReviewPath(t *testing.T) {
 	tmp := t.TempDir()
 	critPath := filepath.Join(tmp, ".crit")

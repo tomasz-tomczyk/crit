@@ -154,9 +154,7 @@ func applyDaemonConfigDefaults(sf *daemonFlagSet, cfg config.Config) {
 	if !sf.quiet && cfg.Quiet {
 		sf.quiet = true
 	}
-	if sf.outputDir == "" && cfg.Output != "" {
-		sf.outputDir = cfg.Output
-	}
+	sf.outputDir = config.ResolveOutputDir(sf.outputDir, cfg)
 	if sf.baseBranch == "" && cfg.BaseBranch != "" {
 		sf.baseBranch = cfg.BaseBranch
 	}

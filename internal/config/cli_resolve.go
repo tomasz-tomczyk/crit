@@ -3,7 +3,33 @@ package config
 import (
 	"os"
 	"strconv"
+
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
+
+// LoadCurrentConfig loads merged global and project config for the current
+// repository, falling back to the current directory outside a repository.
+func LoadCurrentConfig() (Config, error) {
+	configDir, err := os.Getwd()
+	if err != nil {
+		return Config{}, err
+	}
+	if v := vcs.DetectVCS(""); v != nil {
+		if root, rootErr := v.RepoRoot(); rootErr == nil {
+			configDir = root
+		}
+	}
+	return LoadConfig(configDir), nil
+}
+
+// ResolveOutputDir returns the explicit CLI/plan output when set, otherwise
+// the output from merged config.
+func ResolveOutputDir(explicit string, cfg Config) string {
+	if explicit != "" {
+		return explicit
+	}
+	return cfg.Output
+}
 
 // ResolvePort returns the effective listen port (flag > env > config).
 func ResolvePort(flagPort, cfgPort int) int {

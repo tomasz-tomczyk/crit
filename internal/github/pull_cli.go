@@ -43,6 +43,19 @@ func parsePullFlags(args []string) (pullFlags, error) {
 	return f, nil
 }
 
+func resolvePullFlags(f *pullFlags) error {
+	cfg, err := config.LoadCurrentConfig()
+	if err != nil {
+		return err
+	}
+	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
+	return nil
+}
+
+func shouldRedirectReviewForPR(prFlag int, outputDir string) bool {
+	return prFlag != 0 && outputDir == ""
+}
+
 func RunPull(args []string) error { //nolint:gocyclo
 	if err := RequireGH(); err != nil {
 		return err
@@ -50,6 +63,9 @@ func RunPull(args []string) error { //nolint:gocyclo
 
 	f, err := parsePullFlags(args)
 	if err != nil {
+		return err
+	}
+	if err := resolvePullFlags(&f); err != nil {
 		return err
 	}
 
@@ -82,7 +98,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 		}
 	}
 
-	if f.prFlag != 0 && f.outputDir == "" {
+	if shouldRedirectReviewForPR(f.prFlag, f.outputDir) {
 		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ

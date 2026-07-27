@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
@@ -62,6 +63,15 @@ func parsePushFlags(args []string) (pushFlags, error) {
 		f.prFlag = n
 	}
 	return f, nil
+}
+
+func resolvePushFlags(f *pushFlags) error {
+	cfg, err := config.LoadCurrentConfig()
+	if err != nil {
+		return err
+	}
+	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
+	return nil
 }
 
 // postPushReplies posts each reply via `gh api`. On the first auth-rotation
@@ -119,6 +129,9 @@ func loadPushContext(args []string) (pushContext, error) {
 	if err != nil {
 		return pushContext{}, err
 	}
+	if err := resolvePushFlags(&f); err != nil {
+		return pushContext{}, err
+	}
 
 	event, err := ParsePushEvent(f.eventFlag)
 	if err != nil {
@@ -158,7 +171,7 @@ func loadPushContext(args []string) (pushContext, error) {
 	// review file is for a different branch (or is missing) — pushing the wrong
 	// comments to a PR is destructive, so honor the explicit intent first. Same
 	// pattern as PR #424's findReviewFileByCommentID fallback for `crit comment`.
-	if f.prFlag != 0 && f.outputDir == "" {
+	if shouldRedirectReviewForPR(f.prFlag, f.outputDir) {
 		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ

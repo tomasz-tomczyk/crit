@@ -9,7 +9,6 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
-	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 // RunComment is the crit comment subcommand implementation.
@@ -91,16 +90,11 @@ func resolveCommentFlags(f *commentFlags) error {
 		}
 	}
 
-	cfgDir, err := os.Getwd()
+	cfg, err := config.LoadCurrentConfig()
 	if err != nil {
 		return err
 	}
-	if v := vcs.DetectVCS(""); v != nil {
-		if root, rootErr := v.RepoRoot(); rootErr == nil {
-			cfgDir = root
-		}
-	}
-	cfg := config.LoadConfig(cfgDir)
+	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
 	if f.author == "" {
 		f.author = cfg.Author
 	}

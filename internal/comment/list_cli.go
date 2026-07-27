@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
@@ -68,6 +69,11 @@ func resolveCommentsListFlags(f *commentsListFlags) error {
 			return err
 		}
 	}
+	cfg, err := config.LoadCurrentConfig()
+	if err != nil {
+		return err
+	}
+	f.outputDir = config.ResolveOutputDir(f.outputDir, cfg)
 	return nil
 }
 

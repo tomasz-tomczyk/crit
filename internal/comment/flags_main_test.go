@@ -1,6 +1,8 @@
 package comment
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -104,4 +106,56 @@ func TestParseCommentFlags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(projectDir)
+
+	configuredOutput := filepath.Join(projectDir, "reviews")
+	configData := []byte(`{"output":` + `"` + configuredOutput + `"` + `}`)
+	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), configData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("configured output", func(t *testing.T) {
+		f, err := parseCommentFlags([]string{"body"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resolveCommentFlags(&f); err != nil {
+			t.Fatal(err)
+		}
+		if f.outputDir != configuredOutput {
+			t.Fatalf("outputDir = %q, want configured output %q", f.outputDir, configuredOutput)
+		}
+	})
+
+	t.Run("explicit output wins", func(t *testing.T) {
+		explicitOutput := filepath.Join(projectDir, "explicit")
+		f, err := parseCommentFlags([]string{"--output", explicitOutput, "body"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resolveCommentFlags(&f); err != nil {
+			t.Fatal(err)
+		}
+		if f.outputDir != explicitOutput {
+			t.Fatalf("outputDir = %q, want explicit output %q", f.outputDir, explicitOutput)
+		}
+	})
+
+	t.Run("plan storage wins without conflict", func(t *testing.T) {
+		f, err := parseCommentFlags([]string{"--plan", "my-plan", "body"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resolveCommentFlags(&f); err != nil {
+			t.Fatal(err)
+		}
+		if f.outputDir == "" || f.outputDir == configuredOutput {
+			t.Fatalf("outputDir = %q, want plan storage", f.outputDir)
+		}
+	})
 }

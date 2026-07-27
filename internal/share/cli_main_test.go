@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 func TestPromptShareConsent(t *testing.T) {
@@ -152,6 +154,48 @@ func TestParseShareFlags(t *testing.T) {
 				if sf.files[i] != tt.files[i] {
 					t.Errorf("files[%d] = %q, want %q", i, sf.files[i], tt.files[i])
 				}
+			}
+		})
+	}
+}
+
+func TestApplyShareConfigDefaultsOutputPrecedence(t *testing.T) {
+	cfg := config.Config{Output: "/configured", ShareURL: "https://configured.example"}
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "configured output", want: "/configured"},
+		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sf := shareFlags{outputDir: tt.in}
+			applyShareConfigDefaults(&sf, cfg)
+			if sf.outputDir != tt.want {
+				t.Fatalf("outputDir = %q, want %q", sf.outputDir, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyUnpublishConfigDefaultsOutputPrecedence(t *testing.T) {
+	cfg := config.Config{Output: "/configured", ShareURL: "https://configured.example"}
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "configured output", want: "/configured"},
+		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := unpublishFlags{outputDir: tt.in}
+			applyUnpublishConfigDefaults(&f, cfg)
+			if f.outputDir != tt.want {
+				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.want)
 			}
 		})
 	}

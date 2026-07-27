@@ -51,6 +51,29 @@ func TestParsePushFlags(t *testing.T) {
 	}
 }
 
+func TestResolvePushFlagsOutputPrecedence(t *testing.T) {
+	configuredOutput := configureOutputForTest(t)
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "configured output", want: configuredOutput},
+		{name: "explicit output wins", in: "/explicit", want: "/explicit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := pushFlags{outputDir: tt.in}
+			if err := resolvePushFlags(&f); err != nil {
+				t.Fatal(err)
+			}
+			if f.outputDir != tt.want {
+				t.Fatalf("outputDir = %q, want %q", f.outputDir, tt.want)
+			}
+		})
+	}
+}
+
 func TestParsePushFlags_NonNumericExitCode(t *testing.T) {
 	_, err := parsePushFlags([]string{"bogus"})
 	var exitErr clicmd.ExitError
