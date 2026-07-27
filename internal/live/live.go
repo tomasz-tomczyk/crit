@@ -63,9 +63,12 @@ func detectFrameworks(body []byte) []string {
 var smokeClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	startLiveDaemon = daemon.StartDaemon
-	runLiveClient   = daemon.RunReviewClient
-	openLiveBrowser = browser.OpenBrowserWithCommand
+	startLiveDaemon                = daemon.StartDaemon
+	runLiveClient                  = daemon.RunReviewClient
+	installLiveDaemonSignalHandler = installDaemonSignalHandler
+	launchLiveBrowser              = func(url, openCmd string) {
+		go browser.OpenBrowserWithCommand(url, openCmd)
+	}
 )
 
 func runSmokeTest(origin, cookies string) smokeResult {
@@ -155,7 +158,7 @@ func connectToLiveDaemon(key, openCmd string) bool {
 		entry.BaseURL(), entry.Port+1)
 	fmt.Fprintf(os.Stderr, "[crit] open %s/live\n", entry.BaseURL())
 	if !daemon.DaemonHasBrowser(entry) {
-		go openLiveBrowser(entry.BaseURL()+"/live", openCmd)
+		launchLiveBrowser(entry.BaseURL()+"/live", openCmd)
 	}
 	runLiveClient(entry, key)
 	return true
@@ -275,7 +278,7 @@ func RunLive(args []string) {
 		entry.Port, entry.Port+1)
 	fmt.Fprintf(os.Stderr, "[crit] open %s/live\n", entry.BaseURL())
 
-	installDaemonSignalHandler(entry.PID)
+	installLiveDaemonSignalHandler(entry.PID)
 
 	runLiveClient(entry, key)
 }

@@ -534,11 +534,13 @@ func TestBuildLiveDaemonArgs(t *testing.T) {
 func TestRunLive_ColdStartLeavesBrowserOpeningToDaemon(t *testing.T) {
 	originalStart := startLiveDaemon
 	originalRunClient := runLiveClient
-	originalOpenBrowser := openLiveBrowser
+	originalInstallSignalHandler := installLiveDaemonSignalHandler
+	originalLaunchBrowser := launchLiveBrowser
 	t.Cleanup(func() {
 		startLiveDaemon = originalStart
 		runLiveClient = originalRunClient
-		openLiveBrowser = originalOpenBrowser
+		installLiveDaemonSignalHandler = originalInstallSignalHandler
+		launchLiveBrowser = originalLaunchBrowser
 	})
 
 	home := t.TempDir()
@@ -561,23 +563,28 @@ func TestRunLive_ColdStartLeavesBrowserOpeningToDaemon(t *testing.T) {
 		clientRan = true
 		return false
 	}
-	browserOpened := make(chan string, 1)
-	openLiveBrowser = func(url, _ string) {
-		browserOpened <- url
+	signalHandlerInstalled := false
+	installLiveDaemonSignalHandler = func(int) {
+		signalHandlerInstalled = true
+	}
+	browserOpenCalls := 0
+	launchLiveBrowser = func(string, string) {
+		browserOpenCalls++
 	}
 
 	RunLive([]string{upstream.URL})
 
+	if !signalHandlerInstalled {
+		t.Fatal("daemon signal handler was not installed")
+	}
 	if !clientRan {
 		t.Fatal("review client did not run")
 	}
 	if containsArgPair(daemonArgs, "--no-open", "") {
 		t.Fatalf("cold-start daemon args unexpectedly disable browser opening: %v", daemonArgs)
 	}
-	select {
-	case openedURL := <-browserOpened:
-		t.Fatalf("cold-start client opened %s; the daemon owns the initial browser open", openedURL)
-	case <-time.After(100 * time.Millisecond):
+	if browserOpenCalls != 0 {
+		t.Fatalf("cold-start client launched the browser %d times; the daemon owns the initial browser open", browserOpenCalls)
 	}
 }
 
