@@ -303,7 +303,7 @@ Options:
   -p, --port <port>           Port to listen on (default: random)
       --host <host>           Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
       --public-url <url>      Advertised base URL (e.g. https://machine.ts.net via tailscale serve)
-  -o, --output <dir>          Output directory for review file
+  -o, --output <dir>          Crit data root for reviews (default: ~/.crit)
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 Suppress status output
@@ -400,7 +400,7 @@ Available keys:
                               proxies share/pull/unpublish/re-share through a MessagePort.
                               Use when crit-web is behind an SSO reverse proxy.
   quiet             bool      Suppress status output (default: false)
-  output            string    Output directory for review file
+  output            string    Crit data root for reviews (default: ~/.crit; reviews in <root>/reviews/<key>/)
   author            string    Your name for comments (default: git config user.name)
   base_branch       string    Base branch to diff against (overrides auto-detection)
   vcs                    string    Preferred VCS backend: git, sl, or jj (default: auto-detect)

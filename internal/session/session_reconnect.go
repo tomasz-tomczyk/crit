@@ -97,9 +97,6 @@ func daemonArgsForReconnect(sessionKey string, cliArgs []string, stale daemon.Se
 // appendReconnectPathFlags adds --output or --plan-dir/--name when the review
 // folder is outside the default ~/.crit/reviews/<key> layout.
 func appendReconnectPathFlags(sessionKey string, args []string, reviewDir string) []string {
-	if !strings.HasSuffix(filepath.ToSlash(reviewDir), "/.crit") {
-		return args
-	}
 	defaultDir, err := daemon.ReviewFilePath(sessionKey)
 	if err == nil && filepath.Clean(reviewDir) == filepath.Clean(defaultDir) {
 		return args
@@ -108,16 +105,20 @@ func appendReconnectPathFlags(sessionKey string, args []string, reviewDir string
 	if err == nil {
 		plansRoot := filepath.Join(home, ".crit", "plans")
 		parent := filepath.Dir(reviewDir)
-		if strings.HasPrefix(filepath.Clean(parent), filepath.Clean(plansRoot)+string(filepath.Separator)) {
+		if strings.HasSuffix(filepath.ToSlash(reviewDir), "/.crit") &&
+			strings.HasPrefix(filepath.Clean(parent), filepath.Clean(plansRoot)+string(filepath.Separator)) {
 			slug := filepath.Base(parent)
 			if slug != "" && slug != "." {
 				return append(args, "--plan-dir", parent, "--name", slug)
 			}
 		}
 	}
-	outputDir := filepath.Dir(reviewDir)
-	if outputDir != "" && outputDir != "." {
-		return append(args, "--output", outputDir)
+	// Custom data root: {root}/reviews/<key> → --output {root}
+	if filepath.Base(reviewDir) == sessionKey && filepath.Base(filepath.Dir(reviewDir)) == "reviews" {
+		root := filepath.Dir(filepath.Dir(reviewDir))
+		if root != "" && root != "." {
+			return append(args, "--output", root)
+		}
 	}
 	return args
 }

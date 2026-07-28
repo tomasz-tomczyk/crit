@@ -352,7 +352,7 @@ func TestResolveStoryReviewPathUsesExplicitOutputWithoutDaemon(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := filepath.Join(outputDir, ".crit")
+			want := filepath.Join(outputDir, "reviews", storySessionKey(t, nil))
 			if path != want {
 				t.Fatalf("path = %q, want %q", path, want)
 			}
@@ -381,29 +381,28 @@ func TestResolveStoryReviewPathUsesConfiguredOutputWithoutDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(outputDir, ".crit")
+	want := filepath.Join(outputDir, "reviews", storySessionKey(t, nil))
 	if path != want {
 		t.Fatalf("path = %q, want %q", path, want)
 	}
 }
 
-func TestResolveStoryReviewPathPreservesOutputPathError(t *testing.T) {
+func TestResolveStoryReviewPathOutputUsesDataRoot(t *testing.T) {
 	setupStoryRepo(t)
-	origAlive, origAbsPath := storyDaemonAlive, serveAbsPath
-	t.Cleanup(func() {
-		storyDaemonAlive = origAlive
-		serveAbsPath = origAbsPath
-	})
+	origAlive := storyDaemonAlive
+	t.Cleanup(func() { storyDaemonAlive = origAlive })
 	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
 		return daemon.SessionEntry{}, false
 	}
-	serveAbsPath = func(string) (string, error) {
-		return "", errors.New("working directory unavailable")
-	}
 
-	_, err := resolveStoryReviewPath([]string{"--output", "review-output"})
-	if err == nil || !strings.Contains(err.Error(), "resolve story review path: working directory unavailable") {
-		t.Fatalf("expected wrapped output path error, got %v", err)
+	outputDir := filepath.Join(t.TempDir(), "review-output")
+	got, err := resolveStoryReviewPath([]string{"--output", outputDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(outputDir, "reviews", storySessionKey(t, nil))
+	if got != want {
+		t.Fatalf("path = %q, want %q", got, want)
 	}
 }
 

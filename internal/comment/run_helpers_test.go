@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/review"
 )
 
 func TestLooksLikeLineSpec(t *testing.T) {
@@ -49,7 +51,11 @@ func TestFileExistsOnDiskOrSession_InReviewFile(t *testing.T) {
 	cj := CritJSON{Files: map[string]CritJSONFile{
 		"session-only.go": {Status: "modified"},
 	}}
-	if err := saveCritJSON(filepath.Join(dir, ".crit"), cj); err != nil {
+	critPath, err := review.ResolveReviewPath(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveCritJSON(critPath, cj); err != nil {
 		t.Fatal(err)
 	}
 	if !fileExistsOnDiskOrSession("session-only.go", dir) {

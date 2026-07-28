@@ -412,9 +412,13 @@ func TestRunComment_JSONFlagMixed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup comment: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(tmp, ".crit", "review.json"))
+	critPath, err := review.ResolveReviewPath(tmp)
 	if err != nil {
-		t.Fatalf("read .crit.json: %v", err)
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(critPath, "review.json"))
+	if err != nil {
+		t.Fatalf("read review.json: %v", err)
 	}
 	var cj session.CritJSON
 	json.Unmarshal(data, &cj)
@@ -484,7 +488,10 @@ func TestFetch_PrintsReviewFilePath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			critPath := filepath.Join(tmpDir, ".crit")
+			critPath, err := review.ResolveReviewPath(tmpDir)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
 				t.Fatal(err)
 			}

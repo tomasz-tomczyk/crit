@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -142,8 +143,13 @@ func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 		if f.configuredOutput != configuredOutput {
 			t.Fatalf("configuredOutput = %q, want %q", f.configuredOutput, configuredOutput)
 		}
-		if f.reviewPath != filepath.Join(configuredOutput, ".crit") {
-			t.Fatalf("reviewPath = %q, want configured review path", f.reviewPath)
+		cwd, err := daemon.ResolvedCWD()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(configuredOutput, "reviews", daemon.SessionKey(cwd, "", nil))
+		if f.reviewPath != want {
+			t.Fatalf("reviewPath = %q, want configured review path %q", f.reviewPath, want)
 		}
 	})
 
@@ -159,8 +165,13 @@ func TestResolveCommentFlagsOutputPrecedence(t *testing.T) {
 		if f.outputDir != explicitOutput {
 			t.Fatalf("outputDir = %q, want explicit output %q", f.outputDir, explicitOutput)
 		}
-		if f.reviewPath != filepath.Join(explicitOutput, ".crit") {
-			t.Fatalf("reviewPath = %q, want explicit review path", f.reviewPath)
+		cwd, err := daemon.ResolvedCWD()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(explicitOutput, "reviews", daemon.SessionKey(cwd, "", nil))
+		if f.reviewPath != want {
+			t.Fatalf("reviewPath = %q, want explicit review path %q", f.reviewPath, want)
 		}
 	})
 

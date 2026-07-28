@@ -105,13 +105,13 @@ func TestPreflightCheck_NotARepo(t *testing.T) {
 // session.critJSONPath() returned <planDir>/.crit — the split caused pasted
 // images to render as [image: <alt>] placeholders on crit-web.
 func TestResolveServeReviewPath(t *testing.T) {
-	t.Run("outputDir wins", func(t *testing.T) {
+	t.Run("outputDir wins as data root", func(t *testing.T) {
 		dir := t.TempDir()
 		got, err := resolveServeReviewPath(dir, "/some/plan/dir", "deadbeef")
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := filepath.Join(dir, ".crit")
+		want := filepath.Join(dir, "reviews", "deadbeef")
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -149,19 +149,6 @@ func TestResolveServeReviewPath(t *testing.T) {
 		if _, err := resolveServeReviewPath("", "", "deadbeef123"); err == nil ||
 			!strings.Contains(err.Error(), "home unavailable") {
 			t.Fatalf("expected centralized path error, got %v", err)
-		}
-	})
-
-	t.Run("absolute output path errors are preserved", func(t *testing.T) {
-		orig := serveAbsPath
-		t.Cleanup(func() { serveAbsPath = orig })
-		serveAbsPath = func(string) (string, error) {
-			return "", errors.New("working directory unavailable")
-		}
-
-		if _, err := resolveServeReviewPath("output", "", "deadbeef123"); err == nil ||
-			!strings.Contains(err.Error(), "working directory unavailable") {
-			t.Fatalf("expected output path error, got %v", err)
 		}
 	})
 

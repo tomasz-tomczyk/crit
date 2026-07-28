@@ -75,10 +75,16 @@ func TestRunStatusUsesConfiguredOutputWithoutDaemon(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	writeStatusReview(t, filepath.Join(outputDir, ".crit"))
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := daemon.SessionKey(cwd, "", nil)
+	identity := filepath.Join(outputDir, "reviews", key)
+	writeStatusReview(t, identity)
 
 	result := captureStatusJSON(t)
-	want := filepath.Join(outputDir, ".crit", "review.json")
+	want := filepath.Join(identity, "review.json")
 	if result["review_file"] != want {
 		t.Fatalf("review_file = %q, want %q", result["review_file"], want)
 	}
@@ -123,7 +129,7 @@ func TestRunStatusLiveSessionWinsOverConfiguredOutput(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	writeStatusReview(t, filepath.Join(configuredOutput, ".crit"))
+	writeStatusReview(t, filepath.Join(configuredOutput, "reviews", "unused"))
 
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -173,7 +179,7 @@ func TestRunStatusFindsRepoRootSessionFromNestedDirectory(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	writeStatusReview(t, filepath.Join(configuredOutput, ".crit"))
+	writeStatusReview(t, filepath.Join(configuredOutput, "reviews", "unused"))
 
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

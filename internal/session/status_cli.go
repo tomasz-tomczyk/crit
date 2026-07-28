@@ -81,7 +81,7 @@ func resolveStatusReviewPath(cwd, branch string, matchedSession *daemon.SessionE
 		return "", err
 	}
 	if cfg.Output != "" {
-		return reviewpath.FromOutputDir(cfg.Output)
+		return reviewpath.Identity(cfg.Output, daemon.SessionKey(cwd, branch, nil))
 	}
 	key := daemon.SessionKey(cwd, branch, nil)
 	return daemon.ReviewFilePath(key)

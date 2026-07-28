@@ -3,6 +3,7 @@ package comment
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
@@ -79,25 +80,27 @@ func resolveCommentFlags(f *commentFlags) error {
 	if f.json && f.replyTo != "" {
 		return fmt.Errorf("--json and --reply-to cannot be used together; for a single reply use: crit comment --reply-to <id> [--author <name>] <body>")
 	}
-	if f.plan != "" {
-		if f.outputDir != "" {
-			return fmt.Errorf("--plan and --output cannot be used together")
-		}
-		var planDirErr error
-		f.outputDir, planDirErr = session.PlanStorageDir(session.Slugify(f.plan))
-		if planDirErr != nil {
-			return planDirErr
-		}
-	}
-
 	cfg, err := config.LoadCurrentConfig()
 	if err != nil {
 		return err
 	}
 	f.configuredOutput = cfg.Output
-	f.reviewPath, err = review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
-	if err != nil {
-		return err
+
+	if f.plan != "" {
+		if f.outputDir != "" {
+			return fmt.Errorf("--plan and --output cannot be used together")
+		}
+		planDir, planDirErr := session.PlanStorageDir(session.Slugify(f.plan))
+		if planDirErr != nil {
+			return planDirErr
+		}
+		f.outputDir = planDir
+		f.reviewPath = filepath.Join(planDir, ".crit")
+	} else {
+		f.reviewPath, err = review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
+		if err != nil {
+			return err
+		}
 	}
 	if f.author == "" {
 		f.author = cfg.Author
@@ -186,7 +189,7 @@ func commentUsageError() error {
 	fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' main.go:42 'Fix this bug'")
 	fmt.Fprintln(os.Stderr, "  crit comment --author 'Claude' src/auth.go:10-25 'This block needs refactoring'")
 	fmt.Fprintln(os.Stderr, "  crit comment --reply-to c_a3f8b2 --resolve --author 'Claude' 'Split into two functions'")
-	fmt.Fprintln(os.Stderr, "  crit comment --output /tmp/reviews main.go:42 'Fix this bug'")
+	fmt.Fprintln(os.Stderr, "  crit comment --output .crit main.go:42 'Fix this bug'")
 	fmt.Fprintln(os.Stderr, "  echo '[{\"file\":\"main.go\",\"line\":42,\"body\":\"Fix this\"}]' | crit comment --json --author 'Claude'")
 	fmt.Fprintln(os.Stderr, "  crit comment --json --file comments.json --author 'Claude'")
 	fmt.Fprintln(os.Stderr, "")

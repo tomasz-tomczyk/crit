@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -49,8 +48,13 @@ func CreateSession(sc *DaemonCLIConfig) (*Session, error) {
 }
 
 // ApplySessionOverrides applies plan/output/focus overrides after session creation.
+//
+// User --output / config output is resolved earlier into sc.ReviewPath
+// ({dataRoot}/reviews/<key>) and loaded via CreateSession's ReviewFilePath.
+// Plan mode still uses sess.OutputDir → <planDir>/.crit via critJSONPath.
+// Explicit output wins over plan: skip plan OutputDir when OutputDir is set.
 func ApplySessionOverrides(sess *Session, sc *DaemonCLIConfig) {
-	if sc.PlanDir != "" {
+	if sc.PlanDir != "" && sc.OutputDir == "" {
 		session.ApplyPlanOverrides(sess, sc.PlanDir, sc.PlanName)
 		for _, f := range sess.Files {
 			f.Comments = []Comment{}
@@ -58,10 +62,8 @@ func ApplySessionOverrides(sess *Session, sc *DaemonCLIConfig) {
 		sess.ClearReviewComments()
 		sess.LoadCritJSON()
 	}
-	if sc.OutputDir != "" {
-		abs, _ := filepath.Abs(sc.OutputDir)
-		sess.OutputDir = abs
-	}
+	// sc.OutputDir: do not set sess.OutputDir — that would rematerialize the
+	// legacy parent/.crit layout and disagree with ReviewFilePath.
 	if sc.Focus != nil {
 		sess.RemoteFiles = sc.RemoteFiles
 		if err := sess.SetFocus(*sc.Focus); err != nil {

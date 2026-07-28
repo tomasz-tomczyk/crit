@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +15,15 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
+
+func fetchOutputIdentity(t *testing.T, dataRoot string) string {
+	t.Helper()
+	path, err := review.ResolveReviewPath(dataRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestRunFetch_PrintsReviewFilePath(t *testing.T) {
 	tests := []struct {
@@ -54,7 +62,7 @@ func TestRunFetch_PrintsReviewFilePath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			critPath := filepath.Join(tmpDir, ".crit")
+			critPath := fetchOutputIdentity(t, tmpDir)
 			if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +101,7 @@ func TestRunFetch_NoReviewFile(t *testing.T) {
 
 func TestRunFetch_NoShareURL(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit")
+	critPath := fetchOutputIdentity(t, dir)
 	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), []byte(`{"files":{}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +113,7 @@ func TestRunFetch_NoShareURL(t *testing.T) {
 
 func TestRunFetch_InvalidReviewFile(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, ".crit")
+	critPath := fetchOutputIdentity(t, dir)
 	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +158,7 @@ func TestRunFetch_ReplyUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	critPath := filepath.Join(tmpDir, ".crit")
+	critPath := fetchOutputIdentity(t, tmpDir)
 	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +209,7 @@ func TestConcurrentFetchSameReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	critPath := filepath.Join(tmpDir, ".crit")
+	critPath := fetchOutputIdentity(t, tmpDir)
 	if err := os.WriteFile(testutil.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0o644); err != nil {
 		t.Fatal(err)
 	}

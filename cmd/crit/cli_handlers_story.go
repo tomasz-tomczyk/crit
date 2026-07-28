@@ -106,7 +106,7 @@ Diff scope options:
       --pr <num|url>         Generate for a GitHub pull request
       --range <base>..<head> Generate for a commit range
       --base-branch <branch> Override auto-detected base branch
-      --output, -o <dir>     Output directory for the review file
+      --output, -o <dir>     Crit data root for reviews (default: ~/.crit)
       --scope <mode>         PR diff scope: layer or full-stack
       --vcs <name>           VCS backend: git, sl, or jj
 

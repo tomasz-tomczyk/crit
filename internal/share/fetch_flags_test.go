@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -86,7 +87,11 @@ func TestResolveFetchOutputDirOutputPrecedence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := filepath.Join(tt.want, ".crit")
+			cwd, err := daemon.ResolvedCWD()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(tt.want, "reviews", daemon.SessionKey(cwd, "", nil))
 			if got != want {
 				t.Fatalf("review path = %q, want %q", got, want)
 			}

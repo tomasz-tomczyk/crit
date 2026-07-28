@@ -29,37 +29,13 @@ var errReviewFileAmbiguousForBranch = errors.New("multiple review files match br
 // ResolveReviewPath returns the review identity path for the current context.
 // In v4 the identity is a folder; review.json and snapshots.json live inside.
 // Resolution order:
-//  1. If outputDir is set, return outputDir/.crit (explicit override)
+//  1. If outputDir is set, return {outputDir}/reviews/<key> (crit data root)
 //  2. Check daemon registry for running sessions matching this cwd
 //  3. If one daemon matches, use its ReviewPath
 //  4. If multiple daemons match, use the one matching current branch
 //  5. If no daemon found, compute the centralized path: ~/.crit/reviews/<key>
 func ResolveReviewPath(outputDir string) (string, error) {
-	if outputDir != "" {
-		return reviewpath.FromOutputDir(outputDir)
-	}
-
-	cwd, err := daemon.ResolvedCWD()
-	if err != nil {
-		return "", err
-	}
-
-	if path := ResolveReviewPathFromDaemon(cwd); path != "" {
-		return path, nil
-	}
-
-	// No daemon — compute centralized path.
-	branch := ""
-	if vc := vcs.DetectVCS(""); vc != nil {
-		branch = vc.CurrentBranch()
-	}
-	key := daemon.SessionKey(cwd, branch, nil)
-	path, err := daemon.ReviewFilePath(key)
-	if err != nil {
-		return "", err
-	}
-
-	return path, nil
+	return ResolveReviewPathWithArgs(outputDir, nil)
 }
 
 // ResolveCommandReviewPath resolves a headless command's review identity.
@@ -78,7 +54,7 @@ func ResolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, f
 
 func resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, fileArgs []string) (string, error) {
 	if explicitOutput != "" {
-		return reviewpath.FromOutputDir(explicitOutput)
+		return identityUnderDataRoot(explicitOutput, fileArgs)
 	}
 	cwd, err := daemon.ResolvedCWD()
 	if err != nil {
@@ -88,19 +64,16 @@ func resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, f
 		return path, nil
 	}
 	if configuredOutput != "" {
-		return reviewpath.FromOutputDir(configuredOutput)
+		return identityUnderDataRoot(configuredOutput, fileArgs)
 	}
 	return ResolveReviewPathWithArgs("", fileArgs)
 }
 
-// resolveReviewPathWithArgs is like ResolveReviewPath but includes file args
+// ResolveReviewPathWithArgs is like ResolveReviewPath but includes file args
 // in the session key, matching the key that file-mode sessions use.
 func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, error) {
-	if len(fileArgs) == 0 {
-		return ResolveReviewPath(outputDir)
-	}
 	if outputDir != "" {
-		return reviewpath.FromOutputDir(outputDir)
+		return identityUnderDataRoot(outputDir, fileArgs)
 	}
 
 	cwd, err := daemon.ResolvedCWD()
@@ -112,13 +85,37 @@ func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, err
 		return path, nil
 	}
 
-	key := daemon.SessionKey(cwd, "", fileArgs)
-	path, err := daemon.ReviewFilePath(key)
+	key := sessionKeyForArgs(cwd, fileArgs)
+	return daemon.ReviewFilePath(key)
+}
+
+// identityUnderDataRoot maps --output / config output (a crit data root) to
+// {dataRoot}/reviews/<key>, matching default ~/.crit/reviews/<key> layout.
+func identityUnderDataRoot(dataRoot string, fileArgs []string) (string, error) {
+	warnLegacyOutputLayout(dataRoot)
+	cwd, err := daemon.ResolvedCWD()
 	if err != nil {
 		return "", err
 	}
+	return reviewpath.Identity(dataRoot, sessionKeyForArgs(cwd, fileArgs))
+}
 
-	return path, nil
+func sessionKeyForArgs(cwd string, fileArgs []string) string {
+	if len(fileArgs) > 0 {
+		return daemon.SessionKey(cwd, "", fileArgs)
+	}
+	branch := ""
+	if vc := vcs.DetectVCS(""); vc != nil {
+		branch = vc.CurrentBranch()
+	}
+	return daemon.SessionKey(cwd, branch, nil)
+}
+
+func warnLegacyOutputLayout(dataRoot string) {
+	if !reviewpath.HasLegacyIdentity(dataRoot) {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "crit: warning: %s still has a legacy .crit review from when --output meant a fixed review folder; output is now a data root and reviews live under %s/reviews/<key>/\n", dataRoot, dataRoot)
 }
 
 // ResolveReviewPathFromDaemon checks the daemon registry for a running session

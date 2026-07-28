@@ -177,7 +177,7 @@ func TestReconnectDeadSession_OutputReviewPath(t *testing.T) {
 	key := "839f3b4cd5d6"
 
 	outputDir := filepath.Join(t.TempDir(), "out")
-	revDir := filepath.Join(outputDir, ".crit")
+	revDir := filepath.Join(outputDir, "reviews", key)
 	cj := CritJSON{CliArgs: []string{"a.md"}}
 	if err := SaveCritJSON(revDir, cj); err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestReconnectDeadSession_OutputReviewPath(t *testing.T) {
 func TestDaemonArgsForReconnect_OutputAndPublicURL(t *testing.T) {
 	key := "839f3b4cd5d6"
 	outputDir := filepath.Join(os.TempDir(), "review-out")
-	revDir := filepath.Join(outputDir, ".crit")
+	revDir := filepath.Join(outputDir, "reviews", key)
 	stale := daemon.SessionEntry{
 		ReviewPath: revDir,
 		PublicURL:  "https://crit.example.com",

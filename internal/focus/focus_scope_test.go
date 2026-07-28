@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 func withDaemonFocus(t *testing.T, f *Focus) {
@@ -26,8 +28,17 @@ func withDaemonFocus(t *testing.T, f *Focus) {
 
 func writeReviewFileWithScope(t *testing.T, dir, scope string) {
 	t.Helper()
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := ""
+	if vc := vcs.DetectVCS(""); vc != nil {
+		branch = vc.CurrentBranch()
+	}
+	key := daemon.SessionKey(cwd, branch, nil)
 	cj := CritJSON{ActiveDiffScope: scope}
-	critPath := filepath.Join(dir, ".crit")
+	critPath := filepath.Join(dir, "reviews", key)
 	if err := review.EnsureReviewFolder(critPath); err != nil {
 		t.Fatal(err)
 	}

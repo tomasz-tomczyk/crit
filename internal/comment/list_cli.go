@@ -85,6 +85,9 @@ func resolveCommentsCritPath(f commentsListFlags) (string, error) {
 	if f.explicitPath != "" {
 		return resolveExplicitReviewPath(f.explicitPath)
 	}
+	if f.plan != "" {
+		return filepath.Join(f.outputDir, ".crit"), nil
+	}
 	return review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
 }
 

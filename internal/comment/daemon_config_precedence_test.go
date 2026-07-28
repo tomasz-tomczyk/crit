@@ -80,8 +80,16 @@ func TestRunCommentDaemonThenConfiguredOutputPrecedence(t *testing.T) {
 	if len(daemonReview.ReviewComments) != 1 || daemonReview.ReviewComments[0].Body != "active daemon" {
 		t.Fatalf("daemon review comments = %+v, want active daemon comment", daemonReview.ReviewComments)
 	}
-	if _, err := os.Stat(filepath.Join(configuredOutput, ".crit", "review.json")); !os.IsNotExist(err) {
-		t.Fatalf("configured review unexpectedly written while daemon active: %v", err)
+	if _, err := os.Stat(filepath.Join(configuredOutput, "reviews")); !os.IsNotExist(err) {
+		// Only fail if a review.json was written under the configured root.
+		cwd, err := daemon.ResolvedCWD()
+		if err != nil {
+			t.Fatal(err)
+		}
+		configuredIdentity := filepath.Join(configuredOutput, "reviews", daemon.SessionKey(cwd, "", nil))
+		if _, err := os.Stat(filepath.Join(configuredIdentity, "review.json")); !os.IsNotExist(err) {
+			t.Fatalf("configured review unexpectedly written while daemon active: %v", err)
+		}
 	}
 
 	health.Close()
@@ -89,7 +97,11 @@ func TestRunCommentDaemonThenConfiguredOutputPrecedence(t *testing.T) {
 	if err := RunComment([]string{"--author", "bot", "configured fallback"}); err != nil {
 		t.Fatal(err)
 	}
-	configuredReview, err := review.LoadCritJSON(filepath.Join(configuredOutput, ".crit"))
+	cwd, err = daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuredReview, err := review.LoadCritJSON(filepath.Join(configuredOutput, "reviews", daemon.SessionKey(cwd, "", nil)))
 	if err != nil {
 		t.Fatal(err)
 	}

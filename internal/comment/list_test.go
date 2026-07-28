@@ -9,13 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func writeTestReview(t *testing.T, dir string, cj CritJSON) string {
 	t.Helper()
-	critPath := filepath.Join(dir, ".crit")
-	if err := os.MkdirAll(critPath, 0o755); err != nil {
+	critPath, err := review.ResolveReviewPath(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := saveCritJSON(critPath, cj); err != nil {
