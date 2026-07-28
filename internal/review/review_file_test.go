@@ -457,6 +457,44 @@ func TestResolveCommandReviewPathPrecedence(t *testing.T) {
 		}
 	})
 
+	t.Run("non-key daemon review basename is ignored", func(t *testing.T) {
+		health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+		}))
+		t.Cleanup(health.Close)
+		parsed, err := url.Parse(health.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			t.Fatal(err)
+		}
+		const key = "dd4dc7667465"
+		dataRoot := t.TempDir()
+		weirdPath := filepath.Join(t.TempDir(), "custom-review-folder")
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID:        os.Getpid(),
+			Port:       port,
+			CWD:        resolvedCWD,
+			ReviewPath: weirdPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+		got, err := ResolveCommandReviewPath(dataRoot, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		branchKey := daemon.SessionKey(resolvedCWD, "", nil)
+		want := filepath.Join(dataRoot, "reviews", branchKey)
+		if got != want {
+			t.Fatalf("review path = %q, want branch-keyed path %q", got, want)
+		}
+	})
+
 	t.Run("warns on legacy output layout", func(t *testing.T) {
 		dataRoot := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dataRoot, ".crit"), 0o755); err != nil {

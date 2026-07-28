@@ -117,6 +117,26 @@ func TestResolveServeReviewPath(t *testing.T) {
 		}
 	})
 
+	t.Run("outputDir warns on legacy identity", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".crit"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		stderr := captureStderr(t, func() {
+			got, err := resolveServeReviewPath(dir, "", "deadbeef1234")
+			if err != nil {
+				t.Fatalf("resolveServeReviewPath: %v", err)
+			}
+			want := filepath.Join(dir, "reviews", "deadbeef1234")
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+		if !strings.Contains(stderr, "legacy .crit review") {
+			t.Fatalf("stderr = %q, want legacy warning", stderr)
+		}
+	})
+
 	t.Run("planDir used when outputDir empty", func(t *testing.T) {
 		planDir := t.TempDir()
 		got, err := resolveServeReviewPath("", planDir, "deadbeef")

@@ -353,6 +353,25 @@ func TestResolveCommentsCritPathExplicitPathWinsConfiguredOutput(t *testing.T) {
 	}
 }
 
+func TestResolveCommentsCritPath_PlanUsesColocatedCrit(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	f, err := parseCommentsListFlags([]string{"--plan", "my-plan", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resolveCommentsListFlags(&f); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveCommentsCritPath(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(f.outputDir, ".crit")
+	if got != want {
+		t.Fatalf("got %q, want plan colocated path %q", got, want)
+	}
+}
+
 func TestResolveExplicitReviewPath(t *testing.T) {
 	tmp := t.TempDir()
 	critPath := filepath.Join(tmp, ".crit")
