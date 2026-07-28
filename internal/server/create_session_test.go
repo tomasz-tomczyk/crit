@@ -182,3 +182,24 @@ func TestCreateSession_FilesMode_LoadsShareFromReviewPath(t *testing.T) {
 		t.Errorf("ReviewRound = %d, want 3", sess.ReviewRound)
 	}
 }
+
+func TestApplySessionOverrides_OutputDirSkipsPlan(t *testing.T) {
+	dir := vcs.InitTestRepo(t)
+	chdirRepo(t, dir)
+	sess, err := CreateSession(&DaemonCLIConfig{Files: []string{"README.md"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeMode := sess.Mode
+	ApplySessionOverrides(sess, &DaemonCLIConfig{
+		PlanDir:   filepath.Join(t.TempDir(), "plans", "auth"),
+		PlanName:  "auth",
+		OutputDir: t.TempDir(),
+	})
+	if sess.Mode != beforeMode {
+		t.Fatalf("OutputDir should skip plan overrides; Mode changed %q → %q", beforeMode, sess.Mode)
+	}
+	if sess.OutputDir != "" {
+		t.Fatalf("OutputDir override must not set sess.OutputDir (legacy layout), got %q", sess.OutputDir)
+	}
+}

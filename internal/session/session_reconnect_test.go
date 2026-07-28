@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -371,6 +372,67 @@ func TestAppendReconnectPathFlags_MigratesLegacyOutput(t *testing.T) {
 	assertDaemonFlag(t, args, "--output", root)
 	if _, err := os.Stat(filepath.Join(root, "reviews", key, "review.json")); err != nil {
 		t.Fatalf("expected migration via appendReconnectPathFlags: %v", err)
+	}
+}
+
+func TestMigrateLegacyOutputReconnect_MkdirError(t *testing.T) {
+	key := "839f3b4cd5d6"
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".crit")
+	if err := SaveCritJSON(legacy, CritJSON{}); err != nil {
+		t.Fatal(err)
+	}
+	orig := migrateMkdirAll
+	migrateMkdirAll = func(string, os.FileMode) error {
+		return errors.New("mkdir failed")
+	}
+	t.Cleanup(func() { migrateMkdirAll = orig })
+
+	var args []string
+	stderr := captureStderr(t, func() {
+		args = migrateLegacyOutputReconnect(key, legacy)
+	})
+	if args != nil {
+		t.Fatalf("expected nil args on mkdir failure, got %v", args)
+	}
+	if !strings.Contains(stderr, "could not migrate") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestMigrateLegacyOutputReconnect_RenameError(t *testing.T) {
+	key := "839f3b4cd5d6"
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".crit")
+	if err := SaveCritJSON(legacy, CritJSON{}); err != nil {
+		t.Fatal(err)
+	}
+	orig := migrateRename
+	migrateRename = func(string, string) error {
+		return errors.New("rename failed")
+	}
+	t.Cleanup(func() { migrateRename = orig })
+
+	var args []string
+	stderr := captureStderr(t, func() {
+		args = migrateLegacyOutputReconnect(key, legacy)
+	})
+	if args != nil {
+		t.Fatalf("expected nil args on rename failure, got %v", args)
+	}
+	if !strings.Contains(stderr, "could not migrate") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestPlanReconnectFlags_HomeError(t *testing.T) {
+	orig := userHomeDir
+	userHomeDir = func() (string, error) {
+		return "", errors.New("no home")
+	}
+	t.Cleanup(func() { userHomeDir = orig })
+	if args := planReconnectFlags(filepath.Join(t.TempDir(), ".crit")); args != nil {
+		t.Fatalf("expected nil when home fails, got %v", args)
 	}
 }
 

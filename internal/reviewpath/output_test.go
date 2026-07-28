@@ -1,8 +1,10 @@
 package reviewpath
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -62,5 +64,25 @@ func TestLegacyIdentityPath(t *testing.T) {
 	want := filepath.Join(root, ".crit")
 	if got != want {
 		t.Fatalf("LegacyIdentityPath = %q, want %q", got, want)
+	}
+}
+
+func TestReviewsDirAbsError(t *testing.T) {
+	orig := absPath
+	t.Cleanup(func() { absPath = orig })
+	absPath = func(string) (string, error) {
+		return "", errors.New("abs failed")
+	}
+	if _, err := ReviewsDir("x"); err == nil || !strings.Contains(err.Error(), "abs failed") {
+		t.Fatalf("ReviewsDir error = %v", err)
+	}
+	if _, err := Identity("x", "key"); err == nil || !strings.Contains(err.Error(), "abs failed") {
+		t.Fatalf("Identity error = %v", err)
+	}
+	if _, err := LegacyIdentityPath("x"); err == nil || !strings.Contains(err.Error(), "abs failed") {
+		t.Fatalf("LegacyIdentityPath error = %v", err)
+	}
+	if HasLegacyIdentity("x") {
+		t.Fatal("HasLegacyIdentity should be false when Abs fails")
 	}
 }

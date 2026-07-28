@@ -5,11 +5,14 @@ import (
 	"path/filepath"
 )
 
+// absPath is filepath.Abs in production; tests may replace it to exercise errors.
+var absPath = filepath.Abs
+
 // ReviewsDir returns the reviews directory under a crit data root:
 // {dataRoot}/reviews. dataRoot must be non-empty; the empty/default case is
 // daemon.ReviewsDir (~/.crit/reviews).
 func ReviewsDir(dataRoot string) (string, error) {
-	abs, err := filepath.Abs(dataRoot)
+	abs, err := absPath(dataRoot)
 	if err != nil {
 		return "", err
 	}
@@ -33,7 +36,7 @@ func Identity(dataRoot, key string) (string, error) {
 // LegacyIdentityPath is the pre-data-root layout: {dataRoot}/.crit.
 // Used only to detect leftover reviews after the semantics change.
 func LegacyIdentityPath(dataRoot string) (string, error) {
-	abs, err := filepath.Abs(dataRoot)
+	abs, err := absPath(dataRoot)
 	if err != nil {
 		return "", err
 	}

@@ -13,6 +13,13 @@ import (
 // startDaemonForReconnect is daemon.StartDaemon in production; tests may replace it.
 var startDaemonForReconnect = daemon.StartDaemon
 
+// Test hooks for migrateLegacyOutputReconnect error paths.
+var (
+	migrateMkdirAll = os.MkdirAll
+	migrateRename   = os.Rename
+	userHomeDir     = os.UserHomeDir
+)
+
 // ReconnectCommand returns the crit CLI command to reconnect to an existing review
 // session. Works from any cwd; use for file, git, live, and preview modes.
 func ReconnectCommand(sessionKey string) string {
@@ -118,7 +125,7 @@ func appendReconnectPathFlags(sessionKey string, args []string, reviewDir string
 }
 
 func planReconnectFlags(reviewDir string) []string {
-	home, err := os.UserHomeDir()
+	home, err := userHomeDir()
 	if err != nil {
 		return nil
 	}
@@ -152,11 +159,11 @@ func migrateLegacyOutputReconnect(sessionKey, reviewDir string) []string {
 		fmt.Fprintf(os.Stderr, "crit: warning: legacy review at %s ignored; %s already exists\n", reviewDir, dest)
 		return []string{"--output", root}
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	if err := migrateMkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "crit: warning: could not migrate legacy review %s: %v\n", reviewDir, err)
 		return nil
 	}
-	if err := os.Rename(reviewDir, dest); err != nil {
+	if err := migrateRename(reviewDir, dest); err != nil {
 		fmt.Fprintf(os.Stderr, "crit: warning: could not migrate legacy review %s → %s: %v\n", reviewDir, dest, err)
 		return nil
 	}
