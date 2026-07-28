@@ -417,6 +417,60 @@ func TestResolveCommandReviewPathPrecedence(t *testing.T) {
 			t.Fatalf("review path = %q, want daemon-keyed path %q", got, want)
 		}
 	})
+
+	t.Run("plan-mode daemon path is not treated as session key", func(t *testing.T) {
+		health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+		}))
+		t.Cleanup(health.Close)
+		parsed, err := url.Parse(health.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			t.Fatal(err)
+		}
+		const key = "cc3cb6556354"
+		dataRoot := t.TempDir()
+		planPath := filepath.Join(t.TempDir(), "plans", "auth-flow", ".crit")
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID:        os.Getpid(),
+			Port:       port,
+			CWD:        resolvedCWD,
+			ReviewPath: planPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+		got, err := ResolveCommandReviewPath(dataRoot, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// .crit basename must not become the key under the data root.
+		branchKey := daemon.SessionKey(resolvedCWD, "", nil)
+		want := filepath.Join(dataRoot, "reviews", branchKey)
+		if got != want {
+			t.Fatalf("review path = %q, want branch-keyed path %q", got, want)
+		}
+	})
+
+	t.Run("warns on legacy output layout", func(t *testing.T) {
+		dataRoot := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dataRoot, ".crit"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		stderr := captureStderr(t, func() {
+			if _, err := ResolveReviewPathWithArgs(dataRoot, nil); err != nil {
+				t.Fatalf("ResolveReviewPathWithArgs: %v", err)
+			}
+		})
+		if !strings.Contains(stderr, "legacy .crit review") {
+			t.Fatalf("stderr = %q, want legacy warning", stderr)
+		}
+	})
 }
 
 func TestClearReviewPath(t *testing.T) {

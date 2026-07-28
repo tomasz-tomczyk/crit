@@ -294,6 +294,86 @@ func TestAppendReconnectPathFlags_DefaultLayout(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyOutputReconnect_MovesToKeyedReview(t *testing.T) {
+	key := "839f3b4cd5d6"
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".crit")
+	if err := SaveCritJSON(legacy, CritJSON{CliArgs: []string{"a.md"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var args []string
+	stderr := captureStderr(t, func() {
+		args = migrateLegacyOutputReconnect(key, legacy)
+	})
+	assertDaemonFlag(t, args, "--output", root)
+	dest := filepath.Join(root, "reviews", key)
+	if _, err := os.Stat(filepath.Join(dest, "review.json")); err != nil {
+		t.Fatalf("migrated review missing: %v", err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy path should be gone, err=%v", err)
+	}
+	if !strings.Contains(stderr, "migrated legacy review") {
+		t.Fatalf("stderr = %q, want migrate notice", stderr)
+	}
+}
+
+func TestMigrateLegacyOutputReconnect_DestExists(t *testing.T) {
+	key := "839f3b4cd5d6"
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".crit")
+	if err := SaveCritJSON(legacy, CritJSON{}); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "reviews", key)
+	if err := SaveCritJSON(dest, CritJSON{CliArgs: []string{"keep.md"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var args []string
+	stderr := captureStderr(t, func() {
+		args = migrateLegacyOutputReconnect(key, legacy)
+	})
+	assertDaemonFlag(t, args, "--output", root)
+	if !strings.Contains(stderr, "ignored") {
+		t.Fatalf("stderr = %q, want ignore warning", stderr)
+	}
+	// Existing keyed review must be preserved; legacy folder left in place.
+	if _, err := os.Stat(filepath.Join(dest, "review.json")); err != nil {
+		t.Fatalf("existing review missing: %v", err)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("legacy path should remain when dest exists: %v", err)
+	}
+}
+
+func TestMigrateLegacyOutputReconnect_NotLegacy(t *testing.T) {
+	if args := migrateLegacyOutputReconnect("839f3b4cd5d6", filepath.Join(t.TempDir(), "reviews", "839f3b4cd5d6")); args != nil {
+		t.Fatalf("non-legacy path returned %v", args)
+	}
+}
+
+func TestAppendReconnectPathFlags_MigratesLegacyOutput(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".crit")
+	if err := SaveCritJSON(legacy, CritJSON{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var args []string
+	captureStderr(t, func() {
+		args = appendReconnectPathFlags(key, []string{"--session-key", key}, legacy)
+	})
+	assertDaemonFlag(t, args, "--output", root)
+	if _, err := os.Stat(filepath.Join(root, "reviews", key, "review.json")); err != nil {
+		t.Fatalf("expected migration via appendReconnectPathFlags: %v", err)
+	}
+}
+
 func TestDaemonArgsForReconnect_Host(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)

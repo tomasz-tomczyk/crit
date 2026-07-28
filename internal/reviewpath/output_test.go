@@ -42,3 +42,25 @@ func TestHasLegacyIdentity(t *testing.T) {
 		t.Fatal("expected legacy .crit folder to be detected")
 	}
 }
+
+func TestHasLegacyIdentity_JSONFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".crit.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasLegacyIdentity(root) {
+		t.Fatal("expected legacy .crit.json to be detected")
+	}
+}
+
+func TestLegacyIdentityPath(t *testing.T) {
+	root := t.TempDir()
+	got, err := LegacyIdentityPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, ".crit")
+	if got != want {
+		t.Fatalf("LegacyIdentityPath = %q, want %q", got, want)
+	}
+}
