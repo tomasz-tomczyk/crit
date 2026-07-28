@@ -53,12 +53,12 @@ func ResolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, f
 }
 
 func resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, fileArgs []string) (string, error) {
-	if explicitOutput != "" {
-		return identityUnderDataRoot(explicitOutput, fileArgs)
-	}
 	cwd, err := daemon.ResolvedCWD()
 	if err != nil {
 		return "", err
+	}
+	if explicitOutput != "" {
+		return identityUnderDataRoot(explicitOutput, fileArgs)
 	}
 	if path := ResolveReviewPathFromDaemon(cwd); path != "" {
 		return path, nil
@@ -91,13 +91,38 @@ func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, err
 
 // identityUnderDataRoot maps --output / config output (a crit data root) to
 // {dataRoot}/reviews/<key>, matching default ~/.crit/reviews/<key> layout.
+//
+// When a daemon is alive for this cwd, its session key wins — file/live/PR/range
+// reviews key differently from plain git mode, and re-deriving from local
+// context would fork a sibling review under the same data root.
 func identityUnderDataRoot(dataRoot string, fileArgs []string) (string, error) {
 	warnLegacyOutputLayout(dataRoot)
 	cwd, err := daemon.ResolvedCWD()
 	if err != nil {
 		return "", err
 	}
+	if key := sessionKeyFromDaemon(cwd); key != "" {
+		return reviewpath.Identity(dataRoot, key)
+	}
 	return reviewpath.Identity(dataRoot, sessionKeyForArgs(cwd, fileArgs))
+}
+
+// sessionKeyFromDaemon returns the registry key of the best matching live
+// daemon for cwd, or "" if none. Prefer this over recomputing SessionKey when
+// placing a review under a custom data root.
+func sessionKeyFromDaemon(cwd string) string {
+	path := ResolveReviewPathFromDaemon(cwd)
+	if path == "" {
+		return ""
+	}
+	base := filepath.Base(path)
+	if base == ".crit" {
+		return "" // plan-mode identity is not a session key
+	}
+	if daemon.ValidSessionKey(base) {
+		return base
+	}
+	return ""
 }
 
 func sessionKeyForArgs(cwd string, fileArgs []string) string {

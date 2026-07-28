@@ -377,6 +377,46 @@ func TestResolveCommandReviewPathPrecedence(t *testing.T) {
 			t.Fatalf("review path = %q, want daemon path %q", got, daemonPath)
 		}
 	})
+
+	t.Run("explicit output uses live daemon session key", func(t *testing.T) {
+		health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+		}))
+		t.Cleanup(health.Close)
+		parsed, err := url.Parse(health.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			t.Fatal(err)
+		}
+		const key = "bb2ba5445243"
+		dataRoot := t.TempDir()
+		daemonPath := filepath.Join(dataRoot, "reviews", key)
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID:        os.Getpid(),
+			Port:       port,
+			CWD:        resolvedCWD,
+			Args:       []string{"a.md"},
+			ReviewPath: daemonPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+		// Without the daemon-key preference this would use the branch key and
+		// fork a sibling review under the same data root.
+		got, err := ResolveCommandReviewPath(dataRoot, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(dataRoot, "reviews", key)
+		if got != want {
+			t.Fatalf("review path = %q, want daemon-keyed path %q", got, want)
+		}
+	})
 }
 
 func TestClearReviewPath(t *testing.T) {
