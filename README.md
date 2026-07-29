@@ -305,7 +305,7 @@ All keys are optional — omit any you don't need.
 | `host`                 | string   | `"127.0.0.1"`              | Listen host. Set to `"0.0.0.0"` to expose the server on your LAN. There is no auth, so any non-loopback bind is an explicit opt-in.                                                     |
 | `no_open`              | bool     | `false`                    | Don't auto-open the browser when starting a review.                                                                                                                                     |
 | `quiet`                | bool     | `false`                    | Suppress terminal status output.                                                                                                                                                        |
-| `output`               | string   | `~/.crit`                  | Crit data root for reviews. Reviews live in `<root>/reviews/<key>/` (same layout as the default).                                                                                         |
+| `output`               | string   | `~/.crit`                  | Crit data root for reviews. Reviews live in `<root>/reviews/<key>/` (same layout as the default). A leftover `<root>/.crit` from when `output` named a single review folder is still used (with a warning) until you move or remove it. |
 | `author`               | string   | VCS user name              | Author name shown on comments. Falls back to your configured VCS user name.                                                                                                            |
 | `base_branch`          | string   | auto-detected              | Base branch to diff against (e.g. `"main"`, `"develop"`). Overrides auto-detection.                                                                                                     |
 | `ignore_patterns`      | string[] | `[".crit/"]` | File patterns to exclude from git-mode file lists. Global and project patterns are merged.                                                                                              |
@@ -368,7 +368,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `--public-url`  |       | `public_url`          | Advertised review URL (listen unchanged) |
 | `--no-open`     |       | `no_open`             | Don't auto-open browser                |
 | `--share-url`   |       | `share_url`           | Share service URL                      |
-| `--output`      | `-o`  | `output`              | Crit data root for reviews (`<root>/reviews/<key>/`) |
+| `--output`      | `-o`  | `output`              | Crit data root for reviews (`<root>/reviews/<key>/`). Honors a leftover `<root>/.crit` from older crit versions until removed. |
 | `--quiet`       | `-q`  | `quiet`               | Suppress status output                 |
 | `--base-branch` |       | `base_branch`         | Base branch to diff against            |
 | `--vcs`         |       | `vcs`                 | VCS backend (`git`, `sl`, or `jj`)     |
