@@ -337,7 +337,13 @@ func reviewRoundFromAPI(t *testing.T, baseURL, token string) int {
 }
 
 // writeTestCritJSON writes a CritJSON to .crit/review.json in dir.
-// NOTE: readCritJSON is defined in github_test.go and shared across test files.
+//
+// `--output <dir>` names a crit data root, so a fresh root would key the review
+// as <dir>/reviews/<key>/. Seeding <dir>/.crit puts the tests on the
+// pre-data-root layout that crit still honors for existing users, which is what
+// keeps every helper below (and readCritJSON) pointed at one review folder.
+// NOTE: readCritJSON is defined in integration_export_test.go and shared across
+// test files.
 func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	t.Helper()
 	d, err := json.MarshalIndent(cj, "", "  ")
@@ -354,7 +360,8 @@ func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 }
 
 // critShareCmd runs `crit share` and returns stdout. Fails the test on error.
-// Uses --output to point at the temp dir so crit reads/writes .crit.json there.
+// Uses --output to point at the temp dir seeded by writeTestCritJSON, so crit
+// reads/writes .crit/review.json there.
 func critShareCmd(t *testing.T, binary, baseURL, dir string, files ...string) string {
 	t.Helper()
 	args := append([]string{"share", "--share-url", baseURL, "--output", dir}, files...)
@@ -2103,14 +2110,14 @@ func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {
 		t.Errorf("expected output to contain stub review URL, got: %s", out)
 	}
 
-	// .crit.json should now record the share URL + delete token.
-	data, err := os.ReadFile(filepath.Join(dir, ".crit.json"))
+	// The review file should now record the share URL + delete token.
+	data, err := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
 	if err != nil {
-		t.Fatalf("read .crit.json: %v", err)
+		t.Fatalf("read .crit/review.json: %v", err)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		t.Fatalf("decode .crit.json: %v", err)
+		t.Fatalf("decode .crit/review.json: %v", err)
 	}
 	if cj.ShareURL != "https://crit.stub/r/stubtoken" {
 		t.Errorf("share_url = %q, want https://crit.stub/r/stubtoken", cj.ShareURL)

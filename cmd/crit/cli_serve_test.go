@@ -117,7 +117,7 @@ func TestResolveServeReviewPath(t *testing.T) {
 		}
 	})
 
-	t.Run("outputDir warns on legacy identity", func(t *testing.T) {
+	t.Run("outputDir keeps a legacy identity and warns", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dir, ".crit"), 0o755); err != nil {
 			t.Fatal(err)
@@ -127,7 +127,9 @@ func TestResolveServeReviewPath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolveServeReviewPath: %v", err)
 			}
-			want := filepath.Join(dir, "reviews", "deadbeef1234")
+			// The daemon must land on the same folder the headless commands
+			// resolve to, or `crit comment` would write to a sibling review.
+			want := filepath.Join(dir, ".crit")
 			if got != want {
 				t.Fatalf("got %q, want %q", got, want)
 			}

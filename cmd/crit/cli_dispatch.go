@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 type commandDescriptor struct {
@@ -25,7 +27,7 @@ var commandRegistry = []commandDescriptor{
 Share files to crit-web and print the review URL.
 
 Options:
-  -o, --output <dir>       Review output directory
+  -o, --output <dir>       Crit data root for reviews
       --share-url <url>    Share service URL
       --org <slug>         Organization slug
       --visibility <level> Review visibility
@@ -39,12 +41,10 @@ Fetch comments from a shared crit-web review.`},
 Remove a shared review from crit-web.
 
 Options:
-  -o, --output <dir>       Review output directory
+  -o, --output <dir>       Crit data root for reviews
       --share-url <url>    Share service URL`},
 	{name: "install", handler: runInstall, helpFn: printInstallUsage},
-	{name: "config", handler: runConfig, bareHelp: true, help: `Usage: crit config [--generate|-g]
-
-Show resolved configuration, or print a starter config with --generate.`},
+	{name: "config", handler: runConfig, bareHelp: true, helpFn: config.PrintConfigHelp},
 	{name: "check", handler: func([]string) { runCheck() }, help: `Usage: crit check
 
 Check installed integrations for missing or stale configuration.`},
@@ -62,7 +62,7 @@ Options:
       --dry-run          Preview without posting
   -e, --event <type>     comment, approve, or request-changes
   -m, --message <text>   Review-level message
-  -o, --output <dir>     Review output directory`},
+  -o, --output <dir>     Crit data root for reviews`},
 	{name: "comment", handler: runComment, help: `Usage: crit comment [options] <body>
        crit comment [options] <path> <body>
        crit comment [options] <path>:<line[-end]> <body>
@@ -73,7 +73,7 @@ Options:
 Add, reply to, bulk import, or clear review comments.
 
 Options:
-  -o, --output <dir>   Review output directory
+  -o, --output <dir>   Crit data root for reviews
       --author <name>  Comment author
       --plan <name>    Target a stored plan review
       --reply-to <id>  Reply to an existing comment
@@ -94,7 +94,7 @@ Options:
       --range <base>..<head>  Review a commit range
       --base-branch <branch>  Override the diff base
       --no-open               Do not open a browser
-  -o, --output <dir>          Review output directory`},
+  -o, --output <dir>          Crit data root for reviews`},
 	{name: "live", handler: runLive, help: `Usage: crit live [options] <url>
 
 Review a running web application in live mode.
@@ -371,69 +371,6 @@ func runPlanHookCommand(args []string) {
 		fmt.Fprintf(os.Stderr, "Unknown plan-hook mode: %s\n", mode)
 		os.Exit(1)
 	}
-}
-
-func printConfigHelp() {
-	fmt.Fprintf(os.Stderr, `crit config — show resolved configuration
-
-Prints the merged configuration from global and project config files as JSON.
-CLI flags and environment variables are not reflected in this output.
-
-Config files:
-  ~/.crit.config.json          Global config (applies to all projects)
-  .crit.config.json            Project config (in repo root)
-
-Precedence (highest to lowest):
-  1. CLI flags / env vars
-  2. Project config
-  3. Global config
-  4. Built-in defaults
-
-Available keys:
-  port              int       Port to listen on (default: random)
-  host              string    Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
-  no_open           bool      Don't auto-open browser (default: false)
-  share_url         string    Share service URL (global config only)
-  proxy_auth        bool      Proxy auth mode (config-only, no flag/env). false (default) —
-                              local server contacts crit-web directly. true — browser opens
-                              crit-web in a popup, authenticates there (e.g. via SSO), and
-                              proxies share/pull/unpublish/re-share through a MessagePort.
-                              Use when crit-web is behind an SSO reverse proxy.
-  quiet             bool      Suppress status output (default: false)
-  output            string    Crit data root for reviews (default: ~/.crit; reviews in <root>/reviews/<key>/)
-  author            string    Your name for comments (default: git config user.name)
-  base_branch       string    Base branch to diff against (overrides auto-detection)
-  vcs                    string    Preferred VCS backend: git, sl, or jj (default: auto-detect)
-  ignore_patterns        []string  Gitignore-style patterns to exclude files from review
-  auto_viewed_patterns   []string  Patterns whose files are auto-marked viewed once per launch
-  no_integration_check   bool      Skip integration staleness check (default: false)
-  no_update_check        bool      Disable update check on startup (default: false)
-  cleanup_on_approve     bool      Auto-delete review file when approved (default: true)
-  notify_on_round_ready  bool      Desktop notification when a round is ready (default: false)
-  disable_stats          bool      Disable session stats recording (default: false)
-  open_cmd               string    Custom browser/open command
-  agent_cmd              string    Shell command to send comments to an AI agent (e.g. "claude -p")
-  auth_token             string    Authentication token for crit-web share service
-  plan_approve_mode      string    Claude Code mode after plan approval (default: unset)
-  close_on_approve_after_ms int    Auto-close the review tab N ms after Approve (default: unset/disabled)
-
-Note: agent_cmd, auth_token, host, open_cmd, share_url, plan_approve_mode, and
-close_on_approve_after_ms are global-only (~/.crit.config.json). Project-level
-.crit.config.json cannot override them for security reasons.
-
-Ignore pattern syntax:
-  *.lock            Match files by extension (anywhere in tree)
-  vendor/           Match all files under a directory
-  package-lock.json Match exact filename (anywhere in tree)
-  generated/*.pb.go Match with path prefix (filepath.Match syntax)
-
-Example config:
-  {
-    "port": 3456,
-    "share_url": "https://crit.md",
-    "ignore_patterns": ["*.lock", "*.min.js", "vendor/", "generated/"]
-  }
-`)
 }
 
 func printVersion() {

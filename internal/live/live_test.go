@@ -657,7 +657,7 @@ func TestConnectToLiveDaemon_LaunchesBrowserWhenNoneAttached(t *testing.T) {
 		return false
 	}
 
-	if !connectToLiveDaemon(key, "custom-open") {
+	if !connectToLiveDaemon(key, false, "custom-open") {
 		t.Fatal("connectToLiveDaemon returned false")
 	}
 	if !clientRan {
@@ -671,6 +671,49 @@ func TestConnectToLiveDaemon_LaunchesBrowserWhenNoneAttached(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("browser launch was not dispatched")
+	}
+}
+
+func TestConnectToLiveDaemon_RespectsNoOpen(t *testing.T) {
+	originalRunClient := runLiveClient
+	originalLaunchBrowser := launchLiveBrowser
+	t.Cleanup(func() {
+		runLiveClient = originalRunClient
+		launchLiveBrowser = originalLaunchBrowser
+	})
+
+	t.Setenv("HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": false})
+	}))
+	defer srv.Close()
+
+	serverURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	port, err := strconv.Atoi(serverURL.Port())
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	const key = "live-connect-no-open"
+	entry := daemon.SessionEntry{PID: os.Getpid(), Port: port}
+	if err := daemon.WriteSessionFile(key, entry); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+
+	browserOpenCalls := 0
+	launchLiveBrowser = func(string, string) {
+		browserOpenCalls++
+	}
+	runLiveClient = func(daemon.SessionEntry, string) bool { return false }
+
+	if !connectToLiveDaemon(key, true, "custom-open") {
+		t.Fatal("connectToLiveDaemon returned false")
+	}
+	if browserOpenCalls != 0 {
+		t.Fatalf("noOpen reconnect launched the browser %d times", browserOpenCalls)
 	}
 }
 

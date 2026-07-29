@@ -90,21 +90,22 @@ func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, err
 }
 
 // identityUnderDataRoot maps --output / config output (a crit data root) to
-// {dataRoot}/reviews/<key>, matching default ~/.crit/reviews/<key> layout.
+// {dataRoot}/reviews/<key>, matching default ~/.crit/reviews/<key> layout. A
+// pre-data-root {dataRoot}/.crit review still wins — see
+// reviewpath.IdentityUnderDataRoot.
 //
 // When a daemon is alive for this cwd, its session key wins — file/live/PR/range
 // reviews key differently from plain git mode, and re-deriving from local
 // context would fork a sibling review under the same data root.
 func identityUnderDataRoot(dataRoot string, fileArgs []string) (string, error) {
-	warnLegacyOutputLayout(dataRoot)
 	cwd, err := daemon.ResolvedCWD()
 	if err != nil {
 		return "", err
 	}
 	if key := sessionKeyFromDaemon(cwd); key != "" {
-		return reviewpath.Identity(dataRoot, key)
+		return reviewpath.IdentityUnderDataRoot(dataRoot, key)
 	}
-	return reviewpath.Identity(dataRoot, sessionKeyForArgs(cwd, fileArgs))
+	return reviewpath.IdentityUnderDataRoot(dataRoot, sessionKeyForArgs(cwd, fileArgs))
 }
 
 // sessionKeyFromDaemon returns the registry key of the best matching live
@@ -134,13 +135,6 @@ func sessionKeyForArgs(cwd string, fileArgs []string) string {
 		branch = vc.CurrentBranch()
 	}
 	return daemon.SessionKey(cwd, branch, nil)
-}
-
-func warnLegacyOutputLayout(dataRoot string) {
-	if !reviewpath.HasLegacyIdentity(dataRoot) {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "crit: warning: %s still has a legacy .crit review from when --output meant a fixed review folder; output is now a data root and reviews live under %s/reviews/<key>/\n", dataRoot, dataRoot)
 }
 
 // ResolveReviewPathFromDaemon checks the daemon registry for a running session

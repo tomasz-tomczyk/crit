@@ -116,10 +116,8 @@ func RunPreview(args []string) {
 
 	installDaemonSignalHandler(entry.PID)
 
-	if !noOpenResolved {
-		go browser.OpenBrowserWithCommand(entry.BaseURL()+"/preview", cfg.OpenCmd)
-	}
-
+	// Daemon owns the initial browser open (same as crit live after #768).
+	// Opening here too doubles the tab on cold start.
 	daemon.RunReviewClient(entry, key)
 }
 

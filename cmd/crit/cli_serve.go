@@ -90,10 +90,7 @@ func resolveServeReviewPath(outputDir, planDir, sessionKey string) (string, erro
 	switch {
 	case outputDir != "":
 		// --output / config output is a crit data root (like ~/.crit).
-		if reviewpath.HasLegacyIdentity(outputDir) {
-			fmt.Fprintf(os.Stderr, "crit: warning: %s still has a legacy .crit review from when --output meant a fixed review folder; output is now a data root and reviews live under %s/reviews/<key>/\n", outputDir, outputDir)
-		}
-		return reviewpath.Identity(outputDir, sessionKey)
+		return reviewpath.IdentityUnderDataRoot(outputDir, sessionKey)
 	case planDir != "":
 		abs, err := serveAbsPath(planDir)
 		if err != nil {

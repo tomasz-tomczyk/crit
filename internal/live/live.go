@@ -150,7 +150,7 @@ func LooksLikeLiveArgs(args []string) bool {
 	return u.Scheme == "http" || u.Scheme == "https"
 }
 
-func connectToLiveDaemon(key, openCmd string) bool {
+func connectToLiveDaemon(key string, noOpen bool, openCmd string) bool {
 	entry, alive := daemon.FindAliveSession(key)
 	if !alive {
 		return false
@@ -158,7 +158,7 @@ func connectToLiveDaemon(key, openCmd string) bool {
 	fmt.Fprintf(os.Stderr, "[crit] connected to live daemon at %s (proxy :%d)\n",
 		entry.BaseURL(), entry.Port+1)
 	fmt.Fprintf(os.Stderr, "[crit] open %s/live\n", entry.BaseURL())
-	if !daemon.DaemonHasBrowser(entry) {
+	if !noOpen && !daemon.DaemonHasBrowser(entry) {
 		launchLiveBrowser(entry.BaseURL()+"/live", openCmd)
 	}
 	runLiveClient(entry, key)
@@ -252,7 +252,8 @@ func RunLive(args []string) {
 	}
 	cfg := config.LoadConfig(cwd)
 	key := daemon.LiveSessionKey(cwd, f.origin)
-	if connectToLiveDaemon(key, cfg.OpenCmd) {
+	noOpenResolved := f.noOpen || cfg.NoOpen
+	if connectToLiveDaemon(key, noOpenResolved, cfg.OpenCmd) {
 		return
 	}
 
@@ -264,11 +265,10 @@ func RunLive(args []string) {
 
 	checkLiveSmoke(f.origin, liveCookies)
 
-	if connectToLiveDaemon(key, cfg.OpenCmd) {
+	if connectToLiveDaemon(key, noOpenResolved, cfg.OpenCmd) {
 		return
 	}
 
-	noOpenResolved := f.noOpen || cfg.NoOpen
 	entry, err := startLiveDaemon(key, buildLiveDaemonArgs(f.origin, liveCookies, f, cfg, noOpenResolved))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start live daemon: %v\n", err)
