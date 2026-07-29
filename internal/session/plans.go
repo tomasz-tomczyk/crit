@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 // planStorageDir returns the managed storage directory for a plan session.
@@ -93,12 +95,13 @@ func latestPlanVersion(dir string) int {
 
 // PlanDaemonFlags carries daemon CLI flags for plan-mode spawns.
 type PlanDaemonFlags struct {
-	Port      int
-	Host      string
-	PublicURL string
-	NoOpen    bool
-	Quiet     bool
-	ShareURL  string
+	Port                        int
+	Host                        string
+	PublicURL                   string
+	AllowUnauthenticatedNetwork bool
+	NoOpen                      bool
+	Quiet                       bool
+	ShareURL                    string
 }
 
 // BuildPlanDaemonArgs builds daemon argv for plan mode.
@@ -119,6 +122,9 @@ func appendPlanDaemonFlags(args []string, f PlanDaemonFlags) []string {
 	}
 	if f.PublicURL != "" {
 		args = append(args, "--public-url", f.PublicURL)
+	}
+	if f.AllowUnauthenticatedNetwork {
+		args = append(args, "--"+config.AllowUnauthenticatedNetworkFlag)
 	}
 	if f.NoOpen {
 		args = append(args, "--no-open")

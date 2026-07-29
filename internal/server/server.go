@@ -225,11 +225,7 @@ func (s *Server) SetPublicURL(publicURL string) {
 
 // isLoopbackHost reports whether host (no port) is a loopback address.
 func isLoopbackHost(host string) bool {
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return config.IsLoopbackHost(host)
 }
 
 // checkHost returns true if the request is allowed to proceed. When the server

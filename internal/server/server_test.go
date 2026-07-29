@@ -1773,6 +1773,31 @@ func TestGetFile_NotInSession_PathTraversal(t *testing.T) {
 	}
 }
 
+// TestGetFile_NotInSession_SymlinkTraversal verifies the disk fallback
+// resolves symlinks and refuses paths that escape the repo root.
+func TestGetFile_NotInSession_SymlinkTraversal(t *testing.T) {
+	s, session := newTestServer(t)
+
+	outsideDir := t.TempDir()
+	secretPath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("secret data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(session.RepoRoot, "escape")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/file?path=escape/secret.txt", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code == 200 {
+		t.Errorf("symlink traversal should be blocked, got 200 with body: %s", w.Body.String())
+	}
+}
+
 func TestHandleFinish_PromptIncludesAuthor(t *testing.T) {
 	srv, session := newTestServer(t)
 	session.AddComment(session.Files[0].Path, 1, 1, "", "fix this", "", "", "")

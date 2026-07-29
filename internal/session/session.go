@@ -2599,12 +2599,28 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 	if repoRoot == "" {
 		return nil, false
 	}
-	// Prevent path traversal
-	absPath := filepath.Join(repoRoot, path)
+	clean := filepath.Clean(filepath.FromSlash(path))
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, false
+	}
+	absPath := filepath.Join(repoRoot, clean)
+	// Reject before symlink resolution if the joined path escapes repoRoot
+	// via ".." segments that Clean left relative to an absolute root join.
 	if !strings.HasPrefix(absPath, repoRoot+string(filepath.Separator)) && absPath != repoRoot {
 		return nil, false
 	}
-	data, err := os.ReadFile(absPath)
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return nil, false
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil {
+		return nil, false
+	}
+	if !strings.HasPrefix(resolved, resolvedRoot+string(filepath.Separator)) && resolved != resolvedRoot {
+		return nil, false
+	}
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, false
 	}

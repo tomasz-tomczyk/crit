@@ -103,6 +103,8 @@ Options:
   -p, --port <port>        Port to listen on
       --host <host>        Host to listen on
       --public-url <url>   Advertised base URL
+      --allow-unauthenticated-network
+                           Allow non-loopback --host or --public-url
       --cookie <value>     Forward a Cookie header
       --cookie-file <path> Read cookies from a file
       --cdp-url <url>      Reuse cookies from Chrome DevTools
@@ -117,14 +119,26 @@ Options:
   -p, --port <port>       Port to listen on
       --host <host>       Host to listen on
       --public-url <url>  Advertised base URL
+      --allow-unauthenticated-network
+                          Allow non-loopback --host or --public-url
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
   -q, --quiet             Suppress status output`},
-	{name: "plan", handler: runPlan, help: `Usage: crit plan [--name <slug>] <file>
-       echo "content" | crit plan [--name <slug>]
+	{name: "plan", handler: runPlan, help: `Usage: crit plan [--name <slug>] [options] <file>
+       echo "content" | crit plan [--name <slug>] [options]
 
 Create or continue a plan-file review. If --name is omitted, crit derives it
-from the plan content.`},
+from the plan content.
+
+Options:
+      --host <host>       Host to listen on
+      --public-url <url>  Advertised base URL
+      --allow-unauthenticated-network
+                          Allow non-loopback --host or --public-url
+  -p, --port <port>       Port to listen on
+      --share-url <url>   Share service URL
+      --no-open           Do not open a browser
+  -q, --quiet             Suppress status output`},
 	{name: "story", handler: runStory, helpFn: printStoryUsage, bareHelp: true},
 	{name: "auth", handler: runAuth, help: `Usage: crit auth <login|logout|whoami>
 
@@ -301,8 +315,10 @@ Setup & management:
 
 Options:
   -p, --port <port>           Port to listen on (default: random)
-      --host <host>           Listen host (default: 127.0.0.1; e.g. 0.0.0.0 for LAN)
+      --host <host>           Listen host (default: 127.0.0.1)
       --public-url <url>      Advertised base URL (e.g. https://machine.ts.net via tailscale serve)
+      --allow-unauthenticated-network
+                              Allow non-loopback --host or --public-url (trusted network only; Crit has no network auth)
   -o, --output <dir>          Crit data root for reviews (default: ~/.crit)
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
@@ -320,6 +336,8 @@ Environment:
   CRIT_PUBLIC_URL             Override the advertised review URL (listen address unchanged)
   CRIT_PORT                   Override the default port
   CRIT_HOST                   Override the listen host (default 127.0.0.1)
+  CRIT_ALLOW_UNAUTHENTICATED_NETWORK
+                              Same as --allow-unauthenticated-network (1/true/yes/on)
   CRIT_NO_UPDATE_CHECK        Disable update check on startup
   CRIT_AUTH_TOKEN             Override the auth token (skip login)
   CRIT_NO_INTEGRATION_CHECK   Disable staleness check and agent detection on startup

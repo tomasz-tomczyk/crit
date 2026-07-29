@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -196,12 +198,59 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 		os.Chdir(dir)
 		defer os.Chdir(origDir)
 
-		sc, err := ResolveDaemonCLIConfig([]string{"--host", "0.0.0.0"})
+		sc, err := ResolveDaemonCLIConfig([]string{"--host", "0.0.0.0", "--allow-unauthenticated-network"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if sc.Host != "0.0.0.0" {
 			t.Errorf("host = %q, want 0.0.0.0 (CLI flag)", sc.Host)
+		}
+		if !sc.AllowUnauthenticatedNetwork {
+			t.Error("expected AllowUnauthenticatedNetwork")
+		}
+	})
+
+	t.Run("non-loopback host refused without allow flag", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		_, err := ResolveDaemonCLIConfig([]string{"--host", "0.0.0.0"})
+		if err == nil {
+			t.Fatal("expected error for non-loopback host without allow flag")
+		}
+		if !strings.Contains(err.Error(), config.AllowUnauthenticatedNetworkFlag) {
+			t.Fatalf("error = %v, want mention of allow flag", err)
+		}
+	})
+
+	t.Run("env allow unlocks non-loopback host", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		dir := t.TempDir()
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		t.Setenv("CRIT_HOST", "10.0.0.2")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		sc, err := ResolveDaemonCLIConfig([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sc.Host != "10.0.0.2" {
+			t.Errorf("host = %q, want 10.0.0.2 (env var)", sc.Host)
 		}
 	})
 
@@ -213,6 +262,7 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
 		t.Setenv("CRIT_HOST", "10.0.0.2")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -235,6 +285,7 @@ func TestResolveServerConfig_HostPrecedence(t *testing.T) {
 		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"host": "10.0.0.1"}`), 0644)
 		testutil.SetHome(t, homeDir)
 		t.Setenv("CRIT_HOST", "")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -309,12 +360,31 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		os.Chdir(dir)
 		defer os.Chdir(origDir)
 
-		sc, err := ResolveDaemonCLIConfig([]string{"--public-url", "https://cli.example.com"})
+		sc, err := ResolveDaemonCLIConfig([]string{"--public-url", "https://cli.example.com", "--allow-unauthenticated-network"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if sc.PublicURL != "https://cli.example.com" {
 			t.Errorf("publicURL = %q, want CLI value", sc.PublicURL)
+		}
+	})
+
+	t.Run("public URL refused without allow flag", func(t *testing.T) {
+		vcs.SetDefaultBranchOverride("")
+
+		homeDir := t.TempDir()
+		testutil.SetHome(t, homeDir)
+		dir := t.TempDir()
+		t.Setenv("CRIT_PUBLIC_URL", "")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "")
+
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		_, err := ResolveDaemonCLIConfig([]string{"--public-url", "https://cli.example.com"})
+		if err == nil {
+			t.Fatal("expected error for public_url without allow flag")
 		}
 	})
 
@@ -326,6 +396,7 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"public_url": "https://config.example.com"}`), 0644)
 		dir := t.TempDir()
 		t.Setenv("CRIT_PUBLIC_URL", "https://env.example.com")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -348,6 +419,7 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"public_url": "https://config.example.com"}`), 0644)
 		dir := t.TempDir()
 		os.Unsetenv("CRIT_PUBLIC_URL")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -370,6 +442,7 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
 		os.Unsetenv("CRIT_PUBLIC_URL")
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "")
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)
@@ -390,6 +463,7 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		dir := t.TempDir()
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
+		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
 
 		origDir, _ := os.Getwd()
 		os.Chdir(dir)

@@ -42,8 +42,14 @@ func TestPrintHelpMentionsSession(t *testing.T) {
 	if !strings.Contains(out, "--public-url") {
 		t.Fatalf("help missing --public-url:\n%s", out)
 	}
+	if !strings.Contains(out, "--allow-unauthenticated-network") {
+		t.Fatalf("help missing --allow-unauthenticated-network:\n%s", out)
+	}
 	if !strings.Contains(out, "CRIT_PUBLIC_URL") {
 		t.Fatalf("help missing CRIT_PUBLIC_URL:\n%s", out)
+	}
+	if !strings.Contains(out, "CRIT_ALLOW_UNAUTHENTICATED_NETWORK") {
+		t.Fatalf("help missing CRIT_ALLOW_UNAUTHENTICATED_NETWORK:\n%s", out)
 	}
 	if !strings.Contains(out, "crit story") {
 		t.Fatalf("help missing crit story:\n%s", out)

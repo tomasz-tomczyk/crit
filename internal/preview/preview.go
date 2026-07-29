@@ -61,6 +61,7 @@ func RunPreview(args []string) {
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
+	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
@@ -104,7 +105,7 @@ func RunPreview(args []string) {
 		return
 	}
 
-	daemonArgs := buildPreviewStartArgs(absPath, *port, *host, *publicURL, noOpenResolved, *quiet || cfg.Quiet, *shareURL, cfg)
+	daemonArgs := buildPreviewStartArgs(absPath, *port, *host, *publicURL, *allowUnauthNet || config.EnvAllowsUnauthenticatedNetwork(), noOpenResolved, *quiet || cfg.Quiet, *shareURL, cfg)
 	entry, err := daemon.StartDaemon(key, daemonArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start preview daemon: %v\n", err)
@@ -121,15 +122,16 @@ func RunPreview(args []string) {
 	daemon.RunReviewClient(entry, key)
 }
 
-func buildPreviewStartArgs(absPath string, port int, host, publicURL string, noOpen, quiet bool, shareURL string, cfg config.Config) []string {
+func buildPreviewStartArgs(absPath string, port int, host, publicURL string, allowUnauthNet, noOpen, quiet bool, shareURL string, cfg config.Config) []string {
 	daemonArgs := []string{"--preview-file", absPath}
 	return daemon.AppendCommonDaemonFlags(daemonArgs, daemon.CommonDaemonFlags{
-		Port:      config.ResolvePort(port, cfg.Port),
-		Host:      config.ResolveHost(host, cfg.Host),
-		PublicURL: config.ResolvePublicURL(publicURL, cfg),
-		NoOpen:    noOpen,
-		Quiet:     quiet,
-		ShareURL:  config.ResolveShareURL(shareURL, cfg, config.DefaultShareURL),
+		Port:                        config.ResolvePort(port, cfg.Port),
+		Host:                        config.ResolveHost(host, cfg.Host),
+		PublicURL:                   config.ResolvePublicURL(publicURL, cfg),
+		AllowUnauthenticatedNetwork: allowUnauthNet,
+		NoOpen:                      noOpen,
+		Quiet:                       quiet,
+		ShareURL:                    config.ResolveShareURL(shareURL, cfg, config.DefaultShareURL),
 	})
 }
 

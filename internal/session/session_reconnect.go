@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
@@ -95,8 +96,9 @@ func daemonArgsForReconnect(sessionKey string, cliArgs []string, stale daemon.Se
 	args := daemonArgsFromCliArgs(sessionKey, cliArgs)
 	args = appendReconnectPathFlags(sessionKey, args, reviewDir)
 	args = daemon.AppendCommonDaemonFlags(args, daemon.CommonDaemonFlags{
-		Host:      stale.Host,
-		PublicURL: stale.PublicURL,
+		Host:                        stale.Host,
+		PublicURL:                   stale.PublicURL,
+		AllowUnauthenticatedNetwork: config.NeedsUnauthenticatedNetworkAck(stale.Host, stale.PublicURL),
 	})
 	return args
 }

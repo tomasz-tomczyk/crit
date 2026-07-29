@@ -126,6 +126,9 @@ func runServe(args []string) {
 	}
 	srv.SetListenHost(sc.Host)
 	srv.SetPublicURL(sc.PublicURL)
+	if sc.AllowUnauthenticatedNetwork {
+		fmt.Fprintln(os.Stderr, "crit: WARNING: unauthenticated network exposure enabled. Anyone who can reach this port can read review files and write comments.")
+	}
 
 	cwd, _ := resolvedCWD()
 	homeDir := ""

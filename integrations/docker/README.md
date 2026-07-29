@@ -10,6 +10,14 @@ A recipe for running `crit` inside a container alongside an AI coding agent (Cla
 
 That means a plain `docker run -p 8080:8080` won't reach it: the host port forwards into the container, but crit isn't listening on the container's external interface. The fix is a tiny `socat` bridge inside the container that accepts on `0.0.0.0:8080` and forwards to crit's loopback port. Crit stays loopback-only; only the explicit `-p` mapping exposes anything.
 
+**Always publish the host port on loopback** so the bridge is not reachable from other machines on your network:
+
+```text
+-p 127.0.0.1:8080:8080
+```
+
+A bare `-p 8080:8080` commonly binds all host interfaces and exposes the socat bridge (Crit itself stays on loopback inside the container). Prefer host-loopback publish. If you intentionally publish beyond the host, treat that as trusting every peer that can reach the port — Crit's API remains unauthenticated.
+
 ## Files in this directory
 
 - [`Dockerfile`](./Dockerfile) — multi-stage build: golang to fetch `crit`, node:22-slim runtime with claude code, socat, git
@@ -23,13 +31,13 @@ docker build -t crit-agent .
 
 ## Running it
 
-Mount your repo and map the bridge port:
+Mount your repo and map the bridge port to host loopback:
 
 ```bash
 docker run -it --rm \
     -v "$PWD":/workspace/repo \
     -w /workspace/repo \
-    -p 8080:8080 \
+    -p 127.0.0.1:8080:8080 \
     crit-agent
 ```
 
@@ -38,7 +46,7 @@ Inside the container, run your agent normally. When it invokes `crit plan.md` (o
 For non-interactive agent runs, replace `bash` with the agent command:
 
 ```bash
-docker run --rm -v "$PWD":/workspace/repo -w /workspace/repo -p 8080:8080 \
+docker run --rm -v "$PWD":/workspace/repo -w /workspace/repo -p 127.0.0.1:8080:8080 \
     crit-agent claude -p "review the diff with crit"
 ```
 
@@ -47,8 +55,8 @@ docker run --rm -v "$PWD":/workspace/repo -w /workspace/repo -p 8080:8080 \
 Each container needs a distinct host port. Crit's internal port can stay the same:
 
 ```bash
-docker run -d --name agent-a -v "$PWD/a":/workspace/repo -w /workspace/repo -p 8080:8080 crit-agent ...
-docker run -d --name agent-b -v "$PWD/b":/workspace/repo -w /workspace/repo -p 8081:8080 crit-agent ...
+docker run -d --name agent-a -v "$PWD/a":/workspace/repo -w /workspace/repo -p 127.0.0.1:8080:8080 crit-agent ...
+docker run -d --name agent-b -v "$PWD/b":/workspace/repo -w /workspace/repo -p 127.0.0.1:8081:8080 crit-agent ...
 ```
 
 Open `http://localhost:8080` for agent-a, `http://localhost:8081` for agent-b.

@@ -274,7 +274,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
 - **Live file watching.** The browser reloads automatically when the source file changes.
 - **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
-- **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share. (Override with `--host` / `CRIT_HOST` / `host` config key — e.g. `0.0.0.0` to expose on your LAN. No auth, so it's an explicit opt-in.)
+- **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share. Non-loopback listen hosts and `public_url` require `--allow-unauthenticated-network` (or `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`) because Crit has no network authentication — prefer SSH forwarding, Tailscale Serve to loopback, or Docker `-p 127.0.0.1:…`.
 - **Collapsing generated files.** Honors `linguist-generated` in `.gitattributes` — matching files appear collapsed by default.
 - **No analytics or tracking.** Crit collects zero telemetry. No usage stats, no crash reports, no phone-home. If we ever add anonymous usage statistics in the future, they will be explicitly opt-in.
 - **Update check.** On startup, Crit makes one network request to check for a newer version and prints a notice if one is available. Set `CRIT_NO_UPDATE_CHECK=1` to disable it.
@@ -302,7 +302,7 @@ All keys are optional — omit any you don't need.
 | Key                    | Type     | Default                    | Description                                                                                                                                                                             |
 | ---------------------- | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `port`                 | int      | `0` (random)               | Port for the local server. `0` picks a random available port.                                                                                                                           |
-| `host`                 | string   | `"127.0.0.1"`              | Listen host. Set to `"0.0.0.0"` to expose the server on your LAN. There is no auth, so any non-loopback bind is an explicit opt-in.                                                     |
+| `host`                 | string   | `"127.0.0.1"`              | Listen host (global/CLI/env only). Non-loopback values also require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`. Prefer loopback + SSH/Tailscale/Docker host-loopback publish. |
 | `no_open`              | bool     | `false`                    | Don't auto-open the browser when starting a review.                                                                                                                                     |
 | `quiet`                | bool     | `false`                    | Suppress terminal status output.                                                                                                                                                        |
 | `output`               | string   | `~/.crit`                  | Crit data root for reviews. Reviews live in `<root>/reviews/<key>/` (same layout as the default). A leftover `<root>/.crit` from when `output` named a single review folder is still used (with a warning) until you move or remove it. |
@@ -353,7 +353,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `open_cmd`             | string   | `""`                       | Custom command to open review URLs — receives the URL as its only argument (must be a single executable, no flags). Use when the browser isn't on the machine running crit, e.g. crit runs on a remote host over SSH and a small wrapper script opens the URL on your local machine. When unset, crit uses the platform default opener. |
 | `auth_token`           | string   | `""`                       | Authentication token for crit.md. Set automatically by `crit auth login`. |
 | `share_url`            | string   | `"https://crit.md"`        | Base URL of the share service. Set to `""` to disable sharing entirely. Self-host with [`crit-web`](https://github.com/tomasz-tomczyk/crit-web). |
-| `public_url`           | string   | `""`                       | Advertised base URL for stderr and browser-open (e.g. `https://machine.ts.net` via tailscale serve). Listen address unchanged. |
+| `public_url`           | string   | `""`                       | Advertised base URL for stderr and browser-open (e.g. `https://machine.ts.net` via tailscale serve). Listen address unchanged. Requires `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`. |
 | `share_consented`      | bool     | `false`                    | Written automatically to `true` after you confirm the first-time share prompt. Reset to `false` to see the prompt again. Not used when `share_url` is a custom (self-hosted) URL. |
 | `proxy_auth`           | bool     | `false`                    | When `true`, share / pull / unpublish / re-share use the browser popup relay instead of the local Go server contacting crit-web directly. Use when crit-web is behind an SSO reverse proxy that the terminal cannot authenticate against. No flag or env var — this is a property of the deployment, not a per-invocation choice. |
 | `plan_approve_mode`    | string   | unset                      | Claude Code permission mode after Crit approves an `ExitPlanMode` hook: `default`, `manual`, `acceptEdits`, `plan`, `auto`, `dontAsk`, or `bypassPermissions`. The update uses `destination: "session"`, so it lasts only for the current Claude Code session. See [Claude Code plan approval mode](integrations/README.md#claude-code-plan-approval-mode). |
@@ -366,6 +366,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `--port`        | `-p`  | `port`                | Port to listen on                      |
 | `--host`        |       | `host`                | Listen host (default `127.0.0.1`)      |
 | `--public-url`  |       | `public_url`          | Advertised review URL (listen unchanged) |
+| `--allow-unauthenticated-network` | | — | Required with non-loopback `--host` or any `--public-url` |
 | `--no-open`     |       | `no_open`             | Don't auto-open browser                |
 | `--share-url`   |       | `share_url`           | Share service URL                      |
 | `--output`      | `-o`  | `output`              | Crit data root for reviews (`<root>/reviews/<key>/`). Honors a leftover `<root>/.crit` from older crit versions until removed. |
@@ -407,6 +408,7 @@ crit --no-ignore
 | `CRIT_PORT`                 | Default port for the local server                 |
 | `CRIT_HOST`                 | Listen host (default `127.0.0.1`)                 |
 | `CRIT_PUBLIC_URL`           | Advertised review URL (e.g. tailscale serve)      |
+| `CRIT_ALLOW_UNAUTHENTICATED_NETWORK` | Allow non-loopback host / public_url (`1`/`true`/`yes`/`on`) |
 | `CRIT_SHARE_URL`            | Override the share service URL                    |
 | `CRIT_AUTH_TOKEN`           | Override the auth token (skips `crit auth login`) |
 | `CRIT_NO_UPDATE_CHECK`      | Disable the update check on startup               |
@@ -455,7 +457,7 @@ WSL: install the Linux binary as you would on Linux (`go install`, `nix run`, or
 
 ### Docker (sandboxed agents)
 
-For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`integrations/docker/`](integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat` so `docker -p` forwarding works without changing crit's threat model.
+For running crit alongside an AI agent inside a container, with the review UI reachable from your host browser, see [`integrations/docker/`](integrations/docker/). Includes a working `Dockerfile` + `entrypoint.sh` that bridges crit's loopback-bound server via `socat`. Publish with `-p 127.0.0.1:8080:8080` so the host mapping stays on loopback.
 
 ## Acknowledgements
 

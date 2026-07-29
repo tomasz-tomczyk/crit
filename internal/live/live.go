@@ -166,16 +166,17 @@ func connectToLiveDaemon(key string, noOpen bool, openCmd string) bool {
 }
 
 type liveCLIFlags struct {
-	port        int
-	host        string
-	publicURL   string
-	noOpen      bool
-	quiet       bool
-	shareURL    string
-	cookieFlags stringSliceFlag
-	cookieFile  string
-	cdpURL      string
-	origin      string
+	port                        int
+	host                        string
+	publicURL                   string
+	allowUnauthenticatedNetwork bool
+	noOpen                      bool
+	quiet                       bool
+	shareURL                    string
+	cookieFlags                 stringSliceFlag
+	cookieFile                  string
+	cdpURL                      string
+	origin                      string
 }
 
 func parseLiveCLIFlags(args []string) liveCLIFlags {
@@ -184,6 +185,7 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 	fs.IntVar(port, "p", 0, "Port (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
+	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
@@ -213,16 +215,17 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return liveCLIFlags{
-		port:        *port,
-		host:        *host,
-		publicURL:   *publicURL,
-		noOpen:      *noOpen,
-		quiet:       *quiet,
-		shareURL:    *shareURL,
-		cookieFlags: cookieFlags,
-		cookieFile:  *cookieFile,
-		cdpURL:      *cdpURL,
-		origin:      strings.TrimSuffix(u.String(), "/"),
+		port:                        *port,
+		host:                        *host,
+		publicURL:                   *publicURL,
+		allowUnauthenticatedNetwork: *allowUnauthNet,
+		noOpen:                      *noOpen,
+		quiet:                       *quiet,
+		shareURL:                    *shareURL,
+		cookieFlags:                 cookieFlags,
+		cookieFile:                  *cookieFile,
+		cdpURL:                      *cdpURL,
+		origin:                      strings.TrimSuffix(u.String(), "/"),
 	}
 }
 
@@ -232,12 +235,13 @@ func buildLiveDaemonArgs(origin, liveCookies string, f liveCLIFlags, cfg config.
 		daemonArgs = append(daemonArgs, "--live-cookie", liveCookies)
 	}
 	return daemon.AppendCommonDaemonFlags(daemonArgs, daemon.CommonDaemonFlags{
-		Port:      config.ResolvePort(f.port, cfg.Port),
-		Host:      config.ResolveHost(f.host, cfg.Host),
-		PublicURL: config.ResolvePublicURL(f.publicURL, cfg),
-		NoOpen:    noOpenResolved,
-		Quiet:     f.quiet || cfg.Quiet,
-		ShareURL:  config.ResolveShareURL(f.shareURL, cfg, ""),
+		Port:                        config.ResolvePort(f.port, cfg.Port),
+		Host:                        config.ResolveHost(f.host, cfg.Host),
+		PublicURL:                   config.ResolvePublicURL(f.publicURL, cfg),
+		AllowUnauthenticatedNetwork: f.allowUnauthenticatedNetwork || config.EnvAllowsUnauthenticatedNetwork(),
+		NoOpen:                      noOpenResolved,
+		Quiet:                       f.quiet || cfg.Quiet,
+		ShareURL:                    config.ResolveShareURL(f.shareURL, cfg, ""),
 	})
 }
 

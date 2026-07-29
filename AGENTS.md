@@ -35,7 +35,7 @@ crit/
 7. **Comments reference source line numbers** — stored in `~/.crit/reviews/<key>.json` with per-file sections
 8. **Real-time output** — review file written on every comment change (200ms debounce)
 9. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
-10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Configurable via `--host` / `CRIT_HOST` / `host` config key (e.g. `0.0.0.0` for LAN). No auth, so non-loopback binds are explicit opt-in.
+10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Non-loopback `--host` / `CRIT_HOST` / global `host`, or any `public_url`, require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1` (Crit has no network auth).
 11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd`, `auth_token`, `share_url`, and `plan_approve_mode` are global-only (prevents malicious repos from hijacking agent commands, redirecting share requests, or weakening Claude Code permissions)
 12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
@@ -250,8 +250,8 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 
 <important if="you are modifying server security, request handling, or path-validation logic">
 
-- Server binds to `127.0.0.1` by default; user can opt into a different host via `--host` / `CRIT_HOST` / `host` config key. There is no auth, so any non-loopback bind exposes file content + comment-write API to anyone who can reach the port — that's why it's an explicit opt-in (CLI flag / env var / config key).
-- State-changing requests (POST/PUT/PATCH/DELETE) with a `Sec-Fetch-Site` header must be `same-origin`. Missing header is allowed (CLI/curl/agent). `cross-site` is rejected — CSRF defense against malicious pages posting to loopback. Complements `checkHost` (DNS-rebinding), does not replace auth on non-loopback binds.
+- Server binds to `127.0.0.1` by default. Non-loopback listen or any `public_url` refuses to start unless `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1` is set (CLI/env only — never project config). Prefer SSH `-L`, Tailscale Serve to loopback, or Docker `-p 127.0.0.1:port:port`.
+- State-changing requests (POST/PUT/PATCH/DELETE) with a `Sec-Fetch-Site` header must be `same-origin`. Missing header is allowed (CLI/curl/agent). `cross-site` is rejected — CSRF defense against malicious pages posting to loopback. Complements `checkHost` (DNS-rebinding); does not authenticate network clients.
 - `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root
 - Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
 - HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)

@@ -19,12 +19,13 @@ import (
 )
 
 type CommonDaemonFlags struct {
-	Port      int
-	Host      string
-	PublicURL string
-	NoOpen    bool
-	Quiet     bool
-	ShareURL  string
+	Port                        int
+	Host                        string
+	PublicURL                   string
+	AllowUnauthenticatedNetwork bool
+	NoOpen                      bool
+	Quiet                       bool
+	ShareURL                    string
 }
 
 func AppendCommonDaemonFlags(args []string, f CommonDaemonFlags) []string {
@@ -36,6 +37,9 @@ func AppendCommonDaemonFlags(args []string, f CommonDaemonFlags) []string {
 	}
 	if f.PublicURL != "" {
 		args = append(args, "--public-url", f.PublicURL)
+	}
+	if f.AllowUnauthenticatedNetwork {
+		args = append(args, "--"+config.AllowUnauthenticatedNetworkFlag)
 	}
 	if f.NoOpen {
 		args = append(args, "--no-open")

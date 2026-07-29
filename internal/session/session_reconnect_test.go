@@ -447,6 +447,16 @@ func TestDaemonArgsForReconnect_Host(t *testing.T) {
 	stale := daemon.SessionEntry{Host: "0.0.0.0"}
 	args := daemonArgsForReconnect(key, nil, stale, defaultDir)
 	assertDaemonFlag(t, args, "--host", "0.0.0.0")
+	foundAllow := false
+	for _, a := range args {
+		if a == "--allow-unauthenticated-network" {
+			foundAllow = true
+			break
+		}
+	}
+	if !foundAllow {
+		t.Fatalf("args %v missing --allow-unauthenticated-network", args)
+	}
 }
 
 func TestReconnectDeadSession_StalePathMissing(t *testing.T) {
