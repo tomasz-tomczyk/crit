@@ -251,6 +251,7 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 <important if="you are modifying server security, request handling, or path-validation logic">
 
 - Server binds to `127.0.0.1` by default; user can opt into a different host via `--host` / `CRIT_HOST` / `host` config key. There is no auth, so any non-loopback bind exposes file content + comment-write API to anyone who can reach the port — that's why it's an explicit opt-in (CLI flag / env var / config key).
+- State-changing requests (POST/PUT/PATCH/DELETE) with a `Sec-Fetch-Site` header must be `same-origin`. Missing header is allowed (CLI/curl/agent). `cross-site` is rejected — CSRF defense against malicious pages posting to loopback. Complements `checkHost` (DNS-rebinding), does not replace auth on non-loopback binds.
 - `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root
 - Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
 - HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)

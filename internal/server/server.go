@@ -263,7 +263,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	// CSRF defense for browser clients: modern browsers always send
+	// Sec-Fetch-Site on requests they initiate. Cross-site values mean the
+	// request came from another origin (e.g. evil.com → 127.0.0.1). Missing
+	// header = non-browser client (CLI, curl, agent) — allow. same-origin =
+	// Crit UI on this port — allow. DNS-rebinding is handled by checkHost.
+	if !checkSecFetchSite(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+// checkSecFetchSite reports whether a request is allowed under the CSRF policy.
+// Safe methods (GET/HEAD/OPTIONS) always pass. For state-changing methods:
+// absent Sec-Fetch-Site is allowed (CLI/curl); "same-origin" is allowed (UI);
+// any other value (notably "cross-site") is rejected.
+func checkSecFetchSite(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	site := r.Header.Get("Sec-Fetch-Site")
+	if site == "" {
+		return true
+	}
+	return site == "same-origin"
 }
 
 // requireReady returns false and writes a 503 or 500 response if the server

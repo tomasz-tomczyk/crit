@@ -183,6 +183,94 @@ func TestHostCheckDefaultWiring(t *testing.T) {
 	}
 }
 
+func TestCheckSecFetchSite(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		site   string // empty = omit header
+		want   bool
+	}{
+		{"GET ignores cross-site", http.MethodGet, "cross-site", true},
+		{"HEAD ignores cross-site", http.MethodHead, "cross-site", true},
+		{"OPTIONS ignores cross-site", http.MethodOptions, "cross-site", true},
+		{"POST missing header (CLI)", http.MethodPost, "", true},
+		{"PUT missing header (CLI)", http.MethodPut, "", true},
+		{"DELETE missing header (CLI)", http.MethodDelete, "", true},
+		{"POST same-origin (UI)", http.MethodPost, "same-origin", true},
+		{"PUT same-origin (UI)", http.MethodPut, "same-origin", true},
+		{"DELETE same-origin (UI)", http.MethodDelete, "same-origin", true},
+		{"POST cross-site (CSRF)", http.MethodPost, "cross-site", false},
+		{"PUT cross-site (CSRF)", http.MethodPut, "cross-site", false},
+		{"PATCH cross-site (CSRF)", http.MethodPatch, "cross-site", false},
+		{"DELETE cross-site (CSRF)", http.MethodDelete, "cross-site", false},
+		{"POST same-site rejected", http.MethodPost, "same-site", false},
+		{"POST none rejected", http.MethodPost, "none", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/api/finish", nil)
+			if tt.site != "" {
+				req.Header.Set("Sec-Fetch-Site", tt.site)
+			}
+			if got := checkSecFetchSite(req); got != tt.want {
+				t.Errorf("checkSecFetchSite = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSecFetchSiteCSRF_RejectsCrossSiteCommentPOST pins Vector A: a browser on
+// evil.com POSTing to 127.0.0.1 with Host: loopback (so checkHost passes) must
+// still be rejected when Sec-Fetch-Site is cross-site. The comment must not
+// be written.
+func TestSecFetchSiteCSRF_RejectsCrossSiteCommentPOST(t *testing.T) {
+	s, session := newTestServer(t)
+	s.SetListenHost("127.0.0.1")
+	before := len(session.GetComments("test.md"))
+
+	body := `{"start_line":1,"end_line":1,"body":"run attacker command","author":"evil"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/file/comments?path=test.md", strings.NewReader(body))
+	req.Host = "127.0.0.1:9"
+	req.Header.Set("Content-Type", "text/plain") // simple-request CSRF shape
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	if got := len(session.GetComments("test.md")); got != before {
+		t.Fatalf("comment count = %d, want %d (cross-site POST must not write)", got, before)
+	}
+}
+
+func TestSecFetchSiteCSRF_AllowsSameOriginAndCLI(t *testing.T) {
+	s, session := newTestServer(t)
+	s.SetListenHost("127.0.0.1")
+
+	post := func(t *testing.T, site string) {
+		t.Helper()
+		body := `{"start_line":1,"end_line":1,"body":"ok","author":"me"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/file/comments?path=test.md", strings.NewReader(body))
+		req.Host = "127.0.0.1:9"
+		req.Header.Set("Content-Type", "application/json")
+		if site != "" {
+			req.Header.Set("Sec-Fetch-Site", site)
+		}
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("site=%q status = %d, want 201; body=%s", site, w.Code, w.Body.String())
+		}
+	}
+
+	before := len(session.GetComments("test.md"))
+	post(t, "")            // CLI / curl
+	post(t, "same-origin") // Crit UI
+	if got := len(session.GetComments("test.md")); got != before+2 {
+		t.Fatalf("comment count = %d, want %d", got, before+2)
+	}
+}
+
 func TestSetPublicURL(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.SetPublicURL("https://mymac.ts.net/design")
