@@ -180,8 +180,8 @@
   }
 
   // ===== Tab-Ready Indicator =====
-  // Prepends a bullet to document.title (and optionally a browser Notification)
-  // when a review round completes while the tab is hidden.
+  // Prepends a bullet to document.title when a review round completes while
+  // the tab is hidden. Desktop notifications are server-side (notify_on_round_ready).
   const tabReady = (window.crit && window.crit.createTabReady)
     ? window.crit.createTabReady()
     : null;
@@ -191,14 +191,7 @@
   const noop = function() { /* tabReady unavailable */ };
   const setTabBadge = tabReady ? tabReady.setTabBadge : noop;
   const clearTabBadge = tabReady ? tabReady.clearTabBadge : noop;
-  const notifyRoundReady = tabReady
-    ? function() {
-        tabReady.notifyRoundReady({
-          title: 'Crit',
-          body: 'A review round is ready',
-        });
-      }
-    : setTabBadge;
+  const notifyRoundReady = tabReady ? tabReady.notifyRoundReady : setTabBadge;
 
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible') clearTabBadge();
@@ -6818,7 +6811,14 @@
 
   function setUIState(state) {
     uiState = state;
-    if (state === 'reviewing') { waitingNotApproved = false; stopTipRotation(); }
+    if (state === 'reviewing') {
+      waitingNotApproved = false;
+      stopTipRotation();
+      // Leaving the waiting dialog ("Back to editing", backdrop click, a new
+      // round arriving) must kill any auto-close countdown — otherwise it
+      // keeps ticking behind the dismissed overlay and closes the tab.
+      window.crit.shared.clearAutoCloseTimers();
+    }
     const finishBtn = document.getElementById('finishBtn');
     const waitingOverlay = document.getElementById('waitingOverlay');
 
@@ -7064,8 +7064,8 @@
         // current chapter still exists (storyFromHash re-reads the hash).
         applyStoryPresence();
         setUIState('reviewing');
-        // Signal "ready" in the tab bar (and browser Notification if granted)
-        // if the user has tabbed away. Cleared on visibilitychange → visible.
+        // Signal "ready" in the tab bar if the user has tabbed away.
+        // Cleared on visibilitychange → visible.
         if (document.visibilityState !== 'visible') notifyRoundReady();
       } catch (err) {
         console.error('Error handling file-changed:', err);

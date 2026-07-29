@@ -276,12 +276,37 @@
   // via chained setTimeout so tests can drive it with a fake clock (only
   // setTimeout/clearTimeout are needed, matching the showToast sandbox).
   var CLOSE_COUNTDOWN_TICK_MS = 1000;
-  var _autoCloseTimers = null; // array of pending timer ids, or null when idle
+  // In-flight countdown: { cancelled, timers, messageEl, cancelBtn }, or null
+  // when idle. Held at module scope so clearAutoCloseTimers can abort a
+  // countdown started by an earlier call.
+  var _autoCloseRun = null;
 
+  // Announce on the shared polite live region. The per-second countdown text
+  // deliberately does NOT live here — repeating it every tick would flood a
+  // screen reader; callers announce once when state changes.
+  function announceAutoClose(text) {
+    var el = document.getElementById('copyStatus');
+    if (!el) return;
+    el.textContent = '';
+    el.textContent = text;
+  }
+
+  // Aborts any in-flight auto-close countdown and undoes its UI: clears the
+  // pending ticks, marks the run cancelled so already-scheduled callbacks bail
+  // out, hides the Cancel button and drops the timer role from the message
+  // line. Callers must invoke this whenever the reviewer leaves the waiting
+  // dialog ("Back to editing", overlay backdrop) — otherwise the countdown
+  // keeps running behind the dismissed overlay and closes the tab.
   function clearAutoCloseTimers() {
-    if (!_autoCloseTimers) return;
-    _autoCloseTimers.forEach(function (id) { clearTimeout(id); });
-    _autoCloseTimers = null;
+    var run = _autoCloseRun;
+    _autoCloseRun = null;
+    if (!run) return;
+    run.cancelled = true;
+    run.timers.forEach(function (id) { clearTimeout(id); });
+    if (run.cancelBtn) run.cancelBtn.style.display = 'none';
+    if (run.messageEl && typeof run.messageEl.removeAttribute === 'function') {
+      run.messageEl.removeAttribute('role');
+    }
   }
 
   // Creates (once) or reuses the Cancel button, inserted right after
@@ -307,11 +332,10 @@
     clearAutoCloseTimers();
     if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return;
 
-    var cancelled = false;
     var remaining = ms;
-    var timers = [];
-    _autoCloseTimers = timers;
     var cancelBtn = ensureCloseCancelBtn(messageEl);
+    var run = { cancelled: false, timers: [], messageEl: messageEl, cancelBtn: cancelBtn };
+    _autoCloseRun = run;
 
     function showCountdown() {
       if (!messageEl) return;
@@ -320,33 +344,55 @@
     }
 
     function onCancel() {
-      if (cancelled) return;
-      cancelled = true;
+      if (run.cancelled) return;
       clearAutoCloseTimers();
-      if (cancelBtn) cancelBtn.style.display = 'none';
       if (messageEl) { messageEl.style.display = 'none'; messageEl.textContent = ''; }
+      // The Cancel button was focused and is now hidden — hand focus to the
+      // Copy-prompt button so keyboard/AT users don't get dropped on <body>.
+      var clip = document.getElementById('waitingClipboard');
+      if (clip && typeof clip.focus === 'function') clip.focus();
+      announceAutoClose('Auto-close cancelled. This tab will stay open.');
     }
 
     if (cancelBtn) {
       cancelBtn.style.display = '';
       cancelBtn.onclick = onCancel;
     }
+    // role="timer" has an implicit aria-live of "off", so the per-second text
+    // updates stay silent while still being exposed as a timer to AT.
+    if (messageEl && typeof messageEl.setAttribute === 'function') {
+      messageEl.setAttribute('role', 'timer');
+    }
+    // Move focus to Cancel so the escape hatch is reachable without hunting,
+    // and announce the countdown once (never per tick).
+    if (cancelBtn && typeof cancelBtn.focus === 'function') cancelBtn.focus();
+    var totalSecs = Math.ceil(ms / 1000);
+    announceAutoClose(
+      'Approved. This tab closes in ' + totalSecs +
+      (totalSecs === 1 ? ' second' : ' seconds') + '. Press Cancel to stay.',
+    );
 
     function tick() {
-      if (cancelled) return;
+      if (run.cancelled) return;
       if (remaining <= 0) {
         try { window.close(); } catch (_) {}
         // If the tab is still open (window.close() is a no-op on tabs the
         // browser didn't open via script), tell the user how to proceed.
         var closedCheckId = setTimeout(function () {
-          if (cancelled || window.closed) return;
+          if (run.cancelled || window.closed) return;
+          // The countdown is spent, so tear it down: drop role="timer" (an
+          // idle timer AT can still read) and hide Cancel, which no longer
+          // cancels anything.
+          clearAutoCloseTimers();
           if (messageEl) {
             messageEl.style.display = '';
             messageEl.textContent = 'Approved — you can close this tab';
           }
-          if (cancelBtn) cancelBtn.style.display = 'none';
+          // role="timer" is aria-live "off", so the new text is silent on its
+          // own; announce the terminal state on the polite region instead.
+          announceAutoClose('Approved — you can close this tab.');
         }, 50);
-        timers.push(closedCheckId);
+        run.timers.push(closedCheckId);
         return;
       }
       showCountdown();
@@ -354,7 +400,7 @@
         remaining -= CLOSE_COUNTDOWN_TICK_MS;
         tick();
       }, Math.min(CLOSE_COUNTDOWN_TICK_MS, remaining));
-      timers.push(nextId);
+      run.timers.push(nextId);
     }
 
     tick();
@@ -422,6 +468,10 @@
         }
       }
       if (headingEl) headingEl.textContent = approved ? 'Approved' : 'Review Complete';
+      // A countdown from a previous approval must not survive into this
+      // finish: on the non-approved path nothing else would stop it, and the
+      // message line we're about to rewrite is the countdown's own output.
+      clearAutoCloseTimers();
       if (messageEl) {
         if (approved) {
           messageEl.style.display = 'none';
@@ -459,12 +509,12 @@
 
       try { await navigator.clipboard.writeText(prompt); } catch (_) {}
 
+      var closeMs;
       if (approved) {
         // close_on_approve_after_ms is global-only and off by default; read
         // it fresh from /api/config rather than requiring every caller to
         // thread a cached copy through. Best-effort — a config fetch failure
         // just means no auto-close, never blocks the approval itself.
-        var closeMs;
         try {
           var cfgResp = await fetch('/api/config');
           if (cfgResp && cfgResp.ok) {
@@ -472,11 +522,15 @@
             closeMs = cfgData && cfgData.close_on_approve_after_ms;
           }
         } catch (_) { /* best effort */ }
-        scheduleAutoClose(closeMs, messageEl);
       }
 
       if (approved && typeof o.onApproved === 'function') o.onApproved(prompt);
       else if (!approved && typeof o.onWaiting === 'function') o.onWaiting();
+
+      // Must run after onApproved: the waiting overlay is display:none until
+      // the caller flips uiState to 'waiting', and focus() on a hidden Cancel
+      // button is a silent no-op.
+      if (approved) scheduleAutoClose(closeMs, messageEl);
 
       return { approved: approved, prompt: prompt };
     } catch (err) {
@@ -1014,6 +1068,7 @@
     showToast,
     runFinishReview,
     scheduleAutoClose,
+    clearAutoCloseTimers,
     waitForSession,
     installSidebarResize,
     computeResizeDelta,

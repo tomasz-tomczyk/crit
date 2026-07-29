@@ -1,5 +1,11 @@
-// crit-tab-ready.js — tab title badge + browser Notification when a review
-// round becomes ready while the page is hidden.
+// crit-tab-ready.js — tab title badge when a review round becomes ready
+// while the page is hidden.
+//
+// Deliberately no browser Notification API: crit serves on an ephemeral
+// localhost port, so a permission grant never carries over to the next run
+// and Notification.permission is effectively always 'default'. Desktop
+// notifications are the server's job instead, gated by the
+// `notify_on_round_ready` config key (see internal/notify).
 //
 // Browser: attach via window.crit.createTabReady / window.crit.tabReady.
 // Node path: module.exports for unit tests.
@@ -8,14 +14,9 @@
 function createTabReady(deps) {
   deps = deps || {};
   var documentRef = deps.document || (typeof document !== 'undefined' ? document : null);
-  var NotificationCtor = deps.Notification;
-  if (NotificationCtor === undefined && typeof Notification !== 'undefined') {
-    NotificationCtor = Notification;
-  }
   var BADGE_PREFIX = '\u25CF ';
   var baseTitle = deps.baseTitle || (documentRef && documentRef.title) || '';
   var badgeActive = false;
-  var lastNotification = null;
 
   function setDocumentTitle(nextBase) {
     baseTitle = nextBase;
@@ -44,33 +45,9 @@ function createTabReady(deps) {
 
   function notifyRoundReady(opts) {
     opts = opts || {};
-    if (visibilityState() !== 'hidden' && !opts.force) return { badged: false, notified: false };
-
+    if (visibilityState() !== 'hidden' && !opts.force) return { badged: false };
     setTabBadge();
-
-    var notified = false;
-    if (NotificationCtor && NotificationCtor.permission === 'granted') {
-      try {
-        var title = opts.title || 'Crit';
-        var body = opts.body || 'A review round is ready';
-        lastNotification = new NotificationCtor(title, {
-          body: body,
-          tag: opts.tag || 'crit-round-ready',
-        });
-        notified = true;
-      } catch (_) {
-        notified = false;
-      }
-    }
-
-    return { badged: true, notified: notified };
-  }
-
-  function requestPermission() {
-    if (!NotificationCtor || typeof NotificationCtor.requestPermission !== 'function') {
-      return Promise.resolve('denied');
-    }
-    return Promise.resolve(NotificationCtor.requestPermission());
+    return { badged: true };
   }
 
   return {
@@ -78,9 +55,7 @@ function createTabReady(deps) {
     setTabBadge: setTabBadge,
     clearTabBadge: clearTabBadge,
     notifyRoundReady: notifyRoundReady,
-    requestPermission: requestPermission,
     isBadgeActive: function () { return badgeActive; },
-    lastNotification: function () { return lastNotification; },
     BADGE_PREFIX: BADGE_PREFIX,
   };
 }

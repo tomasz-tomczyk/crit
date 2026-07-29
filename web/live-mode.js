@@ -56,8 +56,8 @@
   var inflightAPI = (window.crit && window.crit.live && window.crit.live.inflight) || null;
 
   // ===== Tab-Ready Indicator =====
-  // Same pattern as app.js: ● in the title + browser Notification when a new
-  // round starts while the tab is hidden.
+  // Same pattern as app.js: ● in the title when a new round starts while the
+  // tab is hidden. Desktop notifications are server-side (notify_on_round_ready).
   var tabReady = (window.crit && window.crit.createTabReady)
     ? window.crit.createTabReady()
     : null;
@@ -72,11 +72,8 @@
     if (tabReady) tabReady.clearTabBadge();
   }
   function notifyRoundReady() {
-    if (tabReady) {
-      tabReady.notifyRoundReady({ title: 'Crit', body: 'A review round is ready' });
-    } else {
-      setTabBadge();
-    }
+    if (tabReady) tabReady.notifyRoundReady();
+    else setTabBadge();
   }
 
   document.addEventListener('visibilitychange', function () {
@@ -755,6 +752,10 @@
     var overlay = document.getElementById('waitingOverlay');
     if (s === 'reviewing') {
       stopLiveTipRotation();
+      // Leaving the waiting dialog ("Back to editing", backdrop click, a new
+      // round arriving) must kill any auto-close countdown — otherwise it
+      // keeps ticking behind the dismissed overlay and closes the tab.
+      shared.clearAutoCloseTimers();
       if (btn) {
         btn.disabled = false;
         btn.classList.add('btn-primary');

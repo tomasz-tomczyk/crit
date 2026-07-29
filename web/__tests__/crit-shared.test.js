@@ -523,6 +523,7 @@ test('runFinishReview onError catches and returns null', async () => {
 // later document.getElementById lookup) plus fake setTimeout/clearTimeout so
 // the countdown can be driven deterministically without real delays.
 function makeAutoCloseSandbox(fetchImpl) {
+  const focusLog = [];
   function makeNode(tag) {
     return {
       tagName: (tag || 'div').toUpperCase(),
@@ -544,6 +545,8 @@ function makeAutoCloseSandbox(fetchImpl) {
       },
       setAttribute(k, v) { this._attrs[k] = v; },
       getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attrs, k) ? this._attrs[k] : null; },
+      removeAttribute(k) { delete this._attrs[k]; },
+      focus() { focusLog.push(this); },
       querySelector() { return null; },
       querySelectorAll() { return []; },
       appendChild(child) {
@@ -592,12 +595,14 @@ function makeAutoCloseSandbox(fetchImpl) {
 
   const promptEl = makeNode('div'); promptEl.id = 'waitingPrompt';
   const previewEl = makeNode('span'); previewEl.id = 'promptPreview';
+  const copyStatusEl = makeNode('div'); copyStatusEl.id = 'copyStatus';
 
   const root = makeNode('body');
   root.appendChild(dialog);
   root.appendChild(promptEl);
   root.appendChild(previewEl);
   root.appendChild(clipEl);
+  root.appendChild(copyStatusEl);
 
   const doc = {
     cookie: '',
@@ -639,7 +644,14 @@ function makeAutoCloseSandbox(fetchImpl) {
   fn(win, doc, fakeSetTimeout, fakeClearTimeout);
   globalThis.fetch = fetchImpl;
   globalThis.navigator = win.navigator;
-  return { shared: win.crit.shared, win, doc, els: { messageEl, headingEl, dialog, promptEl, previewEl, clipEl }, flush };
+  return {
+    shared: win.crit.shared,
+    win,
+    doc,
+    els: { messageEl, headingEl, dialog, promptEl, previewEl, clipEl, copyStatusEl },
+    focusLog,
+    flush,
+  };
 }
 
 test('scheduleAutoClose: counts down then calls window.close() after the configured delay', () => {
@@ -694,11 +706,16 @@ test('scheduleAutoClose: reuses the same Cancel button across approvals instead 
 });
 
 test('scheduleAutoClose: after window.close(), shows "you can close this tab" if the tab is still open', () => {
-  const { shared: s, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  const { shared: s, els, doc, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
   s.scheduleAutoClose(1000, els.messageEl);
   flush(1000); // triggers window.close() (a no-op in this stub — tab "stays open")
   flush(50);   // the post-close fallback message tick
   assert.equal(els.messageEl.textContent, 'Approved — you can close this tab');
+  // The spent countdown must not leave an idle timer or a dead Cancel behind,
+  // and role="timer" is aria-live "off" so the new text needs a real announce.
+  assert.equal(els.messageEl.getAttribute('role'), null);
+  assert.equal(doc.getElementById('waitingCloseCancel').style.display, 'none');
+  assert.equal(els.copyStatusEl.textContent, 'Approved — you can close this tab.');
 });
 
 test('scheduleAutoClose: after window.close(), skips fallback message when the tab actually closed', () => {
@@ -709,6 +726,16 @@ test('scheduleAutoClose: after window.close(), skips fallback message when the t
   flush(50);
   assert.equal(win.closeCalls, 1);
   assert.notEqual(els.messageEl.textContent, 'Approved — you can close this tab');
+  assert.notEqual(els.copyStatusEl.textContent, 'Approved — you can close this tab.');
+});
+
+test('scheduleAutoClose: announcement says "1 second", not "1 seconds"', () => {
+  const { shared: s, els } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(1000, els.messageEl);
+  assert.equal(
+    els.copyStatusEl.textContent,
+    'Approved. This tab closes in 1 second. Press Cancel to stay.',
+  );
 });
 
 test('runFinishReview: approved + close_on_approve_after_ms set schedules the countdown and eventual close', async () => {
@@ -754,6 +781,113 @@ test('runFinishReview: not-approved path never schedules an auto-close, regardle
   await s.runFinishReview({ onWaiting: () => {} });
   flush(60000);
   assert.equal(win.closeCalls, 0, '/api/config is never even consulted on the not-approved path');
+});
+
+// ----- clearAutoCloseTimers (dismissing the waiting overlay) -----
+// Regression: "Back to editing" / backdrop click only removed .active from the
+// overlay, so a running countdown kept ticking behind the dismissed dialog and
+// eventually called window.close() out from under the reviewer.
+
+test('clearAutoCloseTimers: stops a running countdown so window.close() never fires', () => {
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 2s…');
+
+  s.clearAutoCloseTimers();
+
+  flush(60000);
+  assert.equal(win.closeCalls, 0, 'no close after the countdown was cleared');
+});
+
+test('clearAutoCloseTimers: hides the Cancel button and drops role="timer"', () => {
+  const { shared: s, els, doc } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+  assert.equal(els.messageEl.getAttribute('role'), 'timer');
+  const cancelBtn = doc.getElementById('waitingCloseCancel');
+  assert.equal(cancelBtn.style.display, '');
+
+  s.clearAutoCloseTimers();
+
+  assert.equal(cancelBtn.style.display, 'none');
+  assert.equal(els.messageEl.getAttribute('role'), null);
+});
+
+test('clearAutoCloseTimers: is an idempotent no-op when no countdown is running', () => {
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.clearAutoCloseTimers();
+  s.clearAutoCloseTimers();
+  assert.equal(els.messageEl.getAttribute('role'), null);
+  flush(60000);
+  assert.equal(win.closeCalls, 0);
+});
+
+test('clearAutoCloseTimers: a cleared countdown does not resume when a later one is scheduled', () => {
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+  s.clearAutoCloseTimers();
+  s.scheduleAutoClose(2000, els.messageEl);
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 1s…');
+  flush(1000);
+  assert.equal(win.closeCalls, 1, 'only the newest countdown closes the tab, and only once');
+  flush(60000);
+  assert.equal(win.closeCalls, 1);
+});
+
+test('runFinishReview: a not-approved finish clears a countdown left over from a prior approval', async () => {
+  let approved = true;
+  const fetch = async (url) => {
+    if (url === '/api/finish') return { ok: true, json: async () => ({ approved, prompt: 'p' }) };
+    if (url === '/api/config') return { ok: true, json: async () => ({ close_on_approve_after_ms: 3000 }) };
+    throw new Error('unexpected fetch ' + url);
+  };
+  const { shared: s, win, els, doc, flush } = makeAutoCloseSandbox(fetch);
+  await s.runFinishReview({});
+  assert.equal(els.messageEl.textContent, 'Closing in 3s…');
+
+  approved = false;
+  await s.runFinishReview({ onWaiting: () => {} });
+  assert.match(els.messageEl.textContent, /^Agent notified\./);
+  assert.equal(els.messageEl.getAttribute('role'), null);
+  assert.equal(doc.getElementById('waitingCloseCancel').style.display, 'none');
+
+  flush(60000);
+  assert.equal(win.closeCalls, 0, 'the inherited countdown never closes the tab');
+});
+
+// ----- auto-close accessibility -----
+
+test('scheduleAutoClose: focuses Cancel and announces the countdown once, not per tick', () => {
+  const { shared: s, els, doc, focusLog, flush } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+
+  assert.equal(focusLog[focusLog.length - 1], doc.getElementById('waitingCloseCancel'));
+  assert.equal(
+    els.copyStatusEl.textContent,
+    'Approved. This tab closes in 3 seconds. Press Cancel to stay.',
+  );
+
+  // The per-second text lives on a role="timer" element (implicit aria-live
+  // "off") and the live region is left untouched by subsequent ticks.
+  assert.equal(els.messageEl.getAttribute('role'), 'timer');
+  assert.equal(els.messageEl.getAttribute('aria-live'), null);
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 2s…');
+  assert.equal(
+    els.copyStatusEl.textContent,
+    'Approved. This tab closes in 3 seconds. Press Cancel to stay.',
+  );
+});
+
+test('scheduleAutoClose: Cancel announces and moves focus off the button it hides', () => {
+  const { shared: s, els, doc, focusLog } = makeAutoCloseSandbox(async () => ({ ok: true, json: async () => ({}) }));
+  s.scheduleAutoClose(3000, els.messageEl);
+  doc.getElementById('waitingCloseCancel').onclick();
+
+  assert.equal(focusLog[focusLog.length - 1], els.clipEl, 'focus lands on the Copy prompt button');
+  assert.equal(els.copyStatusEl.textContent, 'Auto-close cancelled. This tab will stay open.');
+  assert.equal(els.messageEl.getAttribute('role'), null);
 });
 
 // ----- waitForSession -----
