@@ -12,9 +12,38 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
-func TestRunConfig_Help(t *testing.T) {
-	err := RunConfig([]string{"--help"})
+func TestPrintConfigHelp(t *testing.T) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	PrintConfigHelp()
+	_ = w.Close()
+	os.Stderr = old
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	for _, want := range []string{
+		"crit config",
+		"output <dir>",
+		"plan_approve_mode",
+		"notify_on_round_ready",
+		"close_on_approve_after_ms",
+		"reviews/<key>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("PrintConfigHelp missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+func TestRunConfig_HelpFlagIsNoOp(t *testing.T) {
+	// Help is handled by the command registry helpFn, not RunConfig.
+	if err := RunConfig([]string{"--help"}); err != nil {
 		t.Fatal(err)
 	}
 }
