@@ -1895,6 +1895,12 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-top: 1px solid var(--crit-border);
 }
 
+/* Compact shape: the form already supplies the padding. */
+.reply-form:not(.expanded) .reply-form-buttons {
+  padding: 8px 0 0;
+  border-top: none;
+}
+
 .comment-textarea {
   width: 100%;
   background: var(--crit-editor-bg);
@@ -5043,7 +5049,8 @@ body.sidebar-resizing * {
 }
 
 .live-thread.agent-pending .reply-input,
-.live-thread.agent-pending .reply-textarea {
+.live-thread.agent-pending .reply-textarea,
+.live-thread.agent-pending .reply-form-buttons {
   opacity: 0.5;
   pointer-events: none;
 }

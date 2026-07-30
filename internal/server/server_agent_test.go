@@ -82,6 +82,87 @@ func TestHandleAgentRequest_Success(t *testing.T) {
 	}
 }
 
+// Review-level comments carry no file path and must still reach the agent.
+func TestHandleAgentRequest_ReviewLevelComment(t *testing.T) {
+	s, session := newTestServer(t)
+	s.agentCmd = "echo test"
+
+	c := session.AddReviewComment("Describe the problem and how we fix it", "reviewer", "")
+
+	body := `{"comment_id":"` + c.ID + `","file_path":""}`
+	req := httptest.NewRequest("POST", "/api/agent/request", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["status"] != "accepted" {
+		t.Errorf("status = %v, want accepted", resp["status"])
+	}
+	if resp["file_path"] != "" {
+		t.Errorf("file_path = %v, want empty for a review-level comment", resp["file_path"])
+	}
+
+	comments := session.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(comments))
+	}
+	if !comments[0].Live {
+		t.Error("expected review comment Live to be true after agent request")
+	}
+}
+
+// The answer must land in the review thread; there is no file to fall back on.
+func TestRunAgentCmd_ReviewLevelReply(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, session := newTestServer(t)
+	session.RepoRoot = dir
+	s.agentCmd = "echo {prompt}"
+
+	c := session.AddReviewComment("general feedback", "reviewer", "")
+
+	s.runAgentCmd("hello review level", c.ID, "")
+
+	comments := session.GetReviewComments()
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(comments))
+	}
+	replies := comments[0].Replies
+	if len(replies) == 0 {
+		t.Fatal("expected a reply from agent on the review-level comment, got none")
+	}
+	if !strings.Contains(replies[0].Body, "hello review level") {
+		t.Errorf("reply body = %q, want it to contain the prompt text", replies[0].Body)
+	}
+	if replies[0].Author != "echo" {
+		t.Errorf("reply author = %q, want 'echo'", replies[0].Author)
+	}
+}
+
+// With no file path the prompt must not claim the comment sits on a file.
+func TestBuildAgentPrompt_ReviewLevel(t *testing.T) {
+	c := Comment{ID: "r_1", Body: "tighten the summary", Author: "reviewer", Scope: "review"}
+	got := buildAgentPrompt(c, "")
+	if strings.Contains(got, "comment on :") || strings.Contains(got, "comment on \n") {
+		t.Errorf("prompt names an empty file path:\n%s", got)
+	}
+	if !strings.Contains(got, "tighten the summary") {
+		t.Errorf("prompt is missing the comment body:\n%s", got)
+	}
+	if !strings.Contains(got, "review") {
+		t.Errorf("prompt does not say the comment is about the review as a whole:\n%s", got)
+	}
+}
+
 func TestAgentName_Codex(t *testing.T) {
 	tests := []struct {
 		cmd  string

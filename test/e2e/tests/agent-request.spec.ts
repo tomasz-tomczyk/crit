@@ -69,6 +69,41 @@ test.describe('Send to Agent', () => {
     expect(body.comment_id).toBe(comment.id);
   });
 
+  // Used to run the file-scoped submit path with an empty path and bail silently.
+  test('Send now submits a review-level comment and sends it to agent', async ({ page }) => {
+    await loadPage(page);
+    await page.keyboard.press('Shift+G');
+
+    const textarea = page.locator('#reviewConversation .comment-form textarea');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('Describe the problem and how we fix it');
+
+    await page.locator('#reviewConversation .btn-agent').click();
+
+    const cards = page.locator('#reviewConversation .comment-card');
+    await expect(cards).toHaveCount(1);
+    await expect(cards.first()).toContainText('Describe the problem and how we fix it');
+
+    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
+    await expect(page.locator('#reviewConversation .agent-pending-reply')).toBeVisible();
+    await expect(page.locator('#reviewConversation .agent-pending-author')).toHaveText('@echo');
+  });
+
+  test('POST /api/agent/request accepts a review-level comment', async ({ request }) => {
+    const commentRes = await request.post('/api/comments', {
+      data: { body: 'General note about this review' },
+    });
+    const comment = await commentRes.json();
+
+    const res = await request.post('/api/agent/request', {
+      data: { comment_id: comment.id, file_path: '' },
+    });
+    expect(res.status()).toBe(202);
+    const body = await res.json();
+    expect(body.status).toBe('accepted');
+    expect(body.file_path).toBe('');
+  });
+
   test('POST /api/agent/request returns 404 for unknown comment', async ({ request }) => {
     const res = await request.post('/api/agent/request', {
       data: { comment_id: 'nonexistent', file_path: 'plan.md' },

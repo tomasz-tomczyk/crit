@@ -1343,6 +1343,33 @@ func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool)
 	return Comment{}, false
 }
 
+// FindReviewCommentByID looks up a review-level comment by ID. Unlike
+// GetReviewComments it does not filter by focus.
+func (s *Session) FindReviewCommentByID(id string) (Comment, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, c := range s.reviewComments {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return Comment{}, false
+}
+
+// SetReviewCommentLive marks a review-level comment as live (sent to an agent).
+func (s *Session) SetReviewCommentLive(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.reviewComments {
+		if c.ID == id {
+			s.reviewComments[i].Live = true
+			s.scheduleWrite()
+			return true
+		}
+	}
+	return false
+}
+
 // AddReviewCommentReply adds a reply to a review-level comment.
 func (s *Session) AddReviewCommentReply(commentID, body, author, userID string) (Reply, bool) {
 	s.mu.Lock()

@@ -1994,7 +1994,7 @@
         const card = expandedForms[i].closest('.comment-card');
         if (card && card.dataset.commentId) {
           const ta = expandedForms[i].querySelector('.reply-textarea');
-          activeReplyForms.set(card.dataset.commentId, { text: ta ? ta.value : '' });
+          activeReplyForms.set(card.dataset.commentId, { text: ta ? ta.value : '', expanded: true });
         }
       }
     }
@@ -4885,7 +4885,8 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
-    if (agentEnabled && !opts.editingId) {
+    // Callers put editingId on formObj, not opts.
+    if (agentEnabled && !opts.editingId && !formObj.editingId) {
       const sendBtn = document.createElement('button');
       sendBtn.className = 'btn btn-sm btn-agent';
       sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> Send now';
@@ -4893,25 +4894,34 @@
       sendBtn.addEventListener('click', async function() {
         sendBtn.disabled = true;
         submitBtn.disabled = true;
-        const fp = formObj.filePath;
-        const comment = await submitComment(textarea.value, formObj);
-        if (comment) {
-          pendingAgentRequests.add(comment.id);
-          renderFileByPath(fp);
-          try {
-            const res = await fetch('/api/agent/request', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ comment_id: comment.id, file_path: fp }),
-            });
-            if (!res.ok) throw new Error('Server returned ' + res.status);
-            showMiniToast('Sent to agent');
-          } catch (err) {
-            console.error('Error sending to agent:', err);
-            showMiniToast('Failed to send to agent');
-            pendingAgentRequests.delete(comment.id);
-            renderFileByPath(fp);
-          }
+        const isReview = formObj.scope === 'review';
+        const fp = isReview ? '' : formObj.filePath;
+        const rerender = isReview
+          ? renderReviewConversation
+          : function() { renderFileByPath(fp); };
+        const comment = isReview
+          ? await addReviewComment(textarea.value)
+          : await submitComment(textarea.value, formObj);
+        if (!comment) {
+          sendBtn.disabled = false;
+          submitBtn.disabled = false;
+          return;
+        }
+        pendingAgentRequests.add(comment.id);
+        rerender();
+        try {
+          const res = await fetch('/api/agent/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comment_id: comment.id, file_path: fp }),
+          });
+          if (!res.ok) throw new Error('Server returned ' + res.status);
+          showMiniToast('Sent to agent');
+        } catch (err) {
+          console.error('Error sending to agent:', err);
+          showMiniToast('Failed to send to agent');
+          pendingAgentRequests.delete(comment.id);
+          rerender();
         }
       });
       actions.appendChild(sendBtn);
@@ -5642,8 +5652,9 @@
   // ===== Review-Level (General) Comments =====
   let reviewCommentSubmitting = false;
   async function addReviewComment(body) {
-    if (!body.trim() || reviewCommentSubmitting) return;
+    if (!body.trim() || reviewCommentSubmitting) return null;
     reviewCommentSubmitting = true;
+    let newComment;
     try {
       const res = await fetch('/api/comments', {
         method: 'POST',
@@ -5651,14 +5662,14 @@
         body: JSON.stringify({ body: body.trim(), author: configAuthor })
       });
       if (!res.ok) throw new Error('Server returned ' + res.status);
-      const newComment = await res.json();
+      newComment = await res.json();
       reviewComments.push(newComment);
       userActedThisRound = true;
     } catch (err) {
       console.error('Error adding review comment:', err);
       showMiniToast('Failed to add comment');
       reviewCommentSubmitting = false;
-      return;
+      return null;
     }
     reviewCommentSubmitting = false;
     reviewCommentFormActive = false;
@@ -5672,6 +5683,7 @@
     renderReviewConversation();
     renderCommentsPanel();
     renderFileTree();
+    return newComment;
   }
 
   async function updateReviewComment(id, body) {
@@ -6127,6 +6139,17 @@
     refreshAfterReplyChange(filePath);
   }
 
+  // The selector skips the panel copy of the comment, which has no reply form.
+  function focusRebuiltReplyForm(commentId) {
+    requestAnimationFrame(function() {
+      const sel = '.comment-card[data-comment-id="' + commentId + '"] ';
+      const ta = document.querySelector(sel + '.reply-textarea');
+      if (ta) ta.focus();
+      const btns = document.querySelector(sel + '.reply-form-buttons');
+      if (btns) btns.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
   function createReplyInput(commentId, filePath) {
     const form = document.createElement('div');
     form.className = 'reply-form';
@@ -6161,36 +6184,56 @@
 
     buttons.appendChild(cancelBtn);
     buttons.appendChild(submitBtn);
+    // Always mounted; CSS hides the whole form when the card is collapsed.
+    form.appendChild(buttons);
 
     attachFilePicker(textarea);
     attachImageUploads(textarea);
 
+    function activeField() {
+      return form.classList.contains('expanded') ? textarea : input;
+    }
+
     function expand() {
       if (form.classList.contains('expanded')) return;
+      // Set before closing: closeEmptyForms re-renders the file and detaches
+      // the nodes below, and the rebuilt form restores from this.
+      activeReplyForms.set(commentId, { text: input.value, expanded: true });
       closeEmptyReviewForm();
       closeEmptyForms(null);
+      if (!form.isConnected) {
+        // We were replaced by the re-render; hand off to the fresh form.
+        focusRebuiltReplyForm(commentId);
+        return;
+      }
       form.classList.add('expanded');
       textarea.value = input.value;
       input.replaceWith(textarea);
       form.appendChild(buttons);
       textarea.focus();
-      activeReplyForms.set(commentId, { text: textarea.value });
+      activeReplyForms.set(commentId, { text: textarea.value, expanded: true });
+      // The taller textarea can push the actions off screen, and focusing it
+      // does not bring them along.
+      buttons.scrollIntoView({ block: 'nearest' });
     }
 
     function collapse() {
+      textarea.value = '';
+      input.value = '';
+      activeReplyForms.delete(commentId);
       if (!form.classList.contains('expanded')) return;
       form.classList.remove('expanded');
       textarea.replaceWith(input);
-      input.value = '';
-      if (buttons.parentNode) buttons.remove();
-      activeReplyForms.delete(commentId);
     }
 
     input.addEventListener('focus', expand);
 
     // Keep reply form state in sync for surviving re-renders
     textarea.addEventListener('input', function() {
-      activeReplyForms.set(commentId, { text: textarea.value });
+      activeReplyForms.set(commentId, { text: textarea.value, expanded: true });
+    });
+    input.addEventListener('input', function() {
+      activeReplyForms.set(commentId, { text: input.value, expanded: false });
     });
 
     cancelBtn.addEventListener('click', collapse);
@@ -6205,8 +6248,8 @@
     });
 
     submitBtn.addEventListener('click', async function() {
-      const body = textarea.value.trim();
-      if (!body) return;
+      const body = activeField().value.trim();
+      if (!body) { activeField().focus(); return; }
       submitBtn.disabled = true;
       try {
         const payload = { body: body };
@@ -6222,22 +6265,27 @@
         if (!res.ok) throw new Error('Server returned ' + res.status);
         userActedThisRound = true;
 
-        // Live-thread agent dispatch only applies to file-scoped comments.
+        // Keep a live thread talking to the agent.
+        let comment = null;
         if (filePath) {
           const file = getFileByPath(filePath);
-          const comment = file && file.comments ? file.comments.find(function(c) { return c.id === commentId; }) : null;
-          if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
-            pendingAgentRequests.add(commentId);
-            fetch('/api/agent/request', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
-            }).catch(function(err) {
-              console.error('Error sending reply to agent:', err);
-              pendingAgentRequests.delete(commentId);
-              showMiniToast('Failed to send to agent');
-            });
+          if (file && file.comments) {
+            comment = file.comments.find(function(c) { return c.id === commentId; });
           }
+        } else {
+          comment = reviewComments.find(function(c) { return c.id === commentId; });
+        }
+        if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
+          pendingAgentRequests.add(commentId);
+          fetch('/api/agent/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
+          }).catch(function(err) {
+            console.error('Error sending reply to agent:', err);
+            pendingAgentRequests.delete(commentId);
+            showMiniToast('Failed to send to agent');
+          });
         }
 
         activeReplyForms.delete(commentId);
@@ -6267,11 +6315,15 @@
 
     // Restore saved reply form state after DOM re-render
     const saved = activeReplyForms.get(commentId);
-    if (saved && saved.text) {
-      form.classList.add('expanded');
-      textarea.value = saved.text;
-      input.replaceWith(textarea);
-      form.appendChild(buttons);
+    if (saved && (saved.text || saved.expanded)) {
+      if (saved.expanded) {
+        form.classList.add('expanded');
+        textarea.value = saved.text || '';
+        input.replaceWith(textarea);
+        form.appendChild(buttons);
+      } else {
+        input.value = saved.text || '';
+      }
     }
 
     return form;
@@ -7124,6 +7176,7 @@
           checkAgentReplies(files[i].comments);
           saveOpenFormContent(files[i].path);
         }
+        checkAgentReplies(reviewComments);
         if (storyActive()) {
           for (let i = 0; i < files.length; i++) {
             const before = previousCommentSignatures.get(files[i].path) || '[]';
@@ -10490,9 +10543,10 @@
     renderMermaidBlocks();
     rebuildNavList();
     applyHideResolved();
-    // Keep active rail row visible.
+    // Keep active rail row visible. Instant: a smooth scroll here outlives the
+    // resetStoryScroll() that showStory() runs next.
     const activeRow = document.querySelector('.crit-story-row.active');
-    if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+    if (activeRow) activeRow.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
 
   function resetStoryScroll() {

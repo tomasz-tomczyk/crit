@@ -2672,13 +2672,19 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	comment, filePath, found := s.session.Load().FindCommentByID(body.CommentID, body.FilePath)
-	if !found {
-		http.Error(w, "Comment not found", http.StatusNotFound)
-		return
+	sess := s.session.Load()
+	comment, filePath, found := sess.FindCommentByID(body.CommentID, body.FilePath)
+	if found {
+		sess.SetCommentLive(filePath, comment.ID)
+	} else {
+		comment, found = sess.FindReviewCommentByID(body.CommentID)
+		if !found {
+			http.Error(w, "Comment not found", http.StatusNotFound)
+			return
+		}
+		filePath = ""
+		sess.SetReviewCommentLive(comment.ID)
 	}
-
-	s.session.Load().SetCommentLive(filePath, comment.ID)
 
 	prompt := buildAgentPrompt(comment, filePath)
 
@@ -2702,12 +2708,16 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 // buildAgentPrompt constructs a prompt string from a comment for the agent.
 func buildAgentPrompt(c Comment, filePath string) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("A reviewer left a comment on %s", filePath))
-	if c.StartLine > 0 {
-		if c.EndLine > c.StartLine {
-			b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
-		} else {
-			b.WriteString(fmt.Sprintf(" (line %d)", c.StartLine))
+	if filePath == "" {
+		b.WriteString("A reviewer left a general comment on this review")
+	} else {
+		b.WriteString(fmt.Sprintf("A reviewer left a comment on %s", filePath))
+		if c.StartLine > 0 {
+			if c.EndLine > c.StartLine {
+				b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))
+			} else {
+				b.WriteString(fmt.Sprintf(" (line %d)", c.StartLine))
+			}
 		}
 	}
 	b.WriteString(":\n\n")
@@ -2788,6 +2798,9 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 				filePath = actualPath
 			}
 		}
+	}
+	if !ok {
+		_, ok = sess.AddReviewCommentReply(commentID, response, author, "")
 	}
 	if !ok {
 		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)

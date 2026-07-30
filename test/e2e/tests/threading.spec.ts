@@ -49,10 +49,49 @@ test.describe('Comment Threading', () => {
     await expect(card.locator('.reply-textarea')).toBeFocused();
     await expect(card.locator('.reply-form-buttons')).toBeVisible();
 
-    // Escape collapses back to compact input
+    // Escape collapses back to the compact input, but the buttons stay put.
     await card.locator('.reply-textarea').press('Escape');
     await expect(card.locator('.reply-input')).toBeVisible();
-    await expect(card.locator('.reply-form-buttons')).toHaveCount(0);
+    await expect(card.locator('.reply-textarea')).toHaveCount(0);
+    await expect(card.locator('.reply-form-buttons')).toBeVisible();
+  });
+
+  test('send buttons are visible on an open card and hidden with a collapsed one', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Review this');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    await expect(card.locator('.reply-form-buttons .btn-primary')).toBeVisible();
+
+    await card.locator('.comment-collapse-btn').click();
+    await expect(card).toHaveClass(/collapsed/);
+    await expect(card.locator('.reply-form-buttons')).toBeHidden();
+
+    await card.locator('.comment-collapse-btn').click();
+    await expect(card.locator('.reply-form-buttons .btn-primary')).toBeVisible();
+  });
+
+  test('can send a reply without expanding the box', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Review this');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    await card.locator('.reply-input').fill('sent without expanding');
+    await card.locator('.reply-form-buttons .btn-primary').click();
+
+    await expect(section.locator('.comment-reply')).toHaveCount(1);
+    await expect(section.locator('.reply-body')).toContainText('sent without expanding');
+    await expect(card.locator('.reply-input')).toHaveValue('');
   });
 
   test('submitting reply form adds reply to thread', async ({ page, request }) => {
@@ -213,6 +252,79 @@ test.describe('Comment Threading', () => {
     // Should collapse back to compact input, no reply added
     await expect(card.locator('.reply-input')).toBeVisible();
     await expect(section.locator('.comment-reply')).toHaveCount(0);
+  });
+
+  // Expanding used to push Reply off screen with nothing scrolling it back.
+  test('expanding a reply near the bottom edge keeps Reply on screen', async ({ page, request }) => {
+    // Pinned: the bug is geometric, so don't depend on the default window size.
+    await page.setViewportSize({ width: 1200, height: 500 });
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Reply to me');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    // Park the collapsed reply input just above the bottom edge.
+    await page.evaluate(() => {
+      const el = document.querySelector('.comment-card .reply-input');
+      if (!el) throw new Error('no reply input');
+      const r = el.getBoundingClientRect();
+      window.scrollBy(0, r.top - (window.innerHeight - 60));
+    });
+
+    // locator.click() and boundingBox() scroll the target into view first,
+    // which would move the page out of the state under test.
+    const point = await page.evaluate(() => {
+      const el = document.querySelector('.comment-card .reply-input');
+      if (!el) throw new Error('no reply input');
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await page.mouse.click(point.x, point.y);
+
+    await expect(card.locator('.reply-textarea')).toBeVisible();
+    const replyBtn = card.locator('.reply-form-buttons .btn-primary');
+    await expect(replyBtn).toBeVisible();
+
+    // Measured in-page for the same reason. Retried because html has
+    // scroll-behavior: smooth, so the scroll is animated.
+    await expect(async () => {
+      const geom = await page.evaluate(() => {
+        const btn = document.querySelector('.comment-card .reply-form-buttons .btn-primary');
+        if (!btn) throw new Error('no Reply button');
+        const r = btn.getBoundingClientRect();
+        return { bottom: Math.round(r.bottom), viewportHeight: window.innerHeight };
+      });
+      expect(geom.bottom).toBeLessThanOrEqual(geom.viewportHeight);
+    }).toPass({ timeout: 5000 });
+  });
+
+  // Closing an empty form re-renders the file, which used to detach the very
+  // reply form being expanded — the box stayed one line tall.
+  test('reply form still expands when an empty comment form is open on the same file', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Reply to me');
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    const section = mdSection(page);
+    const card = section.locator('.comment-card');
+    await expect(card).toBeVisible();
+
+    // Open a second, empty comment form on the same file via the gutter.
+    await section.locator('.line-block').nth(2).hover();
+    await section.locator('.line-comment-gutter').nth(2).click();
+    await expect(section.locator('.comment-form')).toHaveCount(1);
+
+    // Now expand the thread's reply box.
+    await card.locator('.reply-input').click();
+
+    await expect(card.locator('.reply-form.expanded')).toHaveCount(1);
+    await expect(card.locator('.reply-textarea')).toBeVisible();
+    await expect(card.locator('.reply-form-buttons .btn-primary')).toBeVisible();
   });
 
   test('panel shows replies inline', async ({ page, request }) => {
