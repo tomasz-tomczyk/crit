@@ -64,17 +64,26 @@
 
   // ---------- Phase D: marker overlay + MutationObserver ----------
   function bootMarkers() {
-    // Inline marker CSS — fetched cross-origin from API port.
+    // Marker CSS: try the iframe document host first (relative), then the
+    // API origin. Hosted PREVIEW_HOST previews need relative — scripts load
+    // from the app origin for postMessage trust, but credential-less CSS
+    // fetches to that origin 302 behind SSO. Local live mode needs the
+    // fallback — the iframe document is the user app, CSS is on the API port.
+    function loadMarkerCss(url) {
+      return fetch(url, { credentials: 'omit' })
+        .then(function (res) { return res.ok ? res.text() : Promise.reject(); });
+    }
+    function injectMarkerCss(css) {
+      if (!css) return;
+      var style = document.createElement('style');
+      style.setAttribute('data-crit-marker-css', '1');
+      style.textContent = css;
+      document.head.appendChild(style);
+    }
     try {
-      fetch(expectedApiOrigin + '/agent-marker.css', { credentials: 'omit' })
-        .then(function (res) { return res.ok ? res.text() : ''; })
-        .then(function (css) {
-          if (!css) return;
-          var style = document.createElement('style');
-          style.setAttribute('data-crit-marker-css', '1');
-          style.textContent = css;
-          document.head.appendChild(style);
-        })
+      loadMarkerCss('/agent-marker.css')
+        .catch(function () { return loadMarkerCss(expectedApiOrigin + '/agent-marker.css'); })
+        .then(injectMarkerCss)
         .catch(function () { /* non-fatal */ });
     } catch (_) { /* ignore */ }
     if (markersAPI && markersAPI.createOverlay && document.body) {
