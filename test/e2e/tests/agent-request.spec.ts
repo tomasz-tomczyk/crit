@@ -43,8 +43,17 @@ test.describe('Send to Agent', () => {
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Please review this section');
 
+    // Guard against scope inversion: line Send now must not post empty file_path.
+    const agentReq = page.waitForRequest((req) =>
+      req.url().includes('/api/agent/request') && req.method() === 'POST'
+    );
+
     const sendBtn = page.locator('.btn-agent');
     await sendBtn.click();
+
+    const posted = await agentReq;
+    const postedBody = posted.postDataJSON();
+    expect(postedBody.file_path).toBeTruthy();
 
     // Verify toast and pending reply indicator appear
     await expect(page.locator('.mini-toast')).toContainText('Sent to agent');

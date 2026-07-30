@@ -163,6 +163,74 @@ func TestBuildAgentPrompt_ReviewLevel(t *testing.T) {
 	}
 }
 
+// Empty file_path still resolves a normal file comment via the all-files scan
+// before the review-level fallback.
+func TestHandleAgentRequest_EmptyPathFindsFileComment(t *testing.T) {
+	s, session := newTestServer(t)
+	s.agentCmd = "echo test"
+
+	session.Lock()
+	session.Files[0].Comments = []Comment{
+		{ID: "c_file1", StartLine: 1, EndLine: 1, Body: "file note", Author: "reviewer", Scope: "line"},
+	}
+	session.Unlock()
+
+	body := `{"comment_id":"c_file1","file_path":""}`
+	req := httptest.NewRequest("POST", "/api/agent/request", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["file_path"] == "" {
+		t.Error("expected resolved file_path for a file comment even when request path was empty")
+	}
+	if !session.Files[0].Comments[0].Live {
+		t.Error("expected file comment Live after agent request")
+	}
+}
+
+// Deliberate ID collision: AddReply scans file comments before the review
+// fallback. Production IDs are namespaced (c_ vs r_); this locks prefer-file.
+func TestRunAgentCmd_IDCollisionPrefersFileComment(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, session := newTestServer(t)
+	session.RepoRoot = dir
+	s.agentCmd = "echo collision-reply"
+
+	rc := session.AddReviewComment("review side", "reviewer", "")
+	session.Lock()
+	session.Files[0].Comments = []Comment{
+		{ID: rc.ID, StartLine: 1, EndLine: 1, Body: "file side", Author: "reviewer", Scope: "line"},
+	}
+	session.Unlock()
+
+	s.runAgentCmd("hello collision", rc.ID, "")
+
+	if len(session.Files[0].Comments[0].Replies) == 0 {
+		t.Fatal("expected reply on the file comment (prefer-file on collision)")
+	}
+	if !strings.Contains(session.Files[0].Comments[0].Replies[0].Body, "collision-reply") {
+		t.Errorf("file reply body = %q", session.Files[0].Comments[0].Replies[0].Body)
+	}
+	rcs := session.GetReviewComments()
+	if len(rcs) != 1 {
+		t.Fatalf("expected 1 review comment, got %d", len(rcs))
+	}
+	if len(rcs[0].Replies) != 0 {
+		t.Errorf("review thread unexpectedly got %d replies on ID collision", len(rcs[0].Replies))
+	}
+}
+
 func TestAgentName_Codex(t *testing.T) {
 	tests := []struct {
 		cmd  string
