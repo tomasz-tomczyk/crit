@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath } from './helpers';
 
 // Create a resolved comment by finishing a round, marking resolved, and round-completing.
-async function setupResolvedComment(request: APIRequestContext) {
+async function setupResolvedComment(request: APIRequestContext, line = 1) {
   const mdPath = await getMdPath(request);
-  await addComment(request, mdPath, 1, 'Resolved comment');
+  await addComment(request, mdPath, line, 'Resolved comment');
 
   // Finish to write the review file
   await request.post('/api/finish');
@@ -82,6 +82,40 @@ test.describe('Hide Resolved', () => {
     // Press h again to show
     await page.keyboard.press('h');
     await expect(resolvedBlock.first()).toBeVisible();
+  });
+
+  test('comment arrows skip hidden resolved comments in both directions', async ({ page, request }) => {
+    await setupResolvedComment(request, 3);
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 1, 'Open A');
+    await addComment(request, mdPath, 5, 'Open C');
+    await loadPage(page);
+
+    const openA = page.locator('.comment-card:not(.resolved-card)').filter({ hasText: 'Open A' });
+    const resolvedCard = page.locator('.comment-card.resolved-card').first();
+    const openC = page.locator('.comment-card:not(.resolved-card)').filter({ hasText: 'Open C' });
+
+    await page.locator('#commentNavNext').click();
+    await expect(openA).toHaveClass(/comment-nav-highlight/);
+    await page.locator('#commentNavNext').click();
+    await expect(resolvedCard).toHaveClass(/comment-nav-highlight/);
+
+    await page.keyboard.press('h');
+    await expect(resolvedCard).toBeHidden();
+
+    await page.locator('#commentNavPrev').click();
+    await expect(openA).toHaveClass(/comment-nav-highlight/);
+    await expect(openC).not.toHaveClass(/comment-nav-highlight/);
+    await expect(resolvedCard).not.toHaveClass(/comment-nav-highlight/);
+
+    await page.keyboard.press('h');
+    await page.locator('#commentNavNext').click();
+    await expect(resolvedCard).toHaveClass(/comment-nav-highlight/);
+
+    await page.keyboard.press('h');
+    await page.locator('#commentNavNext').click();
+    await expect(openC).toHaveClass(/comment-nav-highlight/);
+    await expect(resolvedCard).not.toHaveClass(/comment-nav-highlight/);
   });
 
   test('hide resolved persists via localStorage across reload', async ({ page, request }) => {

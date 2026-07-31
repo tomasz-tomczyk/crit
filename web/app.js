@@ -8339,39 +8339,48 @@
   function navigateToComment(direction) {
     const panel = document.getElementById('commentsPanel');
     const container = document.querySelector('.main-content');
-    const cards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
+    const allCards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
       return !panel || !panel.contains(card);
     });
+    const isEligible = function(card) {
+      return !isHideResolved() || !card.classList.contains('resolved-card');
+    };
+    const cards = allCards.filter(isEligible);
     if (cards.length === 0) return;
 
     const header = document.querySelector('.header');
     const headerHeight = header ? header.offsetHeight : 52;
 
-    // Find current position by stored comment ID (immune to smooth-scroll race conditions)
+    // Keep the current position in the full order even when that card becomes
+    // hidden, then scan in the requested direction for the next eligible card.
     let idx = -1;
     if (navCommentId) {
-      for (let i = 0; i < cards.length; i++) {
-        if (cards[i].dataset.commentId === navCommentId) { idx = i; break; }
+      for (let i = 0; i < allCards.length; i++) {
+        if (allCards[i].dataset.commentId === navCommentId) { idx = i; break; }
       }
     }
 
-    let targetIdx;
-    if (direction === 1) {
-      if (idx < 0) {
-        // First use: pick first card below the header area by viewport position
-        targetIdx = -1;
-        for (let j = 0; j < cards.length; j++) {
-          if (cards[j].getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
+    let target;
+    if (idx >= 0) {
+      for (let step = 1; step <= allCards.length; step++) {
+        const candidateIdx = (idx + direction * step + allCards.length) % allCards.length;
+        if (isEligible(allCards[candidateIdx])) {
+          target = allCards[candidateIdx];
+          break;
         }
-        if (targetIdx < 0) targetIdx = 0;
-      } else {
-        targetIdx = idx >= cards.length - 1 ? 0 : idx + 1;
       }
+    } else if (direction === 1) {
+      // First use: pick first card below the header area by viewport position
+      let targetIdx = -1;
+      for (let j = 0; j < cards.length; j++) {
+        if (cards[j].getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
+      }
+      if (targetIdx < 0) targetIdx = 0;
+      target = cards[targetIdx];
     } else {
-      targetIdx = idx <= 0 ? cards.length - 1 : idx - 1;
+      target = cards[cards.length - 1];
     }
 
-    const target = cards[targetIdx];
     navCommentId = target.dataset.commentId;
 
     if (navHighlightTimer) {
