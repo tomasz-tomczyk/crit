@@ -256,7 +256,7 @@ func requestHost(hostport string) string {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.checkHost(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		http.Error(w, s.hostForbiddenMessage(r), http.StatusForbidden)
 		return
 	}
 	// CSRF defense for browser clients: modern browsers always send
@@ -265,10 +265,34 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// header = non-browser client (CLI, curl, agent) — allow. same-origin =
 	// Crit UI on this port — allow. DNS-rebinding is handled by checkHost.
 	if !checkSecFetchSite(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		http.Error(w, secFetchSiteForbiddenMessage(r), http.StatusForbidden)
 		return
 	}
 	s.mux.ServeHTTP(w, r)
+}
+
+// hostForbiddenMessage explains a checkHost rejection so a reverse-proxy /
+// --public-url misconfig is diagnosable from the 403 body (see #788).
+func (s *Server) hostForbiddenMessage(r *http.Request) string {
+	host := requestHost(r.Host)
+	if s.publicURLHost == "" {
+		return fmt.Sprintf(
+			"Forbidden: request Host %q does not match loopback (set --public-url if reaching Crit via a reverse proxy)",
+			host,
+		)
+	}
+	return fmt.Sprintf(
+		"Forbidden: request Host %q does not match loopback or --public-url %q",
+		host, s.publicURLHost,
+	)
+}
+
+// secFetchSiteForbiddenMessage explains a checkSecFetchSite rejection.
+func secFetchSiteForbiddenMessage(r *http.Request) string {
+	return fmt.Sprintf(
+		"Forbidden: cross-origin browser request rejected (Sec-Fetch-Site: %q)",
+		r.Header.Get("Sec-Fetch-Site"),
+	)
 }
 
 // checkSecFetchSite reports whether a request is allowed under the CSRF policy.

@@ -131,6 +131,77 @@ func TestHostCheck(t *testing.T) {
 	}
 }
 
+// TestHostCheckForbiddenMessage pins #788: a Host-header mismatch must name
+// the offending Host and point at --public-url (or say it isn't set), so a
+// reverse-proxy misconfig doesn't look like a silent networking failure.
+func TestHostCheckForbiddenMessage(t *testing.T) {
+	t.Run("no public-url configured", func(t *testing.T) {
+		s, _ := newTestServer(t)
+		s.SetListenHost("127.0.0.1")
+		req := httptest.NewRequest("GET", "/api/session", nil)
+		req.Host = "machine.ts.net"
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, `Host "machine.ts.net"`) {
+			t.Errorf("body missing Host quote: %q", body)
+		}
+		if !strings.Contains(body, "--public-url") {
+			t.Errorf("body missing --public-url hint: %q", body)
+		}
+		if strings.TrimSpace(body) == "Forbidden" {
+			t.Errorf("body is bare Forbidden with no reason: %q", body)
+		}
+	})
+	t.Run("public-url set but Host mismatches", func(t *testing.T) {
+		s, _ := newTestServer(t)
+		s.SetListenHost("127.0.0.1")
+		s.SetPublicURL("https://correct.ts.net")
+		req := httptest.NewRequest("GET", "/api/session", nil)
+		req.Host = "wrong.ts.net"
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, `Host "wrong.ts.net"`) {
+			t.Errorf("body missing Host quote: %q", body)
+		}
+		if !strings.Contains(body, "correct.ts.net") {
+			t.Errorf("body missing configured --public-url host: %q", body)
+		}
+	})
+}
+
+// TestSecFetchSiteForbiddenMessage pins #788 for the CSRF gate: rejected
+// cross-site POSTs must name Sec-Fetch-Site rather than a bare "Forbidden".
+func TestSecFetchSiteForbiddenMessage(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.SetListenHost("127.0.0.1")
+	req := httptest.NewRequest(http.MethodPost, "/api/file/comments?path=test.md", strings.NewReader(`{}`))
+	req.Host = "127.0.0.1:9"
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Sec-Fetch-Site") {
+		t.Errorf("body missing Sec-Fetch-Site: %q", body)
+	}
+	if !strings.Contains(body, "cross-site") {
+		t.Errorf("body missing cross-site value: %q", body)
+	}
+	if strings.TrimSpace(body) == "Forbidden" {
+		t.Errorf("body is bare Forbidden with no reason: %q", body)
+	}
+}
+
 func TestIsLoopbackHost(t *testing.T) {
 	tests := []struct {
 		host string
