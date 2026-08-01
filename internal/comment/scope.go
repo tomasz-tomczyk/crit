@@ -85,7 +85,10 @@ func ResolveCommentScope(override CommentFocusOverride, outputDir string) (sessi
 }
 
 func resolveCommentScopeAtPath(override CommentFocusOverride, critPath string) (session.InheritedScope, error) {
-	daemonFocus := session.ProbeDaemonFocus()
+	return resolveCommentScopeAtPathWithFocus(override, critPath, session.ProbeDaemonFocus())
+}
+
+func resolveCommentScopeAtPathWithFocus(override CommentFocusOverride, critPath string, daemonFocus *session.Focus) (session.InheritedScope, error) {
 
 	switch override {
 	case ScopeOverrideWorkingTree:

@@ -297,6 +297,31 @@ func ListSessionsForCWD(cwd string) ([]SessionEntry, error) {
 	return sessions, err
 }
 
+// ListSessionsForCWDWithKeys is like ListSessionsForCWD, but also returns the
+// stable session IDs in the same order as the entries. Commands that present
+// or accept an explicit session selector should use this variant.
+func ListSessionsForCWDWithKeys(cwd string) ([]SessionEntry, []string, error) {
+	return scanSessionsForCWD(cwd)
+}
+
+// SessionsForBranch narrows session candidates to the current branch when at
+// least one matches. If none match, it preserves the original candidates so
+// callers can retain their existing fallback behavior.
+func SessionsForBranch(sessions []SessionEntry, keys []string, branch string) ([]SessionEntry, []string) {
+	var matchedSessions []SessionEntry
+	var matchedKeys []string
+	for i, entry := range sessions {
+		if entry.Branch == branch && i < len(keys) {
+			matchedSessions = append(matchedSessions, entry)
+			matchedKeys = append(matchedKeys, keys[i])
+		}
+	}
+	if len(matchedSessions) == 0 {
+		return sessions, keys
+	}
+	return matchedSessions, matchedKeys
+}
+
 // listSessionsForCWD returns all alive sessions whose CWD matches, along with
 // their registry keys. Cleans up stale session files as a side effect.
 // Errors are discarded here: the callers that need keys (branch/cwd lookups)

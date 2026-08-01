@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
@@ -47,6 +48,32 @@ func captureStatusJSON(t *testing.T) map[string]interface{} {
 		t.Fatalf("decoding status JSON %q: %v", data, err)
 	}
 	return result
+}
+
+func captureStatusHuman(t *testing.T) string {
+	t.Helper()
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	t.Cleanup(func() { os.Stdout = original })
+	if err := RunStatus(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = original
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func writeStatusReview(t *testing.T, reviewPath string) {
@@ -164,6 +191,77 @@ func TestRunStatusLiveSessionWinsOverConfiguredOutput(t *testing.T) {
 	want := filepath.Join(liveReviewPath, "review.json")
 	if result["review_file"] != want {
 		t.Fatalf("review_file = %q, want live session path %q", result["review_file"], want)
+	}
+}
+
+func TestRunStatusListsAllMatchingSessions(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := vcs.DetectVCS("")
+	if backend == nil {
+		t.Fatal("expected git repository")
+	}
+
+	const firstKey = "111111111111"
+	const secondKey = "222222222222"
+	const otherBranchKey = "333333333333"
+	for key, testSession := range map[string]struct {
+		args   []string
+		branch string
+	}{
+		firstKey:       {args: []string{"one.md"}, branch: backend.CurrentBranch()},
+		secondKey:      {args: []string{"two.md"}, branch: backend.CurrentBranch()},
+		otherBranchKey: {args: []string{"other.md"}, branch: "other-branch"},
+	} {
+		reviewPath := filepath.Join(t.TempDir(), key)
+		writeStatusReview(t, reviewPath)
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID: os.Getpid(), Port: port, CWD: cwd, Branch: testSession.branch, Args: testSession.args, ReviewPath: reviewPath,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result := captureStatusJSON(t)
+	sessions, ok := result["sessions"].([]interface{})
+	if !ok || len(sessions) != 2 {
+		t.Fatalf("sessions = %#v, want two entries", result["sessions"])
+	}
+	got := map[string]bool{}
+	for _, raw := range sessions {
+		entry := raw.(map[string]interface{})
+		got[entry["id"].(string)] = true
+	}
+	if !got[firstKey] || !got[secondKey] {
+		t.Fatalf("session IDs = %v, want %s and %s", got, firstKey, secondKey)
+	}
+	if got[otherBranchKey] {
+		t.Fatalf("session IDs = %v, should not include other branch %s", got, otherBranchKey)
+	}
+	human := captureStatusHuman(t)
+	for _, want := range []string{"Active reviews: 2", firstKey, "one.md", secondKey, "two.md"} {
+		if !strings.Contains(human, want) {
+			t.Fatalf("status output %q does not contain %q", human, want)
+		}
 	}
 }
 

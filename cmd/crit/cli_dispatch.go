@@ -66,9 +66,9 @@ Options:
 	{name: "comment", handler: runComment, help: `Usage: crit comment [options] <body>
        crit comment [options] <path> <body>
        crit comment [options] <path>:<line[-end]> <body>
-       crit comment --reply-to <id> [--resolve] <body>
-       crit comment --json [--file <path>]
-       crit comment --clear
+       crit comment [options] --reply-to <id> [--resolve] <body>
+       crit comment [options] --json [--file <path>]
+       crit comment [options] --clear
 
 Add, reply to, bulk import, or clear review comments.
 
@@ -76,6 +76,7 @@ Options:
   -o, --output <dir>   Crit data root for reviews
       --author <name>  Comment author
       --plan <name>    Target a stored plan review
+      --session <id>   Target an active review session (all comment modes)
       --reply-to <id>  Reply to an existing comment
       --resolve        Resolve the parent after replying
       --path <path>    File path for a reply
@@ -167,7 +168,7 @@ Stop the review daemon for the current session. Specify files to target an
 exact file-mode session, or use --all to stop every daemon.`},
 	{name: "status", handler: runStatus, help: `Usage: crit status [--json]
 
-Show the review path, daemon status, and comment counts.`},
+Show active session IDs and review paths, daemon status, and comment counts.`},
 	{name: "stats", handler: runStats, help: `Usage: crit stats [--json]
 
 Show lifetime review statistics.`},

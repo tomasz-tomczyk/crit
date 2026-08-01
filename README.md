@@ -150,12 +150,14 @@ AI agents can use `crit comment` to add inline review comments without opening t
 ```bash
 crit comment src/auth.go:42 'Missing null check'
 crit comment src/handler.go:15-28 'Error handling issue'
+crit comment --session 839f3b4cd5d6 src/auth.go:42 'Target this review'
+echo '[{"body":"Overall feedback"}]' | crit comment --session 839f3b4cd5d6 --json
 crit comment --output ~/.crit src/auth.go:42 'comment'  # same as default (~/.crit/reviews/<key>/)
 crit comment --output .crit src/auth.go:42 'comment'    # in-repo: .crit/reviews/<key>/
 crit comment --clear   # remove the review file
 ```
 
-Comments are appended to the review file (stored in `~/.crit/reviews/`) and created automatically if it doesn't exist. Run `crit status` to see the active review file path.
+Comments are appended to the review file (stored in `~/.crit/reviews/`) and created automatically if it doesn't exist. Run `crit status` to see active review session IDs and paths. If multiple sessions match the same directory and branch, select one with `crit comment --session <id>`; an unqualified command fails instead of guessing.
 
 ### Share for Async Review
 

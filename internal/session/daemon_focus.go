@@ -16,6 +16,12 @@ func ProbeDaemonFocus() *Focus {
 	return probeDaemonFocusFn()
 }
 
+// ProbeDaemonFocusForSession reads focus from one explicitly selected daemon.
+// It avoids inheriting focus metadata from a sibling review in the same cwd.
+func ProbeDaemonFocusForSession(entry daemon.SessionEntry) *Focus {
+	return fetchSessionFocus(&http.Client{Timeout: 2 * time.Second}, entry.Host, entry.Port)
+}
+
 // SetProbeDaemonFocusFnForTest replaces daemon focus probing during tests.
 func SetProbeDaemonFocusFnForTest(fn func() *Focus) (restore func()) {
 	prev := probeDaemonFocusFn
