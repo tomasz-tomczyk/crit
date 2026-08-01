@@ -8877,6 +8877,10 @@
     const shortcutRegistry = window.crit && window.crit.shortcuts;
     const shortcutAction = shortcutRegistry ? shortcutRegistry.actionForEvent(e, 'code-review') : '';
     if (!shortcutAction && (e.metaKey || e.ctrlKey || e.altKey)) return;
+    const interactive = e.target && e.target.closest && e.target.closest(
+      'button, a[href], summary, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"], [role="slider"]'
+    );
+    if (interactive && [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
 
     // Story navigation actions (chapter nav / overview / jump / help). Scoped
     // to the active story view. Returns early if consumed.

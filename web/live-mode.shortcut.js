@@ -17,6 +17,13 @@
       return;
     }
     if (ctx.settingsOpen) return;
+    var target = ev.target;
+    var tag = target && target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (target && target.isContentEditable)) return;
+    var interactive = target && target.closest && target.closest(
+      'button, a[href], select, summary, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"], [role="slider"], [role="combobox"], [role="textbox"], [role="spinbutton"]'
+    );
+    if (interactive && [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(ev.key) !== -1) return;
     var action = typeof ctx.actionForEvent === 'function' ? ctx.actionForEvent(ev) : '';
     // Shift+F triggers Finish Review for parity with code-review mode.
     // Match against `key` (case-sensitive 'F' arrives when shift is held)

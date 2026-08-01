@@ -62,3 +62,28 @@ test('eventToBinding supports modifier chords and readable special keys', () => 
   assert.equal(shortcuts.eventToBinding({ key: ' ', code: 'Space' }), 'Space');
   assert.equal(shortcuts.eventToBinding({ key: 'Shift', code: 'ShiftLeft', shiftKey: true }), '');
 });
+
+test('malformed and unknown persisted overrides are ignored', () => {
+  const { shortcuts } = loadShortcuts({ shortcuts: { next_block: 7, unknown: 'x' } });
+  assert.equal(shortcuts.getBinding('next_block'), 'j');
+});
+
+test('reserved and conflicting persisted overrides are ignored', () => {
+  const { shortcuts } = loadShortcuts({ shortcuts: { next_block: 'Ctrl+Enter', previous_block: 'j' } });
+  assert.equal(shortcuts.getBinding('next_block'), 'j');
+  assert.equal(shortcuts.getBinding('previous_block'), 'k');
+});
+
+test('setBinding rejects reserved and conflicting bindings', () => {
+  const { shortcuts, settings } = loadShortcuts();
+  assert.equal(shortcuts.setBinding('next_block', 'Ctrl+Enter'), false);
+  assert.equal(shortcuts.setBinding('next_block', 'k'), false);
+  assert.deepEqual(settings, {});
+});
+
+test('all modified question-mark chords are reserved', () => {
+  const { shortcuts } = loadShortcuts();
+  assert.equal(shortcuts.isReservedBinding('Shift+/'), true);
+  assert.equal(shortcuts.isReservedBinding('Ctrl+Shift+/'), true);
+  assert.equal(shortcuts.isReservedBinding('Meta+Alt+Shift+/'), true);
+});

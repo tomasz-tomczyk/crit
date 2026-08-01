@@ -2211,7 +2211,7 @@
   // ---- keyboard shortcut (p/Esc) gated on focus-state ----
   document.addEventListener('keydown', function (ev) {
     var t = ev.target;
-    var localFocus = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || (t.isContentEditable));
+    var localFocus = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.isContentEditable));
     if (localFocus) return;
     var sc = window.crit && window.crit.live && window.crit.live.shortcut;
     if (!sc) return;

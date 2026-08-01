@@ -72,10 +72,36 @@
     return root.crit && root.crit.shared;
   }
 
+  function isReservedBinding(binding) {
+    if (['Esc', 'Tab', 'Enter', '1', '2', '3', '4', '5', '6', '7', '8', '9'].indexOf(binding) !== -1) return true;
+    var parts = binding ? binding.split('+') : [];
+    return parts[parts.length - 1] === '/' && parts.indexOf('Shift') !== -1 ||
+      parts[parts.length - 1] === 'Enter' && (parts.indexOf('Ctrl') !== -1 || parts.indexOf('Meta') !== -1);
+  }
+
   function overrides() {
     var helpers = shared();
     var value = helpers && helpers.getSetting ? helpers.getSetting('shortcuts', {}) : {};
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    var candidates = {};
+    var valid = {};
+    Object.keys(value).forEach(function (id) {
+      if (byID[id] && typeof value[id] === 'string' && !isReservedBinding(value[id])) candidates[id] = value[id];
+    });
+    Object.keys(candidates).forEach(function (id) {
+      var binding = candidates[id];
+      var conflict = false;
+      groups.some(function (group) {
+        return group.shortcuts.some(function (other) {
+          if (!other.id || other.id === id || other.modes.every(function (mode) { return byID[id].modes.indexOf(mode) === -1; })) return false;
+          var otherBinding = Object.prototype.hasOwnProperty.call(candidates, other.id) ? candidates[other.id] : other.binding;
+          if (otherBinding === binding) { conflict = true; return true; }
+          return false;
+        });
+      });
+      if (!conflict) valid[id] = binding;
+    });
+    return valid;
   }
 
   function getBinding(id) {
@@ -87,6 +113,8 @@
 
   function setBinding(id, binding) {
     if (!byID[id]) return false;
+    if (binding && isReservedBinding(binding)) return false;
+    if (binding && findConflict(id, binding)) return false;
     var saved = overrides();
     if (binding === byID[id].binding) delete saved[id];
     else saved[id] = binding;
@@ -194,5 +222,6 @@
     eventToBinding: eventToBinding,
     actionForEvent: actionForEvent,
     findConflict: findConflict,
+    isReservedBinding: isReservedBinding,
   };
 });

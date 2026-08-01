@@ -148,3 +148,36 @@ test('resolved actions are suppressed while settings are open', () => {
   handleShortcut({ key: 'x' }, ctx);
   assert.equal(mode, 'navigate');
 });
+
+test('printable shortcuts remain available after a button retains focus', () => {
+  let mode = 'navigate';
+  const button = { closest: () => button };
+  handleShortcut({ key: 'x', target: button, preventDefault: () => {} }, shortcutCtx({
+    actionForEvent: () => 'toggle_pin_mode',
+    getMode: () => mode,
+    setMode: (next) => { mode = next; },
+  }));
+  assert.equal(mode, 'pin');
+});
+
+test('native button keys are not hijacked by shortcuts', () => {
+  let mode = 'navigate';
+  const button = { closest: () => button };
+  handleShortcut({ key: ' ', target: button }, shortcutCtx({
+    actionForEvent: () => 'toggle_pin_mode',
+    getMode: () => mode,
+    setMode: (next) => { mode = next; },
+  }));
+  assert.equal(mode, 'navigate');
+});
+
+test('native select keys are not hijacked by shortcuts', () => {
+  let mode = 'navigate';
+  const select = { tagName: 'SELECT', closest: () => select, isContentEditable: false };
+  handleShortcut({ key: 'ArrowDown', target: select }, shortcutCtx({
+    actionForEvent: () => 'toggle_pin_mode',
+    getMode: () => mode,
+    setMode: (next) => { mode = next; },
+  }));
+  assert.equal(mode, 'navigate');
+});

@@ -44,11 +44,8 @@
   }
 
   function isReservedBinding(binding) {
-    var reserved = ['Esc', 'Shift+/', 'Tab', 'Enter', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-    if (reserved.indexOf(binding) !== -1) return true;
-    var parts = binding.split('+');
-    return parts[parts.length - 1] === 'Enter' &&
-      (parts.indexOf('Ctrl') !== -1 || parts.indexOf('Meta') !== -1);
+    var shortcuts = window.crit && window.crit.shortcuts;
+    return shortcuts && shortcuts.isReservedBinding ? shortcuts.isReservedBinding(binding) : false;
   }
 
   function renderShortcutsPane(pane, opts) {
@@ -104,8 +101,17 @@
         // change height when plain button text replaces their binding.
         button.innerHTML = '<kbd>Press keys…</kbd>';
       });
-      button.addEventListener('blur', function () {
-        if (button.classList.contains('is-capturing')) rerender();
+      button.addEventListener('blur', function (e) {
+        if (!button.classList.contains('is-capturing')) return;
+        var next = e && e.relatedTarget;
+        var movesWithinShortcutControls = next && next.closest &&
+          next.closest('.shortcut-binding, .shortcut-reset-all');
+        if (movesWithinShortcutControls) {
+          button.classList.remove('is-capturing');
+          button.innerHTML = bindingHTML(shortcuts.getBinding(button.dataset.shortcutId));
+          return;
+        }
+        rerender();
       });
       button.addEventListener('keydown', function (e) {
         if (!button.classList.contains('is-capturing')) return;
