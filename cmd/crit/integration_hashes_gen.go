@@ -6,7 +6,7 @@ var integrationHashes = map[string]string{
 	"integrations/aider/CONVENTIONS.md":                             "5e699f6ff2473ffeb3aa194466125f6fd0c9a8dd4f8fa0dc05a63e92a1eea9ed",
 	"integrations/ampcode/skills/crit-cli/SKILL.md":                 "6da4546385cfa4ab726b5c5d6a008eb1e5e68a673f3598e2dd8a568a0dde5e69",
 	"integrations/ampcode/skills/crit/SKILL.md":                     "593e81c7c33666733509fcb81ae23b218388858fc7416a037ca1d67f72c29fe9",
-	"integrations/claude-code/.claude-plugin/plugin.json":           "0d70cdb1a54763b9d7cd549de72ec200fbfb8fb1d91749d6d81079f33ab297e9",
+	"integrations/claude-code/.claude-plugin/plugin.json":           "04005a7ff06035eabc0dd86ab86a570fdfa157a4cadb8f67994df013e546d81b",
 	"integrations/claude-code/hooks/hooks.json":                     "beba2c8bd252637ff31b57ed868e4d56135e1a3f429f872befbd2d34b834512b",
 	"integrations/claude-code/skills/crit-cli/SKILL.md":             "0e4dfa41c0fbf1a540bc97d78876da8bf59ebf6de753c0ae3763f847052851e8",
 	"integrations/claude-code/skills/crit-story/SKILL.md":           "0d40adbb8aea73c78a0ecb5dd923c519a572196fb549424bc46678cb846aa185",

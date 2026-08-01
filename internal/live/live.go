@@ -190,7 +190,7 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
-	quiet := fs.Bool("quiet", false, "On success, suppress connect/start status and tips")
+	quiet := fs.Bool("quiet", false, "On success, suppress connect/start status, tips, and session summary")
 	fs.BoolVar(quiet, "q", false, "On success, suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
 	var cookieFlags stringSliceFlag

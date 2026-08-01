@@ -372,7 +372,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `--no-open`     |       | `no_open`             | Don't auto-open browser                |
 | `--share-url`   |       | `share_url`           | Share service URL                      |
 | `--output`      | `-o`  | `output`              | Crit data root for reviews (`<root>/reviews/<key>/`). Honors a leftover `<root>/.crit` from older crit versions until removed. |
-| `--quiet`       | `-q`  | `quiet`               | On success, suppress connect/start status and tips                 |
+| `--quiet`       | `-q`  | `quiet`               | On success, suppress connect/start status, tips, and session summary                 |
 | `--base-branch` |       | `base_branch`         | Base branch to diff against            |
 | `--vcs`         |       | `vcs`                 | VCS backend (`git`, `sl`, or `jj`)     |
 | `--no-ignore`   |       |                       | Temporarily bypass all ignore patterns |

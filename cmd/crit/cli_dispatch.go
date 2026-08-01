@@ -111,7 +111,7 @@ Options:
       --cdp-url <url>      Reuse cookies from Chrome DevTools
       --share-url <url>    Share service URL
       --no-open            Do not open a browser
-  -q, --quiet              On success, suppress connect/start status and tips`},
+  -q, --quiet              On success, suppress connect/start status, tips, and session summary`},
 	{name: "preview", handler: runPreview, help: `Usage: crit preview [options] <file.html>
 
 Review a local HTML file in preview mode.
@@ -124,7 +124,7 @@ Options:
                           Allow non-loopback --host or --public-url
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
-  -q, --quiet             On success, suppress connect/start status and tips`},
+  -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "plan", handler: runPlan, help: `Usage: crit plan [--name <slug>] [options] <file>
        echo "content" | crit plan [--name <slug>] [options]
 
@@ -139,7 +139,7 @@ Options:
   -p, --port <port>       Port to listen on
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
-  -q, --quiet             On success, suppress connect/start status and tips`},
+  -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "story", handler: runStory, helpFn: printStoryUsage, bareHelp: true},
 	{name: "auth", handler: runAuth, help: `Usage: crit auth <login|logout|whoami>
 
@@ -323,7 +323,7 @@ Options:
   -o, --output <dir>          Crit data root for reviews (default: ~/.crit)
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
-  -q, --quiet                 On success, suppress connect/start status and tips
+  -q, --quiet                 On success, suppress connect/start status, tips, and session summary
       --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
       --scope <mode>          Diff scope for PR review: layer (default) or full-stack
