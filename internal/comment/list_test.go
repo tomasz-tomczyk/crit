@@ -110,6 +110,17 @@ func TestFormatCommentsText_WithReplies(t *testing.T) {
 	}
 }
 
+func TestEncodeCommentsJSON_EmptyIsArray(t *testing.T) {
+	data, err := encodeCommentsJSON(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(string(data))
+	if got != "[]" {
+		t.Fatalf("empty comments JSON = %q, want []", got)
+	}
+}
+
 func TestRunComments_JSONOutput(t *testing.T) {
 	tmp := t.TempDir()
 	writeTestReview(t, tmp, CritJSON{

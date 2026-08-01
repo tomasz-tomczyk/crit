@@ -175,5 +175,8 @@ func indentLines(spaces int, s string) string {
 }
 
 func encodeCommentsJSON(entries []ListedComment) ([]byte, error) {
+	if entries == nil {
+		entries = []ListedComment{}
+	}
 	return json.MarshalIndent(entries, "", "  ")
 }
