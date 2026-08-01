@@ -338,6 +338,7 @@
         'crit-icons.js',
         'crit-comment-card-helpers.js',
         'crit-comment-card.js',
+        'crit-shortcuts.js',
         'crit-settings-panes.js',
         'crit-settings-overlay.js',
         'crit-share.js',
@@ -441,6 +442,8 @@
       var ch = document.createElement('script'); ch.src = 'crit-comment-card-helpers.js'; ch.async = false; document.body.appendChild(ch);
       // Shared comment-card renderer (used by app.js and live-mode). Must load before app.js.
       var cc = document.createElement('script'); cc.src = 'crit-comment-card.js'; cc.async = false; document.body.appendChild(cc);
+      // Shared shortcut registry, persistence, and key normalization.
+      var ks = document.createElement('script'); ks.src = 'crit-shortcuts.js'; ks.async = false; document.body.appendChild(ks);
       // Shared settings-overlay panes (Shortcuts + About). Must load before app.js.
       var sp = document.createElement('script'); sp.src = 'crit-settings-panes.js'; sp.async = false; document.body.appendChild(sp);
       // Shared settings-overlay shell (open/close/Esc/focus-trap/tab nav). Must load before app.js.

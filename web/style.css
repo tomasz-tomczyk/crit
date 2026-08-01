@@ -2981,6 +2981,26 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 }
 
 /* Shortcuts table (inside settings panel) */
+.shortcuts-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--crit-editor-fg-muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.shortcut-reset-all {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--crit-brand);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.shortcut-reset-all:hover { text-decoration: underline; }
+.shortcut-reset-all:focus-visible { outline: none; box-shadow: var(--crit-focus); }
 .shortcuts-group-label {
   font-size: 12px;
   text-transform: uppercase;
@@ -3011,12 +3031,41 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   background: var(--crit-editor-bg-elevated);
   border: 1px solid var(--crit-border);
   border-radius: 4px;
+  box-sizing: border-box;
+  height: 22px;
+  line-height: 18px;
   padding: 1px 6px;
   font-family: var(--crit-font-mono);
   font-size: 12px;
   color: var(--crit-editor-fg);
   min-width: 24px;
   text-align: center;
+  vertical-align: middle;
+}
+.shortcut-binding {
+  appearance: none;
+  align-items: center;
+  border: 0;
+  box-sizing: border-box;
+  background: none;
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  height: 26px;
+  line-height: 1;
+  padding: 2px;
+  vertical-align: middle;
+}
+.shortcut-binding:hover { background: var(--crit-editor-bg-hover); }
+.shortcut-binding:focus-visible,
+.shortcut-binding.is-capturing { outline: none; box-shadow: var(--crit-focus); }
+.shortcut-binding.is-customized kbd { border-color: var(--crit-brand); }
+.shortcut-unassigned {
+  color: var(--crit-editor-fg-muted);
+  font-size: 12px;
+  font-style: italic;
 }
 .shortcut-mode-badge {
   display: inline-block;

@@ -29,6 +29,20 @@ test('Esc exits pin only', () => {
   assert.equal(mode, 'navigate');
 });
 
+test('? opens the shortcuts pane', () => {
+  let opened = 0;
+  let prevented = 0;
+  let stopped = 0;
+  handleShortcut({
+    key: '?',
+    preventDefault: () => { prevented++; },
+    stopImmediatePropagation: () => { stopped++; },
+  }, shortcutCtx({ toggleShortcuts: () => { opened++; } }));
+  assert.equal(opened, 1);
+  assert.equal(prevented, 1);
+  assert.equal(stopped, 1);
+});
+
 test('shortcuts suppressed while focusInInput', () => {
   let mode = 'navigate';
   let finished = 0;
@@ -106,4 +120,31 @@ test('Shift+F suppressed while focusInInput', () => {
     shortcutCtx({ focusInInput: true, finishReview: () => { finished++; } })
   );
   assert.equal(finished, 0);
+});
+
+test('resolved actions support customized live-mode bindings', () => {
+  let mode = 'navigate';
+  let prevented = 0;
+  const ctx = shortcutCtx({
+    actionForEvent: (ev) => ev.key === 'x' ? 'toggle_pin_mode' : '',
+    getMode: () => mode,
+    setMode: (next) => { mode = next; },
+  });
+  handleShortcut({ key: 'p' }, ctx);
+  assert.equal(mode, 'navigate', 'old default no longer fires after a rebind');
+  handleShortcut({ key: 'x', preventDefault: () => { prevented++; } }, ctx);
+  assert.equal(mode, 'pin');
+  assert.equal(prevented, 1);
+});
+
+test('resolved actions are suppressed while settings are open', () => {
+  let mode = 'navigate';
+  const ctx = shortcutCtx({
+    settingsOpen: true,
+    actionForEvent: () => 'toggle_pin_mode',
+    getMode: () => mode,
+    setMode: (next) => { mode = next; },
+  });
+  handleShortcut({ key: 'x' }, ctx);
+  assert.equal(mode, 'navigate');
 });

@@ -59,6 +59,21 @@ test.describe('Settings Panel — File Mode', () => {
     await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
   });
 
+  test('custom shortcut can be set and used in file mode', async ({ page }) => {
+    await page.keyboard.press('?');
+    await page.locator('[data-shortcut-id="next_block"]').click();
+    await page.keyboard.press('ArrowDown');
+    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
+
+    await page.keyboard.press('j');
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+
+    await page.keyboard.press('?');
+    await page.locator('.shortcut-reset-all').click();
+  });
+
   test('theme toggle in settings panel changes theme', async ({ page }) => {
     await page.click('#settingsToggle');
     await page.click('[data-settings-theme="dark"]');

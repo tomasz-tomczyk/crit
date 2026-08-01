@@ -54,6 +54,8 @@ function loadShared() {
   const sandbox = { window: {}, document: { cookie: '', getElementById: () => null } };
   const sharedSrc = fs.readFileSync(path.join(__dirname, '..', 'crit-shared.js'), 'utf8');
   new Function('window', 'document', sharedSrc)(sandbox.window, sandbox.document);
+  const shortcutsSrc = fs.readFileSync(path.join(__dirname, '..', 'crit-shortcuts.js'), 'utf8');
+  new Function('window', 'globalThis', 'module', shortcutsSrc)(sandbox.window, sandbox.window, undefined);
   const panesSrc = fs.readFileSync(path.join(__dirname, '..', 'crit-settings-panes.js'), 'utf8');
   // navigator.clipboard is referenced inside copy-button click handlers but
   // those handlers don't run during render.
@@ -333,7 +335,7 @@ test('renderShortcutsPane: code-review mode shows code-review-only shortcuts', (
   assert.match(html, /<kbd>h<\/kbd>/);
   assert.match(html, /Shift<\/kbd>\+<kbd>F/);
   assert.match(html, /Shift<\/kbd>\+<kbd>C/);
-  assert.match(html, /Switch scope/);
+  assert.match(html, /Switch to all changes/);
   assert.match(html, /Next story chapter/);
   assert.match(html, /Previous story chapter/);
   assert.match(html, /Story prologue/);

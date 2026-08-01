@@ -71,6 +71,60 @@ test.describe('Settings Panel', () => {
     await expect(pane.locator('.shortcuts-group-label').nth(3)).toHaveText('Story');
   });
 
+  test('custom shortcut is applied immediately, persists, and can be reset', async ({ page }) => {
+    await page.keyboard.press('?');
+    const nextBlock = page.locator('[data-shortcut-id="next_block"]');
+    await nextBlock.click();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('ArrowDown');
+
+    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press('j');
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+
+    // A write through app.js must merge with the freshly saved shortcut,
+    // rather than replacing it with an older cached settings object.
+    await page.keyboard.press('h');
+    await page.reload();
+    await page.keyboard.press('?');
+    await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('ArrowDown');
+    await page.locator('.shortcut-reset-all').click();
+    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press('j');
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+  });
+
+  test('shortcut conflicts are shown without changing the row height', async ({ page }) => {
+    await page.keyboard.press('?');
+    await page.locator('.settings-dialog').evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    });
+    const previousBlock = page.locator('[data-shortcut-id="previous_block"]');
+    const row = previousBlock.locator('xpath=ancestor::tr');
+    const heightBefore = await row.evaluate((element) => element.getBoundingClientRect().height);
+    await previousBlock.click();
+    const heightWhileEditing = await row.evaluate((element) => element.getBoundingClientRect().height);
+    expect(heightWhileEditing).toBe(heightBefore);
+    await page.keyboard.press('j');
+
+    await expect(page.locator('.mini-toast--error')).toContainText(
+      'already assigned to “Next block”',
+    );
+    await expect(row.locator('.shortcut-inline-feedback')).toHaveCount(0);
+  });
+
+  test('modified submit chords stay reserved', async ({ page }) => {
+    await page.keyboard.press('?');
+    const finishReview = page.locator('[data-shortcut-id="finish_review"]');
+    await finishReview.click();
+    await page.keyboard.press('Control+Shift+Enter');
+
+    await expect(page.locator('.mini-toast--error')).toContainText('is reserved by Crit');
+    await expect(finishReview).toContainText('Shift+F');
+  });
+
   test('settings pane shows display section with theme and width', async ({ page }) => {
     await page.click('#settingsToggle');
     const pane = page.locator('.settings-pane[data-pane="settings"]');

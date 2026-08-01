@@ -275,14 +275,11 @@
   // Exception: `crit-templates` stays in its own cookie because it's user-defined
   // and can be longer than the rest combined.
   const SETTINGS_COOKIE = 'crit-settings';
-  let settingsCache = null;
 
   function loadSettings() {
-    if (settingsCache) return settingsCache;
     const raw = getCookie(SETTINGS_COOKIE);
-    try { settingsCache = raw ? JSON.parse(raw) : {}; }
-    catch { settingsCache = {}; }
-    return settingsCache;
+    try { return raw ? JSON.parse(raw) : {}; }
+    catch { return {}; }
   }
 
   function getSetting(key, fallback) {
@@ -8853,7 +8850,7 @@
 
   document.addEventListener('keydown', function(e) {
     const tag = document.activeElement.tagName;
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || document.activeElement.isContentEditable) {
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || document.activeElement.isContentEditable) {
       if (e.key === 'Escape' && activeForms.length > 0) {
         e.preventDefault();
         const ta = document.activeElement;
@@ -8877,15 +8874,16 @@
     // short-circuit the rest of the keymap so we don't double-handle.
     if (settingsPanelOpen) return;
 
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const shortcutRegistry = window.crit && window.crit.shortcuts;
+    const shortcutAction = shortcutRegistry ? shortcutRegistry.actionForEvent(e, 'code-review') : '';
+    if (!shortcutAction && (e.metaKey || e.ctrlKey || e.altKey)) return;
 
-    // Story navigation keys (chapter nav / overview / jump / help). Scoped to
-    // when the story view is active; uses uppercase J/K so lowercase j/k keep
-    // their in-page block navigation below. Returns early if consumed.
-    if (handleStoryKey(e)) return;
+    // Story navigation actions (chapter nav / overview / jump / help). Scoped
+    // to the active story view. Returns early if consumed.
+    if (handleStoryKey(e, shortcutAction)) return;
 
-    switch (e.key) {
-      case 'j': case 'k': {
+    switch (shortcutAction || e.key) {
+      case 'next_block': case 'previous_block': {
         e.preventDefault();
         const allNav = navElements;
         if (allNav.length === 0) return;
@@ -8895,10 +8893,10 @@
           if (match) curIdx = allNav.indexOf(match);
         }
         if (curIdx === -1) {
-          curIdx = e.key === 'j' ? 0 : allNav.length - 1;
+          curIdx = shortcutAction === 'next_block' ? 0 : allNav.length - 1;
         } else {
-          if (e.key === 'j' && curIdx < allNav.length - 1) curIdx++;
-          if (e.key === 'k' && curIdx > 0) curIdx--;
+          if (shortcutAction === 'next_block' && curIdx < allNav.length - 1) curIdx++;
+          if (shortcutAction === 'previous_block' && curIdx > 0) curIdx--;
         }
         document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
         focusedElement = allNav[curIdx];
@@ -8919,7 +8917,7 @@
         if (visualMode) extendVisualSelection();
         break;
       }
-      case 'V': {
+      case 'visual_mode': {
         e.preventDefault();
         if (visualMode) {
           // Toggle off — preserve the focus on the current expansion point.
@@ -8929,7 +8927,7 @@
         }
         break;
       }
-      case 'c': {
+      case 'comment': {
         e.preventDefault();
         // Visual mode: comment on the active selection.
         if (visualMode && selectionStart !== null && selectionEnd !== null) {
@@ -8978,8 +8976,8 @@
         }
         break;
       }
-      case 'e':
-      case 'd': {
+      case 'edit_comment':
+      case 'delete_comment': {
         e.preventDefault();
         const loc = getFocusedCommentLocation();
         if (!loc) return;
@@ -8996,28 +8994,28 @@
           comment = file.comments.find(function(c) { return c.end_line === loc.lineNum && (c.side || '') === loc.side; });
         }
         if (!comment) return;
-        if (e.key === 'e') editComment(comment, loc.filePath);
+        if (shortcutAction === 'edit_comment') editComment(comment, loc.filePath);
         else deleteComment(comment.id, loc.filePath);
         break;
       }
-      case 'F': {
+      case 'finish_review': {
         e.preventDefault();
         if (uiState !== 'reviewing') return;
         document.getElementById('finishBtn').click();
         break;
       }
-      case 'G': {
+      case 'general_comment': {
         e.preventDefault();
         openReviewCommentForm();
         break;
       }
-      case 'C': {
+      case 'toggle_comments': {
         e.preventDefault();
         if (storyActive() && tryOpenFormFromSelection()) return;
         toggleCommentsPanel();
         break;
       }
-      case 'h': {
+      case 'toggle_resolved': {
         e.preventDefault();
         setHideResolved(!isHideResolved());
         renderAllFiles();
@@ -9025,39 +9023,39 @@
         if (ht) ht.checked = isHideResolved();
         break;
       }
-      case 't': {
+      case 'toggle_toc': {
         const tocBtn = document.getElementById('tocToggle');
         if (tocBtn.style.display === 'none') return;
         e.preventDefault();
         tocBtn.click();
         break;
       }
-      case ']': {
+      case 'next_comment': {
         e.preventDefault();
         navigateToComment(1);
         break;
       }
-      case '[': {
+      case 'previous_comment': {
         e.preventDefault();
         navigateToComment(-1);
         break;
       }
-      case 'n': {
+      case 'next_change': {
         if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(1);
         break;
       }
-      case 'N': {
+      case 'previous_change': {
         if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(-1);
         break;
       }
-      case '!': case '@': case '#': case '$': {
+      case 'scope_all': case 'scope_branch': case 'scope_staged': case 'scope_unstaged': {
         if (session.mode !== 'git') break;
-        const scopeMap = { '!': 'all', '@': 'branch', '#': 'staged', '$': 'unstaged' };
-        const scope = scopeMap[e.key];
+        const scopeMap = { scope_all: 'all', scope_branch: 'branch', scope_staged: 'staged', scope_unstaged: 'unstaged' };
+        const scope = scopeMap[shortcutAction];
         const btn = document.querySelector('#scopeToggle .toggle-btn[data-scope="' + scope + '"]');
         if (btn && !btn.disabled && !btn.classList.contains('active')) {
           e.preventDefault();
@@ -10772,26 +10770,25 @@
   function storyActive() { return !!storyState && document.body.classList.contains('crit-story-active'); }
 
   // Handle a keydown when story view is active. Returns true if consumed.
-  // Uppercase J/K (Shift) drive chapter nav so lowercase j/k keep their
-  // existing in-page block navigation. Scoped keys don't fire when typing.
-  function handleStoryKey(e) {
+  // Scoped story actions don't fire when typing or outside the story view.
+  function handleStoryKey(e, shortcutAction) {
     if (!storyActive()) return false;
     const pages = storyState.pages;
     const curIdx = storyView === 'overview' ? -1 : pages.indexOf(storyPageById(storyView));
-    switch (e.key) {
-      case 'J':
+    switch (shortcutAction || e.key) {
+      case 'story_next':
         e.preventDefault();
         if (curIdx === -1) { if (pages.length) showStory(storyPageId(pages[0])); }
         else if (curIdx < pages.length - 1) showStory(storyPageId(pages[curIdx + 1]));
         return true;
-      case 'K':
+      case 'story_previous':
         e.preventDefault();
         if (curIdx <= 0) showStory('overview');
         else showStory(storyPageId(pages[curIdx - 1]));
         return true;
-      case 'O':
+      case 'story_prologue':
         e.preventDefault(); showStory('overview'); return true;
-      case 'S':
+      case 'story_support':
         e.preventDefault();
         { const sp = storyPageById('support'); if (sp) showStory('support'); }
         return true;
@@ -10802,7 +10799,7 @@
         if (n < chs.length) { e.preventDefault(); showStory(storyPageId(chs[n])); return true; }
         return false;
       }
-      case '\\':
+      case 'story_toggle_list':
         e.preventDefault();
         document.body.classList.toggle('crit-story-rail-open');
         return true;

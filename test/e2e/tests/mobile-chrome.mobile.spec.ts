@@ -49,6 +49,34 @@ test.describe('Mobile chrome layout (F1)', () => {
     }).toPass();
   });
 
+  test('custom arrow shortcut does not hijack the mobile file picker', async ({ page }) => {
+    const picker = page.locator('#mobileFilePicker');
+    await expect(async () => {
+      expect(await picker.locator('option').count()).toBeGreaterThanOrEqual(2);
+    }).toPass();
+
+    await page.locator('#settingsToggle').click();
+    await page.locator('.settings-tab[data-tab="shortcuts"]').click();
+    await page.locator('[data-shortcut-id="next_block"]').click();
+    await page.keyboard.press('ArrowDown');
+    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
+
+    await page.evaluate(() => {
+      (window as typeof window & { __pickerDefaultPrevented?: boolean }).__pickerDefaultPrevented = true;
+      document.querySelector('#mobileFilePicker')!.addEventListener('keydown', (event) => {
+        setTimeout(() => {
+          (window as typeof window & { __pickerDefaultPrevented?: boolean }).__pickerDefaultPrevented = event.defaultPrevented;
+        }, 0);
+      }, { once: true });
+    });
+    await picker.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => page.evaluate(() =>
+      (window as typeof window & { __pickerDefaultPrevented?: boolean }).__pickerDefaultPrevented,
+    )).toBe(false);
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
+  });
+
   test('selecting a file scrolls that file section into view', async ({ page }) => {
     const picker = page.locator('#mobileFilePicker');
     await expect(picker).toBeVisible();

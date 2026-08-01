@@ -1564,7 +1564,7 @@
     var overlayApi = window.crit && window.crit.settingsOverlay;
     if (!overlayApi || !overlayApi.install) return;
     var closeBtn = overlay.querySelector && overlay.querySelector('#settingsClose');
-    overlayApi.install({
+    state.settingsOverlay = overlayApi.install({
       overlay: overlay,
       toggle: toggle,
       closeBtn: closeBtn,
@@ -2217,8 +2217,23 @@
     if (!sc) return;
     sc.handleShortcut(ev, {
       focusInInput: !!state.focusInInput,
+      settingsOpen: !!(state.settingsOverlay && state.settingsOverlay.isOpen && state.settingsOverlay.isOpen()),
+      actionForEvent: function (event) {
+        var shortcuts = window.crit && window.crit.shortcuts;
+        return shortcuts ? shortcuts.actionForEvent(event, 'live') : '';
+      },
       getMode: function () { return state.mode; },
       setMode: function (m) { setMode(m); },
+      toggleShortcuts: function () {
+        var settings = state.settingsOverlay;
+        if (!settings) return;
+        if (settings.isOpen && settings.isOpen() &&
+            settings.getActiveTab && settings.getActiveTab() === 'shortcuts') {
+          settings.close();
+        } else if (settings.open) {
+          settings.open('shortcuts');
+        }
+      },
       // Shift+F → click the finishBtn so the "no changes this round"
       // overlay + dedup guard inside the click handler fire just like a
       // mouse click. Skip when the button isn't installed yet or the UI

@@ -36,65 +36,34 @@
   // crit-shared.js loads before this file per index.html script order.
   var escapeHTML = window.crit.shared.escapeHTML;
 
-  // Each shortcut declares which modes it actually fires in. The renderer
-  // filters out entries that don't apply to the current mode so live-mode
-  // users aren't shown bindings that do nothing for them. Investigated
-  // bindings:
-  //   - live-mode: Esc, Ctrl+Enter, ? (and `p/P` for pin mode — live-only)
-  //   - code-review: j, k, ], [, n, N, c, e, d, G, Shift+F, Shift+C,
-  //                  Shift+1/2/3/4, t, h, Esc, Ctrl+Enter, ?
-  var BOTH = ['code-review', 'live'];
-  var CODE_REVIEW_ONLY = ['code-review'];
-  var LIVE_ONLY = ['live'];
+  function bindingHTML(binding) {
+    if (!binding) return '<span class="shortcut-unassigned">Unassigned</span>';
+    // En dash is used by the fixed story chapter range and is not a chord.
+    var parts = binding.indexOf('–') !== -1 ? [binding] : binding.split('+');
+    return parts.map(function (part) { return '<kbd>' + escapeHTML(part) + '</kbd>'; }).join('+');
+  }
+
+  function isReservedBinding(binding) {
+    var reserved = ['Esc', 'Shift+/', 'Tab', 'Enter', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    if (reserved.indexOf(binding) !== -1) return true;
+    var parts = binding.split('+');
+    return parts[parts.length - 1] === 'Enter' &&
+      (parts.indexOf('Ctrl') !== -1 || parts.indexOf('Meta') !== -1);
+  }
 
   function renderShortcutsPane(pane, opts) {
     if (!pane) return;
     opts = opts || {};
     var mode = opts.mode || 'code-review';
+    var shortcuts = window.crit && window.crit.shortcuts;
+    if (!shortcuts) return;
     var html = '';
+    html += '<div class="shortcuts-toolbar">';
+    html += '<span>Click a shortcut, then press its new keys. Backspace disables it.</span>';
+    html += '<button type="button" class="shortcut-reset-all">Reset all</button>';
+    html += '</div>';
 
-    var groups = [
-      { label: 'Navigation', shortcuts: [
-        { key: '<kbd>j</kbd>', action: 'Next block', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>k</kbd>', action: 'Previous block', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Shift</kbd>+<kbd>V</kbd>', action: 'Visual line mode (extend with j/k, then c to comment)', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>]</kbd>', action: 'Next comment', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>[</kbd>', action: 'Previous comment', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>n</kbd>', action: 'Next change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>N</kbd>', action: 'Previous change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
-      ]},
-      { label: 'Comments', shortcuts: [
-        { key: '<kbd>c</kbd>', action: 'Comment on focused block (or text selection, with quote)', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>e</kbd>', action: 'Edit comment on focused block', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>d</kbd>', action: 'Delete comment on focused block', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>G</kbd>', action: 'General comment', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', action: 'Comment', modes: BOTH },
-      ]},
-      { label: 'Review', shortcuts: [
-        { key: '<kbd>Shift</kbd>+<kbd>F</kbd>', action: 'Finish review', modes: BOTH },
-        { key: '<kbd>Shift</kbd>+<kbd>C</kbd>', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>', action: 'Switch scope', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
-      ]},
-      { label: 'Story', shortcuts: [
-        { key: '<kbd>Shift</kbd>+<kbd>J</kbd>', action: 'Next story chapter', mode: 'story mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Shift</kbd>+<kbd>K</kbd>', action: 'Previous story chapter', mode: 'story mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Shift</kbd>+<kbd>O</kbd>', action: 'Story prologue', mode: 'story mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Shift</kbd>+<kbd>S</kbd>', action: 'Story support', mode: 'story mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>1</kbd>-<kbd>9</kbd>', action: 'Jump to story chapter', mode: 'story mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>\\</kbd>', action: 'Toggle story chapter list', mode: 'story mode', modes: CODE_REVIEW_ONLY },
-      ]},
-      { label: 'Live', shortcuts: [
-        { key: '<kbd>p</kbd>', action: 'Toggle pin mode', modes: LIVE_ONLY },
-      ]},
-      { label: 'View', shortcuts: [
-        { key: '<kbd>t</kbd>', action: 'Toggle table of contents', mode: 'file mode', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>h</kbd>', action: 'Toggle hide resolved', modes: CODE_REVIEW_ONLY },
-        { key: '<kbd>Esc</kbd>', action: 'Cancel / clear focus', modes: BOTH },
-        { key: '<kbd>?</kbd>', action: 'Toggle this panel', modes: BOTH },
-      ]},
-    ];
-
-    groups.forEach(function (group) {
+    shortcuts.groups.forEach(function (group) {
       var visible = group.shortcuts.filter(function (s) {
         return s.modes && s.modes.indexOf(mode) !== -1;
       });
@@ -103,12 +72,72 @@
       html += '<table class="shortcuts-table">';
       visible.forEach(function (s) {
         var modeTag = s.mode ? '<span class="shortcut-mode-badge">' + s.mode + '</span>' : '';
-        html += '<tr><td>' + s.key + '</td><td>' + s.action + modeTag + '</td></tr>';
+        var binding = s.id ? shortcuts.getBinding(s.id) : s.binding;
+        var key = bindingHTML(binding);
+        if (s.id && !s.fixed) {
+          var customized = shortcuts.isCustomized(s.id) ? ' is-customized' : '';
+          key = '<button type="button" class="shortcut-binding' + customized + '" data-shortcut-id="' + escapeHTML(s.id)
+            + '" aria-label="Change shortcut for ' + escapeHTML(s.action) + '">' + key + '</button>';
+        }
+        html += '<tr><td>' + key + '</td><td>' + escapeHTML(s.action) + modeTag + '</td></tr>';
       });
       html += '</table>';
     });
 
     pane.innerHTML = html;
+
+    function rerender() {
+      renderShortcutsPane(pane, opts);
+      if (typeof opts.onChange === 'function') opts.onChange();
+    }
+
+    var reset = pane.querySelector('.shortcut-reset-all');
+    if (reset) reset.addEventListener('click', function () {
+      shortcuts.resetAll();
+      rerender();
+    });
+
+    pane.querySelectorAll('.shortcut-binding').forEach(function (button) {
+      button.addEventListener('click', function () {
+        button.classList.add('is-capturing');
+        // Keep the same <kbd> box while capturing so single-key rows do not
+        // change height when plain button text replaces their binding.
+        button.innerHTML = '<kbd>Press keys…</kbd>';
+      });
+      button.addEventListener('blur', function () {
+        if (button.classList.contains('is-capturing')) rerender();
+      });
+      button.addEventListener('keydown', function (e) {
+        if (!button.classList.contains('is-capturing')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        if (e.key === 'Escape') { rerender(); return; }
+
+        var binding = (e.key === 'Backspace' || e.key === 'Delete') ? '' : shortcuts.eventToBinding(e);
+        if (!binding && e.key !== 'Backspace' && e.key !== 'Delete') return;
+        var id = button.dataset.shortcutId;
+
+        function showError(message) {
+          button.classList.remove('is-capturing');
+          button.innerHTML = bindingHTML(shortcuts.getBinding(id));
+          var shared = window.crit && window.crit.shared;
+          if (shared && shared.showToast) shared.showToast(message, { kind: 'error' });
+        }
+
+        if (isReservedBinding(binding)) {
+          showError(binding + ' is reserved by Crit.');
+          return;
+        }
+        var conflict = shortcuts.findConflict(id, binding);
+        if (conflict) {
+          showError(binding + ' is already assigned to “' + conflict.action + '”.');
+          return;
+        }
+        shortcuts.setBinding(id, binding);
+        rerender();
+      });
+    });
   }
 
   function renderAboutPane(pane, cfg, sessionInfo) {
