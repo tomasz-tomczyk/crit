@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
 	"github.com/tomasz-tomczyk/crit/internal/session"
@@ -116,6 +117,17 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 			PrintHelpFn()
 		}
 	}
+	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
+	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
+		config.AllowUnauthenticatedNetworkFlag: true,
+		"no-open":                              true,
+		"version":                              true,
+		"v":                                    true,
+		"quiet":                                true,
+		"q":                                    true,
+		"no-ignore":                            true,
+		"remote":                               true,
+	})
 	fs.Parse(args)
 
 	return daemonFlagSet{

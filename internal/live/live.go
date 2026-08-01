@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/browser"
+	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
@@ -194,6 +195,13 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 	fs.Var(&cookieFlags, "cookie", "Cookie header value for upstream requests (repeatable)")
 	cookieFile := fs.String("cookie-file", "", "File with upstream cookies (raw header or Netscape jar)")
 	cdpURL := fs.String("cdp-url", "", "Chrome DevTools URL (e.g. http://127.0.0.1:9222) to reuse browser cookies")
+	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
+	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
+		config.AllowUnauthenticatedNetworkFlag: true,
+		"no-open":                              true,
+		"quiet":                                true,
+		"q":                                    true,
+	})
 	fs.Parse(args)
 
 	rawURL := ""

@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/tomasz-tomczyk/crit/internal/browser"
+	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
@@ -65,6 +66,13 @@ func RunPreview(args []string) {
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
+	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
+	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
+		"no-open":                              true,
+		config.AllowUnauthenticatedNetworkFlag: true,
+		"quiet":                                true,
+		"q":                                    true,
+	})
 	fs.Parse(args)
 
 	rawPath := ""

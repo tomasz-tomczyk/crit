@@ -1,6 +1,10 @@
 package live
 
-import "flag"
+import (
+	"flag"
+
+	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+)
 
 type serverFlagSet struct {
 	port        int
@@ -50,6 +54,16 @@ func parseServerFlags(args []string) serverFlagSet {
 	liveOrigin := fs.String("live-origin", "", "")
 	liveCookie := fs.String("live-cookie", "", "")
 	previewFile := fs.String("preview-file", "", "")
+	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
+	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
+		"no-open":   true,
+		"version":   true,
+		"v":         true,
+		"quiet":     true,
+		"q":         true,
+		"no-ignore": true,
+		"remote":    true,
+	})
 	fs.Parse(args)
 
 	return serverFlagSet{

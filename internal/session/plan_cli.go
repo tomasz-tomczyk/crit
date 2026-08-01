@@ -41,6 +41,13 @@ func resolvePlanConfig(args []string) planConfig {
 	quiet := fs.Bool("quiet", false, "Suppress status output")
 	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
+	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
+	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
+		config.AllowUnauthenticatedNetworkFlag: true,
+		"no-open":                              true,
+		"quiet":                                true,
+		"q":                                    true,
+	})
 	fs.Parse(args)
 
 	pc := planConfig{
