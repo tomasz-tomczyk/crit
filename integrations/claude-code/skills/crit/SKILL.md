@@ -26,7 +26,7 @@ If no arguments, check conversation context:
 2. Otherwise → bare `crit` (branch diff)
 
 <important if="the user wants to review remotely — e.g. from a phone via Tailscale, or any URL other than localhost">
-**Flags must come before the file/URL argument.** `crit <file> --public-url ...` silently misparses — the flags get swallowed as bogus extra file args instead of being recognized (crit#787). Always write:
+Run crit with the public URL and network flags:
 
 ```bash
 crit --public-url "https://<tailscale-magicdns-name-or-hostname>" --allow-unauthenticated-network --no-open <file>
