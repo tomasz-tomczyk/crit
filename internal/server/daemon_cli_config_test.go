@@ -692,6 +692,16 @@ func TestParseDaemonFlags_Session(t *testing.T) {
 	}
 }
 
+func TestParseDaemonFlags_FlagsAfterFile(t *testing.T) {
+	sf := parseDaemonFlagsForTest([]string{"plan.md", "-p", "51573", "--no-open", "--quiet"})
+	if sf.port != 51573 || !sf.noOpen || !sf.quiet {
+		t.Fatalf("flags after file not applied: %+v", sf)
+	}
+	if len(sf.fileArgs) != 1 || sf.fileArgs[0] != "plan.md" {
+		t.Fatalf("fileArgs = %v, want [plan.md]", sf.fileArgs)
+	}
+}
+
 func TestResolveDaemonCLIConfig_SessionID(t *testing.T) {
 	defer resetBranchOverride(t)
 	vcs.SetDefaultBranchOverride("")

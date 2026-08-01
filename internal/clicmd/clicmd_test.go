@@ -2,6 +2,7 @@ package clicmd
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"reflect"
@@ -126,9 +127,19 @@ func TestReorderFlagsFirst(t *testing.T) {
 			want: []string{"--public-url=https://x.ts.net", "design.md"},
 		},
 		{
-			name: "double-dash terminates reordering",
+			name: "double-dash terminates reordering and is preserved",
 			args: []string{"design.md", "--", "-not-a-flag"},
-			want: []string{"design.md", "-not-a-flag"},
+			want: []string{"--", "design.md", "-not-a-flag"},
+		},
+		{
+			name: "flag before terminator keeps dash-looking positional",
+			args: []string{"--no-open", "--", "-weird.md"},
+			want: []string{"--no-open", "--", "-weird.md"},
+		},
+		{
+			name: "leading terminator keeps following flags positional",
+			args: []string{"--", "--no-open", "design.md"},
+			want: []string{"--", "--no-open", "design.md"},
 		},
 		{
 			name: "bare dash is positional, not a flag",
@@ -151,6 +162,50 @@ func TestReorderFlagsFirst(t *testing.T) {
 			got := ReorderFlagsFirst(tt.args, boolFlags)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ReorderFlagsFirst(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReorderFlagsFirst_RoundTripFlagParse(t *testing.T) {
+	boolFlags := map[string]bool{"no-open": true}
+	tests := []struct {
+		name       string
+		args       []string
+		wantNoOpen bool
+		wantArgs   []string
+	}{
+		{
+			name:       "flag after file",
+			args:       []string{"design.md", "--no-open"},
+			wantNoOpen: true,
+			wantArgs:   []string{"design.md"},
+		},
+		{
+			name:       "dash-looking file after terminator",
+			args:       []string{"--no-open", "--", "-weird.md"},
+			wantNoOpen: true,
+			wantArgs:   []string{"-weird.md"},
+		},
+		{
+			name:       "leading terminator keeps flag literal",
+			args:       []string{"--", "--no-open", "design.md"},
+			wantNoOpen: false,
+			wantArgs:   []string{"--no-open", "design.md"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := flag.NewFlagSet(tt.name, flag.ContinueOnError)
+			noOpen := fs.Bool("no-open", false, "")
+			if err := fs.Parse(ReorderFlagsFirst(tt.args, boolFlags)); err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if *noOpen != tt.wantNoOpen {
+				t.Errorf("no-open = %v, want %v", *noOpen, tt.wantNoOpen)
+			}
+			if !reflect.DeepEqual(fs.Args(), tt.wantArgs) {
+				t.Errorf("Args() = %v, want %v", fs.Args(), tt.wantArgs)
 			}
 		})
 	}

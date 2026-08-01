@@ -85,15 +85,19 @@ func RequireFlagValue(args []string, i int, flag string) (string, error) {
 // boolFlags must name every flag (without leading dashes) that takes no
 // value, so the argument that follows it isn't mistaken for its value.
 // "-h"/"--help"/"-help" are always treated as valueless, matching the
-// stdlib flag package's built-in handling. A "--" argument is dropped and
-// ends reordering — everything after it is treated as positional, matching
-// flag.Parse's own terminator semantics.
+// stdlib flag package's built-in handling. A "--" argument ends
+// reordering: everything after it is treated as positional, and "--" is
+// re-emitted before the positional group so flag.Parse still treats
+// dash-looking positionals as non-flags (same terminator semantics).
+// Combined short flags like -pq are not expanded (same as stdlib flag).
 func ReorderFlagsFirst(args []string, boolFlags map[string]bool) []string {
 	flags := make([]string, 0, len(args))
 	positional := make([]string, 0, len(args))
+	sawTerminator := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
+			sawTerminator = true
 			positional = append(positional, args[i+1:]...)
 			break
 		}
@@ -113,6 +117,9 @@ func ReorderFlagsFirst(args []string, boolFlags map[string]bool) []string {
 			i++
 			flags = append(flags, args[i])
 		}
+	}
+	if sawTerminator {
+		return append(append(flags, "--"), positional...)
 	}
 	return append(flags, positional...)
 }
