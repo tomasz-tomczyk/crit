@@ -1,0 +1,53 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install jj
+        run: |
+          JJ_VERSION=0.40.0
+          mkdir -p /tmp/jj-install
+          curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar xz -C /tmp/jj-install
+          sudo install /tmp/jj-install/jj /usr/local/bin/jj
+          jj --version
+
+      - name: Install sapling
+        run: |
+          SL_VERSION="0.2.20260317-201835+0234c21f"
+          SL_VERSION_ENC="${SL_VERSION//+/%2B}"
+          sudo mkdir -p /opt/sapling
+          curl -fsSL "https://github.com/facebook/sapling/releases/download/${SL_VERSION_ENC}/sapling-${SL_VERSION}-linux-x64.tar.xz" \
+            | sudo tar xJ -C /opt/sapling
+          sudo ln -sf /opt/sapling/sl /usr/local/bin/sl
+          sl --version
+
+      - name: Cache Go build cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+
+      - name: Run tests with coverage
+        run: |
+          PKGS=$(go list ./... | grep -v /node_modules/)
+          go test -coverprofile=coverage.out -covermode=atomic $PKGS
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.out
+          flags: unit
+          token: ${{ secrets.CODECOV_TOKEN }}

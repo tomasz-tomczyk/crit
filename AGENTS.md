@@ -173,7 +173,7 @@ Eight Playwright projects. Test naming convention determines which project runs 
 
 The `mobile` project shares the git-mode fixture port. In `run.sh` it runs strictly after `git-mode` finishes so the two don't race on shared comment state (both projects `DELETE /api/comments` in `beforeEach`).
 
-CI runs E2E on push to `main` and PRs via `.github/workflows/test.yml`. Failed test artifacts are uploaded.
+CI runs E2E on PRs via `.github/workflows/test.yml`; a separate `coverage.yml` uploads unit coverage on push to `main`. Failed test artifacts are uploaded.
 
 ### Best practices
 
