@@ -20,7 +20,9 @@ func (e *daemonInitializationError) Error() string {
 
 // RunReviewClient connects to a running daemon, blocks until the user finishes
 // reviewing, prints feedback to stdout, and returns whether the review was approved.
-func RunReviewClient(entry SessionEntry, sessionKey string) (approved bool) {
+// When quiet is true, the optional session summary on stderr is omitted; the
+// approved line and finish prompt are always printed (agent contract).
+func RunReviewClient(entry SessionEntry, sessionKey string, quiet bool) (approved bool) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	statusCode, body, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey, entry.StartedAt)
@@ -64,7 +66,7 @@ func RunReviewClient(entry SessionEntry, sessionKey string) (approved bool) {
 	if result.Prompt != "" {
 		fmt.Fprint(os.Stdout, result.Prompt)
 	}
-	if result.Approved && result.Stats != nil {
+	if !quiet && result.Approved && result.Stats != nil {
 		printSessionSummary(result.Stats)
 	}
 	return result.Approved

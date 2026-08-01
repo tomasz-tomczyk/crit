@@ -8,7 +8,7 @@ import (
 )
 
 func TestConnectToPreviewDaemon_NoDaemon(t *testing.T) {
-	if connectToPreviewDaemonForTest("nonexistent-key-12345", true, "") {
+	if connectToPreviewDaemonForTest("nonexistent-key-12345", true, "", false) {
 		t.Error("expected false when no daemon running")
 	}
 }

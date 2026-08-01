@@ -46,7 +46,7 @@ func TestReconnectDeadSession_MissingReview(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
 
-	_, err := reconnectDeadSession("839f3b4cd5d6", daemon.SessionEntry{})
+	_, err := reconnectDeadSession("839f3b4cd5d6", daemon.SessionEntry{}, false)
 	if err == nil {
 		t.Fatal("expected error for missing review")
 	}
@@ -70,7 +70,7 @@ func TestReconnectDeadSession_InvalidJSON(t *testing.T) {
 	}
 	writeFile(t, critPath, "not json")
 
-	_, err = reconnectDeadSession(key, daemon.SessionEntry{})
+	_, err = reconnectDeadSession(key, daemon.SessionEntry{}, false)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -112,7 +112,7 @@ func TestReconnectDeadSession_RestartsDaemon(t *testing.T) {
 	t.Cleanup(func() { startDaemonForReconnect = orig })
 
 	stderr := captureStderr(t, func() {
-		entry, err := reconnectDeadSession(key, daemon.SessionEntry{})
+		entry, err := reconnectDeadSession(key, daemon.SessionEntry{}, false)
 		if err != nil {
 			t.Fatalf("reconnectDeadSession: %v", err)
 		}
@@ -209,7 +209,7 @@ func TestReconnectDeadSession_OutputReviewPath(t *testing.T) {
 	}
 	t.Cleanup(func() { startDaemonForReconnect = orig })
 
-	if _, err := reconnectDeadSession(key, stale); err != nil {
+	if _, err := reconnectDeadSession(key, stale, false); err != nil {
 		t.Fatalf("reconnectDeadSession: %v", err)
 	}
 }
@@ -464,7 +464,7 @@ func TestReconnectDeadSession_StalePathMissing(t *testing.T) {
 	testutil.SetHome(t, home)
 	key := "839f3b4cd5d6"
 	missing := filepath.Join(t.TempDir(), ".crit")
-	_, err := reconnectDeadSession(key, daemon.SessionEntry{ReviewPath: missing})
+	_, err := reconnectDeadSession(key, daemon.SessionEntry{ReviewPath: missing}, false)
 	if err == nil {
 		t.Fatal("expected error")
 	}

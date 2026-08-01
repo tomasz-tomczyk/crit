@@ -22,10 +22,13 @@ func mustGetwd() string {
 
 // connectOrStartDaemon finds an alive session or starts a new daemon.
 // Returns the session entry, whether we started a new daemon, and any error.
-func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string) (daemon.SessionEntry, bool, error) {
+// When quiet is true, connect/start status lines and integration tips are omitted.
+func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string, quiet bool) (daemon.SessionEntry, bool, error) {
 	entry, alive := daemon.FindAliveSession(key)
 	if alive {
-		fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s (session %s)\n", entry.BaseURL(), key)
+		if !quiet {
+			fmt.Fprintf(os.Stderr, "Connected to crit daemon at %s (session %s)\n", entry.BaseURL(), key)
+		}
 		if !noOpen && !daemon.DaemonHasBrowser(entry) {
 			go browser.OpenBrowserWithCommand(entry.BaseURL(), openCmd)
 		}
@@ -37,8 +40,10 @@ func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string
 	if err != nil {
 		return daemon.SessionEntry{}, false, err
 	}
-	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
-	HintMissingIntegrations()
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
+		HintMissingIntegrations()
+	}
 	return entry, true, nil
 }
 

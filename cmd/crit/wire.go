@@ -97,6 +97,7 @@ func init() {
 			PlanDir:            sc.PlanDir,
 			NoOpen:             sc.NoOpen,
 			OpenCmd:            sc.OpenCmd,
+			Quiet:              sc.Quiet,
 			NoIntegrationCheck: sc.NoIntegrationCheck,
 			VCSOverride:        sc.VCSOverride,
 			BaseBranch:         sc.BaseBranch,

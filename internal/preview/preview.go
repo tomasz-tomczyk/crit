@@ -40,17 +40,19 @@ func LooksLikePreviewArgs(args []string) bool {
 	return !info.IsDir()
 }
 
-func connectToPreviewDaemon(key string, noOpen bool, openCmd string) bool {
+func connectToPreviewDaemon(key string, noOpen bool, openCmd string, quiet bool) bool {
 	entry, alive := daemon.FindAliveSession(key)
 	if !alive {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "[crit] connected to preview daemon at %s\n", entry.BaseURL())
-	fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.BaseURL())
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "[crit] connected to preview daemon at %s\n", entry.BaseURL())
+		fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.BaseURL())
+	}
 	if !noOpen && !daemon.DaemonHasBrowser(entry) {
 		go browser.OpenBrowserWithCommand(entry.BaseURL()+"/preview", openCmd)
 	}
-	daemon.RunReviewClient(entry, key)
+	daemon.RunReviewClient(entry, key, quiet)
 	return true
 }
 
@@ -63,8 +65,8 @@ func RunPreview(args []string) {
 	host := fs.String("host", "", "Host to listen on")
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
-	quiet := fs.Bool("quiet", false, "Suppress status output")
-	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
+	quiet := fs.Bool("quiet", false, "On success, suppress connect/start status and tips")
+	fs.BoolVar(quiet, "q", false, "On success, suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
 	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
 	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
@@ -90,6 +92,7 @@ func RunPreview(args []string) {
 	}
 	cfg := config.LoadConfig(cwd)
 	noOpenResolved := *noOpen || cfg.NoOpen
+	quietResolved := *quiet || cfg.Quiet
 
 	if rawPath == "" {
 		fmt.Fprintln(os.Stderr, "Usage: crit preview <file.html>")
@@ -109,25 +112,27 @@ func RunPreview(args []string) {
 	}
 
 	key := PreviewSessionKey(cwd, absPath)
-	if connectToPreviewDaemon(key, noOpenResolved, cfg.OpenCmd) {
+	if connectToPreviewDaemon(key, noOpenResolved, cfg.OpenCmd, quietResolved) {
 		return
 	}
 
-	daemonArgs := buildPreviewStartArgs(absPath, *port, *host, *publicURL, *allowUnauthNet || config.EnvAllowsUnauthenticatedNetwork(), noOpenResolved, *quiet || cfg.Quiet, *shareURL, cfg)
+	daemonArgs := buildPreviewStartArgs(absPath, *port, *host, *publicURL, *allowUnauthNet || config.EnvAllowsUnauthenticatedNetwork(), noOpenResolved, quietResolved, *shareURL, cfg)
 	entry, err := daemon.StartDaemon(key, daemonArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start preview daemon: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "[crit] preview mode: %s\n", filepath.Base(absPath))
-	fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.BaseURL())
+	if !quietResolved {
+		fmt.Fprintf(os.Stderr, "[crit] preview mode: %s\n", filepath.Base(absPath))
+		fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.BaseURL())
+	}
 
 	installDaemonSignalHandler(entry.PID)
 
 	// Daemon owns the initial browser open (same as crit live after #768).
 	// Opening here too doubles the tab on cold start.
-	daemon.RunReviewClient(entry, key)
+	daemon.RunReviewClient(entry, key, quietResolved)
 }
 
 func buildPreviewStartArgs(absPath string, port int, host, publicURL string, allowUnauthNet, noOpen, quiet bool, shareURL string, cfg config.Config) []string {

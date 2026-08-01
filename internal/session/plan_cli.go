@@ -38,8 +38,8 @@ func resolvePlanConfig(args []string) planConfig {
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
-	quiet := fs.Bool("quiet", false, "Suppress status output")
-	fs.BoolVar(quiet, "q", false, "Suppress status (shorthand)")
+	quiet := fs.Bool("quiet", false, "On success, suppress connect/start status and tips")
+	fs.BoolVar(quiet, "q", false, "On success, suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
 	// Keep in sync with the fs.Bool/fs.BoolVar registrations above.
 	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
@@ -130,24 +130,27 @@ func RunPlan(args []string) error {
 		fmt.Fprintf(os.Stderr, "Error saving plan: %v\n", err)
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
-	fmt.Fprintf(os.Stderr, "Plan '%s' saved as v%03d (%d bytes)\n", slug, ver, len(content))
 
 	cwd, _ := daemon.ResolvedCWD()
 	key := PlanSessionKey(cwd, slug)
 	currentPath := filepath.Join(storageDir, "current.md")
 	cfg := config.LoadConfig(cwd)
 	noOpenResolved := pc.noOpen || cfg.NoOpen
+	quiet := pc.quiet || cfg.Quiet
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "Plan '%s' saved as v%03d (%d bytes)\n", slug, ver, len(content))
+	}
 	daemonArgs := BuildPlanDaemonArgs(currentPath, storageDir, slug, PlanDaemonFlags{
 		Port:                        config.ResolvePort(pc.port, cfg.Port),
 		Host:                        config.ResolveHost(pc.host, cfg.Host),
 		PublicURL:                   config.ResolvePublicURL(pc.publicURL, cfg),
 		AllowUnauthenticatedNetwork: pc.allowUnauthenticatedNetwork || config.EnvAllowsUnauthenticatedNetwork(),
 		NoOpen:                      noOpenResolved,
-		Quiet:                       pc.quiet || cfg.Quiet,
+		Quiet:                       quiet,
 		ShareURL:                    config.ResolveShareURL(pc.shareURL, cfg, ""),
 	})
 
-	entry, weStartedDaemon, err := connectOrStartDaemon(key, daemonArgs, noOpenResolved, cfg.OpenCmd)
+	entry, weStartedDaemon, err := connectOrStartDaemon(key, daemonArgs, noOpenResolved, cfg.OpenCmd, quiet)
 	if err != nil {
 		return err
 	}
@@ -156,7 +159,7 @@ func RunPlan(args []string) error {
 		installDaemonSignalHandler(entry.PID)
 	}
 
-	approved := daemon.RunReviewClient(entry, key)
+	approved := daemon.RunReviewClient(entry, key, quiet)
 	killDaemonOnApproval(approved, entry.PID)
 	cleanupOnApproval(approved, entry.ReviewPath, config.LoadConfig(cwd).CleanupOnApproveEnabled())
 	return nil

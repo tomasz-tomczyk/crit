@@ -10,6 +10,7 @@ type CLIReviewConfig struct {
 	PlanDir            string
 	NoOpen             bool
 	OpenCmd            string
+	Quiet              bool
 	NoIntegrationCheck bool
 	VCSOverride        string
 	BaseBranch         string

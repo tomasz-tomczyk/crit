@@ -181,7 +181,7 @@ func TestRunReview_DefaultKey_StartsNewDaemon(t *testing.T) {
 	t.Cleanup(func() { startDaemonForReview = origStart })
 
 	origClient := runReviewClientForReview
-	runReviewClientForReview = func(daemon.SessionEntry, string) bool { return false }
+	runReviewClientForReview = func(daemon.SessionEntry, string, bool) bool { return false }
 	t.Cleanup(func() { runReviewClientForReview = origClient })
 
 	orig := ResolveServerConfigFn

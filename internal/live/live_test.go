@@ -580,7 +580,7 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 				return daemon.SessionEntry{PID: os.Getpid(), Port: 43123}, nil
 			}
 			clientRan := false
-			runLiveClient = func(daemon.SessionEntry, string) bool {
+			runLiveClient = func(daemon.SessionEntry, string, bool) bool {
 				clientRan = true
 				return false
 			}
@@ -649,7 +649,7 @@ func TestConnectToLiveDaemon_LaunchesBrowserWhenNoneAttached(t *testing.T) {
 		browserCalls <- browserCall{url: url, openCmd: openCmd}
 	}
 	clientRan := false
-	runLiveClient = func(gotEntry daemon.SessionEntry, gotKey string) bool {
+	runLiveClient = func(gotEntry daemon.SessionEntry, gotKey string, _ bool) bool {
 		clientRan = true
 		if gotEntry.Port != entry.Port || gotKey != key {
 			t.Fatalf("run client with entry/key = %+v/%q, want %+v/%q", gotEntry, gotKey, entry, key)
@@ -657,7 +657,7 @@ func TestConnectToLiveDaemon_LaunchesBrowserWhenNoneAttached(t *testing.T) {
 		return false
 	}
 
-	if !connectToLiveDaemon(key, false, "custom-open") {
+	if !connectToLiveDaemon(key, false, "custom-open", false) {
 		t.Fatal("connectToLiveDaemon returned false")
 	}
 	if !clientRan {
@@ -707,9 +707,9 @@ func TestConnectToLiveDaemon_RespectsNoOpen(t *testing.T) {
 	launchLiveBrowser = func(string, string) {
 		browserOpenCalls++
 	}
-	runLiveClient = func(daemon.SessionEntry, string) bool { return false }
+	runLiveClient = func(daemon.SessionEntry, string, bool) bool { return false }
 
-	if !connectToLiveDaemon(key, true, "custom-open") {
+	if !connectToLiveDaemon(key, true, "custom-open", false) {
 		t.Fatal("connectToLiveDaemon returned false")
 	}
 	if browserOpenCalls != 0 {

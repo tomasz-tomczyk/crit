@@ -174,7 +174,7 @@ func migrateLegacyOutputReconnect(sessionKey, reviewDir string) []string {
 }
 
 // reconnectDeadSession restarts a daemon for an existing review folder.
-func reconnectDeadSession(key string, stale daemon.SessionEntry) (daemon.SessionEntry, error) {
+func reconnectDeadSession(key string, stale daemon.SessionEntry, quiet bool) (daemon.SessionEntry, error) {
 	revDir, err := resolveReconnectReviewDir(key, stale)
 	if err != nil {
 		return daemon.SessionEntry{}, err
@@ -196,7 +196,9 @@ func reconnectDeadSession(key string, stale daemon.SessionEntry) (daemon.Session
 	if err != nil {
 		return daemon.SessionEntry{}, err
 	}
-	fmt.Fprintf(os.Stderr, "Restarted crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
-	HintMissingIntegrations()
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "Restarted crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
+		HintMissingIntegrations()
+	}
 	return entry, nil
 }

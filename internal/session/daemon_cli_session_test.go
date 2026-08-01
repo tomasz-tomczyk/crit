@@ -28,7 +28,7 @@ func TestConnectOrStartDaemon_AliveSession(t *testing.T) {
 	}
 
 	stderr := captureStderr(t, func() {
-		entry, started, err := connectOrStartDaemon(key, nil, true, "")
+		entry, started, err := connectOrStartDaemon(key, nil, true, "", false)
 		if err != nil {
 			t.Fatalf("connectOrStartDaemon: %v", err)
 		}
@@ -59,7 +59,7 @@ func TestConnectOrStartDaemon_StartsDaemon(t *testing.T) {
 	t.Cleanup(func() { startDaemonForConnect = orig })
 
 	stderr := captureStderr(t, func() {
-		entry, started, err := connectOrStartDaemon(key, nil, true, "")
+		entry, started, err := connectOrStartDaemon(key, nil, true, "", false)
 		if err != nil {
 			t.Fatalf("connectOrStartDaemon: %v", err)
 		}
@@ -75,5 +75,30 @@ func TestConnectOrStartDaemon_StartsDaemon(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "session "+key) {
 		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestConnectOrStartDaemon_QuietSuppressesStatus(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+
+	orig := startDaemonForConnect
+	startDaemonForConnect = func(string, []string) (daemon.SessionEntry, error) {
+		return daemon.SessionEntry{PID: 42, Port: 3001}, nil
+	}
+	t.Cleanup(func() { startDaemonForConnect = orig })
+
+	stderr := captureStderr(t, func() {
+		_, started, err := connectOrStartDaemon(key, nil, true, "", true)
+		if err != nil {
+			t.Fatalf("connectOrStartDaemon: %v", err)
+		}
+		if !started {
+			t.Fatal("expected new daemon start")
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("quiet mode should print nothing, got %q", stderr)
 	}
 }
