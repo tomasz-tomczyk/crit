@@ -34,7 +34,7 @@ crit --public-url "https://<tailscale-magicdns-name-or-hostname>" --allow-unauth
 
 - `--public-url` only changes the URL crit prints/validates against — it does **not** expose crit to the network by itself.
 - `--allow-unauthenticated-network` is required for any non-loopback exposure. crit has no auth: anyone who can reach the URL can read the repo and post comments that may trigger agents. Confirm the user actually wants that blast radius before using it.
-- **Do not bind `--host` to a tailscale/LAN IP directly** — the recommended (and tested) shape is crit staying on loopback while `tailscale serve --bg --https=443 http://127.0.0.1:<port>` (or an SSH tunnel) does the reverse proxy. Get `<port>` from crit's own startup output, or pass a fixed one with `-p`.
+- **Do not bind `--host` to a tailscale/LAN IP directly** — the recommended shape is crit staying on loopback while `tailscale serve --bg --https=443 http://127.0.0.1:<port>` (or an SSH tunnel) does the reverse proxy. Get `<port>` from crit's own startup output, or pass a fixed one with `-p`.
 </important>
 
 ## Step 2: Launch crit and block until review completes
