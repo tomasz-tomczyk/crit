@@ -61,6 +61,11 @@ func TestParseCommentFlags(t *testing.T) {
 			want: commentFlags{plan: "my-plan", args: []string{"comment"}},
 		},
 		{
+			name: "session flag",
+			args: []string{"--session", "839f3b4cd5d6", "comment"},
+			want: commentFlags{sessionID: "839f3b4cd5d6", args: []string{"comment"}},
+		},
+		{
 			name: "multiple flags combined",
 			args: []string{"--author", "bob", "--reply-to", "c1", "--resolve", "fixed it"},
 			want: commentFlags{
@@ -104,6 +109,9 @@ func TestParseCommentFlags(t *testing.T) {
 			}
 			if got.plan != tt.want.plan {
 				t.Errorf("plan = %q, want %q", got.plan, tt.want.plan)
+			}
+			if got.sessionID != tt.want.sessionID {
+				t.Errorf("sessionID = %q, want %q", got.sessionID, tt.want.sessionID)
 			}
 			if got.outputDir != tt.want.outputDir {
 				t.Errorf("outputDir = %q, want %q", got.outputDir, tt.want.outputDir)

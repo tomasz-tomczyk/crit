@@ -2,6 +2,7 @@ package comment
 
 import (
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
 type commentFlags struct {
@@ -17,6 +18,7 @@ type commentFlags struct {
 	file             string
 	plan             string
 	sessionID        string
+	sessionEntry     *daemon.SessionEntry
 	scope            CommentFocusOverride
 	args             []string
 }

@@ -304,9 +304,7 @@ func ListSessionsForCWDWithKeys(cwd string) ([]SessionEntry, []string, error) {
 	return scanSessionsForCWD(cwd)
 }
 
-// SessionsForBranch narrows session candidates to the current branch when at
-// least one matches. If none match, it preserves the original candidates so
-// callers can retain their existing fallback behavior.
+// SessionsForBranch narrows session candidates to the requested branch.
 func SessionsForBranch(sessions []SessionEntry, keys []string, branch string) ([]SessionEntry, []string) {
 	var matchedSessions []SessionEntry
 	var matchedKeys []string
@@ -315,9 +313,6 @@ func SessionsForBranch(sessions []SessionEntry, keys []string, branch string) ([
 			matchedSessions = append(matchedSessions, entry)
 			matchedKeys = append(matchedKeys, keys[i])
 		}
-	}
-	if len(matchedSessions) == 0 {
-		return sessions, keys
 	}
 	return matchedSessions, matchedKeys
 }

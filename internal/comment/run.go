@@ -10,6 +10,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/reviewpath"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -25,10 +26,8 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 	}
 
 	var scope session.InheritedScope
-	if f.sessionID != "" {
-		if entry, alive := daemon.FindAliveSession(f.sessionID); alive {
-			scope, err = resolveCommentScopeAtPathWithFocus(f.scope, f.reviewPath, session.ProbeDaemonFocusForSession(entry))
-		}
+	if f.sessionEntry != nil {
+		scope, err = resolveCommentScopeAtPathWithFocus(f.scope, f.reviewPath, session.ProbeDaemonFocusForSession(*f.sessionEntry))
 	} else {
 		scope, err = resolveCommentScopeAtPath(f.scope, f.reviewPath)
 	}
@@ -113,12 +112,7 @@ func resolveCommentReviewPath(f *commentFlags) error {
 	case f.plan != "":
 		return resolvePlanCommentReviewPath(f)
 	default:
-		if err := rejectAmbiguousCommentSessions(); err != nil {
-			return err
-		}
-		var err error
-		f.reviewPath, err = review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
-		return err
+		return resolveUnqualifiedCommentReviewPath(f)
 	}
 }
 
@@ -137,6 +131,7 @@ func resolveSessionCommentReviewPath(f *commentFlags) error {
 		return fmt.Errorf("active review session %s has no review path", f.sessionID)
 	}
 	f.reviewPath = entry.ReviewPath
+	f.sessionEntry = &entry
 	return nil
 }
 
@@ -153,31 +148,59 @@ func resolvePlanCommentReviewPath(f *commentFlags) error {
 	return nil
 }
 
-func rejectAmbiguousCommentSessions() error {
+func resolveUnqualifiedCommentReviewPath(f *commentFlags) error {
 	cwd, err := daemon.ResolvedCWD()
 	if err != nil {
 		return err
 	}
-	sessions, keys, err := daemon.ListSessionsForCWDWithKeys(cwd)
+	branch := ""
+	backend := vcs.DetectVCS("")
+	if backend != nil {
+		branch = backend.CurrentBranch()
+	}
+	sessions, keys, err := matchingCommentSessions(cwd, branch, backend)
 	if err != nil {
 		return err
 	}
-	if len(sessions) == 0 {
-		if backend := vcs.DetectVCS(""); backend != nil {
-			if repoRoot, rootErr := backend.RepoRoot(); rootErr == nil {
-				sessions, keys = daemon.ListSessionsForRepoRoot(repoRoot)
-			}
-		}
+	if len(sessions) > 1 {
+		return fmt.Errorf("multiple active review sessions match this directory and branch (%s); choose one with --session <id> (run `crit status` to list them)", strings.Join(keys, ", "))
 	}
-	branch := ""
-	if backend := vcs.DetectVCS(""); backend != nil {
-		branch = backend.CurrentBranch()
+	key := daemon.SessionKey(cwd, branch, nil)
+	if len(keys) == 1 {
+		key = keys[0]
 	}
-	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
-	if len(sessions) < 2 {
+	if f.outputDir != "" {
+		f.reviewPath, err = reviewpath.IdentityUnderDataRoot(f.outputDir, key)
+		return err
+	}
+	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
+		f.reviewPath = sessions[0].ReviewPath
 		return nil
 	}
-	return fmt.Errorf("multiple active review sessions match this directory and branch (%s); choose one with --session <id> (run `crit status` to list them)", strings.Join(keys, ", "))
+	if f.configuredOutput != "" {
+		f.reviewPath, err = reviewpath.IdentityUnderDataRoot(f.configuredOutput, key)
+		return err
+	}
+	f.reviewPath, err = daemon.ReviewFilePath(key)
+	return err
+}
+
+func matchingCommentSessions(cwd, branch string, backend vcs.VCS) ([]daemon.SessionEntry, []string, error) {
+	sessions, keys, err := daemon.ListSessionsForCWDWithKeys(cwd)
+	if err != nil {
+		return nil, nil, err
+	}
+	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
+	if len(sessions) > 0 || backend == nil {
+		return sessions, keys, nil
+	}
+	repoRoot, rootErr := backend.RepoRoot()
+	if rootErr != nil {
+		return nil, nil, rootErr
+	}
+	sessions, keys = daemon.ListSessionsForRepoRoot(repoRoot)
+	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
+	return sessions, keys, nil
 }
 
 func runCommentJSONScoped(f commentFlags, scope session.InheritedScope) error {
