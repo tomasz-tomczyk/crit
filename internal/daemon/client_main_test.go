@@ -369,3 +369,94 @@ func TestRunReviewClientRaw_DoesNotExposeFallbackDaemonLog(t *testing.T) {
 		t.Fatalf("unexpected fallback prompt: %q", prompt)
 	}
 }
+
+func TestRunReviewClient_QuietSuppressesSessionSummary(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		case "/api/review-cycle":
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"approved": true,
+				"prompt":   "done",
+				"stats": map[string]int{
+					"duration_seconds":   12,
+					"files_reviewed":     2,
+					"comments_submitted": 1,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	port := 0
+	fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+	if port == 0 {
+		fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
+	}
+	entry := SessionEntry{Port: port}
+
+	oldOut := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = oldOut }()
+
+	stderr := captureStderr(t, func() {
+		if !RunReviewClient(entry, "", true) {
+			t.Fatal("expected approved")
+		}
+	})
+	if !strings.Contains(stderr, "approved: true") {
+		t.Fatalf("expected approved line, got %q", stderr)
+	}
+	if strings.Contains(stderr, "Session:") {
+		t.Fatalf("quiet should suppress session summary, got %q", stderr)
+	}
+}
+
+func TestRunReviewClient_PrintsSessionSummaryWhenNotQuiet(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		case "/api/review-cycle":
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"approved": true,
+				"prompt":   "done",
+				"stats": map[string]int{
+					"duration_seconds":   12,
+					"files_reviewed":     2,
+					"comments_submitted": 1,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	port := 0
+	fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+	if port == 0 {
+		fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
+	}
+	entry := SessionEntry{Port: port}
+
+	oldOut := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = oldOut }()
+
+	stderr := captureStderr(t, func() {
+		if !RunReviewClient(entry, "", false) {
+			t.Fatal("expected approved")
+		}
+	})
+	if !strings.Contains(stderr, "Session:") {
+		t.Fatalf("expected session summary, got %q", stderr)
+	}
+}

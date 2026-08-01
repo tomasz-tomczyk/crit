@@ -1,6 +1,8 @@
 package share
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -394,4 +396,21 @@ func TestLoadShareFiles(t *testing.T) {
 func TestPrintQR_NoopWhenFalse(t *testing.T) {
 	// printQR with showQR=false should not panic and should be a no-op
 	printQR("https://example.com", false)
+}
+
+func TestPrintQR_WritesToStderr(t *testing.T) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	printQR("https://example.com/r/abc", true)
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if buf.Len() == 0 {
+		t.Fatal("expected QR output on stderr")
+	}
 }
