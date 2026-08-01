@@ -25,6 +25,18 @@ If no arguments, check conversation context:
 1. A plan file was written earlier in this conversation → `crit <plan-file>`
 2. Otherwise → bare `crit` (branch diff)
 
+<important if="the user wants to review remotely — e.g. from a phone via Tailscale, or any URL other than localhost">
+**Flags must come before the file/URL argument.** `crit <file> --public-url ...` silently misparses — the flags get swallowed as bogus extra file args instead of being recognized (crit#787). Always write:
+
+```bash
+crit --public-url "https://<tailscale-magicdns-name-or-hostname>" --allow-unauthenticated-network --no-open <file>
+```
+
+- `--public-url` only changes the URL crit prints/validates against — it does **not** expose crit to the network by itself.
+- `--allow-unauthenticated-network` is required for any non-loopback exposure. crit has no auth: anyone who can reach the URL can read the repo and post comments that may trigger agents. Confirm the user actually wants that blast radius before using it.
+- **Do not bind `--host` to a tailscale/LAN IP directly** — the recommended (and tested) shape is crit staying on loopback while `tailscale serve --bg --https=443 http://127.0.0.1:<port>` (or an SSH tunnel) does the reverse proxy. Get `<port>` from crit's own startup output, or pass a fixed one with `-p`.
+</important>
+
 ## Step 2: Launch crit and block until review completes
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**
