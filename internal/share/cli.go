@@ -183,10 +183,10 @@ func loadShareFiles(paths []string) ([]ShareFile, error) {
 
 func printQR(url string, showQR bool) {
 	if showQR {
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 		qrterminal.GenerateWithConfig(url, qrterminal.Config{
 			Level:      qrterminal.L,
-			Writer:     os.Stdout,
+			Writer:     os.Stderr,
 			HalfBlocks: true,
 			QuietZone:  1,
 		})
@@ -255,10 +255,9 @@ func runShareExisting(existingCfg session.CritJSON, critPath string, files []Sha
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
 	}
 	if result.Changed {
-		fmt.Printf("Updated (round %d): %s\n", result.ReviewRound, result.URL)
-	} else {
-		fmt.Println(existingCfg.ShareURL)
+		fmt.Fprintf(os.Stderr, "updated round %d\n", result.ReviewRound)
 	}
+	fmt.Println(result.URL)
 
 	printQR(result.URL, showQR)
 	return nil

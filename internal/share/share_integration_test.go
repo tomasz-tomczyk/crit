@@ -126,8 +126,8 @@ func TestShareSyncIntegration(t *testing.T) {
 	}
 	output2 := string(out2)
 	t.Logf("Second share output: %s", output2)
-	if !strings.Contains(output2, "Updated (round 2)") {
-		t.Errorf("expected 'Updated (round 2)' in output, got: %s", output2)
+	if !strings.Contains(output2, "updated round 2") {
+		t.Errorf("expected 'updated round 2' in output, got: %s", output2)
 	}
 
 	// f) Verify crit-web state: latest file content should be updated
@@ -763,8 +763,8 @@ func TestShareSyncReshareNoDuplicates(t *testing.T) {
 	}
 
 	output2 := critShareCmd(t, binary, baseURL, dir, "plan.md")
-	if !strings.Contains(output2, "Updated (round 2)") {
-		t.Errorf("expected 'Updated (round 2)', got: %s", output2)
+	if !strings.Contains(output2, "updated round 2") {
+		t.Errorf("expected 'updated round 2', got: %s", output2)
 	}
 	token2 := extractToken(t, output2)
 	if token != token2 {
@@ -813,7 +813,7 @@ func TestShareSyncReshareNoChanges(t *testing.T) {
 	round1 := readCritJSON(t, dir).ReviewRound
 
 	output2 := critShareCmd(t, binary, baseURL, dir, "plan.md")
-	if strings.Contains(output2, "Updated") {
+	if strings.Contains(output2, "updated round") {
 		t.Errorf("expected no update for unchanged content, got: %s", output2)
 	}
 
@@ -985,7 +985,7 @@ func TestShareSyncMultipleRounds(t *testing.T) {
 			t.Fatal(err)
 		}
 		out := critShareCmd(t, binary, baseURL, dir, "plan.md")
-		expected := fmt.Sprintf("Updated (round %d)", round)
+		expected := fmt.Sprintf("updated round %d", round)
 		if !strings.Contains(out, expected) {
 			t.Errorf("round %d: expected %q, got: %s", round, expected, out)
 		}
@@ -1346,7 +1346,7 @@ func TestShareSyncFullLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	output2 := critShareCmd(t, binary, baseURL, dir, "plan.md")
-	if !strings.Contains(output2, "Updated") {
+	if !strings.Contains(output2, "updated round") {
 		t.Errorf("round 2: expected update, got: %s", output2)
 	}
 
@@ -1395,7 +1395,7 @@ func TestShareSyncFullLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	output3 := critShareCmd(t, binary, baseURL, dir, "plan.md")
-	if !strings.Contains(output3, "Updated") {
+	if !strings.Contains(output3, "updated round") {
 		t.Errorf("round 3: expected update, got: %s", output3)
 	}
 
@@ -1763,7 +1763,7 @@ func TestShareSyncResolvedRoundMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	output2 := critShareCmd(t, binary, baseURL, dir, "plan.md")
-	if !strings.Contains(output2, "Updated (round 2)") {
+	if !strings.Contains(output2, "updated round 2") {
 		t.Fatalf("expected round 2, got: %s", output2)
 	}
 
