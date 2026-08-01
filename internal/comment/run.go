@@ -171,10 +171,14 @@ func resolveUnqualifiedCommentReviewPath(f *commentFlags) error {
 	}
 	if f.outputDir != "" {
 		f.reviewPath, err = reviewpath.IdentityUnderDataRoot(f.outputDir, key)
+		if len(sessions) == 1 {
+			f.sessionEntry = &sessions[0]
+		}
 		return err
 	}
 	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
 		f.reviewPath = sessions[0].ReviewPath
+		f.sessionEntry = &sessions[0]
 		return nil
 	}
 	if f.configuredOutput != "" {
@@ -214,7 +218,7 @@ func runCommentJSONScoped(f commentFlags, scope session.InheritedScope) error {
 		return err
 	}
 
-	if err := bulkAddCommentsToCritJSONAtPath(entries, f.author, f.userID, f.reviewPath, scope); err != nil {
+	if err := bulkAddCommentsToCritJSONAtPathWithRedirect(entries, f.author, f.userID, f.reviewPath, scope, f.sessionID == ""); err != nil {
 		return err
 	}
 
@@ -247,7 +251,7 @@ func runCommentReply(f commentFlags) error {
 		return clicmd.Usage("Usage: crit comment --reply-to <comment-id> [--resolve] <body>")
 	}
 	replyBody := strings.Join(f.args, " ")
-	if err := addReplyToCritJSONAtPath(f.replyTo, replyBody, f.author, f.userID, f.resolve, f.reviewPath, f.path); err != nil {
+	if err := addReplyToCritJSONAtPathWithRedirect(f.replyTo, replyBody, f.author, f.userID, f.resolve, f.reviewPath, f.path, f.sessionID == ""); err != nil {
 		return err
 	}
 	if f.resolve {

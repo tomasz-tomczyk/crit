@@ -364,3 +364,147 @@ func TestRunCommentSessionRegistrySwapKeepsPathAndFocusCoherent(t *testing.T) {
 		t.Fatalf("second review comments = %+v, want none", second.Files["file.go"].Comments)
 	}
 }
+
+func TestRunCommentUnqualifiedSessionKeepsPathAndFocusCoherent(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+	if err := os.WriteFile(filepath.Join(projectDir, "file.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	startFocusServer := func(head string) (*httptest.Server, int) {
+		t.Helper()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/health":
+				fmt.Fprint(w, `{"status":"ok"}`)
+			case "/api/session":
+				fmt.Fprintf(w, `{"focus":{"kind":"range","head_sha":%q,"diff_scope":"layer"}}`, head)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		parsed, err := url.Parse(server.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return server, port
+	}
+
+	firstServer, firstPort := startFocusServer("head-current")
+	t.Cleanup(firstServer.Close)
+	secondServer, secondPort := startFocusServer("head-other")
+	t.Cleanup(secondServer.Close)
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentPath := filepath.Join(t.TempDir(), "current")
+	otherPath := filepath.Join(t.TempDir(), "other")
+	for _, reviewPath := range []string{currentPath, otherPath} {
+		if err := review.SaveCritJSON(reviewPath, session.CritJSON{ReviewRound: 1, Files: map[string]session.CritJSONFile{"file.go": {}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries := map[string]daemon.SessionEntry{
+		"111111111111": {PID: os.Getpid(), Port: firstPort, CWD: cwd, Branch: vcs.CurrentBranch(), ReviewPath: currentPath},
+		"222222222222": {PID: os.Getpid(), Port: secondPort, CWD: cwd, Branch: "other-branch", ReviewPath: otherPath},
+	}
+	for key, entry := range entries {
+		if err := daemon.WriteSessionFile(key, entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := RunComment([]string{"--scope", "layer", "--author", "bot", "file.go:1", "current focus"}); err != nil {
+		t.Fatal(err)
+	}
+	cj, err := review.LoadCritJSON(currentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments := cj.Files["file.go"].Comments
+	if len(comments) != 1 || comments[0].HeadSHA != "head-current" {
+		t.Fatalf("current review comments = %+v, want head-current", comments)
+	}
+}
+
+func TestRunCommentExplicitSessionDoesNotRedirectReplies(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			fmt.Fprint(w, `{"status":"ok"}`)
+		case "/api/session":
+			fmt.Fprint(w, `{"focus":null}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const selectedKey = "aaaaaaaaaaaa"
+	const siblingKey = "bbbbbbbbbbbb"
+	selectedPath, err := daemon.ReviewFilePath(selectedKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	siblingPath, err := daemon.ReviewFilePath(siblingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := review.SaveCritJSON(selectedPath, session.CritJSON{ReviewRound: 1, Files: map[string]session.CritJSONFile{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := review.SaveCritJSON(siblingPath, session.CritJSON{
+		ReviewRound:    1,
+		Files:          map[string]session.CritJSONFile{},
+		ReviewComments: []session.Comment{{ID: "r_sibling", Body: "sibling", Scope: "review"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := daemon.WriteSessionFile(selectedKey, daemon.SessionEntry{
+		PID: os.Getpid(), Port: port, CWD: cwd, Branch: vcs.CurrentBranch(), ReviewPath: selectedPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = RunComment([]string{"--session", selectedKey, "--reply-to", "r_sibling", "--author", "bot", "single"})
+	if err == nil || !strings.Contains(err.Error(), "not found in review file") {
+		t.Fatalf("single reply error = %v, want selected-review not-found error", err)
+	}
+	bulkFile := filepath.Join(t.TempDir(), "replies.json")
+	if err := os.WriteFile(bulkFile, []byte(`[{"reply_to":"r_sibling","body":"bulk"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = RunComment([]string{"--session", selectedKey, "--json", "--file", bulkFile, "--author", "bot"})
+	if err == nil || !strings.Contains(err.Error(), "not found in selected review file") {
+		t.Fatalf("bulk reply error = %v, want selected-review not-found error", err)
+	}
+	sibling, err := review.LoadCritJSON(siblingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sibling.ReviewComments[0].Replies) != 0 {
+		t.Fatalf("sibling replies = %+v, want none", sibling.ReviewComments[0].Replies)
+	}
+}

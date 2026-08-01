@@ -225,6 +225,10 @@ func addReplyToCritJSON(commentID, body, author, userID string, resolve bool, ou
 }
 
 func addReplyToCritJSONAtPath(commentID, body, author, userID string, resolve bool, critPath string, filterPath string) error {
+	return addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID, resolve, critPath, filterPath, true)
+}
+
+func addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID string, resolve bool, critPath string, filterPath string, allowRedirect bool) error {
 	cj, err := review.LoadCritJSON(critPath)
 	if err != nil {
 		return err
@@ -233,7 +237,7 @@ func addReplyToCritJSONAtPath(commentID, body, author, userID string, resolve bo
 	if err := appendReply(&cj, commentID, body, author, userID, resolve, filterPath); err != nil {
 		// Only fall back to scanning when the comment genuinely wasn't found.
 		// Don't fall back for ambiguity errors ("found in multiple files").
-		if strings.Contains(err.Error(), "not found") {
+		if allowRedirect && strings.Contains(err.Error(), "not found") {
 			if altPath, err2 := review.FindReviewFileByCommentID(commentID, critPath); err2 == nil {
 				altCJ, loadErr := review.LoadCritJSON(altPath)
 				if loadErr != nil {
@@ -441,6 +445,10 @@ func bulkAddCommentsToCritJSONScoped(entries []BulkCommentEntry, globalAuthor, g
 }
 
 func bulkAddCommentsToCritJSONAtPath(entries []BulkCommentEntry, globalAuthor, globalUserID, primaryPath string, scope session.InheritedScope) error {
+	return bulkAddCommentsToCritJSONAtPathWithRedirect(entries, globalAuthor, globalUserID, primaryPath, scope, true)
+}
+
+func bulkAddCommentsToCritJSONAtPathWithRedirect(entries []BulkCommentEntry, globalAuthor, globalUserID, primaryPath string, scope session.InheritedScope, allowRedirect bool) error {
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
 	}
@@ -449,7 +457,7 @@ func bulkAddCommentsToCritJSONAtPath(entries []BulkCommentEntry, globalAuthor, g
 		return err
 	}
 
-	targetPath, targetCJ, redirected, err := resolveBulkTarget(entries, primaryPath, primary)
+	targetPath, targetCJ, redirected, err := resolveBulkTargetWithRedirect(entries, primaryPath, primary, allowRedirect)
 	if err != nil {
 		return err
 	}
@@ -473,6 +481,10 @@ func bulkAddCommentsToCritJSONAtPath(entries []BulkCommentEntry, globalAuthor, g
 // write to. Returns the path, the loaded session.CritJSON to mutate, and whether the
 // target differs from the cwd-resolved primary.
 func resolveBulkTarget(entries []BulkCommentEntry, primaryPath string, primary session.CritJSON) (string, session.CritJSON, bool, error) {
+	return resolveBulkTargetWithRedirect(entries, primaryPath, primary, true)
+}
+
+func resolveBulkTargetWithRedirect(entries []BulkCommentEntry, primaryPath string, primary session.CritJSON, allowRedirect bool) (string, session.CritJSON, bool, error) {
 	var replyIDs []string
 	seen := map[string]bool{}
 	for _, e := range entries {
@@ -504,6 +516,9 @@ func resolveBulkTarget(entries []BulkCommentEntry, primaryPath string, primary s
 			"bulk targets multiple review files: %v exist in %s, but %v do not — split into per-file bulks",
 			inPrimary, filepath.Base(primaryPath), missing,
 		)
+	}
+	if !allowRedirect {
+		return "", session.CritJSON{}, false, fmt.Errorf("reply targets %v not found in selected review file", missing)
 	}
 
 	// None in primary — every reply ID must live in the same alt file.
