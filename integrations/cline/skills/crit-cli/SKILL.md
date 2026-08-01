@@ -17,7 +17,7 @@ The review file path is shown by `crit status`.
 
 ## Reading comments
 
-Prefer finish stdout when available: after a review round, unresolved comments are in the `comments` array of `crit`'s JSON stdout (same schema as `crit comments --json`); `prompt` has brief instructions only.
+When `crit` completes a review round, read **stdout** and follow its instructions. Unresolved comments are often embedded in that prompt as JSON. Check **stderr** for `approved: true` or `approved: false`.
 
 When you need to read comments separately:
 
