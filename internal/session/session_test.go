@@ -3096,11 +3096,11 @@ func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 		}
 	}
 
-	if eagerCount != 100 {
-		t.Errorf("expected 100 eager files, got %d", eagerCount)
+	if eagerCount != lazyFileThreshold {
+		t.Errorf("expected %d eager files, got %d", lazyFileThreshold, eagerCount)
 	}
-	if lazyCount != 20 {
-		t.Errorf("expected 20 lazy files, got %d", lazyCount)
+	if lazyCount != 120-lazyFileThreshold {
+		t.Errorf("expected %d lazy files, got %d", 120-lazyFileThreshold, lazyCount)
 	}
 }
 

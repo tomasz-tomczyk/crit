@@ -28,8 +28,10 @@ var ErrNoChangedFiles = errors.New("no changed files detected (after applying ig
 
 // lazyFileThreshold is the maximum number of files to eagerly load
 // content and diffs for. Files beyond this threshold are loaded on demand
-// when the user expands them in the UI. Only applies when >threshold files.
-const lazyFileThreshold = 100
+// when the user expands them in the UI. Kept modest so large doc PRs don't
+// pay full parse/network cost up front; the frontend also defers collapsed
+// file bodies in the DOM.
+const lazyFileThreshold = 25
 
 // computeFileHash returns the hex-encoded SHA256 hash of data.
 func computeFileHash(data []byte) string {
@@ -214,7 +216,7 @@ type FileEntry struct {
 	PreviousComments []Comment `json:"-"`
 
 	// Lazy loading: when true, Content and DiffHunks are not yet populated.
-	// Call ensureLoaded() before accessing them. Only used when >100 files.
+	// Call ensureLoaded() before accessing them. Only used when >lazyFileThreshold files.
 	Lazy     bool      `json:"-"`
 	loadOnce sync.Once // guards one-time loading of content + diffs
 	loadErr  error     // error from loading, if any
@@ -241,8 +243,28 @@ type ShareFile struct {
 	Encoding  string `json:"encoding,omitempty"`
 }
 
-// ensureLoaded loads content and diff hunks for a lazy file on first access.
-// For non-lazy files, this is an immediate no-op.
+// ensureFileLoaded loads a lazy file using the session's current focus.
+// Range/--pr focus reads content and diffs at HeadSHA/BaseSHA (including
+// --remote via readFileAtSHA). Working-tree focus reads the disk path.
+func (s *Session) ensureFileLoaded(f *FileEntry) error {
+	if f == nil || !f.Lazy {
+		return nil
+	}
+	s.mu.RLock()
+	focus := s.Focus
+	repoRoot := s.RepoRoot
+	baseRef := s.BaseRef
+	vc := s.VCS
+	s.mu.RUnlock()
+
+	if focus.Kind == FocusRange {
+		return f.ensureLoadedAtRange(s, focus, repoRoot, vc)
+	}
+	return f.ensureLoaded(repoRoot, baseRef, vc)
+}
+
+// ensureLoaded loads content and diff hunks for a lazy file on first access
+// from the working tree. For non-lazy files, this is an immediate no-op.
 // The vcs parameter is used for computing diffs; pass nil to fall back to
 // the git package-level functions (backward compat for tests).
 func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string, v vcs.VCS) error {
@@ -267,6 +289,46 @@ func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string, v vcs.VCS) error {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				fe.loadDiff(ctx, repoRoot, baseRef, v)
+			}
+		}
+
+		fe.Lazy = false
+	})
+	return fe.loadErr
+}
+
+// ensureLoadedAtRange loads a lazy file from a fixed (BaseSHA, HeadSHA) range.
+func (fe *FileEntry) ensureLoadedAtRange(s *Session, focus Focus, repoRoot string, v vcs.VCS) error {
+	if !fe.Lazy {
+		return nil
+	}
+	fe.loadOnce.Do(func() {
+		if fe.Status != "deleted" {
+			data, err := s.readFileAtSHA(focus.HeadSHA, fe.Path)
+			if err != nil {
+				fe.loadErr = fmt.Errorf("reading %s at %s: %w", fe.Path, focus.HeadSHA, err)
+				return
+			}
+			if data == nil {
+				fe.loadErr = fmt.Errorf("reading %s at %s: not found", fe.Path, focus.HeadSHA)
+				return
+			}
+			fe.Content = string(data)
+			fe.FileHash = fileHash(data)
+		}
+
+		switch {
+		case fe.Status == "added" || fe.Status == "untracked":
+			fe.DiffHunks = vcs.FileDiffUnifiedNewFile(fe.Content)
+		case v == nil:
+			fe.loadErr = fmt.Errorf("range lazy load requires VCS for %s", fe.Path)
+			return
+		default:
+			hunks, err := v.FileDiffBetweenSHAs(fe.Path, fe.OldPath, focus.DiffBaseSHA(), focus.HeadSHA, repoRoot, false)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: range diff failed for %s: %v\n", fe.Path, err)
+			} else {
+				fe.DiffHunks = hunks
 			}
 		}
 
@@ -2594,13 +2656,10 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 		s.mu.RUnlock()
 		return nil, false
 	}
-	repoRoot := s.RepoRoot
-	baseRef := s.BaseRef
-	vc := s.VCS
 	s.mu.RUnlock()
 
-	// Load content on demand for lazy files
-	if err := f.ensureLoaded(repoRoot, baseRef, vc); err != nil {
+	// Load content on demand for lazy files (SHA-aware in range/--pr focus).
+	if err := s.ensureFileLoaded(f); err != nil {
 		return nil, false
 	}
 
@@ -2698,8 +2757,8 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 	vc := s.VCS
 	s.mu.RUnlock()
 
-	// Load content + diffs on demand for lazy files
-	if err := f.ensureLoaded(repoRoot, baseRef, vc); err != nil {
+	// Load content + diffs on demand for lazy files (SHA-aware in range/--pr focus).
+	if err := s.ensureFileLoaded(f); err != nil {
 		return nil, false
 	}
 

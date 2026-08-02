@@ -1201,7 +1201,21 @@ type NumstatEntry struct {
 // DiffNumstatDir runs git diff --numstat against the given base ref and returns per-file stats.
 // If dir is non-empty, git runs in that directory.
 func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
-	cmd := exec.Command("git", "-c", "diff.external=", "diff", "--no-ext-diff", "--numstat", baseRef)
+	return runDiffNumstat(dir, baseRef)
+}
+
+// DiffNumstatBetweenSHAs runs git diff --numstat baseSHA headSHA and returns
+// per-file stats for that fixed range (not vs the working tree).
+func DiffNumstatBetweenSHAs(baseSHA, headSHA, dir string) (map[string]NumstatEntry, error) {
+	if baseSHA == "" || headSHA == "" {
+		return nil, fmt.Errorf("diff numstat between SHAs requires both base and head")
+	}
+	return runDiffNumstat(dir, baseSHA, headSHA)
+}
+
+func runDiffNumstat(dir string, refs ...string) (map[string]NumstatEntry, error) {
+	args := append([]string{"-c", "diff.external=", "diff", "--no-ext-diff", "--numstat"}, refs...)
+	cmd := exec.Command("git", args...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
@@ -1215,7 +1229,10 @@ func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 			return nil, fmt.Errorf("git diff --numstat failed: %w", err)
 		}
 	}
+	return parseNumstatOutput(out), nil
+}
 
+func parseNumstatOutput(out []byte) map[string]NumstatEntry {
 	stats := make(map[string]NumstatEntry)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
@@ -1238,7 +1255,7 @@ func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 			stats[path[i+4:]] = entry
 		}
 	}
-	return stats, nil
+	return stats
 }
 
 var hunkHeaderRe = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$`)

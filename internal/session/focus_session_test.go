@@ -1,6 +1,8 @@
 package session
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -221,5 +223,112 @@ func TestSetFocus_RangeToWorkingTree_StashesLastRangeFocus(t *testing.T) {
 	}
 	if s.LastRangeFocus.PRNumber != 42 || s.LastRangeFocus.HeadSHA != head {
 		t.Errorf("LastRangeFocus = %+v; want PR=42 head=%s", s.LastRangeFocus, head)
+	}
+}
+
+// Range focus with many files must apply lazyFileThreshold and populate
+// sidebar +/- stats (same contract as working-tree rebuild).
+func TestSetFocus_Range_AppliesLazyThreshold(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	total := lazyFileThreshold + 5
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# doc %d\n\nbody line\n", i))
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add many docs")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Files) != total {
+		t.Fatalf("files = %d, want %d", len(s.Files), total)
+	}
+
+	eager, lazy := 0, 0
+	for _, f := range s.Files {
+		if f.Lazy {
+			lazy++
+			if f.Content != "" {
+				t.Errorf("lazy file %s should not have content", f.Path)
+			}
+			if f.LazyAdditions == 0 && f.Status != "deleted" {
+				t.Errorf("lazy file %s should have LazyAdditions from between-SHA numstat", f.Path)
+			}
+		} else {
+			eager++
+		}
+	}
+	if eager != lazyFileThreshold {
+		t.Errorf("eager = %d, want %d", eager, lazyFileThreshold)
+	}
+	if lazy != total-lazyFileThreshold {
+		t.Errorf("lazy = %d, want %d", lazy, total-lazyFileThreshold)
+	}
+}
+
+// Lazy range files must load HeadSHA content, not a dirty working tree.
+func TestGetFileSnapshot_RangeLazy_UsesHeadSHANotWorkingTree(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	total := lazyFileThreshold + 1
+	var lazyPath string
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# committed %d\n", i))
+		if i == lazyFileThreshold {
+			lazyPath = name
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add docs")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	// Dirty the lazy file in the working tree — SHA-aware load must ignore this.
+	dirty := "# dirty working tree\nshould-not-appear\n"
+	if err := os.WriteFile(filepath.Join(dir, lazyPath), []byte(dirty), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lazyFile *FileEntry
+	for _, f := range s.Files {
+		if f.Path == lazyPath {
+			lazyFile = f
+			break
+		}
+	}
+	if lazyFile == nil || !lazyFile.Lazy {
+		t.Fatalf("expected %s to be lazy, got %+v", lazyPath, lazyFile)
+	}
+
+	snap, ok := s.GetFileSnapshot(lazyPath)
+	if !ok {
+		t.Fatal("GetFileSnapshot failed")
+	}
+	content, _ := snap["content"].(string)
+	want := fmt.Sprintf("# committed %d\n", lazyFileThreshold)
+	if content != want {
+		t.Fatalf("content = %q, want HeadSHA content %q (not dirty WT)", content, want)
+	}
+	if lazyFile.Lazy {
+		t.Fatal("file should no longer be lazy after GetFileSnapshot")
 	}
 }

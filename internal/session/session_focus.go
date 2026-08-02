@@ -415,8 +415,18 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 	if err != nil {
 		return nil, "", err
 	}
+	var numstats map[string]vcs.NumstatEntry
+	if len(changes) > lazyFileThreshold {
+		// Prefer between-SHA numstat so sidebar +/- match the PR range even
+		// when the working tree is dirty or --remote (no local checkout).
+		if ns, nsErr := vcs.DiffNumstatBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot); nsErr == nil {
+			numstats = ns
+		} else {
+			numstats, _ = v.DiffNumstat(f.DiffBaseSHA(), repoRoot)
+		}
+	}
 	out := make([]*FileEntry, 0, len(changes))
-	for _, fc := range changes {
+	for i, fc := range changes {
 		fe := &FileEntry{
 			Path:     fc.Path,
 			OldPath:  fc.OldPath,
@@ -424,6 +434,13 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 			Status:   fc.Status,
 			FileType: detectFileType(fc.Path),
 			Comments: []Comment{},
+		}
+		// Same eager/lazy split as NewGitSession: range focus is how --pr
+		// rebuilds the file list, so large doc PRs must not load every file.
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			populateLazyFile(fe, fc, numstats)
+			out = append(out, fe)
+			continue
 		}
 		if fc.Status != "deleted" {
 			data, readErr := s.readFileAtSHA(f.HeadSHA, fc.Path)
@@ -469,8 +486,12 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 	}
 	changes = config.FilterIgnored(changes, ignorePatterns)
 	changes = filterBinary(changes)
+	var numstats map[string]vcs.NumstatEntry
+	if len(changes) > lazyFileThreshold && baseRef != "" {
+		numstats, _ = v.DiffNumstat(baseRef, repoRoot)
+	}
 	out := make([]*FileEntry, 0, len(changes))
-	for _, fc := range changes {
+	for i, fc := range changes {
 		fe := &FileEntry{
 			Path:     fc.Path,
 			OldPath:  fc.OldPath,
@@ -478,6 +499,11 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 			Status:   fc.Status,
 			FileType: detectFileType(fc.Path),
 			Comments: []Comment{},
+		}
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			populateLazyFile(fe, fc, numstats)
+			out = append(out, fe)
+			continue
 		}
 		if !populateEagerFile(fe, fc, baseRef, repoRoot, v) {
 			continue
@@ -852,7 +878,7 @@ func (s *Session) loadScopedFileState(path, scope, commit string) (status, conte
 	s.mu.RUnlock()
 
 	if f != nil {
-		if err := f.ensureLoaded(repoRoot, baseRef, vc); err == nil {
+		if err := s.ensureFileLoaded(f); err == nil {
 			s.mu.RLock()
 			content = f.Content
 			s.mu.RUnlock()

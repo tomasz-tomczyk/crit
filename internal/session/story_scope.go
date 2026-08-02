@@ -101,7 +101,7 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 	}
 
 	for _, fe := range s.Files {
-		_ = fe.ensureLoaded(s.RepoRoot, s.BaseRef, s.VCS)
+		_ = s.ensureFileLoaded(fe)
 		scope.Files = append(scope.Files, StoryScopeFile{
 			Path:   fe.Path,
 			Status: fe.Status,

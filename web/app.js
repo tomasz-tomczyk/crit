@@ -82,7 +82,29 @@
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
   function scrollToCommentRef(id) {
-    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    let card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    if (!card) {
+      // Line cards live in deferred .file-body — mount the owning file and retry.
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const comments = f.comments || [];
+        let found = false;
+        for (let j = 0; j < comments.length; j++) {
+          if (comments[j].id === id) { found = true; break; }
+        }
+        if (!found) continue;
+        const section = document.getElementById('file-section-' + f.path);
+        if (!section) break;
+        section.open = true;
+        if (f.lazy) {
+          loadLazyFile(section, f, function() { scrollToCommentRef(id); });
+          return;
+        }
+        ensureFileBodyMounted(section, f);
+        card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+        break;
+      }
+    }
     if (!card) return;
     // Make sure any containing <details> file section is open
     const section = card.closest('details');
@@ -553,7 +575,7 @@
         lineBlocks: null,
         previousLineBlocks: null,
         tocItems: [],
-        collapsed: true,
+        collapsed: false,
         viewMode: (session.mode === 'git') ? 'diff' : 'document',
         additions: fi.additions || 0,
         deletions: fi.deletions || 0,
@@ -1252,8 +1274,25 @@
   // ===== File Tree Sidebar =====
   let activeTreePath = null;
   let treeObserver = null;
+  let bodyMountObserver = null;
   let ignoreTreeObserverUntil = 0;
+  let ignoreBodyMountObserverUntil = 0;
+  let bodyMountSuppressTimer = null;
   const treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
+
+  // Suppress observer-driven mounts briefly (e.g. during scrollToFile) so
+  // adjacent bodies don't push the target out of view. When the window
+  // expires, remount anything still visible — IntersectionObserver will not
+  // re-fire for elements that stayed intersecting while we ignored callbacks.
+  function suppressBodyMountObserver(ms) {
+    ignoreBodyMountObserverUntil = Date.now() + ms;
+    if (bodyMountSuppressTimer) clearTimeout(bodyMountSuppressTimer);
+    bodyMountSuppressTimer = setTimeout(function() {
+      bodyMountSuppressTimer = null;
+      if (Date.now() < ignoreBodyMountObserverUntil) return;
+      mountVisibleDeferredBodies();
+    }, ms + 10);
+  }
 
   function buildFileTree(fileList) {
     // Build a nested tree from flat paths
@@ -1320,7 +1359,9 @@
     if (files.length > 1) {
       const collapseBtn = document.createElement('button');
       collapseBtn.className = 'file-tree-collapse-btn';
-      collapseBtn.title = 'Collapse all files';
+      const initiallyExpanded = files.some(function(f) { return !f.collapsed; });
+      collapseBtn.title = initiallyExpanded ? 'Collapse all files' : 'Expand all files';
+      collapseBtn.classList.toggle('all-collapsed', !initiallyExpanded);
       // Stacked chevron SVG
       collapseBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 3.22a.75.75 0 0 1 1.06 0L8 5.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 4.28a.75.75 0 0 1 0-1.06zm0 5a.75.75 0 0 1 1.06 0L8 10.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 9.28a.75.75 0 0 1 0-1.06z"/></svg>';
       collapseBtn.addEventListener('click', function() {
@@ -1331,6 +1372,10 @@
         const sections = document.querySelectorAll('.file-section');
         for (let i = 0; i < sections.length; i++) {
           sections[i].open = !anyExpanded;
+        }
+        if (!anyExpanded) {
+          // Re-attach observer so it fires for newly visible sections and mounts their bodies.
+          setupBodyMountObserver();
         }
         collapseBtn.title = anyExpanded ? 'Expand all files' : 'Collapse all files';
         collapseBtn.classList.toggle('all-collapsed', anyExpanded);
@@ -1641,6 +1686,67 @@
     }
   }
 
+  function setupBodyMountObserver() {
+    if (bodyMountObserver) bodyMountObserver.disconnect();
+    const sections = document.querySelectorAll('.file-section[id]');
+    if (sections.length === 0) return;
+
+    bodyMountObserver = new IntersectionObserver(function(entries) {
+      // Skip observer-driven mounts briefly after a manual scrollToFile so the
+      // requested file doesn't get pushed out of view by adjacent bodies mounting.
+      if (Date.now() < ignoreBodyMountObserverUntil) return;
+      let mountedAny = false;
+      for (let i = 0; i < entries.length; i++) {
+        if (!entries[i].isIntersecting) continue;
+        const section = entries[i].target;
+        const path = section.id.replace('file-section-', '');
+        const file = getFileByPath(path);
+        if (!file) continue;
+        if (file.lazy) {
+          loadLazyFile(section, file);
+        } else {
+          mountDeferredBody(section, file);
+          mountedAny = true;
+        }
+      }
+      if (mountedAny) {
+        renderMermaidBlocks();
+        rebuildNavList();
+        applyHideResolved();
+      }
+    }, { rootMargin: '100% 0px 100% 0px' });
+
+    for (let i = 0; i < sections.length; i++) {
+      bodyMountObserver.observe(sections[i]);
+    }
+  }
+
+  function mountVisibleDeferredBodies() {
+    const sections = document.querySelectorAll('.file-section[id]');
+    if (sections.length === 0) return;
+    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+    let mountedAny = false;
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+      const rect = section.getBoundingClientRect();
+      if (rect.bottom < -windowHeight || rect.top > windowHeight * 2) continue;
+      const path = section.id.replace('file-section-', '');
+      const file = getFileByPath(path);
+      if (!file) continue;
+      if (file.lazy) {
+        loadLazyFile(section, file);
+      } else {
+        mountDeferredBody(section, file);
+        mountedAny = true;
+      }
+    }
+    if (mountedAny) {
+      renderMermaidBlocks();
+      rebuildNavList();
+      applyHideResolved();
+    }
+  }
+
   function scrollToFile(filePath) {
     const sectionEl = document.getElementById('file-section-' + filePath);
     if (!sectionEl) return;
@@ -1648,9 +1754,27 @@
     const file = getFileByPath(filePath);
     if (file) file.collapsed = false;
     sectionEl.open = true;
-    // Suppress IntersectionObserver for 200ms so it doesn't override our manual active state
+    // toggle handler mounts deferred bodies; call explicitly so layout exists before scroll
+    if (file) {
+      if (file.lazy) {
+        // Scroll to header immediately while loading; re-scroll to the loaded section once
+        // the body mounts so the user lands reliably on the requested file.
+        sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+        loadLazyFile(sectionEl, file, function onLoaded(newSection) {
+          const el = newSection || document.getElementById('file-section-' + filePath);
+          if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
+        });
+      } else {
+        ensureFileBodyMounted(sectionEl, file);
+      }
+    }
+    // Suppress observers briefly so adjacent bodies mounting don't push the
+    // requested file out of view after we scroll to it.
     ignoreTreeObserverUntil = Date.now() + 200;
-    sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+    suppressBodyMountObserver(500);
+    if (!file || !file.lazy) {
+      sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
     updateTreeActive(filePath);
   }
 
@@ -1669,8 +1793,13 @@
     // Render the inline Review Conversation section above filesContainer
     renderReviewConversation();
 
-    // Re-attach intersection observer for file tree active tracking
+    // Re-attach intersection observers for file tree active tracking and
+    // deferred body mounting (keeps large reviews fast while leaving files open).
     setupTreeObserver();
+    setupBodyMountObserver();
+    // Mount bodies that are already visible so first paint doesn't show empty
+    // open sections while the observer fires.
+    mountVisibleDeferredBodies();
     rebuildNavList();
     applyHideResolved();
   }
@@ -2007,8 +2136,15 @@
     }
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
-    oldSection.replaceWith(renderFileSection(file));
+    const newSection = renderFileSection(file);
+    oldSection.replaceWith(newSection);
+    if (newSection.open) {
+      if (file.lazy) loadLazyFile(newSection, file);
+      else ensureFileBodyMounted(newSection, file);
+    }
     renderMermaidBlocks();
+    setupBodyMountObserver();
+    mountVisibleDeferredBodies();
     rebuildNavList();
     applyHideResolved();
   }
@@ -2054,63 +2190,18 @@
       }
       // Expanding: let native <details> handle it
     });
+    // open is set before this listener is attached, so the create-time open
+    // does not fire toggle here. Do not gate the first event — that would
+    // swallow the user's first collapse/expand.
     section.addEventListener('toggle', function() {
       file.collapsed = !section.open;
+      if (section.open) {
+        if (file.lazy) loadLazyFile(section, file);
+        else ensureFileBodyMounted(section, file);
+      } else if (!fileHasOpenLineForms(file.path)) {
+        deferFileBody(section);
+      }
     });
-
-    // Lazy file: load content on first expand
-    if (file.lazy) {
-      section.addEventListener('toggle', function onLazyExpand() {
-        if (!section.open || !file.lazy) return;
-        if (file._lazyLoading) return;
-        file._lazyLoading = true;
-        section.removeEventListener('toggle', onLazyExpand);
-        section.classList.add('file-section-loading');
-
-        loadSingleFile({
-          path: file.path,
-          old_path: file.oldPath,
-          status: file.status,
-          file_type: file.fileType,
-          additions: file.additions,
-          deletions: file.deletions,
-        }, effectiveDiffScope()).then(function(loaded) {
-          // Copy loaded data into the existing file object
-          file.oldPath = loaded.oldPath;
-          file.content = loaded.content;
-          file.previousContent = loaded.previousContent;
-          file.comments = loaded.comments;
-          file.diffHunks = loaded.diffHunks;
-          file._autoExpandDone = false;
-          file.lineBlocks = loaded.lineBlocks;
-          file.previousLineBlocks = loaded.previousLineBlocks;
-          file.tocItems = loaded.tocItems;
-          file.diffTooLarge = loaded.diffTooLarge;
-          file.diffLoaded = loaded.diffLoaded;
-          file.lazy = false;
-          file._lazyLoading = false;
-          if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-          if (loaded.lang) file.lang = loaded.lang;
-
-          // Re-render this file section in place
-          section.classList.remove('file-section-loading');
-          const newSection = renderFileSection(file);
-          newSection.open = section.open;
-          section.replaceWith(newSection);
-
-          // Update UI state
-          renderFileTree();
-          updateCommentCount();
-          rebuildNavList();
-        }).catch(function() {
-          file._lazyLoading = false;
-          // Guard against stale DOM node: only re-attach if still in the document
-          if (!section.isConnected) return;
-          section.classList.remove('file-section-loading');
-          section.addEventListener('toggle', onLazyExpand);
-        });
-      });
-    }
 
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
@@ -2268,9 +2359,107 @@
       section.appendChild(fileCommentsContainer);
     }
 
-    // File body
+    // File body — mount heavy diff/document DOM only while expanded. Keeping
+    // <details> open by default (GitHub-style) but deferring the body until it
+    // scrolls near the viewport keeps first paint cheap on large PRs.
     const body = document.createElement('div');
     body.className = 'file-body';
+    section.appendChild(body);
+
+    body.setAttribute('data-body-deferred', '1');
+
+    return section;
+  }
+
+  function fileHasOpenLineForms(filePath) {
+    return getFormsForFile(filePath).some(function(f) { return f.scope !== 'file'; });
+  }
+
+  function loadLazyFile(section, file, onLoaded) {
+    if (!section.open || !file.lazy || file._lazyLoading) {
+      if (onLoaded && !file.lazy) onLoaded();
+      return;
+    }
+    file._lazyLoading = true;
+    section.classList.add('file-section-loading');
+
+    loadSingleFile({
+      path: file.path,
+      old_path: file.oldPath,
+      status: file.status,
+      file_type: file.fileType,
+      additions: file.additions,
+      deletions: file.deletions,
+    }, effectiveDiffScope()).then(function(loaded) {
+      // Copy loaded data into the existing file object
+      file.oldPath = loaded.oldPath;
+      file.content = loaded.content;
+      file.previousContent = loaded.previousContent;
+      file.comments = loaded.comments;
+      file.diffHunks = loaded.diffHunks;
+      file._autoExpandDone = false;
+      file.lineBlocks = loaded.lineBlocks;
+      file.previousLineBlocks = loaded.previousLineBlocks;
+      file.tocItems = loaded.tocItems;
+      file.diffTooLarge = loaded.diffTooLarge;
+      file.diffLoaded = loaded.diffLoaded;
+      file.lazy = false;
+      file._lazyLoading = false;
+      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
+      if (loaded.lang) file.lang = loaded.lang;
+
+      // Re-render this file section in place
+      section.classList.remove('file-section-loading');
+      const newSection = renderFileSection(file);
+      newSection.open = section.open;
+      section.replaceWith(newSection);
+      // Always mount when open: observer may be suppressed (scrollToFile) and
+      // will not re-fire for an already-intersecting replacement section.
+      if (newSection.open) ensureFileBodyMounted(newSection, file);
+
+      // Update UI state
+      renderFileTree();
+      updateCommentCount();
+      setupBodyMountObserver();
+      rebuildNavList();
+      if (onLoaded) onLoaded(newSection);
+    }).catch(function() {
+      file._lazyLoading = false;
+      // Guard against stale DOM node: only re-attach if still in the document
+      if (!section.isConnected) return;
+      section.classList.remove('file-section-loading');
+    });
+  }
+
+  function deferFileBody(section) {
+    const body = section.querySelector(':scope > .file-body');
+    if (!body || body.getAttribute('data-body-deferred') === '1') return;
+    body.innerHTML = '';
+    body.setAttribute('data-body-deferred', '1');
+    rebuildNavList();
+  }
+
+  function mountDeferredBody(section, file) {
+    const body = section.querySelector(':scope > .file-body');
+    if (!body || body.getAttribute('data-body-deferred') !== '1') return;
+    populateFileBody(body, file);
+    highlightQuotesInSection(section, file);
+  }
+
+  function ensureFileBodyMounted(section, file) {
+    if (!section || !file || file.lazy) return;
+    const body = section.querySelector(':scope > .file-body');
+    if (!body) return;
+    if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount > 0) return;
+    mountDeferredBody(section, file);
+    renderMermaidBlocks();
+    rebuildNavList();
+    applyHideResolved();
+  }
+
+  function populateFileBody(body, file) {
+    body.innerHTML = '';
+    body.removeAttribute('data-body-deferred');
 
     const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
 
@@ -2314,10 +2503,6 @@
     } else {
       body.appendChild(renderDocumentView(file));
     }
-
-    section.appendChild(body);
-    highlightQuotesInSection(section, file);
-    return section;
   }
 
   // ===== Rendered Diff View (Markdown, file mode) =====
@@ -6688,9 +6873,21 @@
     const section = document.getElementById('file-section-' + filePath);
     if (!section) return;
     if (!section.open) section.open = true;
-    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-    if (!commentCard) return;
-    flashCommentCard(commentCard);
+    const file = getFileByPath(filePath);
+    const flashCardIn = function(el) {
+      if (!el) return;
+      const commentCard = el.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+      if (commentCard) flashCommentCard(commentCard);
+    };
+    // Line comment cards live inside .file-body — mount (or lazy-load) first.
+    if (file && file.lazy) {
+      loadLazyFile(section, file, function onLoaded(newSection) {
+        flashCardIn(newSection || document.getElementById('file-section-' + filePath));
+      });
+      return;
+    }
+    if (file) ensureFileBodyMounted(section, file);
+    flashCardIn(section);
   }
 
   // ===== PR Overview Panel =====
