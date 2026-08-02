@@ -94,7 +94,7 @@
         }
         if (!found) continue;
         const section = document.getElementById('file-section-' + f.path);
-        if (!section) break;
+        if (!section) continue;
         section.open = true;
         if (f.lazy) {
           loadLazyFile(section, f, function() { scrollToCommentRef(id); });
@@ -1699,6 +1699,7 @@
       for (let i = 0; i < entries.length; i++) {
         if (!entries[i].isIntersecting) continue;
         const section = entries[i].target;
+        if (!section.open) continue;
         const path = section.id.replace('file-section-', '');
         const file = getFileByPath(path);
         if (!file) continue;
@@ -1728,6 +1729,7 @@
     let mountedAny = false;
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
+      if (!section.open) continue;
       const rect = section.getBoundingClientRect();
       if (rect.bottom < -windowHeight || rect.top > windowHeight * 2) continue;
       const path = section.id.replace('file-section-', '');
@@ -2376,10 +2378,14 @@
   }
 
   function loadLazyFile(section, file, onLoaded) {
-    if (!section.open || !file.lazy || file._lazyLoading) {
-      if (onLoaded && !file.lazy) onLoaded();
+    if (!section.open) return;
+    if (!file.lazy) {
+      if (onLoaded) onLoaded(section);
       return;
     }
+    if (!file._lazyLoadCallbacks) file._lazyLoadCallbacks = [];
+    if (onLoaded) file._lazyLoadCallbacks.push(onLoaded);
+    if (file._lazyLoading) return;
     file._lazyLoading = true;
     section.classList.add('file-section-loading');
 
@@ -2408,11 +2414,22 @@
       if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
       if (loaded.lang) file.lang = loaded.lang;
 
-      // Re-render this file section in place
-      section.classList.remove('file-section-loading');
+      const callbacks = file._lazyLoadCallbacks || [];
+      file._lazyLoadCallbacks = [];
+
+      // Re-render this file section in place (prefer live node if caller raced).
+      let liveSection = section;
+      if (!section.isConnected) {
+        liveSection = document.getElementById('file-section-' + file.path);
+        if (!liveSection) {
+          for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
+          return;
+        }
+      }
+      liveSection.classList.remove('file-section-loading');
       const newSection = renderFileSection(file);
-      newSection.open = section.open;
-      section.replaceWith(newSection);
+      newSection.open = liveSection.open;
+      liveSection.replaceWith(newSection);
       // Always mount when open: observer may be suppressed (scrollToFile) and
       // will not re-fire for an already-intersecting replacement section.
       if (newSection.open) ensureFileBodyMounted(newSection, file);
@@ -2422,12 +2439,14 @@
       updateCommentCount();
       setupBodyMountObserver();
       rebuildNavList();
-      if (onLoaded) onLoaded(newSection);
+      for (let i = 0; i < callbacks.length; i++) callbacks[i](newSection);
     }).catch(function() {
       file._lazyLoading = false;
+      const callbacks = file._lazyLoadCallbacks || [];
+      file._lazyLoadCallbacks = [];
       // Guard against stale DOM node: only re-attach if still in the document
-      if (!section.isConnected) return;
-      section.classList.remove('file-section-loading');
+      if (section.isConnected) section.classList.remove('file-section-loading');
+      for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
     });
   }
 

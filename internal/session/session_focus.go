@@ -417,13 +417,9 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 	}
 	var numstats map[string]vcs.NumstatEntry
 	if len(changes) > lazyFileThreshold {
-		// Prefer between-SHA numstat so sidebar +/- match the PR range even
-		// when the working tree is dirty or --remote (no local checkout).
-		if ns, nsErr := vcs.DiffNumstatBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot); nsErr == nil {
-			numstats = ns
-		} else {
-			numstats, _ = v.DiffNumstat(f.DiffBaseSHA(), repoRoot)
-		}
+		// Between-SHA only — never fall back to working-tree numstat, which
+		// contaminates sidebar +/- when the tree is dirty or --remote.
+		numstats, _ = vcs.DiffNumstatBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot)
 	}
 	out := make([]*FileEntry, 0, len(changes))
 	for i, fc := range changes {
@@ -438,7 +434,7 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 		// Same eager/lazy split as NewGitSession: range focus is how --pr
 		// rebuilds the file list, so large doc PRs must not load every file.
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-			populateLazyFile(fe, fc, numstats)
+			populateLazyFile(fe, fc, numstats, false)
 			out = append(out, fe)
 			continue
 		}
@@ -501,7 +497,7 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 			Comments: []Comment{},
 		}
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-			populateLazyFile(fe, fc, numstats)
+			populateLazyFile(fe, fc, numstats, true)
 			out = append(out, fe)
 			continue
 		}

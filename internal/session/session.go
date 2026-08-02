@@ -606,13 +606,16 @@ type CritJSONFile struct {
 }
 
 // populateLazyFile fills stats for a file that will be loaded on demand.
-func populateLazyFile(fe *FileEntry, fc vcs.FileChange, numstats map[string]vcs.NumstatEntry) {
+// When diskFallback is true (working-tree focus), missing numstat for
+// added/untracked files is estimated from the on-disk file. Range/--pr
+// focus must pass false so dirty trees / --remote don't contaminate stats.
+func populateLazyFile(fe *FileEntry, fc vcs.FileChange, numstats map[string]vcs.NumstatEntry, diskFallback bool) {
 	fe.Lazy = true
 	fe.Comments = []Comment{}
 	if ns, ok := numstats[fc.Path]; ok {
 		fe.LazyAdditions = ns.Additions
 		fe.LazyDeletions = ns.Deletions
-	} else if fc.Status == "untracked" || fc.Status == "added" {
+	} else if diskFallback && (fc.Status == "untracked" || fc.Status == "added") {
 		if data, err := os.ReadFile(fe.AbsPath); err == nil {
 			fe.LazyAdditions = strings.Count(string(data), "\n")
 			if len(data) > 0 && data[len(data)-1] != '\n' {
@@ -816,7 +819,7 @@ func newGitSession(v vcs.VCS, ignorePatterns []string, requireChanges bool) (*Se
 		}
 
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-			populateLazyFile(fe, fc, numstats)
+			populateLazyFile(fe, fc, numstats, true)
 		} else if !populateEagerFile(fe, fc, baseRef, root, v) {
 			continue
 		}

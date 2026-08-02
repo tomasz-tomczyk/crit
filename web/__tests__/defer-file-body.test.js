@@ -45,8 +45,16 @@ test('loadLazyFile mounts body after re-render so observer suppress cannot leave
   // After replaceWith(renderFileSection(...)), body must be mounted when open.
   assert.match(
     appSrc,
-    /section\.replaceWith\(newSection\);[\s\S]{0,250}ensureFileBodyMounted\(newSection,\s*file\)/s,
+    /replaceWith\(newSection\);[\s\S]{0,250}ensureFileBodyMounted\(newSection,\s*file\)/s,
   );
+  // Concurrent callers must queue onLoaded, not drop it while _lazyLoading.
+  assert.match(appSrc, /_lazyLoadCallbacks/);
+});
+
+test('viewport mounters skip collapsed sections so collapse keeps bodies deferred', () => {
+  assert.match(appSrc, /function setupBodyMountObserver\s*\(/);
+  assert.match(appSrc, /function mountVisibleDeferredBodies\s*\(/);
+  assert.match(appSrc, /if \(!section\.open\) continue;/);
 });
 
 test('body-mount observer suppress schedules a remount when the window expires', () => {
@@ -90,7 +98,7 @@ test('range/PR focus applies lazyFileThreshold via populateLazyFile', () => {
   // Range path must populate lazy stats the same way as working-tree.
   assert.match(
     focusSrc,
-    /if len\(changes\) > lazyFileThreshold && i >= lazyFileThreshold \{\s*populateLazyFile\(fe, fc, numstats\)/s,
+    /if len\(changes\) > lazyFileThreshold && i >= lazyFileThreshold \{\s*populateLazyFile\(fe, fc, numstats, false\)/s,
   );
 });
 
