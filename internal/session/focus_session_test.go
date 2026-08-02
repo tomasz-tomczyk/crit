@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -330,5 +331,148 @@ func TestGetFileSnapshot_RangeLazy_UsesHeadSHANotWorkingTree(t *testing.T) {
 	}
 	if lazyFile.Lazy {
 		t.Fatal("file should no longer be lazy after GetFileSnapshot")
+	}
+}
+
+// Lazy range modified files must load between-SHA diffs, not working-tree diffs.
+func TestGetFileDiffSnapshot_RangeLazy_UsesBetweenSHADiff(t *testing.T) {
+	dir := initTestRepo(t)
+
+	total := lazyFileThreshold + 1
+	var lazyPath string
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# base %d\nline two\n", i))
+		if i == lazyFileThreshold {
+			lazyPath = name
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "base docs")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# head %d\nline two\n", i))
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "head docs")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	// Dirty WT content that would produce a different diff if read from disk.
+	if err := os.WriteFile(filepath.Join(dir, lazyPath), []byte("# dirty\nentirely different\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Session{
+		Mode:      "git",
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lazyFile *FileEntry
+	for _, f := range s.Files {
+		if f.Path == lazyPath {
+			lazyFile = f
+			break
+		}
+	}
+	if lazyFile == nil || !lazyFile.Lazy {
+		t.Fatalf("expected %s lazy, got %+v", lazyPath, lazyFile)
+	}
+	if lazyFile.LazyAdditions == 0 {
+		t.Fatalf("expected LazyAdditions from between-SHA numstat for %s", lazyPath)
+	}
+
+	result, ok := s.GetFileDiffSnapshot(lazyPath, false)
+	if !ok {
+		t.Fatal("GetFileDiffSnapshot failed")
+	}
+	hunks, _ := result["hunks"].([]vcs.DiffHunk)
+	if len(hunks) == 0 {
+		t.Fatal("expected between-SHA hunks for modified lazy file")
+	}
+	joined := ""
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			joined += l.Content + "\n"
+		}
+	}
+	if !strings.Contains(joined, "head "+fmt.Sprint(lazyFileThreshold)) {
+		t.Fatalf("hunks missing HeadSHA content; got %q", joined)
+	}
+	if strings.Contains(joined, "dirty") || strings.Contains(joined, "entirely different") {
+		t.Fatalf("hunks used dirty working tree; got %q", joined)
+	}
+	if lazyFile.Lazy {
+		t.Fatal("file should no longer be lazy after GetFileDiffSnapshot")
+	}
+}
+
+// Deleted lazy range files load without reading HeadSHA content.
+func TestGetFileSnapshot_RangeLazy_Deleted(t *testing.T) {
+	dir := initTestRepo(t)
+
+	total := lazyFileThreshold + 1
+	var lazyPath string
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# doc %d\n", i))
+		if i == lazyFileThreshold {
+			lazyPath = name
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add docs")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	if err := os.Remove(filepath.Join(dir, lazyPath)); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-m", "delete lazy doc")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lazyFile *FileEntry
+	for _, f := range s.Files {
+		if f.Path == lazyPath {
+			lazyFile = f
+			break
+		}
+	}
+	if lazyFile == nil {
+		t.Fatalf("%s missing from file list", lazyPath)
+	}
+	if lazyFile.Status != "deleted" {
+		t.Fatalf("status = %q, want deleted", lazyFile.Status)
+	}
+	if !lazyFile.Lazy {
+		// Ordering is by ChangedFilesBetweenSHAs; if the deleted file landed
+		// in the eager prefix, skip — the load path still matters when lazy.
+		t.Skip("deleted file was eagerly loaded; threshold ordering put it under the cut")
+	}
+
+	snap, ok := s.GetFileSnapshot(lazyPath)
+	if !ok {
+		t.Fatal("GetFileSnapshot failed for deleted lazy file")
+	}
+	if content, _ := snap["content"].(string); content != "" {
+		t.Fatalf("deleted file content = %q, want empty", content)
+	}
+	if lazyFile.Lazy {
+		t.Fatal("deleted lazy file should be loaded after GetFileSnapshot")
 	}
 }

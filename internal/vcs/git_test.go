@@ -1573,6 +1573,44 @@ func TestDiffNumstat(t *testing.T) {
 	}
 }
 
+func TestDiffNumstatBetweenSHAs(t *testing.T) {
+	dir := testutil.InitTestRepo(t)
+
+	testutil.WriteFile(t, filepath.Join(dir, "stats.go"), "package main\n\nfunc hello() {}\n")
+	testutil.Git(t, dir, "add", "stats.go")
+	testutil.Git(t, dir, "commit", "-m", "add stats.go")
+	base := strings.TrimSpace(testutil.Git(t, dir, "rev-parse", "HEAD"))
+
+	testutil.Git(t, dir, "checkout", "-b", "feature-numstat-between")
+	testutil.WriteFile(t, filepath.Join(dir, "stats.go"), "package main\n\nfunc hello() {\n\tfmt.Println(\"hi\")\n}\n\nfunc world() {}\n")
+	testutil.WriteFile(t, filepath.Join(dir, "newfile.txt"), "line1\nline2\nline3\n")
+	testutil.Git(t, dir, "add", "stats.go", "newfile.txt")
+	testutil.Git(t, dir, "commit", "-m", "modify stats and add newfile")
+	head := strings.TrimSpace(testutil.Git(t, dir, "rev-parse", "HEAD"))
+
+	// Dirty WT must not affect between-SHA numstat.
+	testutil.WriteFile(t, filepath.Join(dir, "stats.go"), "package main\n\nfunc dirty() {}\n")
+
+	stats, err := DiffNumstatBetweenSHAs(base, head, dir)
+	if err != nil {
+		t.Fatalf("DiffNumstatBetweenSHAs failed: %v", err)
+	}
+	if s, ok := stats["stats.go"]; !ok {
+		t.Fatal("missing stats.go in between-SHA numstat")
+	} else if s.Additions != 5 || s.Deletions != 1 {
+		t.Errorf("stats.go: got +%d/-%d, want +5/-1 (HeadSHA, not dirty WT)", s.Additions, s.Deletions)
+	}
+	if s, ok := stats["newfile.txt"]; !ok {
+		t.Fatal("missing newfile.txt")
+	} else if s.Additions != 3 || s.Deletions != 0 {
+		t.Errorf("newfile.txt: got +%d/-%d, want +3/-0", s.Additions, s.Deletions)
+	}
+
+	if _, err := DiffNumstatBetweenSHAs("", head, dir); err == nil {
+		t.Fatal("expected error for empty base SHA")
+	}
+}
+
 func TestDiffNumstatBinary(t *testing.T) {
 	dir := testutil.InitTestRepo(t)
 
