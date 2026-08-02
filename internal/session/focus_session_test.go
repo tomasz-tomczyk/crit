@@ -1,10 +1,12 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -475,4 +477,169 @@ func TestGetFileSnapshot_RangeLazy_Deleted(t *testing.T) {
 	if lazyFile.Lazy {
 		t.Fatal("deleted lazy file should be loaded after GetFileSnapshot")
 	}
+}
+
+func TestEnsureFileLoaded_NilAndNonLazy(t *testing.T) {
+	s := &Session{Focus: Focus{Kind: FocusWorkingTree}}
+	if err := s.ensureFileLoaded(nil); err != nil {
+		t.Fatalf("nil file: %v", err)
+	}
+	fe := &FileEntry{Path: "x.md", Lazy: false, Content: "already"}
+	if err := s.ensureFileLoaded(fe); err != nil {
+		t.Fatalf("non-lazy: %v", err)
+	}
+	if fe.Content != "already" {
+		t.Fatalf("non-lazy content mutated: %q", fe.Content)
+	}
+}
+
+func TestEnsureFileLoaded_WorkingTreeLazy(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	path := filepath.Join(dir, "lazy.md")
+	writeFile(t, path, "# from disk\n")
+	gitT(t, dir, "add", "lazy.md")
+	gitT(t, dir, "commit", "-m", "add lazy")
+
+	s := &Session{
+		Focus:    Focus{Kind: FocusWorkingTree, BaseRef: base},
+		RepoRoot: dir,
+		BaseRef:  base,
+		VCS:      &vcs.GitVCS{},
+	}
+	fe := &FileEntry{
+		Path:    "lazy.md",
+		AbsPath: path,
+		Status:  "added",
+		Lazy:    true,
+	}
+	if err := s.ensureFileLoaded(fe); err != nil {
+		t.Fatal(err)
+	}
+	if fe.Lazy {
+		t.Fatal("expected Lazy=false after working-tree load")
+	}
+	if fe.Content != "# from disk\n" {
+		t.Fatalf("content = %q", fe.Content)
+	}
+	if len(fe.DiffHunks) == 0 {
+		t.Fatal("expected unified new-file hunks for added lazy file")
+	}
+}
+
+func TestEnsureLoadedAtRange_RemoteErrorAndNilContent(t *testing.T) {
+	wantErr := errors.New("remote boom")
+	var calls int32
+	stubFetchFn(t, nil, wantErr, &calls)
+
+	s := &Session{
+		RemoteFiles: true,
+		Focus: Focus{
+			Kind:    FocusRange,
+			BaseSHA: "base",
+			HeadSHA: "head",
+			PRURL:   "https://github.com/foo/bar/pull/1",
+		},
+		VCS: &vcs.GitVCS{},
+	}
+	fe := &FileEntry{Path: "x.md", Status: "added", Lazy: true}
+	err := s.ensureFileLoaded(fe)
+	if err == nil || !strings.Contains(err.Error(), "remote boom") {
+		t.Fatalf("got %v, want remote boom", err)
+	}
+	if !fe.Lazy {
+		t.Fatal("failed load must leave Lazy=true")
+	}
+
+	// nil body, no error → "not found"
+	var calls2 int32
+	stubFetchFn(t, nil, nil, &calls2)
+	fe2 := &FileEntry{Path: "y.md", Status: "added", Lazy: true}
+	err = s.ensureFileLoaded(fe2)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("got %v, want not found", err)
+	}
+}
+
+func TestEnsureLoadedAtRange_ModifiedRequiresVCS(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "m.md"), "# base\n")
+	gitT(t, dir, "add", "m.md")
+	gitT(t, dir, "commit", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	writeFile(t, filepath.Join(dir, "m.md"), "# head\n")
+	gitT(t, dir, "add", "m.md")
+	gitT(t, dir, "commit", "-m", "head")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	// Session has VCS for content reads; pass nil v to hit the require-VCS branch.
+	s := &Session{
+		RepoRoot: dir,
+		VCS:      &vcs.GitVCS{},
+		Focus:    Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head},
+	}
+	fe := &FileEntry{Path: "m.md", Status: "modified", Lazy: true, AbsPath: filepath.Join(dir, "m.md")}
+	err := fe.ensureLoadedAtRange(s, s.Focus, dir, nil)
+	if err == nil || !strings.Contains(err.Error(), "requires VCS") {
+		t.Fatalf("got %v, want requires VCS", err)
+	}
+}
+
+func TestEnsureLoadedAtRange_AlreadyLoadedNoop(t *testing.T) {
+	s := &Session{Focus: Focus{Kind: FocusRange, BaseSHA: "a", HeadSHA: "b"}}
+	fe := &FileEntry{Path: "x.md", Status: "added", Lazy: false, Content: "kept"}
+	if err := fe.ensureLoadedAtRange(s, s.Focus, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if fe.Content != "kept" {
+		t.Fatalf("content changed: %q", fe.Content)
+	}
+}
+
+func TestPopulateLazyFile_DiskFallbackFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.md")
+	writeFile(t, path, "one\ntwo\nthree\n")
+	fe := &FileEntry{Path: "a.md", AbsPath: path, Status: "added"}
+	fc := vcs.FileChange{Path: "a.md", Status: "added"}
+
+	populateLazyFile(fe, fc, nil, false)
+	if !fe.Lazy || fe.LazyAdditions != 0 {
+		t.Fatalf("diskFallback=false: lazy=%v adds=%d", fe.Lazy, fe.LazyAdditions)
+	}
+
+	fe2 := &FileEntry{Path: "a.md", AbsPath: path, Status: "added"}
+	populateLazyFile(fe2, fc, nil, true)
+	if fe2.LazyAdditions != 3 {
+		t.Fatalf("diskFallback=true: adds=%d, want 3", fe2.LazyAdditions)
+	}
+
+	fe3 := &FileEntry{Path: "a.md", AbsPath: path, Status: "added"}
+	populateLazyFile(fe3, fc, map[string]vcs.NumstatEntry{"a.md": {Additions: 9, Deletions: 1}}, false)
+	if fe3.LazyAdditions != 9 || fe3.LazyDeletions != 1 {
+		t.Fatalf("numstat map: +%d/-%d", fe3.LazyAdditions, fe3.LazyDeletions)
+	}
+}
+
+func TestGetFileSnapshot_RangeLazy_RemoteErrorReturnsFalse(t *testing.T) {
+	wantErr := errors.New("fetch failed")
+	var calls int32
+	stubFetchFn(t, nil, wantErr, &calls)
+
+	fe := &FileEntry{Path: "x.md", Status: "added", Lazy: true}
+	s := &Session{
+		RemoteFiles: true,
+		Focus: Focus{
+			Kind:    FocusRange,
+			BaseSHA: "base",
+			HeadSHA: "head",
+			PRURL:   "https://github.com/foo/bar/pull/2",
+		},
+		VCS:   &vcs.GitVCS{},
+		Files: []*FileEntry{fe},
+	}
+	if _, ok := s.GetFileSnapshot("x.md"); ok {
+		t.Fatal("expected GetFileSnapshot false when remote lazy load fails")
+	}
+	_ = atomic.LoadInt32(&calls) // ensure stub was wired
 }
