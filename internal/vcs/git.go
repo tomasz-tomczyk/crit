@@ -570,7 +570,19 @@ func changedFilesFromBaseInDir(baseRef, dir string) ([]FileChange, error) {
 	}
 	changes = append(changes, untracked...)
 
+	// DBG-VCS: temporary diagnostics for the lazy-threshold flake (remove me)
+	fmt.Fprintf(os.Stderr, "DBG-VCS dir=%s diff=%q untracked=%q\n", dir, string(out), untrackedString(untracked))
+
 	return dedup(changes), nil
+}
+
+func untrackedString(changes []FileChange) string {
+	var b strings.Builder
+	for _, c := range changes {
+		b.WriteString(c.Path)
+		b.WriteString(";")
+	}
+	return b.String()
 }
 
 // HeadSHAInDir returns the full SHA of HEAD in dir.
