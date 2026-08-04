@@ -295,6 +295,18 @@ func (s *SaplingVCS) DiffNumstat(baseRef, dir string) (map[string]NumstatEntry, 
 	return parseSaplingDiffStat(out), nil
 }
 
+// DiffNumstatBetweenSHAs returns per-file addition/deletion counts for baseSHA..headSHA.
+func (s *SaplingVCS) DiffNumstatBetweenSHAs(baseSHA, headSHA, dir string) (map[string]NumstatEntry, error) {
+	if baseSHA == "" || headSHA == "" {
+		return nil, fmt.Errorf("diff numstat between SHAs requires both base and head")
+	}
+	out, err := SLCommandInDir(dir, "diff", "--stat", "--rev", baseSHA, "--rev", headSHA)
+	if err != nil {
+		return nil, err
+	}
+	return parseSaplingDiffStat(out), nil
+}
+
 // UserName returns the Sapling-configured user name.
 func (s *SaplingVCS) UserName() string {
 	out, err := exec.Command("sl", "config", "ui.username").Output()

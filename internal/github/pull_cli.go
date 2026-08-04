@@ -19,6 +19,7 @@ type pullFlags struct {
 	prFlag           int
 	outputDir        string
 	configuredOutput string
+	sessionID        string
 }
 
 func parsePullFlags(args []string) (pullFlags, error) {
@@ -34,9 +35,18 @@ func parsePullFlags(args []string) (pullFlags, error) {
 			f.outputDir = args[i]
 			continue
 		}
+		if arg == "--session" {
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --session requires a value")
+				return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+			}
+			i++
+			f.sessionID = args[i]
+			continue
+		}
 		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit pull [--output <dir>] [pr-number]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [pr-number]\n")
 			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 		f.prFlag = n
@@ -96,7 +106,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 		threadResolved = nil
 	}
 
-	critPath, err := review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
+	critPath, err := review.ResolveCommandReviewPathWithSession(f.sessionID, f.outputDir, f.configuredOutput)
 	if err != nil {
 		return err
 	}
@@ -107,7 +117,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 		}
 	}
 
-	if shouldRedirectReviewForPR(f.prFlag, f.outputDir != "" || f.configuredOutput != "") {
+	if shouldRedirectReviewForPR(f.prFlag, f.sessionID != "" || f.outputDir != "" || f.configuredOutput != "") {
 		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ

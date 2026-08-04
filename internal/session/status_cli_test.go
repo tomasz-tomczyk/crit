@@ -257,8 +257,21 @@ func TestRunStatusListsAllMatchingSessions(t *testing.T) {
 	if got[otherBranchKey] {
 		t.Fatalf("session IDs = %v, should not include other branch %s", got, otherBranchKey)
 	}
+	if result["review_file"] != nil {
+		t.Fatalf("review_file = %#v, want nil when multiple sessions match", result["review_file"])
+	}
+	if note, _ := result["note"].(string); !strings.Contains(note, "multiple active review sessions") {
+		t.Fatalf("note = %#v, want ambiguity note", result["note"])
+	}
+	daemonStatus, ok := result["daemon"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("daemon = %#v, want object", result["daemon"])
+	}
+	if daemonStatus["running"] != false {
+		t.Fatalf("daemon.running = %v, want false when ambiguous", daemonStatus["running"])
+	}
 	human := captureStatusHuman(t)
-	for _, want := range []string{"Active reviews: 2", firstKey, "one.md", secondKey, "two.md"} {
+	for _, want := range []string{"Active reviews: 2", firstKey, "one.md", secondKey, "two.md", "ambiguous"} {
 		if !strings.Contains(human, want) {
 			t.Fatalf("status output %q does not contain %q", human, want)
 		}

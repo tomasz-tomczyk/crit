@@ -42,7 +42,7 @@ func RunReview(args []string) error {
 
 	if sc.SessionID != "" {
 		if !daemon.ValidSessionKey(sc.SessionID) {
-			return fmt.Errorf("invalid session ID %q (expected 12-character hex)", sc.SessionID)
+			return daemon.InvalidSessionIDError(sc.SessionID)
 		}
 		key = sc.SessionID
 		staleEntry, _ := daemon.ReadSessionFile(key)

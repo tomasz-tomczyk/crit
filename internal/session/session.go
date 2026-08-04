@@ -804,7 +804,11 @@ func newGitSession(v vcs.VCS, ignorePatterns []string, requireChanges bool) (*Se
 
 	var numstats map[string]vcs.NumstatEntry
 	if len(changes) > lazyFileThreshold && baseRef != "" {
-		numstats, _ = v.DiffNumstat(baseRef, root)
+		var nsErr error
+		numstats, nsErr = v.DiffNumstat(baseRef, root)
+		if nsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: numstat failed: %v\n", nsErr)
+		}
 	}
 
 	for i, fc := range changes {

@@ -63,6 +63,9 @@ func (f *fakeFetchVCS) RemoteBranches(string) ([]string, error)     { return nil
 func (f *fakeFetchVCS) DiffNumstat(string, string) (map[string]NumstatEntry, error) {
 	return nil, nil
 }
+func (f *fakeFetchVCS) DiffNumstatBetweenSHAs(string, string, string) (map[string]NumstatEntry, error) {
+	return nil, nil
+}
 func (f *fakeFetchVCS) UserName() string { return "" }
 func (f *fakeFetchVCS) FileContentAtRef(string, string, string) (string, error) {
 	return "", nil

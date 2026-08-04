@@ -123,6 +123,12 @@ func TestGitVCS_Methods(t *testing.T) {
 	}
 	_ = ns
 
+	betweenNS, err := g.DiffNumstatBetweenSHAs(base, head, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = betweenNS
+
 	content, err := g.FileContentAtRef("README.md", "HEAD", dir)
 	if err != nil || content == "" {
 		t.Errorf("FileContentAtRef: %q, %v", content, err)

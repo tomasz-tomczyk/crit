@@ -17,6 +17,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 // writeReviewFixture writes a CritJSON with the given branch into
@@ -632,5 +633,71 @@ func TestRedirectReviewPathForPR(t *testing.T) {
 				t.Errorf("stderr = %q, want substring %q", stderr, tc.wantStderr)
 			}
 		})
+	}
+}
+
+func TestResolveCommandReviewPathAmbiguousSessions(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := ""
+	if vc := vcs.DetectVCS(""); vc != nil {
+		branch = vc.CurrentBranch()
+	}
+	const firstKey = "111111111111"
+	const secondKey = "222222222222"
+	firstPath := filepath.Join(t.TempDir(), firstKey)
+	secondPath := filepath.Join(t.TempDir(), secondKey)
+	for key, entry := range map[string]daemon.SessionEntry{
+		firstKey:  {PID: os.Getpid(), Port: port, CWD: cwd, Branch: branch, Args: []string{"one.md"}, ReviewPath: firstPath},
+		secondKey: {PID: os.Getpid(), Port: port, CWD: cwd, Branch: branch, Args: []string{"two.md"}, ReviewPath: secondPath},
+	} {
+		if err := daemon.WriteSessionFile(key, entry); err != nil {
+			t.Fatal(err)
+		}
+		k := key
+		t.Cleanup(func() { daemon.RemoveSessionFile(k) })
+	}
+
+	_, err = ResolveCommandReviewPath("", "")
+	if err == nil || !strings.Contains(err.Error(), "multiple active review sessions") {
+		t.Fatalf("ResolveCommandReviewPath error = %v, want ambiguity", err)
+	}
+	_, err = ResolveCommandReviewPath(t.TempDir(), "")
+	if err == nil || !strings.Contains(err.Error(), "multiple active review sessions") {
+		t.Fatalf("ResolveCommandReviewPath with output error = %v, want ambiguity", err)
+	}
+
+	got, err := ResolveCommandReviewPathWithSession(secondKey, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != secondPath {
+		t.Fatalf("session override path = %q, want %q", got, secondPath)
+	}
+}
+
+func TestResolveSessionReviewPathInvalidID(t *testing.T) {
+	_, err := ResolveSessionReviewPath("not-valid")
+	if err == nil || !strings.Contains(err.Error(), "expected 12-character hex") {
+		t.Fatalf("error = %v, want shared invalid session message", err)
 	}
 }

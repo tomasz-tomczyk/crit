@@ -2827,7 +2827,11 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 		_, ok = sess.AddReviewCommentReply(commentID, response, author, "")
 	}
 	if !ok {
-		log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
+		if filePath == "" {
+			log.Printf("agent-request %s: failed to add reply (comment not found as review-level comment)", commentID)
+		} else {
+			log.Printf("agent-request %s: failed to add reply (comment not found in file %q)", commentID, filePath)
+		}
 	} else {
 		// On shutdown, skip the refresh fan-out: the SSE subscribers are gone
 		// and we're about to WriteFiles. The reply is already in the session

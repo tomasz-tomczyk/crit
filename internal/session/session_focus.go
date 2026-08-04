@@ -419,7 +419,11 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 	if len(changes) > lazyFileThreshold {
 		// Between-SHA only — never fall back to working-tree numstat, which
 		// contaminates sidebar +/- when the tree is dirty or --remote.
-		numstats, _ = vcs.DiffNumstatBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot)
+		var nsErr error
+		numstats, nsErr = v.DiffNumstatBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot)
+		if nsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: numstat failed: %v\n", nsErr)
+		}
 	}
 	out := make([]*FileEntry, 0, len(changes))
 	for i, fc := range changes {
@@ -484,7 +488,11 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 	changes = filterBinary(changes)
 	var numstats map[string]vcs.NumstatEntry
 	if len(changes) > lazyFileThreshold && baseRef != "" {
-		numstats, _ = v.DiffNumstat(baseRef, repoRoot)
+		var nsErr error
+		numstats, nsErr = v.DiffNumstat(baseRef, repoRoot)
+		if nsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: numstat failed: %v\n", nsErr)
+		}
 	}
 	out := make([]*FileEntry, 0, len(changes))
 	for i, fc := range changes {

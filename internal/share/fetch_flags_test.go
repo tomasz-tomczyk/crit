@@ -14,31 +14,37 @@ import (
 
 func TestParseFetchOutputDir(t *testing.T) {
 	cases := []struct {
-		name string
-		args []string
-		want string
+		name     string
+		args     []string
+		wantOut  string
+		wantSess string
 	}{
-		{"no args", nil, ""},
-		{"empty slice", []string{}, ""},
-		{"--output long flag", []string{"--output", "/tmp/x"}, "/tmp/x"},
-		{"-o short flag", []string{"-o", "out"}, "out"},
-		{"last value wins", []string{"--output", "first", "-o", "second"}, "second"},
+		{"no args", nil, "", ""},
+		{"empty slice", []string{}, "", ""},
+		{"--output long flag", []string{"--output", "/tmp/x"}, "/tmp/x", ""},
+		{"-o short flag", []string{"-o", "out"}, "out", ""},
+		{"last value wins", []string{"--output", "first", "-o", "second"}, "second", ""},
+		{"--session", []string{"--session", "aaaaaaaaaaaa"}, "", "aaaaaaaaaaaa"},
+		{"session and output", []string{"--session", "bbbbbbbbbbbb", "--output", "out"}, "out", "bbbbbbbbbbbb"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := parseFetchOutputDir(c.args)
+			gotOut, gotSess, err := parseFetchOutputDir(c.args)
 			if err != nil {
 				t.Fatalf("parseFetchOutputDir(%v): %v", c.args, err)
 			}
-			if got != c.want {
-				t.Errorf("parseFetchOutputDir(%v) = %q, want %q", c.args, got, c.want)
+			if gotOut != c.wantOut {
+				t.Errorf("output = %q, want %q", gotOut, c.wantOut)
+			}
+			if gotSess != c.wantSess {
+				t.Errorf("session = %q, want %q", gotSess, c.wantSess)
 			}
 		})
 	}
 }
 
 func TestParseFetchOutputDir_MissingValue(t *testing.T) {
-	_, err := parseFetchOutputDir([]string{"--output"})
+	_, _, err := parseFetchOutputDir([]string{"--output"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -49,7 +55,7 @@ func TestParseFetchOutputDir_MissingValue(t *testing.T) {
 }
 
 func TestParseFetchOutputDir_UnknownArg(t *testing.T) {
-	_, err := parseFetchOutputDir([]string{"--bogus"})
+	_, _, err := parseFetchOutputDir([]string{"--bogus"})
 	if err == nil {
 		t.Fatal("expected error for unknown arg")
 	}

@@ -21,6 +21,7 @@ type pushFlags struct {
 	message          string
 	outputDir        string
 	configuredOutput string
+	sessionID        string
 	eventFlag        string
 }
 
@@ -48,6 +49,14 @@ func parsePushFlags(args []string) (pushFlags, error) {
 			f.outputDir = args[i]
 			continue
 		}
+		if arg == "--session" {
+			if i+1 >= len(args) {
+				return f, fmt.Errorf("--session requires a value")
+			}
+			i++
+			f.sessionID = args[i]
+			continue
+		}
 		if arg == "--event" || arg == "-e" {
 			if i+1 >= len(args) {
 				return f, fmt.Errorf("--event requires a value (comment, approve, request-changes)")
@@ -58,7 +67,7 @@ func parsePushFlags(args []string) (pushFlags, error) {
 		}
 		n, err := strconv.Atoi(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit push [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [pr-number]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [pr-number]\n")
 			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 		f.prFlag = n
@@ -156,9 +165,18 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, err
 	}
 
-	critPath, err := review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
+	critPath, cj, err := loadPushReview(f, prNumber)
 	if err != nil {
 		return pushContext{}, err
+	}
+
+	return pushContext{flags: f, event: event, prNumber: prNumber, critPath: critPath, cj: cj}, nil
+}
+
+func loadPushReview(f pushFlags, prNumber int) (string, session.CritJSON, error) {
+	critPath, err := review.ResolveCommandReviewPathWithSession(f.sessionID, f.outputDir, f.configuredOutput)
+	if err != nil {
+		return "", session.CritJSON{}, err
 	}
 
 	// Read the cwd-resolved file first (best-effort) so we know its branch.
@@ -169,18 +187,19 @@ func loadPushContext(args []string) (pushContext, error) {
 	data, readErr := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
 	if readErr != nil {
 		if !os.IsNotExist(readErr) {
-			return pushContext{}, readErr
+			return "", session.CritJSON{}, readErr
 		}
 		cwdFileExists = false
 	} else if err := json.Unmarshal(data, &cj); err != nil {
-		return pushContext{}, fmt.Errorf("invalid review file: %w", err)
+		return "", session.CritJSON{}, fmt.Errorf("invalid review file: %w", err)
 	}
 
 	// Redirect when the user passed an explicit PR number and the cwd-resolved
 	// review file is for a different branch (or is missing) — pushing the wrong
 	// comments to a PR is destructive, so honor the explicit intent first. Same
 	// pattern as PR #424's findReviewFileByCommentID fallback for `crit comment`.
-	if shouldRedirectReviewForPR(f.prFlag, f.outputDir != "" || f.configuredOutput != "") {
+	pinned := f.sessionID != "" || f.outputDir != "" || f.configuredOutput != ""
+	if shouldRedirectReviewForPR(f.prFlag, pinned) {
 		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ
@@ -189,10 +208,9 @@ func loadPushContext(args []string) (pushContext, error) {
 	}
 
 	if !cwdFileExists {
-		return pushContext{}, fmt.Errorf("no review file found. Run a crit review first")
+		return "", session.CritJSON{}, fmt.Errorf("no review file found. Run a crit review first")
 	}
-
-	return pushContext{flags: f, event: event, prNumber: prNumber, critPath: critPath, cj: cj}, nil
+	return critPath, cj, nil
 }
 
 // runPushDryRun prints the bucket plan to stdout and returns. Does not write
