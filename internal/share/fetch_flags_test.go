@@ -110,3 +110,65 @@ func TestResolveFetchReviewPathParseError(t *testing.T) {
 		t.Fatal("expected missing output value error")
 	}
 }
+
+func TestParseFetchOutputDir_MissingSessionValue(t *testing.T) {
+	_, _, err := parseFetchOutputDir([]string{"--session"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var exitErr clicmd.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+}
+
+func TestShareFlagDest(t *testing.T) {
+	var sf shareFlags
+	cases := []struct {
+		arg  string
+		ok   bool
+		set  func(*shareFlags) *string
+		want string
+	}{
+		{"--output", true, func(s *shareFlags) *string { return &s.outputDir }, "out"},
+		{"-o", true, func(s *shareFlags) *string { return &s.outputDir }, "short"},
+		{"--session", true, func(s *shareFlags) *string { return &s.sessionID }, "aaaaaaaaaaaa"},
+		{"--share-url", true, func(s *shareFlags) *string { return &s.svcURL }, "https://x"},
+		{"--preview", true, func(s *shareFlags) *string { return &s.preview }, "p.html"},
+		{"--org", true, func(s *shareFlags) *string { return &s.org }, "acme"},
+		{"--visibility", true, func(s *shareFlags) *string { return &s.visibility }, "public"},
+		{"--bogus", false, nil, ""},
+		{"file.md", false, nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.arg, func(t *testing.T) {
+			dest, ok := shareFlagDest(&sf, c.arg)
+			if ok != c.ok {
+				t.Fatalf("ok = %v, want %v", ok, c.ok)
+			}
+			if !c.ok {
+				if dest != nil {
+					t.Fatalf("dest = %v, want nil", dest)
+				}
+				return
+			}
+			*dest = c.want
+			if *c.set(&sf) != c.want {
+				t.Fatalf("flag field = %q, want %q", *c.set(&sf), c.want)
+			}
+		})
+	}
+}
+
+func TestParseShareFlagsSession(t *testing.T) {
+	sf, err := parseShareFlags([]string{"--session", "aaaaaaaaaaaa", "plan.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sf.sessionID != "aaaaaaaaaaaa" {
+		t.Fatalf("sessionID = %q", sf.sessionID)
+	}
+	if len(sf.files) != 1 || sf.files[0] != "plan.md" {
+		t.Fatalf("files = %v", sf.files)
+	}
+}

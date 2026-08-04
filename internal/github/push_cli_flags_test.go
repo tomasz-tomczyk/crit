@@ -2,10 +2,14 @@ package github
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func TestParsePushFlags(t *testing.T) {
@@ -194,4 +198,101 @@ func TestRunPush_GHMissing(t *testing.T) {
 	if err := RunPush(nil); err == nil {
 		t.Fatal("RunPush with gh missing = nil, want error")
 	}
+}
+
+func TestParsePushFlagsSession(t *testing.T) {
+	got, err := parsePushFlags([]string{"--session", "aaaaaaaaaaaa", "--dry-run", "12"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := pushFlags{sessionID: "aaaaaaaaaaaa", dryRun: true, prFlag: 12}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	if _, err := parsePushFlags([]string{"--session"}); err == nil {
+		t.Fatal("expected missing --session value error")
+	}
+}
+
+func TestLoadPushReview(t *testing.T) {
+	t.Run("session and output conflict", func(t *testing.T) {
+		_, _, err := loadPushReview(pushFlags{sessionID: "aaaaaaaaaaaa", outputDir: "/tmp/out"}, 1)
+		if err == nil || !strings.Contains(err.Error(), "--session cannot be used with --output") {
+			t.Fatalf("error = %v, want session/output conflict", err)
+		}
+	})
+
+	t.Run("invalid session id", func(t *testing.T) {
+		_, _, err := loadPushReview(pushFlags{sessionID: "bad"}, 1)
+		if err == nil || !strings.Contains(err.Error(), "expected 12-character hex") {
+			t.Fatalf("error = %v, want invalid session id", err)
+		}
+	})
+
+	t.Run("missing review file", func(t *testing.T) {
+		projectDir := t.TempDir()
+		testutil.SetHome(t, t.TempDir())
+		t.Chdir(projectDir)
+		_, _, err := loadPushReview(pushFlags{}, 1)
+		if err == nil || !strings.Contains(err.Error(), "no review file found") {
+			t.Fatalf("error = %v, want missing review file", err)
+		}
+	})
+
+	t.Run("reads existing review", func(t *testing.T) {
+		projectDir := t.TempDir()
+		testutil.SetHome(t, t.TempDir())
+		t.Chdir(projectDir)
+		cwd, err := daemon.ResolvedCWD()
+		if err != nil {
+			t.Fatal(err)
+		}
+		identity, err := daemon.ReviewFilePath(daemon.SessionKey(cwd, "", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(identity, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		reviewPath := session.ReviewPathsFor(identity).Review
+		payload := []byte(`{"version":4,"branch":"main","review_round":2,"files":{}}`)
+		if err := os.WriteFile(reviewPath, payload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		gotPath, cj, err := loadPushReview(pushFlags{}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotPath != identity {
+			t.Fatalf("path = %q, want %q", gotPath, identity)
+		}
+		if cj.Branch != "main" || cj.ReviewRound != 2 {
+			t.Fatalf("crit json = %+v", cj)
+		}
+	})
+
+	t.Run("invalid review json", func(t *testing.T) {
+		projectDir := t.TempDir()
+		testutil.SetHome(t, t.TempDir())
+		t.Chdir(projectDir)
+		cwd, err := daemon.ResolvedCWD()
+		if err != nil {
+			t.Fatal(err)
+		}
+		identity, err := daemon.ReviewFilePath(daemon.SessionKey(cwd, "", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(identity, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(session.ReviewPathsFor(identity).Review, []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = loadPushReview(pushFlags{}, 0)
+		if err == nil || !strings.Contains(err.Error(), "invalid review file") {
+			t.Fatalf("error = %v, want invalid review file", err)
+		}
+	})
 }

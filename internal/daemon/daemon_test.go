@@ -98,6 +98,19 @@ func TestValidSessionKey(t *testing.T) {
 	}
 }
 
+func TestInvalidSessionIDError(t *testing.T) {
+	err := InvalidSessionIDError("not-valid")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got := err.Error()
+	for _, want := range []string{`invalid session ID "not-valid"`, "expected 12-character hex"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want substring %q", got, want)
+		}
+	}
+}
+
 func TestSessionEntry_DisplayHost(t *testing.T) {
 	tests := []struct {
 		host string

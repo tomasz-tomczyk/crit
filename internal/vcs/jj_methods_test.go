@@ -420,6 +420,16 @@ func TestJJVCS_DiffNumstat(t *testing.T) {
 	}
 }
 
+func TestJJVCS_DiffNumstatBetweenSHAsRequiresBoth(t *testing.T) {
+	j := &JJVCS{}
+	if _, err := j.DiffNumstatBetweenSHAs("", "abc", t.TempDir()); err == nil {
+		t.Fatal("expected error for empty base")
+	}
+	if _, err := j.DiffNumstatBetweenSHAs("abc", "  ", t.TempDir()); err == nil {
+		t.Fatal("expected error for empty head")
+	}
+}
+
 func TestJJVCS_FileContentAtRef(t *testing.T) {
 	dir := initTestJJRepoWithLocalMain(t)
 	j := &JJVCS{}

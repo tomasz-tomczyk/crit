@@ -363,3 +363,70 @@ func TestRunStatusFindsRepoRootSessionFromNestedDirectory(t *testing.T) {
 		t.Fatalf("daemon.running = %v, want true", daemonStatus["running"])
 	}
 }
+
+func TestSelectStatusSession(t *testing.T) {
+	if got := selectStatusSession(nil); got != nil {
+		t.Fatalf("empty = %#v, want nil", got)
+	}
+	if got := selectStatusSession([]daemon.SessionEntry{{}, {}}); got != nil {
+		t.Fatalf("ambiguous = %#v, want nil", got)
+	}
+	sole := []daemon.SessionEntry{{PID: 42, Port: 3000, ReviewPath: "/tmp/r"}}
+	got := selectStatusSession(sole)
+	if got == nil || got.PID != 42 || got.Port != 3000 {
+		t.Fatalf("sole = %#v, want first entry", got)
+	}
+}
+
+func TestLoadStatusSessionsAmbiguous(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := vcs.DetectVCS("")
+	if backend == nil {
+		t.Fatal("expected git repository")
+	}
+	branch := backend.CurrentBranch()
+
+	const firstKey = "aaaaaaaaaaaa"
+	const secondKey = "bbbbbbbbbbbb"
+	for _, key := range []string{firstKey, secondKey} {
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID: os.Getpid(), Port: port, CWD: cwd, Branch: branch,
+			Args: []string{key + ".md"}, ReviewPath: filepath.Join(t.TempDir(), key),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		k := key
+		t.Cleanup(func() { daemon.RemoveSessionFile(k) })
+	}
+
+	sessions, keys, matched, err := loadStatusSessions(cwd, branch, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched != nil {
+		t.Fatalf("matched = %#v, want nil when ambiguous", matched)
+	}
+	if len(sessions) != 2 || len(keys) != 2 {
+		t.Fatalf("sessions=%v keys=%v, want two matches", sessions, keys)
+	}
+}

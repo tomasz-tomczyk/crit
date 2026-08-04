@@ -316,3 +316,13 @@ func TestSaplingVCS_HasObject(t *testing.T) {
 		t.Error("HasObject(bogus) = true, want false")
 	}
 }
+
+func TestSaplingVCS_DiffNumstatBetweenSHAsRequiresBoth(t *testing.T) {
+	s := &SaplingVCS{}
+	if _, err := s.DiffNumstatBetweenSHAs("", "abc", t.TempDir()); err == nil {
+		t.Fatal("expected error for empty base")
+	}
+	if _, err := s.DiffNumstatBetweenSHAs("abc", "", t.TempDir()); err == nil {
+		t.Fatal("expected error for empty head")
+	}
+}

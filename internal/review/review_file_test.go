@@ -806,3 +806,225 @@ func TestMatchingLiveSessionsSoleSessionIgnoresBranch(t *testing.T) {
 		t.Fatalf("ReviewPath = %q, want %q", sessions[0].ReviewPath, reviewPath)
 	}
 }
+
+func TestResolveCommandReviewPathWithSessionRejectsOutput(t *testing.T) {
+	_, err := ResolveCommandReviewPathWithSession("aaaaaaaaaaaa", "/tmp/out", "")
+	if err == nil || !strings.Contains(err.Error(), "--session cannot be used with --output") {
+		t.Fatalf("error = %v, want session/output conflict", err)
+	}
+}
+
+func TestResolveCommandReviewPathWithSessionArgsFallback(t *testing.T) {
+	projectDir := t.TempDir()
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	got, err := ResolveCommandReviewPathWithSessionArgs("", "", "", []string{"plan.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := daemon.ReviewFilePath(daemon.SessionKey(cwd, "", []string{"plan.md"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("path = %q, want file-args fallback %q", got, want)
+	}
+}
+
+func TestResolveSessionReviewPathNotAlive(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	const key = "cccccccccccc"
+	_, err := ResolveSessionReviewPath(key)
+	if err == nil || !strings.Contains(err.Error(), "no active review session") {
+		t.Fatalf("error = %v, want missing live session", err)
+	}
+}
+
+func TestResolveSessionReviewPathEmptyReviewPath(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "dddddddddddd"
+	if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+		PID: os.Getpid(), Port: port, CWD: t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+	_, err = ResolveSessionReviewPath(key)
+	if err == nil || !strings.Contains(err.Error(), "has no review path") {
+		t.Fatalf("error = %v, want empty review path", err)
+	}
+}
+
+func TestAmbiguousSessionsError(t *testing.T) {
+	err := AmbiguousSessionsError([]string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got := err.Error()
+	for _, want := range []string{"multiple active review sessions", "aaaaaaaaaaaa", "bbbbbbbbbbbb", "--session"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want substring %q", got, want)
+		}
+	}
+}
+
+func TestResolveReviewPathFromSessions(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		got, err := ResolveReviewPathFromSessions(nil, nil)
+		if err != nil || got != "" {
+			t.Fatalf("got %q err=%v, want empty", got, err)
+		}
+	})
+	t.Run("single with path", func(t *testing.T) {
+		got, err := ResolveReviewPathFromSessions(
+			[]daemon.SessionEntry{{ReviewPath: "/tmp/review"}},
+			[]string{"aaaaaaaaaaaa"},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "/tmp/review" {
+			t.Fatalf("got %q, want /tmp/review", got)
+		}
+	})
+	t.Run("single without path", func(t *testing.T) {
+		got, err := ResolveReviewPathFromSessions(
+			[]daemon.SessionEntry{{ReviewPath: ""}},
+			[]string{"aaaaaaaaaaaa"},
+		)
+		if err != nil || got != "" {
+			t.Fatalf("got %q err=%v, want empty", got, err)
+		}
+	})
+	t.Run("ambiguous", func(t *testing.T) {
+		_, err := ResolveReviewPathFromSessions(
+			[]daemon.SessionEntry{{ReviewPath: "/a"}, {ReviewPath: "/b"}},
+			[]string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"},
+		)
+		if err == nil || !strings.Contains(err.Error(), "multiple active review sessions") {
+			t.Fatalf("error = %v, want ambiguity", err)
+		}
+	})
+}
+
+func TestNarrowMatchingSessions(t *testing.T) {
+	a := daemon.SessionEntry{Branch: "main", ReviewPath: "/a"}
+	b := daemon.SessionEntry{Branch: "feature", ReviewPath: "/b"}
+	c := daemon.SessionEntry{Branch: "main", ReviewPath: "/c"}
+
+	t.Run("sole session unchanged", func(t *testing.T) {
+		sessions, keys := narrowMatchingSessions([]daemon.SessionEntry{a}, []string{"aaaaaaaaaaaa"}, "other")
+		if len(sessions) != 1 || keys[0] != "aaaaaaaaaaaa" {
+			t.Fatalf("got sessions=%v keys=%v", sessions, keys)
+		}
+	})
+	t.Run("branch filter keeps matches", func(t *testing.T) {
+		sessions, keys := narrowMatchingSessions(
+			[]daemon.SessionEntry{a, b, c},
+			[]string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"},
+			"main",
+		)
+		if len(sessions) != 2 || len(keys) != 2 {
+			t.Fatalf("got sessions=%v keys=%v", sessions, keys)
+		}
+		if keys[0] != "aaaaaaaaaaaa" || keys[1] != "cccccccccccc" {
+			t.Fatalf("keys = %v, want main-branch keys", keys)
+		}
+	})
+	t.Run("empty branch filter falls back to all", func(t *testing.T) {
+		sessions, keys := narrowMatchingSessions(
+			[]daemon.SessionEntry{a, b},
+			[]string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"},
+			"detached",
+		)
+		if len(sessions) != 2 || len(keys) != 2 {
+			t.Fatalf("got sessions=%v keys=%v, want full candidate set", sessions, keys)
+		}
+	})
+}
+
+func TestMatchingLiveSessionsBranchFilterAndAmbiguity(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := vcs.DetectVCS("")
+	if backend == nil {
+		t.Fatal("expected git repo")
+	}
+	branch := backend.CurrentBranch()
+
+	const mainA = "eeeeeeeeeeee"
+	const mainB = "ffffffffffff"
+	const other = "121212121212"
+	for key, sessBranch := range map[string]string{
+		mainA: branch,
+		mainB: branch,
+		other: "other-branch",
+	} {
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID: os.Getpid(), Port: port, CWD: cwd, Branch: sessBranch,
+			ReviewPath: filepath.Join(t.TempDir(), key),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		k := key
+		t.Cleanup(func() { daemon.RemoveSessionFile(k) })
+	}
+
+	sessions, keys, err := MatchingLiveSessions(cwd, branch, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || len(keys) != 2 {
+		t.Fatalf("sessions=%v keys=%v, want two same-branch matches", sessions, keys)
+	}
+	got := map[string]bool{}
+	for _, k := range keys {
+		got[k] = true
+	}
+	if !got[mainA] || !got[mainB] || got[other] {
+		t.Fatalf("keys = %v, want %s and %s only", keys, mainA, mainB)
+	}
+
+	_, err = ResolveReviewPathFromSessions(sessions, keys)
+	if err == nil || !strings.Contains(err.Error(), "multiple active review sessions") {
+		t.Fatalf("error = %v, want ambiguity", err)
+	}
+}
