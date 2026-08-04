@@ -74,7 +74,8 @@
         if (s.id && !s.fixed) {
           var customized = shortcuts.isCustomized(s.id) ? ' is-customized' : '';
           key = '<button type="button" class="shortcut-binding' + customized + '" data-shortcut-id="' + escapeHTML(s.id)
-            + '" aria-label="Change shortcut for ' + escapeHTML(s.action) + '">' + key + '</button>';
+            + '" data-shortcut-action="' + escapeHTML(s.action)
+            + '" aria-pressed="false" aria-label="Change shortcut for ' + escapeHTML(s.action) + '">' + key + '</button>';
         }
         html += '<tr><td>' + key + '</td><td>' + escapeHTML(s.action) + modeTag + '</td></tr>';
       });
@@ -95,8 +96,17 @@
     });
 
     pane.querySelectorAll('.shortcut-binding').forEach(function (button) {
+      function restoreBindingLabel() {
+        button.classList.remove('is-capturing');
+        button.setAttribute('aria-pressed', 'false');
+        button.setAttribute('aria-label', 'Change shortcut for ' + (button.dataset.shortcutAction || 'shortcut'));
+        button.innerHTML = bindingHTML(shortcuts.getBinding(button.dataset.shortcutId));
+      }
+
       button.addEventListener('click', function () {
         button.classList.add('is-capturing');
+        button.setAttribute('aria-pressed', 'true');
+        button.setAttribute('aria-label', 'Press new keys for ' + (button.dataset.shortcutAction || 'shortcut'));
         // Keep the same <kbd> box while capturing so single-key rows do not
         // change height when plain button text replaces their binding.
         button.innerHTML = '<kbd>Press keys…</kbd>';
@@ -107,8 +117,7 @@
         var movesWithinShortcutControls = next && next.closest &&
           next.closest('.shortcut-binding, .shortcut-reset-all');
         if (movesWithinShortcutControls) {
-          button.classList.remove('is-capturing');
-          button.innerHTML = bindingHTML(shortcuts.getBinding(button.dataset.shortcutId));
+          restoreBindingLabel();
           return;
         }
         rerender();
@@ -125,8 +134,7 @@
         var id = button.dataset.shortcutId;
 
         function showError(message) {
-          button.classList.remove('is-capturing');
-          button.innerHTML = bindingHTML(shortcuts.getBinding(id));
+          restoreBindingLabel();
           var shared = window.crit && window.crit.shared;
           if (shared && shared.showToast) shared.showToast(message, { kind: 'error' });
         }

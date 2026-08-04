@@ -1812,6 +1812,142 @@
     restoreKeyboardFocus();
   }
 
+  // Deferred / lazy file bodies are absent from .kb-nav and change-group
+  // queries. Keyboard nav (j/k, n/N) must mount the next file when it hits a
+  // section boundary so off-screen deferred content stays reachable.
+  function fileSectionNeedsMount(file) {
+    if (!file) return false;
+    const section = document.getElementById('file-section-' + file.path);
+    if (!section) return false;
+    if (file.lazy) return true;
+    const body = section.querySelector(':scope > .file-body');
+    return !!(body && body.getAttribute('data-body-deferred') === '1');
+  }
+
+  function fileLikelyHasChanges(file) {
+    if (!file) return false;
+    if (file.diffHunks && file.diffHunks.length > 0) return true;
+    // Lazy placeholders ship empty diffHunks until loadLazyFile; numstat
+    // additions/deletions are the only change signal available beforehand.
+    if (file.lazy && ((file.additions || 0) > 0 || (file.deletions || 0) > 0)) return true;
+    return false;
+  }
+
+  // Find the next deferred/lazy file between fromPath and towardPath.
+  // Optional predicate (e.g. fileLikelyHasChanges) skips mount candidates that
+  // would not qualify — so a deferred no-hunk file cannot block a later one.
+  function findDeferredFileForNav(fromPath, towardPath, direction, predicate) {
+    let fromIdx = -1;
+    let towardIdx = direction > 0 ? files.length : -1;
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].path === fromPath) fromIdx = i;
+      if (towardPath && files[i].path === towardPath) towardIdx = i;
+    }
+    if (fromIdx < 0) return null;
+    if (direction > 0) {
+      for (let i = fromIdx + 1; i < towardIdx; i++) {
+        if (!fileSectionNeedsMount(files[i])) continue;
+        if (predicate && !predicate(files[i])) continue;
+        return files[i];
+      }
+    } else {
+      for (let i = fromIdx - 1; i > towardIdx; i--) {
+        if (!fileSectionNeedsMount(files[i])) continue;
+        if (predicate && !predicate(files[i])) continue;
+        return files[i];
+      }
+    }
+    return null;
+  }
+
+  function mountFileForNav(file, onReady) {
+    const section = document.getElementById('file-section-' + file.path);
+    if (!section) {
+      if (onReady) onReady(false);
+      return;
+    }
+    section.open = true;
+    if (file.lazy) {
+      loadLazyFile(section, file, function() { if (onReady) onReady(true); });
+      return;
+    }
+    ensureFileBodyMounted(section, file);
+    if (onReady) onReady(true);
+  }
+
+  function navElementFilePath(el) {
+    if (!el) return null;
+    return el.dataset.filePath || el.dataset.diffFilePath ||
+      (el.querySelector && (function() {
+        const side = el.querySelector('.diff-split-side[data-diff-file-path]');
+        return side ? side.dataset.diffFilePath : null;
+      })());
+  }
+
+  function navigateBlock(direction, _mountedPath) {
+    const allNav = navElements;
+    if (allNav.length === 0) {
+      const start = direction > 0 ? 0 : files.length - 1;
+      const step = direction > 0 ? 1 : -1;
+      for (let i = start; i >= 0 && i < files.length; i += step) {
+        const section = document.getElementById('file-section-' + files[i].path);
+        if (!section || !section.open) continue;
+        if (fileSectionNeedsMount(files[i]) && files[i].path !== _mountedPath) {
+          mountFileForNav(files[i], function() { navigateBlock(direction, files[i].path); });
+          return;
+        }
+      }
+      return;
+    }
+
+    let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
+    if (curIdx === -1) {
+      const match = findNavElementForFocusTarget(getKeyboardFocusTarget());
+      if (match) curIdx = allNav.indexOf(match);
+    }
+
+    let nextIdx;
+    if (curIdx === -1) {
+      nextIdx = direction > 0 ? 0 : allNav.length - 1;
+    } else {
+      nextIdx = curIdx + direction;
+      const curPath = focusedFilePath || navElementFilePath(focusedElement) || navElementFilePath(allNav[curIdx]);
+      if (nextIdx < 0 || nextIdx >= allNav.length) {
+        const deferred = curPath ? findDeferredFileForNav(curPath, null, direction) : null;
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateBlock(direction, deferred.path); });
+          return;
+        }
+        return;
+      }
+      const nextPath = navElementFilePath(allNav[nextIdx]);
+      if (curPath && nextPath && curPath !== nextPath) {
+        const deferred = findDeferredFileForNav(curPath, nextPath, direction);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateBlock(direction, deferred.path); });
+          return;
+        }
+      }
+    }
+
+    document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
+    focusedElement = allNav[nextIdx];
+    focusedElement.classList.add('focused');
+    focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (focusedElement.dataset.filePath) {
+      focusedFilePath = focusedElement.dataset.filePath;
+      focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
+    } else {
+      const navTarget = navFocusTargetFromElement(focusedElement);
+      if (navTarget) {
+        focusedFilePath = navTarget.filePath;
+        focusedBlockIndex = null;
+      }
+    }
+    rememberKeyboardFocusFromNav(focusedElement);
+    if (visualMode) extendVisualSelection();
+  }
+
   function rememberKeyboardFocusTarget(target) {
     if (!target || !target.filePath) return;
     keyboardFocusTarget = target;
@@ -2033,8 +2169,36 @@
     return node === b;
   }
 
-  function navigateToChange(dir) {
-    if (changeGroups.length === 0) return;
+  function navigateToChange(dir, _mountedPath) {
+    // Empty groups: try mounting a deferred file that has diffs, then retry.
+    if (changeGroups.length === 0) {
+      const start = dir > 0 ? 0 : files.length - 1;
+      const step = dir > 0 ? 1 : -1;
+      for (let i = start; i >= 0 && i < files.length; i += step) {
+        if (!fileLikelyHasChanges(files[i])) continue;
+        if (fileSectionNeedsMount(files[i]) && files[i].path !== _mountedPath) {
+          mountFileForNav(files[i], function() { navigateToChange(dir, files[i].path); });
+          return;
+        }
+      }
+      return;
+    }
+
+    // At the last/first mounted change group — mount deferred neighbors first
+    // so n/N can reach off-screen file bodies.
+    if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length) {
+      const atEnd = dir > 0 && currentChangeIdx === changeGroups.length - 1;
+      const atStart = dir < 0 && currentChangeIdx === 0;
+      if (atEnd || atStart) {
+        const curPath = changeGroups[currentChangeIdx].filePath;
+        const deferred = findDeferredFileForNav(curPath, null, dir, fileLikelyHasChanges);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
+          return;
+        }
+      }
+    }
+
     // Remove previous flash
     document.querySelectorAll('.change-flash').forEach(function(el) { el.classList.remove('change-flash'); });
 
@@ -2074,6 +2238,27 @@
           if (elCenter < viewCenter - threshold) { targetIdx = i; break; }
         }
         if (targetIdx === -1) targetIdx = changeGroups.length - 1;
+      }
+    }
+
+    // Crossing into another file: mount any deferred file between so its
+    // changes aren't skipped.
+    if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length && targetIdx >= 0) {
+      const fromPath = changeGroups[currentChangeIdx].filePath;
+      const toPath = changeGroups[targetIdx].filePath;
+      const wrapping = (dir > 0 && targetIdx < currentChangeIdx) || (dir < 0 && targetIdx > currentChangeIdx);
+      if (wrapping) {
+        const deferred = findDeferredFileForNav(fromPath, null, dir, fileLikelyHasChanges);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
+          return;
+        }
+      } else if (fromPath && toPath && fromPath !== toPath) {
+        const deferred = findDeferredFileForNav(fromPath, toPath, dir, fileLikelyHasChanges);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
+          return;
+        }
       }
     }
 
@@ -2282,10 +2467,13 @@
       if (session.mode !== 'git') {
         const changeNav = document.createElement('div');
         changeNav.className = 'change-nav';
+        const sc = window.crit && window.crit.shortcuts;
+        const prevChangeKeys = (sc && sc.getBinding('previous_change')) || 'Shift+N';
+        const nextChangeKeys = (sc && sc.getBinding('next_change')) || 'n';
         changeNav.innerHTML =
-          '<button class="change-nav-btn" data-dir="-1" title="Previous change (N)">&#9650;</button>' +
+          '<button class="change-nav-btn" data-dir="-1" title="Previous change (' + escapeHtml(prevChangeKeys) + ')">&#9650;</button>' +
           '<span class="change-nav-label" data-file-path="' + escapeHtml(file.path) + '"></span>' +
-          '<button class="change-nav-btn" data-dir="1" title="Next change (n)">&#9660;</button>';
+          '<button class="change-nav-btn" data-dir="1" title="Next change (' + escapeHtml(nextChangeKeys) + ')">&#9660;</button>';
         changeNav.addEventListener('click', function(e) {
           const btn = e.target.closest('.change-nav-btn');
           if (!btn) return;
@@ -6378,10 +6566,12 @@
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
+    cancelBtn.disabled = !!isPending;
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
     submitBtn.textContent = 'Reply';
+    submitBtn.disabled = !!isPending;
 
     buttons.appendChild(cancelBtn);
     buttons.appendChild(submitBtn);
@@ -8549,67 +8739,147 @@
   let navCommentId = null;
   let navHighlightTimer;
 
-  function navigateToComment(direction) {
+  function collectNavigableComments() {
+    // Document order matching render: file-scope cards above the body, then
+    // line comments by end_line / start_line. Used so [/] can reach comments
+    // whose .file-body is still deferred.
+    const list = [];
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi];
+      const comments = file.comments || [];
+      if (comments.length === 0) continue;
+      if (file.orphaned) {
+        for (let ci = 0; ci < comments.length; ci++) {
+          list.push({ id: comments[ci].id, filePath: file.path, resolved: !!comments[ci].resolved });
+        }
+        continue;
+      }
+      const fileScope = [];
+      const lineScope = [];
+      for (let ci = 0; ci < comments.length; ci++) {
+        if (comments[ci].scope === 'file') fileScope.push(comments[ci]);
+        else lineScope.push(comments[ci]);
+      }
+      for (let ci = 0; ci < fileScope.length; ci++) {
+        list.push({ id: fileScope[ci].id, filePath: file.path, resolved: !!fileScope[ci].resolved });
+      }
+      lineScope.sort(function(a, b) {
+        const ae = a.end_line || 0, be = b.end_line || 0;
+        if (ae !== be) return ae - be;
+        const as = a.start_line || 0, bs = b.start_line || 0;
+        return as - bs;
+      });
+      for (let ci = 0; ci < lineScope.length; ci++) {
+        list.push({ id: lineScope[ci].id, filePath: file.path, resolved: !!lineScope[ci].resolved });
+      }
+    }
+    return list;
+  }
+
+  function highlightNavComment(commentId, filePath) {
     const panel = document.getElementById('commentsPanel');
-    const container = document.querySelector('.main-content');
-    const allCards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
-      return !panel || !panel.contains(card);
-    });
-    const isEligible = function(card) {
-      return !isHideResolved() || !card.classList.contains('resolved-card');
+    function applyHighlight(root) {
+      if (!root) return false;
+      const candidates = root.querySelectorAll
+        ? root.querySelectorAll('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
+        : [];
+      let target = null;
+      for (let i = 0; i < candidates.length; i++) {
+        if (panel && panel.contains(candidates[i])) continue;
+        target = candidates[i];
+        break;
+      }
+      if (!target) return false;
+
+      if (navHighlightTimer) {
+        clearTimeout(navHighlightTimer);
+        document.querySelectorAll('.comment-nav-highlight').forEach(function(el) {
+          el.classList.remove('comment-nav-highlight');
+        });
+      }
+
+      const header = document.querySelector('.header');
+      const headerHeight = header ? header.offsetHeight : 52;
+      const rect = target.getBoundingClientRect();
+      const fileSection = target.closest('.file-section');
+      const fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
+      const fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
+      window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
+      target.classList.add('comment-nav-highlight');
+      navHighlightTimer = setTimeout(function() {
+        target.classList.remove('comment-nav-highlight');
+        navHighlightTimer = null;
+      }, 1000);
+      return true;
+    }
+
+    const section = document.getElementById('file-section-' + filePath);
+    if (!section) return;
+    if (!section.open) section.open = true;
+
+    // File-scope cards sit outside .file-body and may already be mounted.
+    if (applyHighlight(section)) return;
+
+    const file = getFileByPath(filePath);
+    if (file && file.lazy) {
+      loadLazyFile(section, file, function onLoaded(newSection) {
+        applyHighlight(newSection || document.getElementById('file-section-' + filePath));
+      });
+      return;
+    }
+    if (file) ensureFileBodyMounted(section, file);
+    applyHighlight(section);
+  }
+
+  function navigateToComment(direction) {
+    const all = collectNavigableComments();
+    const isEligible = function(entry) {
+      return !isHideResolved() || !entry.resolved;
     };
-    const cards = allCards.filter(isEligible);
-    if (cards.length === 0) return;
+    const eligible = all.filter(isEligible);
+    if (eligible.length === 0) return;
 
     const header = document.querySelector('.header');
     const headerHeight = header ? header.offsetHeight : 52;
 
-    // Keep the current position in the full order even when that card becomes
-    // hidden, then scan in the requested direction for the next eligible card.
+    // Keep the current position in the full order even when that comment becomes
+    // hidden, then scan in the requested direction for the next eligible entry.
     let idx = -1;
     if (navCommentId) {
-      for (let i = 0; i < allCards.length; i++) {
-        if (allCards[i].dataset.commentId === navCommentId) { idx = i; break; }
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].id === navCommentId) { idx = i; break; }
       }
     }
 
     let target;
     if (idx >= 0) {
-      for (let step = 1; step <= allCards.length; step++) {
-        const candidateIdx = (idx + direction * step + allCards.length) % allCards.length;
-        if (isEligible(allCards[candidateIdx])) {
-          target = allCards[candidateIdx];
+      for (let step = 1; step <= all.length; step++) {
+        const candidateIdx = (idx + direction * step + all.length) % all.length;
+        if (isEligible(all[candidateIdx])) {
+          target = all[candidateIdx];
           break;
         }
       }
     } else if (direction === 1) {
-      // First use: pick first card below the header area by viewport position
+      // First use: pick first mounted card below the header when available,
+      // otherwise the first eligible model entry (may need a mount).
       let targetIdx = -1;
-      for (let j = 0; j < cards.length; j++) {
-        if (cards[j].getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
+      for (let j = 0; j < eligible.length; j++) {
+        const card = document.querySelector(
+          '.main-content .comment-card[data-comment-id="' + CSS.escape(eligible[j].id) + '"]'
+        );
+        if (!card) continue;
+        if (card.getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
       }
       if (targetIdx < 0) targetIdx = 0;
-      target = cards[targetIdx];
+      target = eligible[targetIdx];
     } else {
-      target = cards[cards.length - 1];
+      target = eligible[eligible.length - 1];
     }
 
-    navCommentId = target.dataset.commentId;
-
-    if (navHighlightTimer) {
-      clearTimeout(navHighlightTimer);
-      document.querySelectorAll('.comment-nav-highlight').forEach(function(el) {
-        el.classList.remove('comment-nav-highlight');
-      });
-    }
-
-    const rect = target.getBoundingClientRect();
-    const fileSection = target.closest('.file-section');
-    const fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
-    const fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
-    window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
-    target.classList.add('comment-nav-highlight');
-    navHighlightTimer = setTimeout(function() { target.classList.remove('comment-nav-highlight'); navHighlightTimer = null; }, 1000);
+    if (!target) return;
+    navCommentId = target.id;
+    highlightNavComment(target.id, target.filePath);
   }
 
   document.getElementById('commentNavPrev').addEventListener('click', function() { navigateToComment(-1); });
@@ -9105,36 +9375,7 @@
     switch (shortcutAction || e.key) {
       case 'next_block': case 'previous_block': {
         e.preventDefault();
-        const allNav = navElements;
-        if (allNav.length === 0) return;
-        let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
-        if (curIdx === -1) {
-          const match = findNavElementForFocusTarget(getKeyboardFocusTarget());
-          if (match) curIdx = allNav.indexOf(match);
-        }
-        if (curIdx === -1) {
-          curIdx = shortcutAction === 'next_block' ? 0 : allNav.length - 1;
-        } else {
-          if (shortcutAction === 'next_block' && curIdx < allNav.length - 1) curIdx++;
-          if (shortcutAction === 'previous_block' && curIdx > 0) curIdx--;
-        }
-        document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
-        focusedElement = allNav[curIdx];
-        focusedElement.classList.add('focused');
-        focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        // Sync legacy state
-        if (focusedElement.dataset.filePath) {
-          focusedFilePath = focusedElement.dataset.filePath;
-          focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
-        } else {
-          const navTarget = navFocusTargetFromElement(focusedElement);
-          if (navTarget) {
-            focusedFilePath = navTarget.filePath;
-            focusedBlockIndex = null;
-          }
-        }
-        rememberKeyboardFocusFromNav(focusedElement);
-        if (visualMode) extendVisualSelection();
+        navigateBlock(shortcutAction === 'next_block' ? 1 : -1);
         break;
       }
       case 'visual_mode': {

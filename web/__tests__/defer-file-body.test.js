@@ -77,6 +77,90 @@ test('scrollToComment mounts deferred/lazy body before looking up the card', () 
   assert.match(body, /loadLazyFile/);
 });
 
+test('navigateToComment drives from the comment model and mounts before highlight', () => {
+  assert.match(appSrc, /function collectNavigableComments\s*\(/);
+  assert.match(appSrc, /function highlightNavComment\s*\(/);
+  const marker = 'function navigateToComment(';
+  const idx = appSrc.indexOf(marker);
+  assert.notEqual(idx, -1, 'navigateToComment must exist');
+  const nextFn = appSrc.indexOf('\n  function ', idx + marker.length);
+  const body = appSrc.slice(idx, nextFn === -1 ? undefined : nextFn);
+  assert.match(body, /collectNavigableComments\(\)/);
+  assert.match(body, /highlightNavComment\(/);
+  // Must not rely solely on mounted .comment-card query for the nav plan.
+  assert.doesNotMatch(body, /container\.querySelectorAll\('\.comment-card'\)/);
+
+  const highlightMarker = 'function highlightNavComment(';
+  const hIdx = appSrc.indexOf(highlightMarker);
+  const hNext = appSrc.indexOf('\n  function ', hIdx + highlightMarker.length);
+  const hBody = appSrc.slice(hIdx, hNext === -1 ? undefined : hNext);
+  assert.match(hBody, /ensureFileBodyMounted/);
+  assert.match(hBody, /loadLazyFile/);
+});
+
+test('j/k and change nav mount deferred file bodies at section boundaries', () => {
+  assert.match(appSrc, /function navigateBlock\s*\(/);
+  assert.match(appSrc, /function findDeferredFileForNav\s*\(/);
+  assert.match(appSrc, /function mountFileForNav\s*\(/);
+  assert.match(appSrc, /function fileSectionNeedsMount\s*\(/);
+
+  const blockMarker = 'function navigateBlock(';
+  const bIdx = appSrc.indexOf(blockMarker);
+  const bNext = appSrc.indexOf('\n  function ', bIdx + blockMarker.length);
+  const bBody = appSrc.slice(bIdx, bNext === -1 ? undefined : bNext);
+  assert.match(bBody, /findDeferredFileForNav/);
+  assert.match(bBody, /mountFileForNav/);
+
+  const changeMarker = 'function navigateToChange(';
+  const cIdx = appSrc.indexOf(changeMarker);
+  const cNext = appSrc.indexOf('\n  function ', cIdx + changeMarker.length);
+  const cBody = appSrc.slice(cIdx, cNext === -1 ? undefined : cNext);
+  assert.match(cBody, /findDeferredFileForNav/);
+  assert.match(cBody, /mountFileForNav/);
+  assert.match(cBody, /fileLikelyHasChanges/);
+  // Change-nav search must filter inside findDeferredFileForNav so a deferred
+  // no-hunk file cannot block a later lazy/deferred file with changes.
+  assert.match(cBody, /findDeferredFileForNav\([^)]*fileLikelyHasChanges\)/);
+});
+
+test('fileLikelyHasChanges treats lazy placeholders with additions/deletions as having changes', () => {
+  const marker = 'function fileLikelyHasChanges(';
+  const idx = appSrc.indexOf(marker);
+  assert.notEqual(idx, -1, 'fileLikelyHasChanges must exist');
+  const nextFn = appSrc.indexOf('\n  function ', idx + marker.length);
+  const body = appSrc.slice(idx, nextFn === -1 ? undefined : nextFn);
+  // Must not rely only on diffHunks — lazy placeholders keep diffHunks: [] until load.
+  assert.match(body, /file\.lazy/);
+  assert.match(body, /additions/);
+  assert.match(body, /deletions/);
+  assert.match(body, /diffHunks/);
+
+  // findDeferredFileForNav must accept a predicate and skip non-matching mounts.
+  const findMarker = 'function findDeferredFileForNav(';
+  const fIdx = appSrc.indexOf(findMarker);
+  const fNext = appSrc.indexOf('\n  function ', fIdx + findMarker.length);
+  const fBody = appSrc.slice(fIdx, fNext === -1 ? undefined : fNext);
+  assert.match(fBody, /predicate/);
+  assert.match(fBody, /if \(predicate && !predicate\(files\[i\]\)\) continue;/);
+});
+
+test('change-nav button titles use shortcut bindings, not hardcoded n/N', () => {
+  assert.match(appSrc, /getBinding\('previous_change'\)/);
+  assert.match(appSrc, /getBinding\('next_change'\)/);
+  assert.doesNotMatch(appSrc, /title="Previous change \(N\)"/);
+  assert.doesNotMatch(appSrc, /title="Next change \(n\)"/);
+});
+
+test('agent-pending reply form disables Cancel and Reply buttons', () => {
+  const marker = 'function createReplyInput(';
+  const idx = appSrc.indexOf(marker);
+  assert.notEqual(idx, -1);
+  const nextFn = appSrc.indexOf('\n  function ', idx + marker.length);
+  const body = appSrc.slice(idx, nextFn === -1 ? undefined : nextFn);
+  assert.match(body, /cancelBtn\.disabled\s*=\s*!!isPending/);
+  assert.match(body, /submitBtn\.disabled\s*=\s*!!isPending/);
+});
+
 test('renderFileByPath remounts the body for the replaced open section', () => {
   assert.match(appSrc, /function renderFileByPath\s*\(/);
   const idx = appSrc.indexOf('function renderFileByPath');
