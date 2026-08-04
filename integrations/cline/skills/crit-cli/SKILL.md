@@ -33,11 +33,15 @@ Review-level comments are listed first — easy to miss in raw `review.json`. Us
 
 ## Multiple active sessions
 
-When more than one review session matches the current directory and branch, `crit comment` refuses to guess. Run `crit status` (or `crit status --json`) to list every active session, then target the intended review explicitly:
+When more than one review session matches the current directory and branch, headless commands (`crit comment`, `crit comments`, `crit share`, `crit push`, `crit pull`) refuse to guess. Run `crit status` (or `crit status --json`) to list every active session, then target the intended review with `--session <id>`:
 
 ```bash
 crit comment --session <id> --author <name> <path>:<line> <body>
 crit comment --session <id> --json --file comments.json --author <name>
+crit comments --session <id>
+crit share --session <id> <file>
+crit push --session <id>
+crit pull --session <id>
 ```
 
 The JSON status output exposes the candidates in `sessions`.
