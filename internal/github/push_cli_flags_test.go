@@ -2,7 +2,13 @@ package github
 
 import (
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -293,6 +299,53 @@ func TestLoadPushReview(t *testing.T) {
 		_, _, err = loadPushReview(pushFlags{}, 0)
 		if err == nil || !strings.Contains(err.Error(), "invalid review file") {
 			t.Fatalf("error = %v, want invalid review file", err)
+		}
+	})
+
+	t.Run("live session path", func(t *testing.T) {
+		projectDir := t.TempDir()
+		testutil.SetHome(t, t.TempDir())
+		t.Chdir(projectDir)
+
+		identity := filepath.Join(t.TempDir(), ".crit")
+		if err := os.MkdirAll(identity, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		payload := []byte(`{"version":4,"branch":"feature","review_round":3,"files":{}}`)
+		if err := os.WriteFile(session.ReviewPathsFor(identity).Review, payload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+		}))
+		t.Cleanup(health.Close)
+		parsed, err := url.Parse(health.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			t.Fatal(err)
+		}
+		const key = "ffffffffffff"
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID: os.Getpid(), Port: port, CWD: projectDir, ReviewPath: identity,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+		gotPath, cj, err := loadPushReview(pushFlags{sessionID: key}, 99)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotPath != identity {
+			t.Fatalf("path = %q, want %q", gotPath, identity)
+		}
+		if cj.Branch != "feature" || cj.ReviewRound != 3 {
+			t.Fatalf("crit json = %+v", cj)
 		}
 	})
 }

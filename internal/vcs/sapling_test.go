@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -324,5 +325,44 @@ func TestSaplingVCS_DiffNumstatBetweenSHAsRequiresBoth(t *testing.T) {
 	}
 	if _, err := s.DiffNumstatBetweenSHAs("abc", "", t.TempDir()); err == nil {
 		t.Fatal("expected error for empty head")
+	}
+}
+
+func TestSaplingVCS_DiffNumstatBetweenSHAsWithFakeSL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake sl shim is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "sl")
+	script := `#!/bin/sh
+printf '%s\n' 'app.txt | 2 +-' '1 file changed, 1 insertion(+), 1 deletion(-)'
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := (&SaplingVCS{}).DiffNumstatBetweenSHAs("base", "head", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := got["app.txt"]
+	if !ok || entry.Additions != 1 || entry.Deletions != 1 {
+		t.Fatalf("got %#v, want app.txt +1/-1", got)
+	}
+}
+
+func TestSaplingVCS_DiffNumstatBetweenSHAsCommandError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake sl shim is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "sl")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, err := (&SaplingVCS{}).DiffNumstatBetweenSHAs("base", "head", t.TempDir()); err == nil {
+		t.Fatal("expected sl command error")
 	}
 }

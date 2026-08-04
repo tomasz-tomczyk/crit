@@ -5,9 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
-
 	"time"
 )
 
@@ -427,6 +427,59 @@ func TestJJVCS_DiffNumstatBetweenSHAsRequiresBoth(t *testing.T) {
 	}
 	if _, err := j.DiffNumstatBetweenSHAs("abc", "  ", t.TempDir()); err == nil {
 		t.Fatal("expected error for empty head")
+	}
+}
+
+func TestJJVCS_DiffNumstatBetweenSHAsWithFakeJJ(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake jj shim is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "jj")
+	script := `#!/bin/sh
+# Drop jj global flags then dispatch on the subcommand.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-pager|--color) shift; [ "$1" = "never" ] && shift; continue ;;
+    *) break ;;
+  esac
+done
+case "$1" in
+  log) echo "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ;;
+  diff) printf '%s\n' 'app.txt | 1 +' '1 file changed, 1 insertion(+), 0 deletions(-)' ;;
+  *) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := (&JJVCS{}).DiffNumstatBetweenSHAs(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry, ok := got["app.txt"]; !ok || entry.Additions != 1 {
+		t.Fatalf("got %#v, want app.txt +1", got)
+	}
+}
+
+func TestJJVCS_DiffNumstatBetweenSHAsResolveError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake jj shim is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "jj")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, err := (&JJVCS{}).DiffNumstatBetweenSHAs("deadbeef", "cafebabe", t.TempDir()); err == nil {
+		t.Fatal("expected resolve/diff error from failing jj")
 	}
 }
 

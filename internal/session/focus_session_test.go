@@ -643,3 +643,111 @@ func TestGetFileSnapshot_RangeLazy_RemoteErrorReturnsFalse(t *testing.T) {
 	}
 	_ = atomic.LoadInt32(&calls) // ensure stub was wired
 }
+
+// fakeNumstatFailVCS returns many changed files and fails DiffNumstatBetweenSHAs
+// so buildFilesForFocus exercises the numstat warning path.
+type fakeNumstatFailVCS struct {
+	vcs.VCS
+	changes []vcs.FileChange
+	failWT  bool
+}
+
+func (f *fakeNumstatFailVCS) ChangedFilesBetweenSHAs(_, _, _ string) ([]vcs.FileChange, error) {
+	out := make([]vcs.FileChange, len(f.changes))
+	copy(out, f.changes)
+	return out, nil
+}
+
+func (f *fakeNumstatFailVCS) DiffNumstatBetweenSHAs(_, _, _ string) (map[string]vcs.NumstatEntry, error) {
+	return nil, errors.New("numstat boom")
+}
+
+func (f *fakeNumstatFailVCS) DiffNumstat(_, _ string) (map[string]vcs.NumstatEntry, error) {
+	if f.failWT {
+		return nil, errors.New("wt numstat boom")
+	}
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) ChangedFilesOnDefaultInDir(_ string) ([]vcs.FileChange, error) {
+	out := make([]vcs.FileChange, len(f.changes))
+	copy(out, f.changes)
+	return out, nil
+}
+
+func (f *fakeNumstatFailVCS) ChangedFilesFromBaseInDir(_, _ string) ([]vcs.FileChange, error) {
+	out := make([]vcs.FileChange, len(f.changes))
+	copy(out, f.changes)
+	return out, nil
+}
+
+func (f *fakeNumstatFailVCS) ReadFileAtSHA(_, _, _ string) ([]byte, error) {
+	return []byte("content\n"), nil
+}
+
+func (f *fakeNumstatFailVCS) FileDiffBetweenSHAs(_, _, _, _, _ string, _ bool) ([]vcs.DiffHunk, error) {
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) FileDiffUnified(_, _, _ string, _ bool) ([]vcs.DiffHunk, error) {
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) FileDiffUnifiedNewFile(_ string) ([]vcs.DiffHunk, error) {
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) DefaultBranch() string  { return "main" }
+func (f *fakeNumstatFailVCS) DefaultBaseRef() string { return "main" }
+func (f *fakeNumstatFailVCS) CurrentBranch() string  { return "feature" }
+func (f *fakeNumstatFailVCS) MergeBase(_ string) (string, error) {
+	return "base", nil
+}
+
+func TestBuildFilesForFocus_NumstatWarn(t *testing.T) {
+	total := lazyFileThreshold + 3
+	changes := make([]vcs.FileChange, total)
+	for i := range changes {
+		changes[i] = vcs.FileChange{Path: fmt.Sprintf("f%03d.md", i), Status: "deleted"}
+	}
+	v := &fakeNumstatFailVCS{changes: changes}
+	s := &Session{RepoRoot: t.TempDir(), VCS: v}
+
+	stderr := captureStderr(t, func() {
+		files, _, err := s.buildFilesForFocus(Focus{
+			Kind: FocusRange, BaseSHA: "base", HeadSHA: "head", DiffScope: DiffScopeLayer,
+		}, v, s.RepoRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != total {
+			t.Fatalf("files = %d, want %d", len(files), total)
+		}
+	})
+	if !strings.Contains(stderr, "Warning: numstat failed") {
+		t.Fatalf("stderr = %q, want numstat warning", stderr)
+	}
+}
+
+func TestBuildFilesForWorkingTree_NumstatWarn(t *testing.T) {
+	total := lazyFileThreshold + 2
+	changes := make([]vcs.FileChange, total)
+	for i := range changes {
+		changes[i] = vcs.FileChange{Path: fmt.Sprintf("w%03d.md", i), Status: "deleted"}
+	}
+	v := &fakeNumstatFailVCS{changes: changes, failWT: true}
+	s := &Session{RepoRoot: t.TempDir(), VCS: v, BaseRef: "main", Branch: "feature"}
+
+	stderr := captureStderr(t, func() {
+		files, _, err := s.buildFilesForWorkingTree(v, s.RepoRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != total {
+			t.Fatalf("files = %d, want %d", len(files), total)
+		}
+	})
+	if !strings.Contains(stderr, "Warning: numstat failed") {
+		t.Fatalf("stderr = %q, want numstat warning", stderr)
+	}
+}

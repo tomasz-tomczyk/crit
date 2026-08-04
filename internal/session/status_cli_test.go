@@ -430,3 +430,107 @@ func TestLoadStatusSessionsAmbiguous(t *testing.T) {
 		t.Fatalf("sessions=%v keys=%v, want two matches", sessions, keys)
 	}
 }
+
+func TestPrintStatusHumanSoleSession(t *testing.T) {
+	selected := &daemon.SessionEntry{PID: 99, Port: 4000, ReviewPath: "/tmp/r", Args: []string{"plan.md"}}
+	sessions := []daemon.SessionEntry{*selected}
+	keys := []string{"aaaaaaaaaaaa"}
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	printStatusHuman("git", "main", "/tmp/r", false, selected, sessions, keys, false)
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	got := string(out)
+	for _, want := range []string{"VCS:         git", "Branch:      main", "Daemon:      running (PID 99, port 4000)", "Active reviews: 1", "aaaaaaaaaaaa", "plan.md"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestPrintStatusHumanNotRunning(t *testing.T) {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	printStatusHuman("", "", "/tmp/missing", false, nil, nil, nil, false)
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	got := string(out)
+	if !strings.Contains(got, "Daemon:      not running") {
+		t.Fatalf("output %q", got)
+	}
+	if strings.Contains(got, "Round:") {
+		t.Fatalf("should skip review stats when file missing: %q", got)
+	}
+}
+
+func TestPrintStatusJSONAmbiguousAndSole(t *testing.T) {
+	t.Run("ambiguous", func(t *testing.T) {
+		old := os.Stdout
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		printStatusJSON("git", "main", "", false, nil,
+			[]daemon.SessionEntry{{Args: []string{"a"}}, {Args: []string{"b"}}},
+			[]string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"}, true)
+		_ = w.Close()
+		os.Stdout = old
+		data, _ := io.ReadAll(r)
+		_ = r.Close()
+		var result map[string]interface{}
+		if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatal(err)
+		}
+		if result["review_file"] != nil {
+			t.Fatalf("review_file = %#v", result["review_file"])
+		}
+		note, _ := result["note"].(string)
+		if !strings.Contains(note, "multiple active review sessions") {
+			t.Fatalf("note = %#v", result["note"])
+		}
+	})
+}
+
+func TestStatusSessionsJSONTruncatesWhenKeysShort(t *testing.T) {
+	got := statusSessionsJSON(
+		[]daemon.SessionEntry{{Args: []string{"one"}}, {Args: []string{"two"}}},
+		[]string{"aaaaaaaaaaaa"},
+	)
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1 (keys shorter than sessions)", len(got))
+	}
+}
+
+func TestPrintActiveStatusSessionsUsesBranchLabel(t *testing.T) {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	printActiveStatusSessions(
+		[]daemon.SessionEntry{{Branch: "feature", ReviewPath: "/tmp/r"}},
+		[]string{"aaaaaaaaaaaa"},
+	)
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	if !strings.Contains(string(out), "feature") {
+		t.Fatalf("output %q should fall back to branch label", out)
+	}
+}
