@@ -263,8 +263,10 @@ var legacyIntegrationFiles = map[string][]legacyIntegrationFile{
 	"codex": {
 		{
 			// Hard allow_implicit_invocation:false gate — replaced by skill wording.
-			dest: ".agents/skills/crit/agents/openai.yaml",
-			hash: "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+			dest:           ".agents/skills/crit/agents/openai.yaml",
+			globalDest:     ".agents/skills/crit/agents/openai.yaml",
+			globalDestKind: globalDestRelHome,
+			hash:           "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
 		},
 	},
 	"codex-plugin": {
@@ -275,9 +277,11 @@ var legacyIntegrationFiles = map[string][]legacyIntegrationFile{
 			hash:           "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
 		},
 		{
-			// Loose skills installed alongside the plugin.
-			dest: ".agents/skills/crit/agents/openai.yaml",
-			hash: "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+			// Loose skills installed alongside the plugin (project and ~/.agents).
+			dest:           ".agents/skills/crit/agents/openai.yaml",
+			globalDest:     ".agents/skills/crit/agents/openai.yaml",
+			globalDestKind: globalDestRelHome,
+			hash:           "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
 		},
 	},
 	"opencode": {

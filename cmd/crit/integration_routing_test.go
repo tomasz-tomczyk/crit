@@ -314,6 +314,87 @@ func TestInstallIntegration_ClineAndWindsurfManualWorkflows(t *testing.T) {
 	}
 }
 
+func TestInstallIntegration_CodexRemovesObsoleteImplicitInvocationPolicy(t *testing.T) {
+	const knownYAML = "policy:\n  allow_implicit_invocation: false\n"
+	knownHash := "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94"
+	if got := computeFileHash([]byte(knownYAML)); got != knownHash {
+		t.Fatalf("fixture hash = %s, want %s (update test if shipped openai.yaml bytes changed)", got, knownHash)
+	}
+
+	t.Run("project codex", func(t *testing.T) {
+		root := t.TempDir()
+		dir := filepath.Join(root, "project")
+		home := filepath.Join(root, "home")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		testutil.SetHome(t, home)
+		t.Chdir(dir)
+
+		legacyPath := ".agents/skills/crit/agents/openai.yaml"
+		if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacyPath, []byte(knownYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := installIntegration("codex", false); err != nil {
+			t.Fatalf("install codex: %v", err)
+		}
+		if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("project openai.yaml should be removed, stat error = %v", err)
+		}
+	})
+
+	t.Run("global codex", func(t *testing.T) {
+		home := t.TempDir()
+		testutil.SetHome(t, home)
+		t.Chdir(home)
+
+		legacyPath := filepath.Join(home, ".agents/skills/crit/agents/openai.yaml")
+		if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacyPath, []byte(knownYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := installIntegration("codex", false); err != nil {
+			t.Fatalf("install codex: %v", err)
+		}
+		if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("global openai.yaml should be removed, stat error = %v", err)
+		}
+	})
+
+	t.Run("global codex-plugin", func(t *testing.T) {
+		home := t.TempDir()
+		testutil.SetHome(t, home)
+		t.Chdir(home)
+
+		loosePath := filepath.Join(home, ".agents/skills/crit/agents/openai.yaml")
+		pluginPath := filepath.Join(home, ".codex/plugins/crit/skills/crit/agents/openai.yaml")
+		for _, path := range []string{loosePath, pluginPath} {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(knownYAML), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := installIntegration("codex-plugin", false); err != nil {
+			t.Fatalf("install codex-plugin: %v", err)
+		}
+		for _, path := range []string{loosePath, pluginPath} {
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("%s should be removed, stat error = %v", path, err)
+			}
+		}
+	})
+}
+
 // TestInstallIntegration_GeminiWritesSettingsJSON verifies that the gemini
 // special-case in installIntegration runs installGeminiSettings and produces
 // a .gemini/settings.json in the project directory.
