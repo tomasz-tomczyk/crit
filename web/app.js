@@ -2128,7 +2128,36 @@
     }
   }
 
+  function changeNavAnchorFromIdx(idx) {
+    if (idx < 0 || idx >= changeGroups.length) return null;
+    const g = changeGroups[idx];
+    let fileGroupIdx = 0;
+    for (let i = 0; i < idx; i++) {
+      if (changeGroups[i].filePath === g.filePath) fileGroupIdx++;
+    }
+    return { filePath: g.filePath, fileGroupIdx: fileGroupIdx };
+  }
+
+  function findChangeIdxForAnchor(anchor) {
+    if (!anchor) return -1;
+    let fileGroupIdx = 0;
+    for (let i = 0; i < changeGroups.length; i++) {
+      if (changeGroups[i].filePath !== anchor.filePath) continue;
+      if (fileGroupIdx === anchor.fileGroupIdx) return i;
+      fileGroupIdx++;
+    }
+    // File still present but group count shrank — land on its last group.
+    let last = -1;
+    for (let i = 0; i < changeGroups.length; i++) {
+      if (changeGroups[i].filePath === anchor.filePath) last = i;
+    }
+    return last;
+  }
+
   function buildChangeGroups() {
+    // Remounting a deferred/lazy body rebuilds groups and would otherwise wipe
+    // currentChangeIdx, breaking atEnd/atStart and wrap chaining on retry.
+    const prevAnchor = changeNavAnchorFromIdx(currentChangeIdx);
     changeGroups = [];
     // Document view: color-coded change blocks + deletion markers
     const docEls = document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker');
@@ -2148,7 +2177,7 @@
         group.elements.push(el);
       }
     }
-    currentChangeIdx = -1;
+    currentChangeIdx = findChangeIdxForAnchor(prevAnchor);
     updateChangeCounters();
   }
 
@@ -9502,13 +9531,11 @@
         break;
       }
       case 'next_change': {
-        if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(1);
         break;
       }
       case 'previous_change': {
-        if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(-1);
         break;

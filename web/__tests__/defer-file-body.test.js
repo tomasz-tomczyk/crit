@@ -144,6 +144,35 @@ test('fileLikelyHasChanges treats lazy placeholders with additions/deletions as 
   assert.match(fBody, /if \(predicate && !predicate\(files\[i\]\)\) continue;/);
 });
 
+test('n/N shortcuts call navigateToChange even when changeGroups is empty', () => {
+  // Keyboard n/N must reach navigateToChange's empty-groups mount path;
+  // header buttons already did. Guarding on changeGroups.length === 0 blocks that.
+  const nextCase = appSrc.indexOf("case 'next_change':");
+  const prevCase = appSrc.indexOf("case 'previous_change':");
+  assert.notEqual(nextCase, -1);
+  assert.notEqual(prevCase, -1);
+  const nextBody = appSrc.slice(nextCase, appSrc.indexOf('case ', nextCase + 10));
+  const prevBody = appSrc.slice(prevCase, appSrc.indexOf('case ', prevCase + 10));
+  assert.match(nextBody, /navigateToChange\(1\)/);
+  assert.match(prevBody, /navigateToChange\(-1\)/);
+  assert.doesNotMatch(nextBody, /changeGroups\.length\s*===\s*0/);
+  assert.doesNotMatch(prevBody, /changeGroups\.length\s*===\s*0/);
+});
+
+test('buildChangeGroups rebinds currentChangeIdx after rebuild instead of always clearing', () => {
+  assert.match(appSrc, /function changeNavAnchorFromIdx\s*\(/);
+  assert.match(appSrc, /function findChangeIdxForAnchor\s*\(/);
+  const marker = 'function buildChangeGroups(';
+  const idx = appSrc.indexOf(marker);
+  assert.notEqual(idx, -1);
+  const nextFn = appSrc.indexOf('\n  function ', idx + marker.length);
+  const body = appSrc.slice(idx, nextFn === -1 ? undefined : nextFn);
+  assert.match(body, /changeNavAnchorFromIdx\(currentChangeIdx\)/);
+  assert.match(body, /findChangeIdxForAnchor\(prevAnchor\)/);
+  // Must not unconditionally wipe the index when groups were rebuilt with content.
+  assert.doesNotMatch(body, /changeGroups\.push\(group\);[\s\S]*currentChangeIdx\s*=\s*-1;/);
+});
+
 test('change-nav button titles use shortcut bindings, not hardcoded n/N', () => {
   assert.match(appSrc, /getBinding\('previous_change'\)/);
   assert.match(appSrc, /getBinding\('next_change'\)/);
