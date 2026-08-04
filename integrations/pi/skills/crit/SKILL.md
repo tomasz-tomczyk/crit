@@ -1,10 +1,13 @@
 ---
 name: crit
-description: "Review code changes, a plan, a live page (running dev server), or a local HTML file with crit inline comments. Use when asked to review code, a plan, a diff, a running web app, or when you want structured human feedback on your work."
-disable-model-invocation: true
+description: "Review code changes, a plan, a live page (running dev server), or a local HTML file with Crit inline comments and structured human feedback. Use only when the user explicitly invokes /crit or directly asks to use Crit; a generic review request does not count."
 ---
 
 # Review with Crit
+
+This is the interactive, human-in-the-browser review cycle. Run it only after
+the user explicitly invokes `/crit` or directly asks to use Crit. A generic
+request to review code, a plan, a diff, a PR, or a page does not count.
 
 Review and revise code changes, plans, live pages (running dev servers, staging URLs), or local HTML files using `crit` for inline comment review.
 

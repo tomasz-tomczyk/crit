@@ -48,8 +48,7 @@ func TestDestFor_GlobalMode(t *testing.T) {
 		{"claude-code", 0, ".claude/skills/crit/SKILL.md"},
 		{"claude-code", 1, ".claude/skills/crit-cli/SKILL.md"},
 		{"codex", 0, ".agents/skills/crit/SKILL.md"},
-		{"codex", 1, ".agents/skills/crit/agents/openai.yaml"},
-		{"codex", 2, ".agents/skills/crit-cli/SKILL.md"},
+		{"codex", 1, ".agents/skills/crit-cli/SKILL.md"},
 		{"qwen", 0, ".qwen/skills/crit/SKILL.md"},
 		{"qwen", 1, ".qwen/skills/crit-cli/SKILL.md"},
 		{"cursor", 0, ".cursor/skills/crit/SKILL.md"},
@@ -108,7 +107,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 	expected := map[string][]want{
 		"claude-code":    {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
-		"codex":          {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
 		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
 		"opencode":       {{".config/opencode/commands/crit.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}, {".config/opencode/plugins/lib/crit-wait-notify.js", globalDestRelHome}},
 		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
@@ -117,7 +116,7 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
 		"grok":           {{"", globalDestNone}, {"", globalDestNone}},
 		"ampcode":        {{".config/agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"codex-plugin":   {{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome}, {".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/skills/crit/agents/openai.yaml", globalDestRelHome}, {".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/hooks/hooks.json", globalDestRelHome}},
+		"codex-plugin":   {{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome}, {".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/hooks/hooks.json", globalDestRelHome}},
 		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
 		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},
 	}
@@ -362,11 +361,9 @@ func TestInstallIntegration_CodexPluginEndToEnd(t *testing.T) {
 
 	for _, path := range []string{
 		".agents/skills/crit/SKILL.md",
-		".agents/skills/crit/agents/openai.yaml",
 		".agents/skills/crit-cli/SKILL.md",
 		"plugins/crit/.codex-plugin/plugin.json",
 		"plugins/crit/skills/crit/SKILL.md",
-		"plugins/crit/skills/crit/agents/openai.yaml",
 		"plugins/crit/skills/crit-cli/SKILL.md",
 		"plugins/crit/hooks/hooks.json",
 	} {

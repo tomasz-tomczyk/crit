@@ -193,13 +193,11 @@ var integrationMap = map[string][]integration{
 	},
 	"codex": {
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
-		{source: "integrations/codex/skills/crit/agents/openai.yaml", dest: ".agents/skills/crit/agents/openai.yaml"},
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
 	},
 	"codex-plugin": {
 		{source: "integrations/codex/plugin/crit/.codex-plugin/plugin.json", dest: "plugins/crit/.codex-plugin/plugin.json", globalDest: ".codex/plugins/crit/.codex-plugin/plugin.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin is registered in the local Codex plugin marketplace"},
 		{source: "integrations/codex/plugin/crit/skills/crit/SKILL.md", dest: "plugins/crit/skills/crit/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit skill is available to Codex as $crit:crit"},
-		{source: "integrations/codex/plugin/crit/skills/crit/agents/openai.yaml", dest: "plugins/crit/skills/crit/agents/openai.yaml", globalDest: ".codex/plugins/crit/skills/crit/agents/openai.yaml", globalDestKind: globalDestRelHome},
 		{source: "integrations/codex/plugin/crit/skills/crit-cli/SKILL.md", dest: "plugins/crit/skills/crit-cli/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit-cli skill is available to Codex agents when needed"},
 		{source: "integrations/codex/plugin/crit/hooks/hooks.json", dest: "plugins/crit/hooks/hooks.json", globalDest: ".codex/plugins/crit/hooks/hooks.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin includes a Codex Stop hook for proposed-plan review"},
 	},
@@ -260,6 +258,26 @@ var legacyIntegrationFiles = map[string][]legacyIntegrationFile{
 			globalDest:     "Cline/Rules/crit.md",
 			globalDestKind: globalDestDocuments,
 			hash:           "1dd945643385c93d5f64f723808ff6aa4bcf80dc80e58804d07db926782d6a6f",
+		},
+	},
+	"codex": {
+		{
+			// Hard allow_implicit_invocation:false gate — replaced by skill wording.
+			dest: ".agents/skills/crit/agents/openai.yaml",
+			hash: "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+		},
+	},
+	"codex-plugin": {
+		{
+			dest:           "plugins/crit/skills/crit/agents/openai.yaml",
+			globalDest:     ".codex/plugins/crit/skills/crit/agents/openai.yaml",
+			globalDestKind: globalDestRelHome,
+			hash:           "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+		},
+		{
+			// Loose skills installed alongside the plugin.
+			dest: ".agents/skills/crit/agents/openai.yaml",
+			hash: "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
 		},
 	},
 	"opencode": {
