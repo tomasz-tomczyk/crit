@@ -83,7 +83,7 @@ Options:
       --json           Read bulk comments as JSON
   -f, --file <path>    Read JSON from a file
       --scope <mode>   Override comment focus scope`},
-	{name: "comments", handler: runComments, help: `Usage: crit comments [--json] [--all] [review]
+	{name: "comments", handler: runComments, help: `Usage: crit comments [--session <id>] [--json] [--all] [review]
 
 List unresolved comments, with review-level comments first.`},
 	{name: "review", handler: runReview, help: `Usage: crit review [options] [file|dir...]
@@ -291,7 +291,7 @@ Comments:
   crit comment --reply-to <id> <body>        Reply to a comment
   crit comment --json                        Bulk add comments from JSON on stdin
   crit comment --clear                       Remove all comments
-  crit comments [--json] [--all] [review]    List unresolved comments (review-level first)
+  crit comments [--session <id>] [--json] [--all] [review]    List unresolved comments (review-level first)
 
 Sharing:
   crit share <file> [file...]                Share files to crit-web, print URL

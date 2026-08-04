@@ -196,14 +196,19 @@ func AmbiguousSessionsError(keys []string) error {
 }
 
 // MatchingLiveSessions returns alive sessions for cwd (falling back to the VCS
-// repo root) filtered to branch. A RepoRoot failure is treated as "no repo-root
-// sessions" rather than a hard error, matching `crit status`.
+// repo root). A sole cwd (or repo-root) session is accepted regardless of
+// branch — important on detached HEAD where CurrentBranch() is "HEAD" but the
+// session still records the real branch name. When multiple sessions exist,
+// they are narrowed with SessionsForBranch; if none match the current branch,
+// all unfiltered candidates are returned so the caller can surface ambiguity
+// rather than silently falling through. A RepoRoot failure is treated as
+// "no repo-root sessions" rather than a hard error, matching `crit status`.
 func MatchingLiveSessions(cwd, branch string, backend vcs.VCS) ([]daemon.SessionEntry, []string, error) {
 	sessions, keys, err := daemon.ListSessionsForCWDWithKeys(cwd)
 	if err != nil {
 		return nil, nil, err
 	}
-	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
+	sessions, keys = narrowMatchingSessions(sessions, keys, branch)
 	if len(sessions) > 0 || backend == nil {
 		return sessions, keys, nil
 	}
@@ -216,8 +221,23 @@ func MatchingLiveSessions(cwd, branch string, backend vcs.VCS) ([]daemon.Session
 		return nil, nil, nil
 	}
 	sessions, keys = daemon.ListSessionsForRepoRoot(repoRoot)
-	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
+	sessions, keys = narrowMatchingSessions(sessions, keys, branch)
 	return sessions, keys, nil
+}
+
+// narrowMatchingSessions applies the single-session / branch-filter rules used
+// by MatchingLiveSessions. Exactly one candidate wins without a branch check;
+// multiple candidates are filtered to branch, falling back to the full set
+// when the filter empties (so callers can error on ambiguity).
+func narrowMatchingSessions(sessions []daemon.SessionEntry, keys []string, branch string) ([]daemon.SessionEntry, []string) {
+	if len(sessions) <= 1 {
+		return sessions, keys
+	}
+	matched, matchedKeys := daemon.SessionsForBranch(sessions, keys, branch)
+	if len(matched) == 0 {
+		return sessions, keys
+	}
+	return matched, matchedKeys
 }
 
 // ResolveReviewPathFromDaemon checks the daemon registry for a running session

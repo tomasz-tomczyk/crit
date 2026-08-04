@@ -701,3 +701,108 @@ func TestResolveSessionReviewPathInvalidID(t *testing.T) {
 		t.Fatalf("error = %v, want shared invalid session message", err)
 	}
 }
+
+func TestResolveCommandReviewPathSingleSessionBranchMismatch(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const key = "aaaaaaaaaaaa"
+	reviewPath := filepath.Join(t.TempDir(), key)
+	// Session branch deliberately mismatches CurrentBranch() (e.g. detached HEAD
+	// reports "HEAD" while the live session still stores "feature").
+	if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+		PID:        os.Getpid(),
+		Port:       port,
+		CWD:        cwd,
+		Branch:     "feature-not-current",
+		Args:       []string{"plan.md"},
+		ReviewPath: reviewPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+	got, err := ResolveCommandReviewPath("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != reviewPath {
+		t.Fatalf("review path = %q, want sole cwd session %q despite branch mismatch", got, reviewPath)
+	}
+
+	got, err = ResolveReviewPathFromDaemon(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != reviewPath {
+		t.Fatalf("ResolveReviewPathFromDaemon = %q, want %q", got, reviewPath)
+	}
+}
+
+func TestMatchingLiveSessionsSoleSessionIgnoresBranch(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := vcs.DetectVCS("")
+	if backend == nil {
+		t.Fatal("expected git repo")
+	}
+
+	const key = "bbbbbbbbbbbb"
+	reviewPath := filepath.Join(t.TempDir(), key)
+	if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+		PID: os.Getpid(), Port: port, CWD: cwd, Branch: "other-branch", ReviewPath: reviewPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+	// Simulate detached HEAD: CurrentBranch would be "HEAD".
+	sessions, keys, err := MatchingLiveSessions(cwd, "HEAD", backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || len(keys) != 1 || keys[0] != key {
+		t.Fatalf("sessions=%v keys=%v, want sole session %s", sessions, keys, key)
+	}
+	if sessions[0].ReviewPath != reviewPath {
+		t.Fatalf("ReviewPath = %q, want %q", sessions[0].ReviewPath, reviewPath)
+	}
+}

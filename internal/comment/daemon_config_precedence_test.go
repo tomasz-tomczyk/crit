@@ -232,20 +232,64 @@ func TestRunCommentIgnoresSessionsFromOtherBranches(t *testing.T) {
 		}
 	}
 
-	if err := RunComment([]string{"--author", "bot", "current branch"}); err != nil {
+	// Multiple cwd sessions on other branches: none match current branch, so
+	// the resolver surfaces ambiguity rather than silently picking one.
+	err = RunComment([]string{"--author", "bot", "current branch"})
+	if err == nil || !strings.Contains(err.Error(), "multiple active review sessions") {
+		t.Fatalf("RunComment error = %v, want ambiguity across other-branch sessions", err)
+	}
+}
+
+func TestRunCommentAcceptsSoleSessionOnOtherBranch(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/health" {
+			fmt.Fprint(w, `{"status":"ok"}`)
+			return
+		}
+		if r.URL.Path == "/api/session" {
+			fmt.Fprint(w, `{"focus":null}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
 		t.Fatal(err)
 	}
-	key := daemon.SessionKey(cwd, vcs.CurrentBranch(), nil)
-	reviewPath, err := daemon.ReviewFilePath(key)
+	port, err := strconv.Atoi(parsed.Port())
 	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "cccccccccccc"
+	reviewPath := filepath.Join(t.TempDir(), key)
+	if err := review.SaveCritJSON(reviewPath, session.CritJSON{ReviewRound: 1, Files: map[string]session.CritJSONFile{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+		PID: os.Getpid(), Port: port, CWD: cwd, Branch: "feature-detached", ReviewPath: reviewPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+	if err := RunComment([]string{"--author", "bot", "from sole session"}); err != nil {
 		t.Fatal(err)
 	}
 	cj, err := review.LoadCritJSON(reviewPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cj.ReviewComments) != 1 || cj.ReviewComments[0].Body != "current branch" {
-		t.Fatalf("centralized review comments = %+v, want current-branch comment", cj.ReviewComments)
+	if len(cj.ReviewComments) != 1 || cj.ReviewComments[0].Body != "from sole session" {
+		t.Fatalf("comments = %+v, want sole other-branch session accepted", cj.ReviewComments)
 	}
 }
 
