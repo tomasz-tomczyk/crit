@@ -143,11 +143,6 @@ The only automatic interactive path is a lifecycle hook immediately after
 planning mode. The Claude Code plugin, Codex plugin, and Gemini CLI integration
 retain their existing plan-exit hooks.
 
-When upgrading Cline, OpenCode, Windsurf, or Codex, `crit install` removes the
-obsolete auto-invoked / hard-gated path only when it still exactly matches a
-previously shipped Crit file. Modified files are preserved with a warning and
-must be removed manually.
-
 ## What these do
 
 All integrations follow the same pattern:
