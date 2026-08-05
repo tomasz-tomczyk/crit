@@ -400,7 +400,7 @@
       } else {
         diffMode = getSetting('diffMode', 'split');
       }
-      renderAllFiles();
+      renderAllFilesKeepingPlace();
     });
   }
   let diffScope = getSetting('diffScope', null); // null = no preference saved yet
@@ -1806,6 +1806,65 @@
     applyHideResolved();
   }
 
+  // A full rebuild hands back sections whose bodies are deferred, so every file
+  // the reader had already scrolled past collapses to nothing, the document
+  // ends up shorter than the current offset, and the browser clamps to the top.
+  // Use this for view toggles (hide-resolved, split/unified) that need the
+  // whole list rebuilt but should leave the reader where they were: it restores
+  // the bodies that were mounted before and puts the topmost visible file back
+  // at the same offset. Not for initial load or a scope change, where starting
+  // at the top of a fresh review is what the reader expects.
+  function renderAllFilesKeepingPlace() {
+    const mounted = mountedFilePaths();
+    const anchor = topVisibleSectionAnchor();
+
+    renderAllFiles();
+
+    let remounted = false;
+    for (let i = 0; i < mounted.length; i++) {
+      const file = getFileByPath(mounted[i]);
+      const section = document.getElementById('file-section-' + mounted[i]);
+      if (!file || !section || !section.open || file.lazy) continue;
+      mountDeferredBody(section, file);
+      remounted = true;
+    }
+    if (remounted) {
+      renderMermaidBlocks();
+      rebuildNavList();
+      applyHideResolved();
+    }
+
+    if (!anchor) return;
+    const section = document.getElementById(anchor.id);
+    if (!section) return;
+    const delta = section.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) < 1) return;
+    window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+  }
+
+  function mountedFilePaths() {
+    const paths = [];
+    const sections = document.querySelectorAll('#filesContainer .file-section[id]');
+    for (let i = 0; i < sections.length; i++) {
+      const body = sections[i].querySelector(':scope > .file-body');
+      if (body && body.getAttribute('data-body-deferred') !== '1') {
+        paths.push(sections[i].id.replace('file-section-', ''));
+      }
+    }
+    return paths;
+  }
+
+  // The first file section still touching the viewport, plus where its top sits
+  // relative to it — enough to put the page back after a rebuild.
+  function topVisibleSectionAnchor() {
+    const sections = document.querySelectorAll('#filesContainer .file-section[id]');
+    for (let i = 0; i < sections.length; i++) {
+      const rect = sections[i].getBoundingClientRect();
+      if (rect.bottom > 0) return { id: sections[i].id, top: rect.top };
+    }
+    return null;
+  }
+
   function rebuildNavList() {
     navElements = Array.from(document.querySelectorAll('.kb-nav'));
     buildChangeGroups();
@@ -2342,7 +2401,11 @@
     }
   }
 
-  function renderFileByPath(filePath) {
+  // opts.preserveDeferred keeps an off-screen body deferred across the
+  // re-render instead of mounting it, so a section above the viewport doesn't
+  // suddenly grow and shift what the reader is looking at. The mount observer
+  // fills it in once it scrolls near the viewport.
+  function renderFileByPath(filePath, opts) {
     const file = getFileByPath(filePath);
     if (!file) return;
     saveOpenFormContent(filePath);
@@ -2352,9 +2415,12 @@
     }
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
+    const oldBody = oldSection.querySelector(':scope > .file-body');
+    const keepDeferred = !!(opts && opts.preserveDeferred) &&
+      !!oldBody && oldBody.getAttribute('data-body-deferred') === '1';
     const newSection = renderFileSection(file);
     oldSection.replaceWith(newSection);
-    if (newSection.open) {
+    if (newSection.open && !keepDeferred) {
       if (file.lazy) loadLazyFile(newSection, file);
       else ensureFileBodyMounted(newSection, file);
     }
@@ -7580,6 +7646,7 @@
         for (let i = 0; i < files.length; i++) {
           previousCommentSignatures.set(files[i].path, JSON.stringify(files[i].comments || []));
         }
+        const previousReviewSignature = JSON.stringify(reviewComments || []);
         await Promise.all(files.map(async function(f) {
           return fetch('/api/file/comments?path=' + enc(f.path))
             .then(function(r) { return r.ok ? r.json() : []; })
@@ -7609,14 +7676,19 @@
           saveOpenFormContent(files[i].path);
         }
         checkAgentReplies(reviewComments);
-        if (storyActive()) {
-          for (let i = 0; i < files.length; i++) {
-            const before = previousCommentSignatures.get(files[i].path) || '[]';
-            const after = JSON.stringify(files[i].comments || []);
-            if (before !== after) renderStoryFileByPath(files[i].path);
-          }
-        } else {
-          renderAllFiles();
+        // Re-render only the files whose comments actually changed. Rebuilding
+        // every section would re-defer all off-screen bodies, collapsing the
+        // document height and throwing the reader back to the top.
+        const inStory = storyActive();
+        for (let i = 0; i < files.length; i++) {
+          const before = previousCommentSignatures.get(files[i].path) || '[]';
+          const after = JSON.stringify(files[i].comments || []);
+          if (before === after) continue;
+          if (inStory) renderStoryFileByPath(files[i].path);
+          else renderFileByPath(files[i].path, { preserveDeferred: true });
+        }
+        if (!inStory && JSON.stringify(reviewComments || []) !== previousReviewSignature) {
+          renderReviewConversation();
         }
         updateCommentCount();
         updateTreeCommentBadges();
@@ -8026,7 +8098,7 @@
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === mode);
       });
-      if (storyActive()) renderStory(); else renderAllFiles();
+      if (storyActive()) renderStory(); else renderAllFilesKeepingPlace();
     });
   });
 
@@ -8034,7 +8106,7 @@
   document.getElementById('diffToggle').addEventListener('click', function() {
     diffActive = !diffActive;
     updateDiffModeToggle();
-    renderAllFiles();
+    renderAllFilesKeepingPlace();
   });
 
   // ===== Compare chrome (target + commit range) =====
@@ -9042,7 +9114,7 @@
         applyWidth: applyWidth,
         getHideResolved: isHideResolved,
         setHideResolved: setHideResolved,
-        onHideResolvedChange: function () { renderAllFiles(); },
+        onHideResolvedChange: function () { renderAllFilesKeepingPlace(); },
         hasActivePendingUpdates: hasActivePendingUpdates,
         announceCopy: announceCopy,
         escape: escapeHtml,
@@ -9287,7 +9359,7 @@
     if (hideResolvedToggle) {
       hideResolvedToggle.addEventListener('change', function() {
         setHideResolved(hideResolvedToggle.checked);
-        renderAllFiles();
+        renderAllFilesKeepingPlace();
       });
     }
 
@@ -9508,7 +9580,7 @@
       case 'toggle_resolved': {
         e.preventDefault();
         setHideResolved(!isHideResolved());
-        renderAllFiles();
+        renderAllFilesKeepingPlace();
         const ht = document.getElementById('hideResolvedToggle');
         if (ht) ht.checked = isHideResolved();
         break;
