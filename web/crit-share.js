@@ -6,11 +6,13 @@
 // in-flight guard, the open modal element, the org cache) and wires the
 // #shareBtn click handler onto options.shareBtnEl.
 //
-// Transport, not protocol: every fetch() endpoint here is identical to the
-// pre-extraction app.js code. The proxy_auth relay (popup) hits the same
-// crit-web API endpoints with the same payload shapes as the direct path; the
-// only branch is which payload-builder endpoint is called for preview vs files
-// (see performShare).
+// Transport, not protocol: when proxy_auth is off, Share / Pull / Re-share /
+// Unpublish go through the local Go server (/api/share, /api/share/pull,
+// /api/share/reshare, /api/share-url), which attaches the bearer token. When
+// proxy_auth is on, the popup relay hits the same crit-web API endpoints with
+// the same payload shapes; the only branch is which payload-builder endpoint
+// is called for preview vs files (see performShare). The browser never calls
+// crit-web cross-origin in either mode.
 //
 // Dependencies (via window.crit.*):
 //   - none at module scope; all collaborators are injected through options.
@@ -871,9 +873,9 @@
       overlay.querySelector('#modalReshareBtn').addEventListener('click', handleReshare);
     }
 
-    // Pull remote comments through the popup relay (or directly when
-    // proxy_auth is unset), then merge into the local review file via
-    // /api/comments/merge, then refresh the UI in place.
+    // Pull remote comments. Direct transport goes through the local Go server
+    // (bearer token attached server-side) so the browser never hits crit-web
+    // cross-origin. Proxy-auth still uses the popup relay.
     async function handlePullComments() {
       const btn = document.getElementById('modalPullBtn');
       if (!btn) return;
@@ -897,23 +899,23 @@
       try {
         if (!hostedToken) throw new Error('no shared review token (try re-sharing)');
 
-        let comments;
         if (popupSession) {
-          comments = await popupSession.run('fetch', { token: hostedToken });
+          const comments = await popupSession.run('fetch', { token: hostedToken });
+          const mergeResp = await fetch('/api/comments/merge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comments: comments }),
+          });
+          if (!mergeResp.ok) {
+            const errBody = await mergeResp.json().catch(function() { return {}; });
+            throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+          }
         } else {
-          const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken) + '/comments');
-          if (!r.ok) throw new Error('Server error ' + r.status);
-          comments = await r.json();
-        }
-
-        const mergeResp = await fetch('/api/comments/merge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ comments: comments }),
-        });
-        if (!mergeResp.ok) {
-          const errBody = await mergeResp.json().catch(function() { return {}; });
-          throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+          const resp = await fetch('/api/share/pull', { method: 'POST' });
+          if (!resp.ok) {
+            const errBody = await resp.json().catch(function() { return {}; });
+            throw new Error(errBody.error || 'Server error ' + resp.status);
+          }
         }
 
         await onCommentsRefreshed();
@@ -930,10 +932,9 @@
       }
     }
 
-    // Re-share chains pull -> merge -> upsert in a single popup session.
-    // If the upsert fails after the merge succeeds, the local review file is
-    // already updated with remote comments; the user must re-click Re-share
-    // (and possibly re-authenticate) to push the merged state back up.
+    // Re-share: pull -> merge -> upsert. Direct transport is entirely
+    // server-side (/api/share/reshare) so the browser never calls crit-web
+    // cross-origin. Proxy-auth keeps the popup relay for the same API calls.
     async function handleReshare() {
       const btn = document.getElementById('modalReshareBtn');
       if (!btn) return;
@@ -957,47 +958,39 @@
       try {
         if (!hostedToken) throw new Error('no shared review token (try re-sharing)');
 
-        // 1. Pull remote comments through the (still authenticated) popup.
-        let remoteComments;
         if (popupSession) {
-          remoteComments = await popupSession.run('fetch', { token: hostedToken });
-        } else {
-          const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken) + '/comments');
-          if (!r.ok) throw new Error('Server error ' + r.status);
-          remoteComments = await r.json();
-        }
+          // 1. Pull remote comments through the (still authenticated) popup.
+          const remoteComments = await popupSession.run('fetch', { token: hostedToken });
 
-        // 2. Merge locally. NOTE: this mutates the local review file even if
-        // the upsert in step 4 fails — the toast in the catch block documents
-        // the partial-failure recovery path.
-        const mergeResp = await fetch('/api/comments/merge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ comments: remoteComments }),
-        });
-        if (!mergeResp.ok) {
-          const errBody = await mergeResp.json().catch(function() { return {}; });
-          throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
-        }
+          // 2. Merge locally. NOTE: this mutates the local review file even if
+          // the upsert in step 4 fails — the toast in the catch block documents
+          // the partial-failure recovery path.
+          const mergeResp = await fetch('/api/comments/merge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ comments: remoteComments }),
+          });
+          if (!mergeResp.ok) {
+            const errBody = await mergeResp.json().catch(function() { return {}; });
+            throw new Error(errBody.error || 'merge failed: ' + mergeResp.status);
+          }
 
-        // 3. Build upsert payload from the merged local state.
-        const payloadResp = await fetch('/api/share/upsert-payload');
-        if (!payloadResp.ok) {
-          const errBody = await payloadResp.json().catch(function() { return {}; });
-          throw new Error(errBody.error || 'failed to build upsert payload');
-        }
-        const payload = await payloadResp.json();
+          // 3. Build upsert payload from the merged local state.
+          const payloadResp = await fetch('/api/share/upsert-payload');
+          if (!payloadResp.ok) {
+            const errBody = await payloadResp.json().catch(function() { return {}; });
+            throw new Error(errBody.error || 'failed to build upsert payload');
+          }
+          const payload = await payloadResp.json();
 
-        // 4. PUT through the same popup session (still authenticated).
-        if (popupSession) {
+          // 4. PUT through the same popup session (still authenticated).
           await popupSession.run('upsert', { token: hostedToken, payload: payload });
         } else {
-          const r = await fetch(shareURL.replace(/\/$/, '') + '/api/reviews/' + encodeURIComponent(hostedToken), {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (!r.ok) throw new Error('Server error ' + r.status);
+          const resp = await fetch('/api/share/reshare', { method: 'POST' });
+          if (!resp.ok) {
+            const errBody = await resp.json().catch(function() { return {}; });
+            throw new Error(errBody.error || 'Server error ' + resp.status);
+          }
         }
 
         await onCommentsRefreshed();
@@ -1010,8 +1003,9 @@
         // popup was closed.
         showToast('share', 'error',
           '<span>Re-share failed: ' + escapeHtml(err.message) +
-          '. Local comments may have been updated; click Re-share again to retry ' +
-          '(you may need to re-authenticate in the popup).</span>');
+          '. Local comments may have been updated; click Re-share again to retry' +
+          (proxyAuth ? ' (you may need to re-authenticate in the popup)' : '') +
+          '.</span>');
       } finally {
         if (popupSession) popupSession.close();
         const liveBtn = document.getElementById('modalReshareBtn');
@@ -1062,21 +1056,29 @@
         if (popupSession) {
           // Receiver normalises 404 (already deleted) to {already_deleted: true}.
           await popupSession.run('unpublish', { delete_token: deleteToken });
+          // Remote delete already happened via the popup; only clear local
+          // session state. A full DELETE /api/share-url would re-contact
+          // crit-web from Go and fail behind the SSO proxy.
+          const clearResp = await fetch('/api/share-url?local_only=1', { method: 'DELETE' });
+          if (!clearResp.ok && clearResp.status !== 204) {
+            console.warn('share: failed to clear local share-url state', clearResp.status);
+          }
         } else {
-          const resp = await fetch(shareURL + '/api/reviews', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ delete_token: deleteToken }),
-          });
-          const alreadyDeleted = resp.status === 404;
-          if (!alreadyDeleted && !resp.ok) throw new Error('Server error ' + resp.status);
+          // Direct transport: DELETE /api/share-url unpublisheds remotely
+          // (bearer attached server-side) and clears local session state.
+          // Do NOT call crit-web cross-origin — that fails CORS on selfhosted
+          // OAuth instances and is redundant with this endpoint.
+          const resp = await fetch('/api/share-url', { method: 'DELETE' });
+          if (!resp.ok && resp.status !== 204) {
+            const errBody = await resp.json().catch(function() { return {}; });
+            throw new Error(errBody.error || 'Server error ' + resp.status);
+          }
         }
         hostedURL = '';
         deleteToken = '';
         hostedToken = '';
         sharedOrg = null;
         sharedVisibility = '';
-        fetch('/api/share-url', { method: 'DELETE' }).catch(function() { /* fire-and-forget */ });
         closeShareModal();
         setShareButtonState('default');
       } catch (err) {

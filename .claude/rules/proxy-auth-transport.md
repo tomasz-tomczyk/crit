@@ -24,7 +24,18 @@ When `proxy_auth: true` (global config), crit-web sits behind an SSO reverse pro
 
 **Terminal subcommands** that HTTP-call crit-web directly (today: `crit share`, `crit fetch`, `crit unpublish`) must call `checkProxyAuthCLIAllowed("crit <cmd>")` at the top of their `Run*` entrypoint and exit with the shared error message. Do not attempt the network call.
 
-**Browser UI actions** (Share / Pull / Unpublish buttons in the review page) must still work: implement both transports per Rule 1 — direct when `proxy_auth` is false, popup relay when true (`web/crit-share.js` + crit-web `share_receiver/handlers.js`).
+**Browser UI actions** (Share / Pull / Unpublish / Re-share buttons in the review page) must still work: implement both transports per Rule 1 — direct when `proxy_auth` is false, popup relay when true (`web/crit-share.js` + crit-web `share_receiver/handlers.js`).
+
+Direct (non-proxy_auth) browser actions must go through the **local Go server**, never `fetch(shareURL + …)` cross-origin:
+
+| Action    | Local endpoint                          |
+|-----------|-----------------------------------------|
+| Share     | `POST /api/share`                       |
+| Pull      | `POST /api/share/pull`                  |
+| Re-share  | `POST /api/share/reshare`               |
+| Unpublish | `DELETE /api/share-url`                 |
+
+(The Go handlers attach the bearer token and talk to crit-web. Cross-origin browser fetches fail CORS on selfhosted+OAuth instances because preflight has no `Authorization`, and even with CORS fixed the browser never sends the token.)
 
 When adding a **new** crit-web interaction, decide which surface owns it:
 - **Browser-only** (like today's share/pull/unpublish behind SSO): block the terminal path with `checkProxyAuthCLIAllowed`; add relay handler + frontend branch.

@@ -161,6 +161,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/share/payload", s.withReady(s.handleSharePayload))
 	mux.HandleFunc("/api/share/preview-payload", s.withReady(s.handlePreviewPayload))
 	mux.HandleFunc("/api/share/upsert-payload", s.withReady(s.handleUpsertPayload))
+	mux.HandleFunc("/api/share/pull", s.withReady(s.handleSharePull))
+	mux.HandleFunc("/api/share/reshare", s.withReady(s.handleShareReshare))
 	mux.HandleFunc("/api/share-policy", s.withReady(s.handleSharePolicy))
 	mux.HandleFunc("/api/share-url", s.withReady(s.handleShareURL))
 	mux.HandleFunc("/api/comments/merge", s.withReady(s.handleMergeComments))
@@ -820,8 +822,10 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodDelete:
-		// Unpublish from crit-web if we have a share URL and delete token.
-		if s.shareURL != "" {
+		// Unpublish from crit-web unless the caller already deleted remotely
+		// (proxy_auth popup path passes local_only=1 after the relay DELETE).
+		localOnly := r.URL.Query().Get("local_only") == "1"
+		if !localOnly && s.shareURL != "" {
 			if _, dt := s.session.Load().GetShareState(); dt != "" {
 				if err := share.UnpublishFromWeb(s.shareURL, dt, s.authTokenSnapshot()); err != nil {
 					w.Header().Set("Content-Type", "application/json")
@@ -1202,6 +1206,205 @@ func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
 	cliArgs := share.LoadCliArgsFromReviewFile(critPath)
 	deleteToken := sess.GetDeleteToken()
 	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
+}
+
+// handleSharePull fetches remote comments from crit-web (with the local bearer
+// token) and merges them into the review file. Used by the browser Share UI
+// when proxy_auth is off — the browser must not call crit-web cross-origin
+// (CORS + missing Authorization on selfhosted OAuth instances).
+//
+// POST /api/share/pull
+func (s *Server) handleSharePull(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	merged, repliesUpdated, err := s.pullAndMergeRemoteComments()
+	if err != nil {
+		s.writeShareTransportError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"merged": merged, "replies_updated": repliesUpdated})
+}
+
+// handleShareReshare pulls remote comments, merges them locally, then upserts
+// the merged review to crit-web. Same direct-transport path the CLI uses for
+// re-share; the browser calls this instead of cross-origin PUT/GET.
+//
+// POST /api/share/reshare
+func (s *Server) handleShareReshare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	merged, repliesUpdated := s.softPullForReshare(w)
+	if merged < 0 {
+		return // fatal pull error already written
+	}
+
+	sess := s.session.Load()
+	hostedURL, deleteToken := sess.GetShareState()
+	if hostedURL == "" || deleteToken == "" {
+		s.writeShareTransportError(w, errNoSharedReview)
+		return
+	}
+
+	files, comments, existingCfg, err := s.reshareUpsertInputs(sess, hostedURL, deleteToken)
+	if err != nil {
+		status := http.StatusBadRequest
+		if !errors.Is(err, errNoFilesInSession) {
+			status = http.StatusInternalServerError
+		}
+		s.writeJSONError(w, status, err.Error())
+		return
+	}
+
+	result, err := share.UpsertShareToWeb(existingCfg, files, comments, s.authTokenSnapshot())
+	if err != nil {
+		s.writeShareTransportError(w, err)
+		return
+	}
+	// Non-fatal if local hash/round persistence fails — remote upsert already succeeded.
+	_ = share.UpdateShareState(sess.CritJSONPath(), share.ComputeShareHash(files, comments), result.ReviewRound)
+	sess.SyncCommentsFromDisk()
+
+	writeJSON(w, map[string]any{
+		"url":             result.URL,
+		"changed":         result.Changed,
+		"review_round":    result.ReviewRound,
+		"merged":          merged,
+		"replies_updated": repliesUpdated,
+	})
+}
+
+// softPullForReshare runs pull+merge. Fatal auth/not-found errors are written
+// to w and return merged=-1. Other pull errors soft-fail (0, 0) like the CLI.
+func (s *Server) softPullForReshare(w http.ResponseWriter) (merged, repliesUpdated int) {
+	merged, repliesUpdated, err := s.pullAndMergeRemoteComments()
+	if err == nil {
+		return merged, repliesUpdated
+	}
+	if errors.Is(err, share.ErrShareUnauthorized) || errors.Is(err, share.ErrShareNotFound) {
+		s.writeShareTransportError(w, err)
+		return -1, 0
+	}
+	return 0, 0
+}
+
+// reshareUpsertInputs loads files + comments and builds the CritJSON used for
+// UpsertShareToWeb, preferring on-disk LastShareHash / ReviewRound / CliArgs.
+func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken string) ([]ShareFile, []shareComment, CritJSON, error) {
+	files, reviewType, err := s.shareFilesForSession()
+	if err != nil {
+		return nil, nil, CritJSON{}, err
+	}
+	if len(files) == 0 {
+		return nil, nil, CritJSON{}, errNoFilesInSession
+	}
+
+	critPath := sess.CritJSONPath()
+	var comments []shareComment
+	if reviewType == "preview" {
+		comments, _ = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author)
+	} else {
+		filePaths := make([]string, len(files))
+		for i, f := range files {
+			filePaths[i] = f.Path
+		}
+		comments, _ = share.LoadCommentsForShare(critPath, filePaths, s.author)
+	}
+
+	existingCfg := CritJSON{
+		ShareURL:    hostedURL,
+		DeleteToken: deleteToken,
+		ReviewRound: sess.ReviewRound,
+		CliArgs:     share.LoadCliArgsFromReviewFile(critPath),
+	}
+	if data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review); readErr == nil {
+		var onDisk CritJSON
+		if json.Unmarshal(data, &onDisk) == nil {
+			existingCfg.LastShareHash = onDisk.LastShareHash
+			if onDisk.ReviewRound > 0 {
+				existingCfg.ReviewRound = onDisk.ReviewRound
+			}
+			if len(onDisk.CliArgs) > 0 {
+				existingCfg.CliArgs = onDisk.CliArgs
+			}
+		}
+	}
+	return files, comments, existingCfg, nil
+}
+
+func (s *Server) writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// pullAndMergeRemoteComments is the shared pull+merge used by /api/share/pull
+// and the first half of /api/share/reshare. Returns merged/replies_updated
+// counts. Caller must SyncCommentsFromDisk if they need a fresh in-memory view
+// after a successful merge (pull does; reshare does after upsert).
+func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err error) {
+	sess := s.session.Load()
+	hostedURL := sess.GetSharedURL()
+	if tokenFromHostedURL(hostedURL) == "" {
+		return 0, 0, errNoSharedReview
+	}
+	critPath := sess.CritJSONPath()
+	data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return 0, 0, fmt.Errorf("review file not found")
+		}
+		return 0, 0, readErr
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return 0, 0, err
+	}
+
+	localIDs := share.BuildLocalIDSet(cj)
+	localFingerprints, localFingerprintIDs := share.BuildLocalFingerprintIndex(cj)
+	fetched, err := share.FetchWebComments(hostedURL, localIDs, localFingerprints, localFingerprintIDs, s.authTokenSnapshot())
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(fetched.NewComments) == 0 && len(fetched.ReplyUpdates) == 0 {
+		sess.SyncCommentsFromDisk()
+		return 0, 0, nil
+	}
+	if err := share.MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
+		return 0, 0, err
+	}
+	sess.SyncCommentsFromDisk()
+	return len(fetched.NewComments), len(fetched.ReplyUpdates), nil
+}
+
+var (
+	errNoSharedReview   = errors.New("no shared review in this session")
+	errNoFilesInSession = errors.New("no files in session")
+)
+
+func (s *Server) writeShareTransportError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case errors.Is(err, errNoSharedReview):
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	case errors.Is(err, share.ErrShareUnauthorized):
+		auth.ClearAuthIdentity()
+		s.clearAuthState()
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	case errors.Is(err, share.ErrShareNotFound):
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	default:
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	}
 }
 
 // handleMergeComments accepts comments fetched from crit-web (via the popup
