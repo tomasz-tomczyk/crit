@@ -582,3 +582,114 @@ func TestHandleShareURL_DeleteUnpublishesRemotely(t *testing.T) {
 		t.Errorf("hosted URL should be cleared")
 	}
 }
+
+func TestHandleShareReshare_UpsertUnauthorized(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/comments"):
+			json.NewEncoder(w).Encode([]any{})
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	sess.SetSharedURLAndToken(critWeb.URL+"/r/abc123", "delete-tok")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share/reshare", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleShareReshare_NotFoundOnPull(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Not found"})
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	sess.SetSharedURLAndToken(critWeb.URL+"/r/gone", "delete-tok")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share/reshare", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleShareURL_DeleteRemoteFailure(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "boom"})
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	sess.SetSharedURLAndToken(critWeb.URL+"/r/abc", "delete-tok")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/share-url", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502, body = %s", w.Code, w.Body.String())
+	}
+	// Remote failed — local share state must remain so the user can retry.
+	if sess.GetSharedURL() == "" {
+		t.Errorf("hosted URL cleared despite remote unpublish failure")
+	}
+}
+
+func TestHandleSharePull_MissingReviewFile(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]any{})
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	sess.SetSharedURLAndToken(critWeb.URL+"/r/abc123", "delete-tok")
+	// Remove the seeded review file so pullAndMergeRemoteComments hits the
+	// missing-file branch.
+	reviewPath := filepath.Join(sess.OutputDir, ".crit", "review.json")
+	if err := os.Remove(reviewPath); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share/pull", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleShareReshare_EmptyFiles(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode([]any{})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	sess.SetSharedURLAndToken(critWeb.URL+"/r/abc123", "delete-tok")
+	// Clear session files so reshareUpsertInputs returns errNoFilesInSession.
+	sess.Files = nil
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share/reshare", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
+	}
+}
