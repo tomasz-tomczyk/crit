@@ -9,6 +9,10 @@ const NOGIT_PORT = process.env.CRIT_TEST_NOGIT_PORT || '3126';
 const MULTI_PORT = process.env.CRIT_TEST_MULTI_PORT || '3127';
 const RANGE_PORT = process.env.CRIT_TEST_RANGE_PORT || '3128';
 const LIVE_PORT = process.env.CRIT_TEST_LIVE_PORT || '3129';
+const SHARE_PORT = process.env.CRIT_TEST_SHARE_PORT || '3132';
+// Stub crit-web backing the share-transport project. The spec talks to it
+// directly for seeding and assertions, so it needs the port too.
+const STUB_PORT = process.env.CRIT_TEST_STUB_PORT || '3133';
 // Mobile project re-uses the git-mode fixture — no separate server needed.
 const MOBILE_PORT = GIT_PORT;
 const debug = !!process.env.E2E_DEBUG;
@@ -42,7 +46,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode|sharetransport)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -115,6 +119,18 @@ export default defineConfig({
         baseURL: `http://localhost:${LIVE_PORT}/live`,
       },
     },
+    {
+      // Drives the browser Share round trip against a stub crit-web. baseURL
+      // must be `localhost` while the stub binds `127.0.0.1` — the two are
+      // distinct origins to the browser, which is what lets the spec detect a
+      // regression back to cross-origin fetches.
+      name: 'share-transport',
+      testMatch: /\.sharetransport\.spec\.ts$/,
+      use: {
+        browserName: 'chromium',
+        baseURL: `http://localhost:${SHARE_PORT}`,
+      },
+    },
   ],
 
   webServer: [
@@ -163,6 +179,13 @@ export default defineConfig({
     {
       command: `bash setup-fixtures-livemode.sh ${LIVE_PORT}`,
       url: `http://127.0.0.1:${LIVE_PORT}/api/session`,
+      reuseExistingServer: true,
+      timeout: 60_000,
+      stdout: 'pipe',
+    },
+    {
+      command: `bash setup-fixtures-sharetransport.sh ${SHARE_PORT} ${STUB_PORT}`,
+      url: `http://localhost:${SHARE_PORT}/api/session`,
       reuseExistingServer: true,
       timeout: 60_000,
       stdout: 'pipe',

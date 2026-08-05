@@ -42,6 +42,8 @@ Direct (non-proxy_auth) browser actions must go through the **local Go server**,
 
 (The Go handlers attach the bearer token and talk to crit-web. Cross-origin browser fetches fail CORS on selfhosted+OAuth instances because preflight has no `Authorization`, and even with CORS fixed the browser never sends the token.)
 
+The `share-transport` Playwright project (`test/e2e/tests/share-transport.sharetransport.spec.ts`) drives these three actions against a stub crit-web on a different origin and fails if the page issues any request to it, so a regression to cross-origin fetches is caught in CI. Extend that spec when you add a browser action that talks to crit-web.
+
 When adding a **new** crit-web interaction, decide which surface owns it:
 - **Browser-only** (like today's share/pull/unpublish behind SSO): block the terminal path with `checkProxyAuthCLIAllowed`; add relay handler + frontend branch.
 - **Terminal-only** (rare): document that it won't work behind SSO, or don't add it.
