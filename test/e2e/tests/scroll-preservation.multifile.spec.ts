@@ -4,7 +4,7 @@ import { clearAllComments, loadPage, addComment } from './helpers';
 // Rebuilding every file section hands back deferred (empty) bodies, so the
 // document collapses shorter than the current offset and the browser clamps the
 // scroll to the top. Replying and deleting used to trigger that via the
-// comments-changed SSE event; the hide-resolved toggle rebuilds directly.
+// comments-changed SSE event.
 test.describe('Scroll position across comment updates', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
@@ -83,37 +83,39 @@ test.describe('Scroll position across comment updates', () => {
     expect(Math.abs(after.top - before.top)).toBeLessThan(50);
   });
 
-  // The hide-resolved toggle rebuilds the whole list rather than one file, so
-  // it needs the anchor-and-restore path instead of a targeted re-render.
-  test('toggling hide-resolved keeps the topmost visible file in place', async ({ page }) => {
+  // Hide-resolved is CSS for cards plus a highlight sync — it must not wipe
+  // #filesContainer. A full rebuild was both unnecessary and the scroll bug.
+  test('toggling hide-resolved preserves file section DOM nodes', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 400 });
     await loadPage(page);
 
-    // Read the topmost file section still touching the viewport — that's what
-    // the rebuild pins.
-    const topSection = () => page.evaluate(() => {
-      const sections = document.querySelectorAll('#filesContainer .file-section[id]');
-      for (const section of sections) {
-        const rect = section.getBoundingClientRect();
-        if (rect.bottom > 0) return { id: section.id, top: rect.top, scrollY: window.scrollY };
-      }
-      return null;
-    });
-
     await page.evaluate(() => window.scrollTo({ top: 2000, behavior: 'instant' }));
     await page.waitForTimeout(500);
-    const before = await topSection();
+
+    const before = await page.evaluate(() => {
+      const sections = [...document.querySelectorAll('#filesContainer .file-section[id]')];
+      const top = sections.find(s => s.getBoundingClientRect().bottom > 0);
+      if (!top) return null;
+      // Stamp the live node so we can tell a rebuild from an in-place update.
+      (top as HTMLElement).dataset.critPreserveProbe = '1';
+      return { id: top.id, top: top.getBoundingClientRect().top, scrollY: window.scrollY };
+    });
     expect(before).toBeTruthy();
     expect(before!.scrollY).toBeGreaterThan(100);
 
     await page.keyboard.press('h');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(300);
 
     const after = await page.evaluate((id: string) => {
       const section = document.getElementById(id);
-      return { top: section ? section.getBoundingClientRect().top : null, scrollY: window.scrollY };
+      return {
+        sameNode: !!(section && section.dataset.critPreserveProbe === '1'),
+        top: section ? section.getBoundingClientRect().top : null,
+        scrollY: window.scrollY,
+      };
     }, before!.id);
+    expect(after.sameNode).toBe(true);
     expect(after.scrollY).toBeGreaterThan(100);
-    expect(Math.abs((after.top ?? 0) - before!.top)).toBeLessThan(50);
+    expect(Math.abs((after.top ?? 0) - before!.top)).toBeLessThan(5);
   });
 });

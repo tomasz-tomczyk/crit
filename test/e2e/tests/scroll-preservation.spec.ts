@@ -5,7 +5,7 @@ import { loadPage } from './helpers';
 // empty, so the document used to collapse and the browser clamped the scroll to
 // the top of the review instead of leaving the reader where they were.
 test.describe('Scroll position across view toggles', () => {
-  test('switching split/unified keeps the topmost visible file in place', async ({ page }) => {
+  test('switching split/unified keeps the mid-viewport line in place', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 400 });
     await loadPage(page);
 
@@ -19,14 +19,35 @@ test.describe('Scroll position across view toggles', () => {
     await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight * 0.6, behavior: 'instant' }));
     await page.waitForTimeout(500);
 
-    // The rebuild pins the topmost file section still touching the viewport.
+    // Pin the line closest to the vertical center — that's what the rebuild
+    // should put back, not just the file-section header.
     const before = await page.evaluate(() => {
-      const sections = document.querySelectorAll('#filesContainer .file-section[id]');
-      for (const section of sections) {
-        const rect = section.getBoundingClientRect();
-        if (rect.bottom > 0) return { id: section.id, top: rect.top, scrollY: window.scrollY };
+      const midY = window.innerHeight / 2;
+      const nodes = document.querySelectorAll(
+        '#filesContainer .diff-line[data-diff-line-num], #filesContainer .diff-split-side[data-diff-line-num]'
+      );
+      let best: { filePath: string; lineNum: string; side: string; top: number; scrollY: number } | null = null;
+      let bestDist = Infinity;
+      for (const el of nodes) {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+        const dist = Math.abs((rect.top + rect.bottom) / 2 - midY);
+        const html = el as HTMLElement;
+        const side = html.dataset.diffSide || '';
+        const preferNew = side === '';
+        const bestPreferNew = !!(best && best.side === '');
+        if (dist > bestDist + 0.5) continue;
+        if (Math.abs(dist - bestDist) <= 0.5 && best && !(preferNew && !bestPreferNew)) continue;
+        bestDist = dist;
+        best = {
+          filePath: html.dataset.diffFilePath || '',
+          lineNum: html.dataset.diffLineNum || '',
+          side,
+          top: rect.top,
+          scrollY: window.scrollY,
+        };
       }
-      return null;
+      return best;
     });
     expect(before).toBeTruthy();
     expect(before!.scrollY).toBeGreaterThan(100);
@@ -34,11 +55,16 @@ test.describe('Scroll position across view toggles', () => {
     await toggle.click();
     await page.waitForTimeout(1000);
 
-    const after = await page.evaluate((id: string) => {
-      const section = document.getElementById(id);
-      return { top: section ? section.getBoundingClientRect().top : null, scrollY: window.scrollY };
-    }, before!.id);
+    const after = await page.evaluate((a: { filePath: string; lineNum: string; side: string }) => {
+      const base =
+        `#filesContainer [data-diff-file-path="${CSS.escape(a.filePath)}"]` +
+        `[data-diff-line-num="${a.lineNum}"]`;
+      const el = (document.querySelector(base + `[data-diff-side="${CSS.escape(a.side)}"]`) ||
+        document.querySelector(base)) as HTMLElement | null;
+      return { top: el ? el.getBoundingClientRect().top : null, scrollY: window.scrollY };
+    }, before!);
     expect(after.scrollY).toBeGreaterThan(100);
+    expect(after.top).not.toBeNull();
     expect(Math.abs((after.top ?? 0) - before!.top)).toBeLessThan(50);
   });
 });

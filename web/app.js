@@ -1809,21 +1809,26 @@
   // A full rebuild hands back sections whose bodies are deferred, so every file
   // the reader had already scrolled past collapses to nothing, the document
   // ends up shorter than the current offset, and the browser clamps to the top.
-  // Use this for view toggles (hide-resolved, split/unified) that need the
-  // whole list rebuilt but should leave the reader where they were: it restores
-  // the bodies that were mounted before and puts the topmost visible file back
-  // at the same offset. Not for initial load or a scope change, where starting
-  // at the top of a fresh review is what the reader expects.
+  // Use this for view toggles that must rebuild diffs (split/unified, rendered
+  // diff) but should leave the reader where they were. Remounts only bodies at
+  // or above the reading position — below-fold stays deferred — and pins the
+  // mid-viewport line (falling back to the topmost intersecting file section).
+  // Not for hide-resolved (CSS + highlight sync) or initial load / scope change.
   function renderAllFilesKeepingPlace() {
     const mounted = mountedFilePaths();
-    const anchor = topVisibleSectionAnchor();
+    const sectionAnchor = topVisibleSectionAnchor();
+    const lineAnchor = readingLineAnchor();
 
     renderAllFiles();
 
+    const remountThrough = remountThroughIndex(sectionAnchor, lineAnchor);
     let remounted = false;
     for (let i = 0; i < mounted.length; i++) {
-      const file = getFileByPath(mounted[i]);
-      const section = document.getElementById('file-section-' + mounted[i]);
+      const path = mounted[i];
+      const idx = files.findIndex(function(f) { return f.path === path; });
+      if (remountThrough >= 0 && idx > remountThrough) continue;
+      const file = getFileByPath(path);
+      const section = document.getElementById('file-section-' + path);
       if (!file || !section || !section.open || file.lazy) continue;
       mountDeferredBody(section, file);
       remounted = true;
@@ -1834,12 +1839,25 @@
       applyHideResolved();
     }
 
-    if (!anchor) return;
-    const section = document.getElementById(anchor.id);
+    if (restoreReadingLineAnchor(lineAnchor)) return;
+    if (!sectionAnchor) return;
+    const section = document.getElementById(sectionAnchor.id);
     if (!section) return;
-    const delta = section.getBoundingClientRect().top - anchor.top;
+    const delta = section.getBoundingClientRect().top - sectionAnchor.top;
     if (Math.abs(delta) < 1) return;
     window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+  }
+
+  function remountThroughIndex(sectionAnchor, lineAnchor) {
+    let through = -1;
+    if (sectionAnchor) {
+      const path = sectionAnchor.id.replace('file-section-', '');
+      through = Math.max(through, files.findIndex(function(f) { return f.path === path; }));
+    }
+    if (lineAnchor && lineAnchor.filePath) {
+      through = Math.max(through, files.findIndex(function(f) { return f.path === lineAnchor.filePath; }));
+    }
+    return through;
   }
 
   function mountedFilePaths() {
@@ -1855,7 +1873,7 @@
   }
 
   // The first file section still touching the viewport, plus where its top sits
-  // relative to it — enough to put the page back after a rebuild.
+  // relative to it — fallback when no mid-viewport line is available.
   function topVisibleSectionAnchor() {
     const sections = document.querySelectorAll('#filesContainer .file-section[id]');
     for (let i = 0; i < sections.length; i++) {
@@ -1863,6 +1881,131 @@
       if (rect.bottom > 0) return { id: sections[i].id, top: rect.top };
     }
     return null;
+  }
+
+  // The line/block closest to the vertical center of the viewport — preferred
+  // restore target so split↔unified doesn't slide the hunk the reader was on.
+  // Prefer the new/right side when both halves of a split row sit at the same
+  // Y: unified tags context/add lines by NewNum with an empty side, so an
+  // old-side capture often has nothing to restore to after the switch.
+  function readingLineAnchor() {
+    const midY = (window.innerHeight || 0) / 2;
+    const nodes = document.querySelectorAll(
+      '#filesContainer .diff-line[data-diff-line-num], ' +
+      '#filesContainer .diff-split-side[data-diff-line-num], ' +
+      '#filesContainer .line-block[data-start-line]'
+    );
+    let best = null;
+    let bestDist = Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom <= 0 || rect.top >= (window.innerHeight || 0)) continue;
+      const dist = Math.abs((rect.top + rect.bottom) / 2 - midY);
+      const isBlock = el.classList.contains('line-block');
+      const side = el.dataset.diffSide || '';
+      const preferNew = !isBlock && side === '';
+      const bestPreferNew = best && best.kind === 'diff' && best.side === '';
+      if (dist > bestDist + 0.5) continue;
+      if (Math.abs(dist - bestDist) <= 0.5 && best && !(preferNew && !bestPreferNew)) continue;
+      bestDist = dist;
+      best = {
+        kind: isBlock ? 'block' : 'diff',
+        filePath: el.dataset.diffFilePath || el.dataset.filePath || '',
+        lineNum: parseInt(isBlock ? el.dataset.startLine : el.dataset.diffLineNum, 10),
+        side: side,
+        top: rect.top,
+      };
+    }
+    return best && best.filePath && best.lineNum > 0 ? best : null;
+  }
+
+  function restoreReadingLineAnchor(anchor) {
+    if (!anchor) return false;
+    let el = null;
+    if (anchor.kind === 'block') {
+      const blocks = document.querySelectorAll(
+        '#filesContainer .line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"]'
+      );
+      for (let i = 0; i < blocks.length; i++) {
+        const start = parseInt(blocks[i].dataset.startLine, 10);
+        const end = parseInt(blocks[i].dataset.endLine, 10);
+        if (anchor.lineNum >= start && anchor.lineNum <= end) { el = blocks[i]; break; }
+      }
+    } else {
+      const base =
+        '#filesContainer [data-diff-file-path="' + CSS.escape(anchor.filePath) + '"]' +
+        '[data-diff-line-num="' + anchor.lineNum + '"]';
+      el = document.querySelector(base + '[data-diff-side="' + CSS.escape(anchor.side) + '"]') ||
+        document.querySelector(base);
+    }
+    if (!el) return false;
+    const delta = el.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+    return true;
+  }
+
+  // Hide-resolved: cards are CSS (`body.hide-resolved`). Line highlights are
+  // baked in at render time via isHideResolved(), so toggle them in place on
+  // currently-mounted bodies instead of wiping #filesContainer.
+  function refreshHideResolvedView() {
+    applyHideResolved();
+    const root = storyActive()
+      ? document.getElementById('storyPane')
+      : document.getElementById('filesContainer');
+    if (!root) return;
+    const sections = root.querySelectorAll('.file-section[id]');
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+      const path = section.dataset.storyFile ||
+        (section.id.indexOf('file-section-') === 0
+          ? section.id.slice('file-section-'.length)
+          : null);
+      if (!path) continue;
+      syncCommentHighlightsInSection(section, getFileByPath(path));
+    }
+  }
+
+  function syncCommentHighlightsInSection(section, file) {
+    if (!section || !file) return;
+    const body = section.querySelector(':scope > .file-body');
+    if (!body || body.getAttribute('data-body-deferred') === '1') return;
+
+    const lineBlocks = body.querySelectorAll('.line-block[data-start-line]');
+    if (lineBlocks.length > 0) {
+      const rangeSet = buildCommentIndices(file.comments || []).rangeSet;
+      for (let i = 0; i < lineBlocks.length; i++) {
+        const el = lineBlocks[i];
+        const start = parseInt(el.dataset.startLine, 10);
+        const end = parseInt(el.dataset.endLine, 10);
+        let inRange = false;
+        for (let ln = start; ln <= end; ln++) {
+          if (rangeSet.has(ln + ':')) { inRange = true; break; }
+        }
+        el.classList.toggle('has-comment', inRange);
+      }
+    }
+
+    const unified = body.querySelector('.diff-container.unified');
+    if (unified) {
+      const visualSet = buildUnifiedCommentVisualSet(file.diffHunks || [], file.comments || []);
+      const lines = unified.querySelectorAll('.diff-line[data-diff-visual-idx]');
+      for (let i = 0; i < lines.length; i++) {
+        const el = lines[i];
+        el.classList.toggle('has-comment', visualSet.has(parseInt(el.dataset.diffVisualIdx, 10)));
+      }
+    }
+
+    const split = body.querySelector('.diff-container.split');
+    if (split) {
+      const rangeSet = buildCommentIndices(file.comments || []).rangeSet;
+      const sides = split.querySelectorAll('.diff-split-side[data-diff-line-num]');
+      for (let i = 0; i < sides.length; i++) {
+        const el = sides[i];
+        const key = parseInt(el.dataset.diffLineNum, 10) + ':' + (el.dataset.diffSide || '');
+        el.classList.toggle('has-comment', rangeSet.has(key));
+      }
+    }
   }
 
   function rebuildNavList() {
@@ -9114,7 +9257,7 @@
         applyWidth: applyWidth,
         getHideResolved: isHideResolved,
         setHideResolved: setHideResolved,
-        onHideResolvedChange: function () { renderAllFilesKeepingPlace(); },
+        onHideResolvedChange: function () { refreshHideResolvedView(); },
         hasActivePendingUpdates: hasActivePendingUpdates,
         announceCopy: announceCopy,
         escape: escapeHtml,
@@ -9359,7 +9502,7 @@
     if (hideResolvedToggle) {
       hideResolvedToggle.addEventListener('change', function() {
         setHideResolved(hideResolvedToggle.checked);
-        renderAllFilesKeepingPlace();
+        refreshHideResolvedView();
       });
     }
 
@@ -9580,7 +9723,7 @@
       case 'toggle_resolved': {
         e.preventDefault();
         setHideResolved(!isHideResolved());
-        renderAllFilesKeepingPlace();
+        refreshHideResolvedView();
         const ht = document.getElementById('hideResolvedToggle');
         if (ht) ht.checked = isHideResolved();
         break;
