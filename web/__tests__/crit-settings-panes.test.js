@@ -50,8 +50,10 @@ function makePane() {
   return pane;
 }
 
-function loadShared() {
-  const sandbox = { window: {}, document: { cookie: '', getElementById: () => null } };
+// Returns both the panes API and the sandbox, so tests that depend on
+// persisted settings (read from document.cookie) can seed them.
+function loadPanes(cookie) {
+  const sandbox = { window: {}, document: { cookie: cookie || '', getElementById: () => null } };
   const sharedSrc = fs.readFileSync(path.join(__dirname, '..', 'crit-shared.js'), 'utf8');
   new Function('window', 'document', sharedSrc)(sandbox.window, sandbox.document);
   const shortcutsSrc = fs.readFileSync(path.join(__dirname, '..', 'crit-shortcuts.js'), 'utf8');
@@ -60,7 +62,11 @@ function loadShared() {
   // navigator.clipboard is referenced inside copy-button click handlers but
   // those handlers don't run during render.
   new Function('window', 'document', 'navigator', panesSrc)(sandbox.window, sandbox.document, {});
-  return sandbox.window.crit.settingsPanes;
+  return { panes: sandbox.window.crit.settingsPanes, sandbox };
+}
+
+function loadShared() {
+  return loadPanes().panes;
 }
 
 test('renderSettingsTab: code-review mode renders theme + width + hide-resolved', () => {
@@ -86,6 +92,75 @@ test('renderSettingsTab: code-review mode renders theme + width + hide-resolved'
   assert.match(html, /data-settings-width="default"/);
   assert.match(html, /data-settings-width="wide"/);
   assert.match(html, /id="hideResolvedToggle"/);
+});
+
+test('renderSettingsTab: code font select defaults to the preset row, custom row hidden', () => {
+  const sp = loadShared();
+  const pane = makePane();
+
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: {},
+    hooks: { applyTheme: () => {}, applyWidth: () => {} },
+  });
+
+  const html = pane.innerHTML;
+  assert.match(html, /id="codeFontSelect"/);
+  assert.match(html, /<option value="default" selected>/);
+  assert.match(html, /<option value="custom">/);
+  // The free-text row only appears once the user picks Custom.
+  assert.match(html, /id="codeFontCustomRow" hidden/);
+  assert.match(html, /id="codeFontCustomInput"[^>]*value=""/);
+});
+
+test('renderSettingsTab: live mode does not render the code font picker', () => {
+  const sp = loadShared();
+  const pane = makePane();
+
+  sp.renderSettingsTab(pane, { mode: 'live', cfg: {}, hooks: { applyTheme: () => {} } });
+
+  assert.doesNotMatch(pane.innerHTML, /id="codeFontSelect"/);
+});
+
+test('renderSettingsTab: a stored discovered font pre-selects that font', () => {
+  const { panes: sp, sandbox } = loadPanes(
+    'crit-settings=' + encodeURIComponent(JSON.stringify({ codeFont: '"Example Mono", monospace' })));
+  assert.equal(sandbox.window.crit.shared.getSetting('codeFont', ''), '"Example Mono", monospace');
+  const pane = makePane();
+
+  // code_fonts is injected here, so this test does not need local fonts.
+  sp.renderSettingsTab(pane, { mode: 'code-review', cfg: { code_fonts: ['Example Mono'] }, hooks: { applyTheme: () => {}, applyWidth: () => {} } });
+
+  assert.match(pane.innerHTML, /<option value="installed-0" selected>Example Mono/);
+  assert.match(pane.innerHTML, /id="codeFontCustomRow" hidden/);
+});
+
+test('renderSettingsTab: only server-provided installed fonts are listed and safely quoted', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: { code_fonts: ['Sample Code Mono', 'Name "quoted"'] },
+    hooks: { applyTheme: () => {}, applyWidth: () => {} },
+  });
+  assert.match(pane.innerHTML, />Sample Code Mono</);
+  assert.match(pane.innerHTML, />Name &quot;quoted&quot;</);
+  assert.doesNotMatch(pane.innerHTML, />Fira Code</);
+  assert.equal(sp.fontFamilyStack('Name "quoted"'), '"Name \\"quoted\\"", monospace');
+  assert.equal(sp.fontFamilyStack('Name\fnewline'), '"Name newline", monospace');
+});
+
+test('renderSettingsTab: a stack matching no preset falls back to Custom and fills the input', () => {
+  const { panes: sp } = loadPanes(
+    'crit-settings=' + encodeURIComponent(JSON.stringify({ codeFont: "'Comic Mono', monospace" })));
+  const pane = makePane();
+
+  sp.renderSettingsTab(pane, { mode: 'code-review', cfg: {}, hooks: { applyTheme: () => {}, applyWidth: () => {} } });
+
+  const html = pane.innerHTML;
+  assert.match(html, /<option value="custom" selected>/);
+  assert.doesNotMatch(html, /id="codeFontCustomRow" hidden/);
+  assert.match(html, /id="codeFontCustomInput"[^>]*value="&#39;Comic Mono&#39;, monospace"/);
 });
 
 test('renderSettingsTab: live mode hides width pill but keeps theme + hide-resolved', () => {

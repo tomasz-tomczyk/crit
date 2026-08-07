@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1194,6 +1195,66 @@ func TestApiConfig_IncludesProxyAuth(t *testing.T) {
 	}
 	if body["proxy_auth"] != true {
 		t.Errorf("got proxy_auth=%v, want true", body["proxy_auth"])
+	}
+}
+
+func TestAPICodeFonts_CachesCodeFontDiscovery(t *testing.T) {
+	s, _ := newTestServer(t)
+	calls := 0
+	// The injected discovery function keeps this independent of local fonts.
+	s.codeFontDiscovery = func() []string {
+		calls++
+		return []string{"Example Mono", "Sample Code Mono"}
+	}
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest("GET", "/api/code-fonts", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d", w.Code)
+		}
+		var body struct {
+			CodeFonts []string `json:"code_fonts"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := body.CodeFonts, []string{"Example Mono", "Sample Code Mono"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("code_fonts = %v, want %v", got, want)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("font discovery calls = %d, want 1", calls)
+	}
+}
+
+func TestAPIConfig_DoesNotDiscoverCodeFonts(t *testing.T) {
+	s, _ := newTestServer(t)
+	calls := 0
+	s.codeFontDiscovery = func() []string { calls++; return []string{"Ignored"} }
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/api/config", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if calls != 0 {
+		t.Errorf("font discovery calls = %d, want 0", calls)
+	}
+	if strings.Contains(w.Body.String(), "code_fonts") {
+		t.Error("/api/config unexpectedly includes code_fonts")
+	}
+}
+
+func TestAPICodeFontsReturnsEmptyArrayWhenDiscoveryFails(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.codeFontDiscovery = func() []string { return nil }
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/api/code-fonts", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"code_fonts":[]`) {
+		t.Errorf("response = %s, want code_fonts as an empty array", w.Body.String())
 	}
 }
 

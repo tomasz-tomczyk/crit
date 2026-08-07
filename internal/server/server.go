@@ -109,11 +109,18 @@ type Server struct {
 	// double-count. Accessed only from handleFinish (serialized by HTTP) and
 	// the shutdown path (after the server has stopped), so no mutex needed.
 	statsRecorded bool
+
+	// codeFontFamilies is populated on the first /api/code-fonts request. Scanning
+	// font files can be relatively expensive, so keep it per daemon rather than
+	// repeating it whenever the Settings panel is opened.
+	codeFontFamiliesOnce sync.Once
+	codeFontFamilies     []string
+	codeFontDiscovery    func() []string
 }
 
 // NewServer creates a Server with the given session and configuration.
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth bool, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
-	s := &Server{assets: frontendFS, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &PRListCache{}}
+	s := &Server{assets: frontendFS, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &PRListCache{}, codeFontDiscovery: discoverCodeFontFamilies}
 	if session != nil {
 		s.session.Store(session)
 	}
@@ -154,6 +161,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
 	mux.HandleFunc("/api/config", s.withReady(s.handleConfig))
+	mux.HandleFunc("/api/code-fonts", s.withReady(s.handleCodeFonts))
 	mux.HandleFunc("/api/session", s.withReady(s.handleSession))
 	mux.HandleFunc("/api/share", s.withReady(s.handleShare))
 	mux.HandleFunc("/api/share-consent", s.withReady(s.handleShareConsent))
@@ -559,6 +567,24 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		resp["pr_created_at"] = prInfo.CreatedAt
 	}
 	writeJSON(w, resp)
+}
+
+// handleCodeFonts discovers installed coding fonts only when the user opens
+// Settings. Keeping this out of /api/config avoids delaying normal startup.
+func (s *Server) handleCodeFonts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.codeFontFamiliesOnce.Do(func() {
+		if s.codeFontDiscovery != nil {
+			s.codeFontFamilies = s.codeFontDiscovery()
+		}
+		if s.codeFontFamilies == nil {
+			s.codeFontFamilies = []string{}
+		}
+	})
+	writeJSON(w, map[string][]string{"code_fonts": s.codeFontFamilies})
 }
 
 // addIntegrationStatus populates integration detection fields in the config response.

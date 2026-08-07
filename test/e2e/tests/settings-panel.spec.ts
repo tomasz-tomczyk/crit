@@ -125,11 +125,55 @@ test.describe('Settings Panel', () => {
     await expect(finishReview).toContainText('Shift+F');
   });
 
-  test('settings pane shows display section with theme and width', async ({ page }) => {
+  test('settings pane shows display section with theme, code font and width', async ({ page }) => {
     await page.click('#settingsToggle');
     const pane = page.locator('.settings-pane[data-pane="settings"]');
     await expect(pane.locator('.settings-display-label').first()).toHaveText('Theme');
-    await expect(pane.locator('.settings-display-label').nth(1)).toContainText('Content Width');
+    await expect(pane.locator('.settings-display-label').filter({ hasText: 'Code font' })).toBeVisible();
+    await expect(pane.locator('.settings-display-label').filter({ hasText: 'Content Width' })).toBeVisible();
+  });
+
+  test('system code font overrides --crit-font-mono and persists across reload', async ({ page }) => {
+    await page.click('#settingsToggle');
+    const monoFont = () =>
+      page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--crit-font-mono').trim(),
+      );
+    expect(await monoFont()).toContain('JetBrains Mono');
+
+    await page.selectOption('#codeFontSelect', 'system');
+    await expect(page.locator('#codeFontCustomRow')).toBeHidden();
+    await expect.poll(monoFont).toBe('ui-monospace, SFMono-Regular, Menlo, Consolas, monospace');
+
+    await page.reload();
+    await expect.poll(monoFont).toBe('ui-monospace, SFMono-Regular, Menlo, Consolas, monospace');
+
+    // Back to Default drops the override entirely rather than pinning a copy.
+    await page.click('#settingsToggle');
+    await page.selectOption('#codeFontSelect', 'default');
+    await expect.poll(monoFont).toContain('JetBrains Mono');
+  });
+
+  test('custom code font applies, and an invalid value is rejected', async ({ page }) => {
+    await page.click('#settingsToggle');
+    const monoFont = () =>
+      page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--crit-font-mono').trim(),
+      );
+
+    await page.selectOption('#codeFontSelect', 'custom');
+    const input = page.locator('#codeFontCustomInput');
+    await expect(input).toBeVisible();
+    await input.fill("'Comic Mono', monospace");
+    await input.blur();
+    await expect.poll(monoFont).toBe("'Comic Mono', monospace");
+
+    // A value that could escape the declaration falls back to the default.
+    await input.fill('monospace; background: red');
+    await input.blur();
+    await expect(page.locator('.mini-toast--error')).toContainText('valid font-family');
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect.poll(monoFont).toContain('JetBrains Mono');
   });
 
   test('settings pane shows configuration cards', async ({ page }) => {

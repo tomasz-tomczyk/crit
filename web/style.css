@@ -2716,10 +2716,51 @@ textarea.drag-active {
 .settings-display-row:not(:last-child) {
   border-bottom: 1px solid var(--crit-border);
 }
+.settings-display-row[hidden] {
+  display: none;
+}
 .settings-display-label {
   font-size: 14px;
   font-weight: 500;
   color: var(--crit-editor-fg);
+}
+/* Secondary label for a row that qualifies the row above it (custom code font). */
+.settings-display-label--sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--crit-editor-fg-muted);
+}
+
+/* Dropdown + free-text controls in the Display section. */
+.settings-select,
+.settings-text-input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-card);
+  color: var(--crit-editor-fg);
+}
+.settings-select {
+  max-width: 60%;
+  cursor: pointer;
+}
+.settings-text-input {
+  width: 260px;
+  max-width: 60%;
+  font-family: var(--crit-font-mono);
+}
+.settings-text-input::placeholder {
+  color: var(--crit-editor-fg-muted);
+}
+.settings-select:focus-visible,
+.settings-text-input:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 1px;
+}
+.settings-text-input.is-invalid {
+  border-color: var(--crit-red);
 }
 
 /* Toggle switch (used in settings panel for hide-resolved). */
@@ -5854,7 +5895,9 @@ body.sidebar-resizing * {
 
   /* iOS Safari zooms any focused input below 16px. */
   .comment-form textarea,
-  .reply-input {
+  .reply-input,
+  .settings-select,
+  .settings-text-input {
     font-size: 16px;
   }
 

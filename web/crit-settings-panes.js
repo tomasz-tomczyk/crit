@@ -240,6 +240,30 @@
     };
   }
 
+  function sharedApi() {
+    return (window.crit && window.crit.shared) || {};
+  }
+
+  // Family names come from local font metadata, so quote them before putting
+  // them in a CSS declaration. Custom values still go through sanitizeCodeFont.
+  function fontFamilyStack(family) {
+    return '"' + String(family).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n\f]/g, ' ') + '", monospace';
+  }
+
+  function codeFontOptions(cfg) {
+    var options = (sharedApi().CODE_FONT_PRESETS || []).slice();
+    var seen = {};
+    options.forEach(function (option) { seen[option.stack] = true; });
+    (Array.isArray(cfg.code_fonts) ? cfg.code_fonts : []).forEach(function (family, index) {
+      if (typeof family !== 'string' || !family.trim()) return;
+      var stack = fontFamilyStack(family.trim());
+      if (seen[stack]) return;
+      seen[stack] = true;
+      options.push({ id: 'installed-' + index, label: family.trim(), stack: stack });
+    });
+    return options;
+  }
+
   function getSetting(key, fallback) {
     var s = window.crit && window.crit.shared;
     return s && s.getSetting ? s.getSetting(key, fallback) : fallback;
@@ -300,6 +324,33 @@
         '" title="' + label + ' theme">' + THEME_ICONS[theme] + '</button>';
     });
     html += '</div></div>';
+
+    if (opts.mode !== 'live') {
+      // --crit-font-mono drives code and diffs in code-review mode. The server
+      // only sends installed families which pass its code-monospace check;
+      // Custom covers misses.
+      var codeFontPresets = codeFontOptions(cfg);
+      var currentCodeFont = getSetting('codeFont', '');
+      var matchedPreset = null;
+      codeFontPresets.forEach(function (p) {
+        if (!matchedPreset && p.stack === currentCodeFont) matchedPreset = p;
+      });
+      var selectedFontId = matchedPreset ? matchedPreset.id : 'custom';
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Code font</span>';
+      html += '<select class="settings-select" id="codeFontSelect" aria-label="Code font">';
+      codeFontPresets.forEach(function (p) {
+        html += '<option value="' + esc(p.id) + '"' + (p.id === selectedFontId ? ' selected' : '') + '>' + esc(p.label) + '</option>';
+      });
+      html += '<option value="custom"' + (selectedFontId === 'custom' ? ' selected' : '') + '>Custom…</option>';
+      html += '</select>';
+      html += '</div>';
+      html += '<div class="settings-display-row" id="codeFontCustomRow"' + (selectedFontId === 'custom' ? '' : ' hidden') + '>';
+      html += '<label class="settings-display-label settings-display-label--sub" for="codeFontCustomInput">Custom font-family</label>';
+      html += '<input type="text" class="settings-text-input" id="codeFontCustomInput" spellcheck="false" autocomplete="off"'
+        + ' placeholder="\'Fira Code\', monospace" value="' + esc(selectedFontId === 'custom' ? currentCodeFont : '') + '">';
+      html += '</div>';
+    }
 
     // Width row (file-mode in code review; off in live)
     if (show.width) {
@@ -529,6 +580,52 @@
     });
     updatePillIndicator(pane, 'settingsThemeIndicator', ['system', 'light', 'dark'], currentTheme);
 
+    var fontSelect = pane.querySelector('#codeFontSelect');
+    var fontCustomRow = pane.querySelector('#codeFontCustomRow');
+    var fontCustomInput = pane.querySelector('#codeFontCustomInput');
+    // Applied through the shared helper rather than a hook: no mode needs to do
+    // anything extra when the code font changes, unlike theme (mermaid re-init)
+    // or width (layout attribute).
+    function applyCodeFont(stack) {
+      var api = sharedApi();
+      return api.setCodeFont ? api.setCodeFont(stack) : '';
+    }
+    function markInvalidFont(invalid) {
+      if (!fontCustomInput) return;
+      fontCustomInput.classList.toggle('is-invalid', invalid);
+      fontCustomInput.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+    }
+    if (fontSelect) {
+      fontSelect.addEventListener('change', function () {
+        var id = fontSelect.value;
+        if (id === 'custom') {
+          if (fontCustomRow) fontCustomRow.hidden = false;
+          if (fontCustomInput) {
+            fontCustomInput.focus();
+            // An empty custom box means "no override yet" — leave the current
+            // font alone until the user types something.
+            if (fontCustomInput.value.trim()) applyCodeFont(fontCustomInput.value);
+          }
+          return;
+        }
+        if (fontCustomRow) fontCustomRow.hidden = true;
+        markInvalidFont(false);
+        var preset = codeFontOptions(cfg).filter(function (p) { return p.id === id; })[0];
+        applyCodeFont(preset ? preset.stack : '');
+      });
+    }
+    if (fontCustomInput) {
+      fontCustomInput.addEventListener('change', function () {
+        var raw = fontCustomInput.value;
+        var rejected = !!raw.trim() && !applyCodeFont(raw);
+        markInvalidFont(rejected);
+        if (rejected) {
+          var s = sharedApi();
+          if (s.showToast) s.showToast('Not a valid font-family value — using the default.', { kind: 'error' });
+        }
+      });
+    }
+
     if (show.width) {
       pane.querySelectorAll('[data-settings-width]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -632,5 +729,6 @@
     renderShortcutsPane: renderShortcutsPane,
     renderAboutPane: renderAboutPane,
     renderSettingsTab: renderSettingsTab,
+    fontFamilyStack: fontFamilyStack,
   };
 })();

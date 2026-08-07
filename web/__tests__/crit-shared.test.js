@@ -1086,3 +1086,78 @@ test('installSidebarResize: teardown clears listeners and class state', () => {
   handle.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 1000 });
   assert.equal(body.classList.contains('sidebar-resizing'), false);
 });
+
+// ---- Code font (--crit-font-mono override) ----
+
+function makeCodeFontSandbox() {
+  const props = {};
+  const doc = {
+    cookie: '',
+    documentElement: {
+      style: {
+        setProperty(k, v) { props[k] = v; },
+        removeProperty(k) { delete props[k]; },
+      },
+    },
+  };
+  const win = {};
+  new Function('window', 'document', src + '\nreturn window;')(win, doc);
+  return { shared: win.crit.shared, props, doc };
+}
+
+test('sanitizeCodeFont accepts a plain font-family list and trims it', () => {
+  assert.equal(shared.sanitizeCodeFont("  'Fira Code', monospace  "), "'Fira Code', monospace");
+  assert.equal(shared.sanitizeCodeFont('"Name \\"quoted\\"", monospace'), '"Name \\"quoted\\"", monospace');
+  assert.equal(shared.sanitizeCodeFont(''), '');
+  assert.equal(shared.sanitizeCodeFont(null), '');
+});
+
+test('sanitizeCodeFont rejects values that could escape the declaration', () => {
+  // A `;` would end the declaration, `}` the rule, `@` start an at-rule, and
+  // url()/expression() pull in external resources.
+  assert.equal(shared.sanitizeCodeFont('monospace; background: red'), '');
+  assert.equal(shared.sanitizeCodeFont('monospace} body {display:none'), '');
+  assert.equal(shared.sanitizeCodeFont('@import "x"'), '');
+  assert.equal(shared.sanitizeCodeFont('url(https://evil.example/f.woff)'), '');
+  assert.equal(shared.sanitizeCodeFont('expression(alert(1))'), '');
+  assert.equal(shared.sanitizeCodeFont('<script>'), '');
+});
+
+test('applyCodeFont sets --crit-font-mono, and clears it for the default', () => {
+  const { shared: s, props } = makeCodeFontSandbox();
+  s.applyCodeFont("'Fira Code', monospace");
+  assert.equal(props['--crit-font-mono'], "'Fira Code', monospace");
+  // Empty means "use theme.css's stack" — the override is removed, not
+  // replaced with a copy of the default.
+  s.applyCodeFont('');
+  assert.equal('--crit-font-mono' in props, false);
+});
+
+test('setCodeFont persists the sanitized stack and returns what was stored', () => {
+  const { shared: s, props, doc } = makeCodeFontSandbox();
+  assert.equal(s.setCodeFont("'IBM Plex Mono', monospace"), "'IBM Plex Mono', monospace");
+  assert.match(doc.cookie, /crit-settings=/);
+  assert.equal(s.getSetting('codeFont', ''), "'IBM Plex Mono', monospace");
+  assert.equal(props['--crit-font-mono'], "'IBM Plex Mono', monospace");
+
+  // A rejected value falls back to the default rather than being stored raw.
+  assert.equal(s.setCodeFont('monospace; color: red'), '');
+  assert.equal(s.getSetting('codeFont', ''), '');
+  assert.equal('--crit-font-mono' in props, false);
+});
+
+test('applyCodeFontFromCookie restores the stored stack', () => {
+  const { shared: s, props } = makeCodeFontSandbox();
+  s.setSetting('codeFont', "'Cascadia Code', Consolas, monospace");
+  s.applyCodeFontFromCookie();
+  assert.equal(props['--crit-font-mono'], "'Cascadia Code', Consolas, monospace");
+});
+
+test('CODE_FONT_PRESETS only includes always-available entries', () => {
+  assert.equal(shared.CODE_FONT_PRESETS[0].id, 'default');
+  assert.equal(shared.CODE_FONT_PRESETS[0].stack, '');
+  assert.equal(shared.CODE_FONT_PRESETS.length, 2);
+  shared.CODE_FONT_PRESETS.slice(1).forEach((p) => {
+    assert.equal(shared.sanitizeCodeFont(p.stack), p.stack, p.id + ' must survive sanitization');
+  });
+});
