@@ -4,8 +4,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
+
+func TestClassifyStackSHAUsesMergeRequestShapeForGitLab(t *testing.T) {
+	entry, isBranch := classifyStackSHAForKind("head", 2, map[string]github.PRSummary{
+		"head": {Number: 17, Title: "Feature", BaseRefName: "main"},
+	}, nil, nil, "", true)
+	if entry == nil || !isBranch {
+		t.Fatalf("entry = %+v, isBranch = %v", entry, isBranch)
+	}
+	if entry.Label != "MR !17: Feature" || entry.MRNumber != 17 || entry.PRNumber != 0 || entry.BaseRefName != "main" {
+		t.Fatalf("GitLab stack entry = %+v", entry)
+	}
+}
 
 func TestDetectStack_ExcludesStaleBranchesBeforeMergeBase(t *testing.T) {
 	dir := vcs.InitTestRepo(t)
