@@ -5,7 +5,7 @@
     "@sanity/diff-match-patch": "^3.2.0",
     "highlightjs-heex": "^1.0.1",
     "markdown-it": "^15.0.0",
-    "mermaid": "^11.16.0"
+    "mermaid": "^11.16.1"
   },
   "scripts": {
     "update-deps": "bun run copy-deps.js",
