@@ -61,9 +61,26 @@ func runAPI(ctx context.Context, host, endpoint, method string, payload any) ([]
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("glab api %s: %s: %w", endpoint, strings.TrimSpace(string(out)), err)
+		msg := strings.TrimSpace(string(out))
+		return nil, fmt.Errorf("glab api %s: %s: %w", endpoint, msg, err)
 	}
 	return out, nil
+}
+
+// isNotFoundAPIError reports whether a glab api failure means the remote
+// discussion/note is already gone (HTTP 404). Used to drain pending deletes
+// idempotently, matching GitHub's 404-as-success delete path.
+func isNotFoundAPIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, " 404") ||
+		strings.Contains(msg, "404 ") ||
+		strings.Contains(msg, "404\n") ||
+		strings.HasSuffix(msg, "404") ||
+		strings.Contains(msg, `"message":"404`) ||
+		strings.Contains(msg, "Not Found")
 }
 
 func projectEndpoint(id forge.ChangeID, suffix string) string {

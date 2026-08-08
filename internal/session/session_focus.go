@@ -140,12 +140,11 @@ func focusKeyFor(f Focus) string {
 		return ""
 	}
 	if f.ChangeNumber > 0 {
-		switch f.Forge {
-		case "gitlab":
+		if f.Forge == "gitlab" {
 			return fmt.Sprintf("mr:%d", f.ChangeNumber)
-		case "github":
-			return fmt.Sprintf("pr:%d", f.ChangeNumber)
 		}
+		// github or empty forge (legacy ChangeNumber without Forge) → pr:N
+		return fmt.Sprintf("pr:%d", f.ChangeNumber)
 	}
 	return fmt.Sprintf("range:%s..%s", f.BaseSHA, f.HeadSHA)
 }

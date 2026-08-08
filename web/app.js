@@ -9953,12 +9953,12 @@
       if (m && m[1]) suffix = ': ' + m[1];
       return truncateLabel('#' + entry.pr_number + suffix, max);
     }
-	if (entry.mr_number) {
-	  let suffix = '';
-	  const m = (entry.label || '').match(/^MR !\d+:\s*(.+)$/);
-	  if (m && m[1]) suffix = ': ' + m[1];
-	  return truncateLabel('!' + entry.mr_number + suffix, max);
-	}
+    if (entry.mr_number) {
+      let suffix = '';
+      const m = (entry.label || '').match(/^MR !\d+:\s*(.+)$/);
+      if (m && m[1]) suffix = ': ' + m[1];
+      return truncateLabel('!' + entry.mr_number + suffix, max);
+    }
     return truncateLabel(entry.label || (entry.head_sha ? entry.head_sha.slice(0, 7) : ''), max);
   }
 
@@ -9972,16 +9972,16 @@
       diff_scope: 'layer',
       is_stacked: true,
     };
-	if (entry.pr_number) {
-	  focus.change_number = entry.pr_number;
-	  focus.forge = 'github';
-	}
-	if (entry.mr_number) {
-	  focus.change_number = entry.mr_number;
-	  focus.forge = 'gitlab';
-	}
+    if (entry.pr_number) {
+      focus.change_number = entry.pr_number;
+      focus.forge = 'github';
+    }
+    if (entry.mr_number) {
+      focus.change_number = entry.mr_number;
+      focus.forge = 'gitlab';
+    }
     if (entry.base_ref_name) focus.base_ref_name = entry.base_ref_name;
-    if (!entry.pr_number && entry.label) focus.label = entry.label;
+    if (!entry.pr_number && !entry.mr_number && entry.label) focus.label = entry.label;
     const defaultSHA = entry.default_sha || fallbackDefault;
     if (defaultSHA) focus.default_sha = defaultSHA;
     return focus;
@@ -10142,8 +10142,8 @@
           '</span>');
       } else {
         const payload = focusPayloadFromStackEntry(entry, focus);
-		const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number)
-		  : (entry.mr_number ? ('Switch to MR !' + entry.mr_number) : ('Switch to ' + label));
+        const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number)
+          : (entry.mr_number ? ('Switch to MR !' + entry.mr_number) : ('Switch to ' + label));
         parts.push('<button type="button" class="' + rowClass + '" role="menuitem"' +
           ' data-action="switch"' +
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '"' +
@@ -10425,10 +10425,10 @@
         head_sha: last.head_sha,
         diff_scope: last.diff_scope || 'layer',
       };
-	  if (last.change_number) {
-		payload.change_number = last.change_number;
-		payload.forge = last.forge;
-	  }
+      if (last.change_number) {
+        payload.change_number = last.change_number;
+        payload.forge = last.forge;
+      }
       if (last.default_sha) payload.default_sha = last.default_sha;
       if (last.is_stacked) payload.is_stacked = true;
       if (last.label) payload.label = last.label;

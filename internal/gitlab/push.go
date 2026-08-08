@@ -494,7 +494,18 @@ func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.Chan
 	if err != nil {
 		return fmt.Errorf("review published but could not refresh GitLab discussion IDs: %w", err)
 	}
-	mergeDiscussions(cj, discussions, session.ResolvePullScope(cj))
+	// Stamp imported threads with this MR's focus key even when no daemon is
+	// probing (headless `crit push`). Falling back to ResolvePullScope alone
+	// can yield DiffScope-only scope and stamp foreign notes as range:.. .
+	scope := session.InheritedScope{
+		Forge:        string(forge.GitLab),
+		ChangeNumber: id.Number,
+		DiffScope:    "layer",
+	}
+	if probed := session.ResolvePullScope(cj); probed.ChangeNumber > 0 || probed.HeadSHA != "" {
+		scope = probed
+	}
+	mergeDiscussions(cj, discussions, scope)
 	return review.SaveCritJSON(critPath, *cj)
 }
 
@@ -565,6 +576,11 @@ func pushGitLabDeletes(ctx context.Context, repo forge.RepoContext, id forge.Cha
 		discussionEndpoint := fmt.Sprintf("%s/discussions/%s", projectEndpoint(id, ""), ref.ThreadID)
 		out, err := runAPI(ctx, repo.Host, discussionEndpoint, "GET", nil)
 		if err != nil {
+			// Discussion already gone (cascade / prior delete) — drain like GitHub 404.
+			if isNotFoundAPIError(err) {
+				drained++
+				continue
+			}
 			remaining = append(remaining, ref)
 			continue
 		}
@@ -577,6 +593,9 @@ func pushGitLabDeletes(ctx context.Context, repo forge.RepoContext, id forge.Cha
 		for _, noteID := range gitLabDeleteNoteIDs(discussion, ref.CommentID) {
 			endpoint := fmt.Sprintf("%s/notes/%d", discussionEndpoint, noteID)
 			if _, err := runAPI(ctx, repo.Host, endpoint, "DELETE", nil); err != nil {
+				if isNotFoundAPIError(err) {
+					continue
+				}
 				failed = true
 				break
 			}

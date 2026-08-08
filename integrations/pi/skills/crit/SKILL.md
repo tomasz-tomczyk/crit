@@ -18,6 +18,7 @@ The CLI auto-detects the review mode from its arguments. **Do not ask the user w
 ```
 crit <arguments>               # file, dir, URL, .html — CLI auto-detects mode
 crit --pr <num|url>            # GitHub PR (range mode)
+crit --mr <iid|url>            # GitLab MR (range mode)
 crit --range <base>..<head>    # commit range (range mode)
 crit                           # no args → branch diff
 ```

@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -78,5 +79,22 @@ func TestGitLabAPIHelpers(t *testing.T) {
 	}
 	if got := projectEndpoint(forge.ChangeID{Number: 2}, ""); got != "projects/:fullpath/merge_requests/2" {
 		t.Fatalf("default project endpoint = %q", got)
+	}
+}
+
+func TestIsNotFoundAPIError(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{fmt.Errorf("glab api projects/x: HTTP 404: exit status 1"), true},
+		{fmt.Errorf(`glab api projects/x: {"message":"404 Not Found"}: exit status 1`), true},
+		{fmt.Errorf("glab api projects/x: token expired: exit status 1"), false},
+	}
+	for _, tc := range cases {
+		if got := isNotFoundAPIError(tc.err); got != tc.want {
+			t.Fatalf("isNotFoundAPIError(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

@@ -360,20 +360,45 @@ func noteLocation(note gitlabNote) (path string, start, end int, side string) {
 		return "", 0, 0, ""
 	}
 	p := note.Position
-	if p.NewLine > 0 {
-		path, end, side = p.NewPath, p.NewLine, "new"
+	side = noteSide(p)
+	if side == "old" {
+		path, start, end = noteSpan(p.OldPath, p.OldLine, p.LineRange, true)
 	} else {
-		path, end, side = p.OldPath, p.OldLine, "old"
-	}
-	start = end
-	if p.LineRange != nil {
-		if side == "old" && p.LineRange.Start.OldLine > 0 {
-			start = p.LineRange.Start.OldLine
-		} else if p.LineRange.Start.NewLine > 0 {
-			start = p.LineRange.Start.NewLine
-		}
+		path, start, end = noteSpan(p.NewPath, p.NewLine, p.LineRange, false)
 	}
 	return path, start, end, side
+}
+
+// noteSide prefers line_range type when present — GitLab often fills both
+// old_line and new_line on context lines; NewLine>0 alone would mis-label
+// old-side comments as "new".
+func noteSide(p *gitlabPosition) string {
+	if p.LineRange != nil && (p.LineRange.Start.Type == "old" || p.LineRange.End.Type == "old") {
+		return "old"
+	}
+	if p.NewLine == 0 && p.OldLine > 0 {
+		return "old"
+	}
+	return "new"
+}
+
+func noteSpan(path string, end int, lr *gitlabLineRange, old bool) (string, int, int) {
+	if end == 0 && lr != nil {
+		if old {
+			end = lr.End.OldLine
+		} else {
+			end = lr.End.NewLine
+		}
+	}
+	start := end
+	if lr != nil {
+		if old && lr.Start.OldLine > 0 {
+			start = lr.Start.OldLine
+		} else if !old && lr.Start.NewLine > 0 {
+			start = lr.Start.NewLine
+		}
+	}
+	return path, start, end
 }
 
 func findGitLabComment(comments []session.Comment, note gitlabNote, localID string, start, end int) int {

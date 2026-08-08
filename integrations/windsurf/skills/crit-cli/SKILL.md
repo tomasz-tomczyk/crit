@@ -1,6 +1,6 @@
 ---
 name: crit-cli
-description: Use when an agent needs to author or reply to crit inline comments programmatically (including multi-agent workflows commenting on shared code/plans/docs/proposals), publish or unpublish a crit review with crit share, sync a crit review to or from a GitHub PR, or read/interpret a crit review JSON file. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow. Not for invoking an interactive review loop — that's the `/crit` workflow.
+description: Use when an agent needs to author or reply to crit inline comments programmatically (including multi-agent workflows commenting on shared code/plans/docs/proposals), publish or unpublish a crit review with crit share, sync a crit review to or from a GitHub PR or GitLab MR, or read/interpret a crit review JSON file. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow. Not for invoking an interactive review loop — that's the `/crit` workflow.
 ---
 
 # Crit CLI Reference
@@ -174,11 +174,12 @@ Plan reviews (via `crit plan` or the ExitPlanMode hook) store the review file in
 crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Windsurf' 'Updated the plan'
 ```
 
-## GitHub PR Integration
+## GitHub PR / GitLab MR Integration
 
 ```bash
-crit pull [pr-number]                                    # Fetch PR review comments into the review file
-crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review comments as a GitHub PR review
+crit pull [number|url]                                   # Fetch PR/MR review comments into the review file
+crit push [--dry-run] [--event <type>] [-m <msg>] [n]    # Post review comments to a PR/MR
+crit pull --forge gitlab 42                              # Force GitLab when auto-detect is ambiguous
 ```
 
 Requires `gh` CLI installed and authenticated. PR number is auto-detected from the current branch.

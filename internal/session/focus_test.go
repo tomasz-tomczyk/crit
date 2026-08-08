@@ -152,7 +152,8 @@ func TestFocusKeyFor(t *testing.T) {
 		{"empty kind", Focus{}, ""},
 		{"range with GitHub change", Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:42"},
 		{"range with GitLab change", Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 17, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "mr:17"},
-		{"range with unknown forge", Focus{Kind: FocusRange, Forge: "other", ChangeNumber: 9, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "range:aaaaaaa..bbbbbbb"},
+		{"range with empty forge + change", Focus{Kind: FocusRange, ChangeNumber: 9, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:9"},
+		{"range with unknown forge", Focus{Kind: FocusRange, Forge: "other", ChangeNumber: 9, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:9"},
 		{"range without PR", Focus{Kind: FocusRange, BaseSHA: "aaaaaaa1234", HeadSHA: "bbbbbbb1234"}, "range:aaaaaaa1234..bbbbbbb1234"},
 	}
 	for _, c := range cases {

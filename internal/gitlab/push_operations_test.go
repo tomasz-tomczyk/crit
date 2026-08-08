@@ -237,6 +237,15 @@ func TestPushGitLabDeletesKeepsFailedQueue(t *testing.T) {
 	}
 }
 
+func TestPushGitLabDeletesDrainsNotFound(t *testing.T) {
+	cj := session.CritJSON{PendingRemoteDeletes: []session.RemoteRef{{Forge: "gitlab", CommentID: 10, ThreadID: "d1"}}}
+	stubCommands(t, commandResponse{stderr: "HTTP 404\n{\"message\":\"404 Not Found\"}", exitCode: 1})
+	deleted, err := pushGitLabDeletes(context.Background(), forge.RepoContext{}, forge.ChangeID{Number: 2}, &cj)
+	if err != nil || deleted != 1 || len(session.RemoteDeletesFor(cj, forge.GitLab)) != 0 {
+		t.Fatalf("404 delete = (%d, %v), queue=%+v", deleted, err, cj.PendingRemoteDeletes)
+	}
+}
+
 func TestFetchMRRawAndDraftNotesValidation(t *testing.T) {
 	t.Run("MR success", func(t *testing.T) {
 		stubCommands(t, commandResponse{stdout: `{"iid":3,"diff_refs":{"base_sha":"b","start_sha":"s","head_sha":"h"}}`})

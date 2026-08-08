@@ -174,3 +174,17 @@ func TestResolveChangeIDAppliesConfiguredHost(t *testing.T) {
 		t.Fatalf("change ID = %+v", id)
 	}
 }
+
+func TestNoteLocationPrefersLineRangeType(t *testing.T) {
+	note := gitlabNote{Position: &gitlabPosition{
+		OldPath: "a.go", NewPath: "a.go", OldLine: 4, NewLine: 4,
+		LineRange: &gitlabLineRange{
+			Start: gitlabPositionLine{Type: "old", OldLine: 3, NewLine: 3},
+			End:   gitlabPositionLine{Type: "old", OldLine: 4, NewLine: 4},
+		},
+	}}
+	path, start, end, side := noteLocation(note)
+	if path != "a.go" || start != 3 || end != 4 || side != "old" {
+		t.Fatalf("noteLocation = (%q, %d, %d, %q), want (a.go, 3, 4, old)", path, start, end, side)
+	}
+}
