@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,6 +77,9 @@ func writeWireConfig(t *testing.T, homeDir, body string) {
 
 func installWireFakeGLab(t *testing.T, exitCode int, apiResponse string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-glab shim is a POSIX shell script; not portable to Windows")
+	}
 	binDir := t.TempDir()
 	script := `#!/bin/sh
 if [ "$1" = "api" ]; then

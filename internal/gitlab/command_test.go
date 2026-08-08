@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,8 +52,16 @@ func stubCommands(t *testing.T, responses ...commandResponse) *[]commandCall {
 	t.Cleanup(func() { commandContext = oldCommandContext })
 
 	binDir := t.TempDir()
-	glabPath := filepath.Join(binDir, "glab")
-	if err := os.WriteFile(glabPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	// LookPath("glab") must succeed before commandContext runs. On Windows that
+	// means a .cmd/.exe on PATH; the stubbed commandContext never executes it.
+	glabName := "glab"
+	glabBody := []byte("#!/bin/sh\nexit 0\n")
+	if runtime.GOOS == "windows" {
+		glabName = "glab.cmd"
+		glabBody = []byte("@echo off\r\nexit /b 0\r\n")
+	}
+	glabPath := filepath.Join(binDir, glabName)
+	if err := os.WriteFile(glabPath, glabBody, 0o755); err != nil {
 		t.Fatalf("write fake glab: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

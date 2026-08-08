@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,6 +15,9 @@ import (
 
 func installProviderFakeGH(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-gh shim is a POSIX shell script; not portable to Windows")
+	}
 	dir := t.TempDir()
 	script := `#!/bin/sh
 case "$1 $2" in
