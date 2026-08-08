@@ -340,7 +340,7 @@ func countNewReplies(cj session.CritJSON) int {
 // pushShouldExitFailure encodes the exit-code policy for `crit push`. The
 // process should fail (exit 1) only when nothing meaningful landed and at
 // least one operation failed. Failed per-ID deletes stay in
-// PendingGitHubDeletes for the next push (existing retry semantics), so a
+// the GitHub entries in the neutral remote-delete queue for the next push,
 // partial delete failure must not mask successful posts/patches/drains.
 func pushShouldExitFailure(posted, patched, deleted int, exportPath string, postFailed, deleteFailed bool) bool {
 	anySuccess := posted > 0 || patched > 0 || deleted > 0 || exportPath != ""
@@ -398,8 +398,8 @@ func pushEditedBodies(ctx pushContext) (int, bool) {
 	return len(succeeded), authFailed
 }
 
-// pushDeletedComments issues DELETE for every GitHub comment ID queued in
-// PendingGitHubDeletes. Returns the count of IDs whose DELETE was drained
+// pushDeletedComments issues DELETE for every queued GitHub remote reference.
+// Returns the count of IDs whose DELETE was drained
 // (200 / 204, plus 404 "already gone" and 403 "not the author") and whether
 // any DELETE returned an error severe enough to surface a non-zero exit.
 //

@@ -211,7 +211,7 @@ func TestSetFocus_RangeToWorkingTree_StashesLastRangeFocus(t *testing.T) {
 		VCS:       &vcs.GitVCS{},
 		Branch:    "main",
 	}
-	rangeFocus := Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, PRNumber: 42, DiffScope: DiffScopeLayer}
+	rangeFocus := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}
 	if err := s.SetFocus(rangeFocus); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestSetFocus_RangeToWorkingTree_StashesLastRangeFocus(t *testing.T) {
 	if s.LastRangeFocus == nil {
 		t.Fatal("LastRangeFocus should be set after range -> working_tree")
 	}
-	if s.LastRangeFocus.PRNumber != 42 || s.LastRangeFocus.HeadSHA != head {
+	if s.LastRangeFocus.Forge != "github" || s.LastRangeFocus.ChangeNumber != 42 || s.LastRangeFocus.HeadSHA != head {
 		t.Errorf("LastRangeFocus = %+v; want PR=42 head=%s", s.LastRangeFocus, head)
 	}
 }

@@ -65,7 +65,9 @@ Additional context for this review:
 - PR #{{.pr_number}}: {{.pr_title}}
   {{.pr_url}}
 
-{{.pr_body}}{{end}}
+{{.pr_body}}{{end}}{{if .mr_number}}
+- MR !{{.mr_number}}
+  {{.mr_url}}{{end}}
 
 ## Authoring flow
 

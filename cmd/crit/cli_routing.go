@@ -12,7 +12,7 @@ type positionalRoute int
 
 const (
 	positionalRouteReview positionalRoute = iota
-	positionalRoutePRReview
+	positionalRouteChangeReview
 	positionalRouteLive
 	positionalRoutePreview
 )
@@ -25,8 +25,8 @@ var (
 
 // routePositionalArgs classifies bare positional crit arguments (no subcommand).
 func routePositionalArgs(args []string) positionalRoute {
-	if _, ok := prReviewArgs(args); ok {
-		return positionalRoutePRReview
+	if _, ok := changeReviewArgs(args); ok {
+		return positionalRouteChangeReview
 	}
 	if live.LooksLikeLiveArgs(args) {
 		return positionalRouteLive
@@ -37,20 +37,27 @@ func routePositionalArgs(args []string) positionalRoute {
 	return positionalRouteReview
 }
 
-// prReviewArgs returns --pr argv when args is a single GitHub PR URL.
-func prReviewArgs(args []string) ([]string, bool) {
-	if len(args) != 1 || !focus.LooksLikePRURL(args[0]) {
+// changeReviewArgs rewrites one GitHub PR or GitLab MR URL to explicit review argv.
+func changeReviewArgs(args []string) ([]string, bool) {
+	if len(args) != 1 {
 		return nil, false
 	}
-	return []string{"--pr", args[0]}, true
+	switch {
+	case focus.LooksLikePRURL(args[0]):
+		return []string{"--pr", args[0]}, true
+	case focus.LooksLikeMRURL(args[0]):
+		return []string{"--mr", args[0]}, true
+	default:
+		return nil, false
+	}
 }
 
 // runPositionalCLI dispatches bare positional arguments from main.
 func runPositionalCLI(args []string) {
 	switch routePositionalArgs(args) {
-	case positionalRoutePRReview:
-		prArgs, _ := prReviewArgs(args)
-		clicmd.Exit(runReviewForPositionalCLI(prArgs))
+	case positionalRouteChangeReview:
+		changeArgs, _ := changeReviewArgs(args)
+		clicmd.Exit(runReviewForPositionalCLI(changeArgs))
 	case positionalRouteLive:
 		runLiveForPositionalCLI(args)
 	case positionalRoutePreview:

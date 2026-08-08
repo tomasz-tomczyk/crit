@@ -28,15 +28,16 @@ const (
 )
 
 // InheritedScope is the focus metadata stamped on comments authored via
-// `crit comment`. All fields empty for working-tree mode. PRNumber and
-// BaseSHA flow through to the comment's FocusKey so view-scoped visibility
-// matches the daemon's view.
+// `crit comment`. All fields empty for working-tree mode. Forge,
+// ChangeNumber, and BaseSHA flow through to the comment's FocusKey so
+// view-scoped visibility matches the daemon's view.
 //
 // Defined in session; aliased here for focus helpers.
 
 // prURLRe matches GitHub PR URLs like https://github.com/owner/repo/pull/123.
 // The trailing group accepts /, ?, # so suffixes like /files or ?diff=split work.
 var prURLRe = regexp.MustCompile(`^https?://[^/]+/[^/]+/[^/]+/pull/(\d+)(?:[/?#].*)?$`)
+var mrURLRe = regexp.MustCompile(`^https?://[^/]+/.+/-/merge_requests/(\d+)(?:[/?#].*)?$`)
 
 // parsePRSpec resolves --pr <num|url> to a numeric PR number. Returns an error
 // for non-numeric, non-positive, or unparsable inputs.
@@ -47,6 +48,17 @@ func parsePRSpec(spec string) (int, error) {
 	n, err := strconv.Atoi(spec)
 	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("invalid --pr value %q (expected number or https://.../pull/N URL)", spec)
+	}
+	return n, nil
+}
+
+func parseMRSpec(spec string) (int, error) {
+	if m := mrURLRe.FindStringSubmatch(spec); m != nil {
+		return strconv.Atoi(m[1])
+	}
+	n, err := strconv.Atoi(spec)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid --mr value %q (expected IID or https://.../-/merge_requests/N URL)", spec)
 	}
 	return n, nil
 }
@@ -110,15 +122,24 @@ func shortSHA(sha string) string {
 	return sha
 }
 
-// resolveFocus turns CLI inputs into a *Focus, or nil for working-tree default.
-// Mutually exclusive: errors if both --pr and --range are given.
+// ChangeSpec is one provider-tagged pull or merge request identifier.
+type ChangeSpec struct {
+	Forge string
+	Value string
+}
+
+// ResolveFocus turns CLI inputs into a *Focus, or nil for working-tree default.
+// A change request and an explicit range are mutually exclusive.
 //
 // remoteFiles=true skips local-fetch / object presence checks because file
-// content reads will go through the GitHub API instead of local git.
-// ResolveFocus parses --pr / --range / --scope into a Focus value.
-func ResolveFocus(prSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
-	if prSpec != "" && rangeSpec != "" {
-		return nil, fmt.Errorf("--pr and --range are mutually exclusive")
+// content reads will go through the selected forge API instead of local git.
+// ResolveFocus parses a provider-neutral change spec, --range, and --scope.
+func ResolveFocus(change ChangeSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
+	if (change.Forge == "") != (change.Value == "") {
+		return nil, fmt.Errorf("change forge and value must be provided together")
+	}
+	if change.Value != "" && rangeSpec != "" {
+		return nil, fmt.Errorf("--pr or --mr and --range are mutually exclusive")
 	}
 	scope, err := parseScopeSpec(scopeSpec)
 	if err != nil {
@@ -127,10 +148,17 @@ func ResolveFocus(prSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.V
 	if scopeSpec != "" && rangeSpec != "" {
 		fmt.Fprintln(os.Stderr, "Note: --scope is ignored with --range; pass an explicit base..head instead")
 	}
-	switch {
-	case prSpec != "":
-		return resolveFocusFromPR(prSpec, scope, remoteFiles, v, repoRoot)
-	case rangeSpec != "":
+	switch change.Forge {
+	case "github":
+		return resolveFocusFromPR(change.Value, scope, remoteFiles, v, repoRoot)
+	case "gitlab":
+		return resolveFocusFromMR(change.Value, scope, remoteFiles, v, repoRoot)
+	case "":
+		// No change request; range or working-tree mode continues below.
+	default:
+		return nil, fmt.Errorf("unsupported change forge %q", change.Forge)
+	}
+	if rangeSpec != "" {
 		return resolveFocusFromRange(rangeSpec, remoteFiles, v, repoRoot)
 	}
 	return nil, nil
@@ -148,6 +176,25 @@ func resolveFocusFromPR(prSpec string, scope DiffScope, remoteFiles bool, v vcs.
 	if err != nil {
 		return nil, fmt.Errorf("resolving PR #%d: %w", prNum, err)
 	}
+	return resolveFocusFromChange(info, "github", "PR", scope, remoteFiles, v, repoRoot)
+}
+
+func resolveFocusFromMR(mrSpec string, scope DiffScope, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
+	mrIID, err := parseMRSpec(mrSpec)
+	if err != nil {
+		return nil, err
+	}
+	if FetchMRHook == nil {
+		return nil, fmt.Errorf("resolving MR !%d: MR fetch not wired", mrIID)
+	}
+	info, err := FetchMRHook(mrSpec)
+	if err != nil {
+		return nil, fmt.Errorf("resolving MR !%d: %w", mrIID, err)
+	}
+	return resolveFocusFromChange(info, "gitlab", "MR", scope, remoteFiles, v, repoRoot)
+}
+
+func resolveFocusFromChange(info ChangeResolveInfo, provider, labelKind string, scope DiffScope, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
 	forkURL := ""
 	if info.IsCrossRepository {
 		forkURL = info.HeadRepoURL
@@ -172,7 +219,7 @@ func resolveFocusFromPR(prSpec string, scope DiffScope, remoteFiles bool, v vcs.
 		return nil, fmt.Errorf("--scope=full-stack requires a resolvable default branch tip; got none for %q (detached HEAD or no remote?)", defaultBranch)
 	}
 
-	// GitHub renders a PR as base...head (three-dot, from the merge-base).
+	// GitHub and GitLab render changes from the merge-base to the head.
 	// Using info.BaseRefOid directly would diff base..head (two-dot), folding
 	// in any commits that landed on the base branch since this branch diverged
 	// — surfacing files that aren't part of the PR. Pin the layer diff base to
@@ -187,20 +234,34 @@ func resolveFocusFromPR(prSpec string, scope DiffScope, remoteFiles bool, v vcs.
 		}
 	}
 
-	return &Focus{
-		Kind:        FocusRange,
-		PRNumber:    info.Number,
-		PRURL:       info.URL,
-		Label:       fmt.Sprintf("PR #%d: %s", info.Number, info.Title),
-		BaseSHA:     baseSHA,
-		HeadSHA:     info.HeadRefOid,
-		DefaultSHA:  defaultSHA,
-		ForkURL:     forkURL,
-		BaseRefName: info.BaseRefName,
-		HeadRefName: info.HeadRefName,
-		DiffScope:   scope,
-		IsStacked:   IsStackedPRHook != nil && IsStackedPRHook(info, v),
-	}, nil
+	prefix := "#"
+	if labelKind == "MR" {
+		prefix = "!"
+	}
+	focus := &Focus{
+		Kind:              FocusRange,
+		Forge:             provider,
+		ChangeNumber:      info.Number,
+		Label:             fmt.Sprintf("%s %s%d: %s", labelKind, prefix, info.Number, info.Title),
+		BaseSHA:           baseSHA,
+		HeadSHA:           info.HeadRefOid,
+		DefaultSHA:        defaultSHA,
+		ForkURL:           forkURL,
+		RemoteProject:     info.HeadRepoProject,
+		RemoteBaseProject: info.BaseRepoProject,
+		RemoteHost:        info.HeadRepoHost,
+		BaseRefName:       info.BaseRefName,
+		HeadRefName:       info.HeadRefName,
+		DiffScope:         scope,
+	}
+	if provider == "gitlab" {
+		focus.MRURL = info.URL
+		focus.IsStacked = IsStackedMRHook != nil && IsStackedMRHook(info, v)
+	} else {
+		focus.PRURL = info.URL
+		focus.IsStacked = IsStackedPRHook != nil && IsStackedPRHook(info, v)
+	}
+	return focus, nil
 }
 
 func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
@@ -377,10 +438,11 @@ func ResolveCommentScope(override CommentFocusOverride, outputDir string) (Inher
 func resolveExplicitScope(daemon *Focus, outputDir string, want DiffScope, wantStr, errMsg string) (InheritedScope, error) {
 	if daemon != nil && daemon.Kind == FocusRange && daemon.DiffScope == want {
 		return InheritedScope{
-			HeadSHA:   daemon.HeadSHA,
-			BaseSHA:   daemon.BaseSHA,
-			PRNumber:  daemon.PRNumber,
-			DiffScope: wantStr,
+			HeadSHA:      daemon.HeadSHA,
+			BaseSHA:      daemon.BaseSHA,
+			Forge:        daemon.Forge,
+			ChangeNumber: daemon.ChangeNumber,
+			DiffScope:    wantStr,
 		}, nil
 	}
 	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope == wantStr {
@@ -395,10 +457,11 @@ func resolveExplicitScope(daemon *Focus, outputDir string, want DiffScope, wantS
 func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 	if daemon != nil && daemon.Kind == FocusRange {
 		return InheritedScope{
-			HeadSHA:   daemon.HeadSHA,
-			BaseSHA:   daemon.BaseSHA,
-			PRNumber:  daemon.PRNumber,
-			DiffScope: string(daemon.DiffScope),
+			HeadSHA:      daemon.HeadSHA,
+			BaseSHA:      daemon.BaseSHA,
+			Forge:        daemon.Forge,
+			ChangeNumber: daemon.ChangeNumber,
+			DiffScope:    string(daemon.DiffScope),
 		}
 	}
 	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope != "" {
@@ -410,12 +473,18 @@ func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 	return InheritedScope{}
 }
 
-// ResolvePullScope picks the (HeadSHA, DiffScope) pair stamped on imported
-// GitHub PR comments. Pulled comments anchor to the PR's actual diff, so
-// DiffScope is always "layer".
+// ResolvePullScope reconstructs the active change-request layer for imported
+// remote comments. Forge + ChangeNumber preserve the provider-specific focus
+// key (pr:N or mr:N); BaseSHA + HeadSHA preserve range identity as a fallback.
 func ResolvePullScope(cj *CritJSON) InheritedScope {
 	if focus := probeDaemonFocus(); focus != nil && focus.Kind == FocusRange {
-		return InheritedScope{HeadSHA: focus.HeadSHA, DiffScope: "layer"}
+		return InheritedScope{
+			HeadSHA:      focus.HeadSHA,
+			BaseSHA:      focus.BaseSHA,
+			Forge:        focus.Forge,
+			ChangeNumber: focus.ChangeNumber,
+			DiffScope:    "layer",
+		}
 	}
 	if cj != nil && cj.ActiveDiffScope != "" {
 		return InheritedScope{DiffScope: "layer"}

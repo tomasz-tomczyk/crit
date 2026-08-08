@@ -17,6 +17,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/diff"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -84,6 +85,11 @@ type Reply struct {
 	// comment's resolve transitions; reserved for future per-reply resolution.
 	ResolvedRound int   `json:"resolved_round,omitempty"`
 	GitHubID      int64 `json:"github_id,omitempty"`
+	GitLabNoteID  int64 `json:"gitlab_note_id,omitempty"`
+	// GitLabDiscussionID is required together with GitLabNoteID for reply,
+	// edit, and delete mutations through GitLab's Discussions API. Resolution
+	// belongs to the parent comment because GitLab resolves whole discussions.
+	GitLabDiscussionID string `json:"gitlab_discussion_id,omitempty"`
 
 	// LastPushedBodyHash is a short stable digest of Body at the time of
 	// the most recent successful push (POST or PATCH) to GitHub. Used by
@@ -146,12 +152,15 @@ type Comment struct {
 	// Legacy comments lacking this field are treated as zero on read; the
 	// timeline visibility filter falls back to round 1 for legacy resolved
 	// comments (see commentsAtOrBeforeRound docs).
-	ResolvedRound  int     `json:"resolved_round,omitempty"`
-	Live           bool    `json:"live,omitempty"`
-	CarriedForward bool    `json:"carried_forward,omitempty"`
-	ReviewRound    int     `json:"review_round,omitempty"`
-	Replies        []Reply `json:"replies,omitempty"`
-	GitHubID       int64   `json:"github_id,omitempty"`
+	ResolvedRound      int     `json:"resolved_round,omitempty"`
+	Live               bool    `json:"live,omitempty"`
+	CarriedForward     bool    `json:"carried_forward,omitempty"`
+	ReviewRound        int     `json:"review_round,omitempty"`
+	Replies            []Reply `json:"replies,omitempty"`
+	GitHubID           int64   `json:"github_id,omitempty"`
+	GitLabNoteID       int64   `json:"gitlab_note_id,omitempty"`
+	GitLabDiscussionID string  `json:"gitlab_discussion_id,omitempty"`
+	GitLabResolved     *bool   `json:"gitlab_resolved,omitempty"`
 
 	// LastPushedBodyHash is a short stable digest of Body at the time of
 	// the most recent successful push (POST or PATCH) to GitHub. Used by
@@ -427,19 +436,11 @@ type Session struct {
 	// prevents mergeFileSnapshotIntoCritJSON from re-adding them from disk.
 	deletedCommentIDs map[string]map[string]struct{}
 
-	// pendingGitHubDeletes holds GitHub comment IDs (root or reply) that the
-	// user has deleted locally and that the next `crit push` must DELETE
-	// upstream. Persisted as CritJSON.PendingGitHubDeletes; the next push
-	// drains entries as each DELETE succeeds (or returns 404 / 403).
-	pendingGitHubDeletes []int64
-
-	// lastLoadedPendingGHDeletes is the set of GitHub IDs that were on disk
-	// in PendingGitHubDeletes the last time the daemon read or wrote
-	// review.json. Used by buildCritJSON to reconcile the in-memory snapshot
-	// against the on-disk queue: an ID present in the snapshot but missing
-	// from disk AND present in this set means a separate `crit push` process
-	// drained it — it must NOT be resurrected. See BLOCKER #1.
-	lastLoadedPendingGHDeletes map[int64]struct{}
+	// pendingRemoteDeletes is the provider-neutral delete queue. A concurrent
+	// push may drain it on disk, so lastLoadedPendingDeletes prevents daemon
+	// writes from resurrecting already-completed operations.
+	pendingRemoteDeletes     []RemoteRef
+	lastLoadedPendingDeletes map[RemoteRef]struct{}
 
 	mu          sync.RWMutex
 	subscribers map[chan SSEEvent]struct{}
@@ -480,10 +481,10 @@ type Session struct {
 	// a "Resume PR #N" pill in working-tree mode.
 	LastRangeFocus *Focus
 
-	// RemoteFiles, when true, routes file content reads in range focus
-	// through the GitHub API (gh api repos/.../contents/?ref=<sha>) instead
-	// of `git show <sha>:<path>`. Diffs and changed-file lists still use
-	// local git. Set from --remote at startup; not mutated afterwards.
+	// RemoteFiles, when true, routes change-request file content reads through
+	// the selected forge API instead of `git show <sha>:<path>`. GitLab layer
+	// diffs also use its API; other diffs and changed-file lists use local git.
+	// Set from --remote at startup; not mutated afterwards.
 	RemoteFiles bool
 
 	// remoteFileCache memoizes (sha,path) -> []byte to avoid repeat API
@@ -513,12 +514,7 @@ type CritJSON struct {
 	// Read by `crit push` to gate full-stack pushes; "" indicates working-tree mode.
 	ActiveDiffScope string `json:"active_diff_scope,omitempty"`
 
-	// PendingGitHubDeletes holds GitHub comment IDs (root or reply — same
-	// /pulls/comments/{id} endpoint) that the user has deleted locally and
-	// that need a DELETE upstream on the next `crit push`. Drained as each
-	// DELETE succeeds (or returns 404 / 403). Survives intermediate pulls so
-	// the user's intent is not lost.
-	PendingGitHubDeletes []int64 `json:"pending_github_deletes,omitempty"`
+	PendingRemoteDeletes []RemoteRef `json:"pending_remote_deletes,omitempty"`
 
 	// ReviewType distinguishes review modes. "" (zero value) = code review.
 	// "live" = live mode. Omitted from JSON when empty for back-compat.
@@ -534,6 +530,65 @@ type CritJSON struct {
 	// buildCritJSON): as long as the field exists here, an externally-set story
 	// survives the debounced writes.
 	Story *Story `json:"story,omitempty"`
+}
+
+// UnmarshalJSON provides read compatibility for review files written before
+// the provider-neutral PendingRemoteDeletes queue existed. New review files
+// only write PendingRemoteDeletes; on read, the legacy GitHub and GitLab queues
+// are folded into it while every other field is decoded unchanged.
+func (cj *CritJSON) UnmarshalJSON(data []byte) error {
+	type plain CritJSON
+	var payload struct {
+		*plain
+		PendingGitHubDeletes []int64 `json:"pending_github_deletes"`
+		PendingGitLabDeletes []struct {
+			NoteID       int64  `json:"note_id"`
+			DiscussionID string `json:"discussion_id"`
+		} `json:"pending_gitlab_deletes"`
+	}
+	payload.plain = (*plain)(cj)
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	for _, id := range payload.PendingGitHubDeletes {
+		cj.PendingRemoteDeletes = appendUniqueRemoteRef(cj.PendingRemoteDeletes, RemoteRef{Forge: forge.GitHub, CommentID: id})
+	}
+	for _, ref := range payload.PendingGitLabDeletes {
+		cj.PendingRemoteDeletes = appendUniqueRemoteRef(cj.PendingRemoteDeletes, RemoteRef{Forge: forge.GitLab, CommentID: ref.NoteID, ThreadID: ref.DiscussionID})
+	}
+	return nil
+}
+
+func appendUniqueRemoteRef(refs []RemoteRef, ref RemoteRef) []RemoteRef {
+	for _, existing := range refs {
+		if existing == ref {
+			return refs
+		}
+	}
+	return append(refs, ref)
+}
+
+// RemoteDeletesFor returns one provider's pending delete operations.
+func RemoteDeletesFor(cj CritJSON, provider forge.Kind) []RemoteRef {
+	var refs []RemoteRef
+	for _, ref := range cj.PendingRemoteDeletes {
+		if ref.Forge == provider {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+// ReplaceRemoteDeletes replaces one provider's queue and preserves all others.
+func ReplaceRemoteDeletes(cj *CritJSON, provider forge.Kind, replacement []RemoteRef) {
+	kept := cj.PendingRemoteDeletes[:0]
+	for _, ref := range cj.PendingRemoteDeletes {
+		if ref.Forge != provider {
+			kept = append(kept, ref)
+		}
+	}
+	kept = append(kept, replacement...)
+	cj.PendingRemoteDeletes = kept
 }
 
 // Story is the LLM-authored narrative for a review: a prologue, an ordered set
@@ -1597,10 +1652,8 @@ func (s *Session) SetCommentLive(filePath, id string) bool {
 }
 
 // DeleteComment deletes a comment from a specific file. The record is always
-// spliced out locally. If it has been pushed to GitHub (GitHubID != 0) the
-// GitHub ID is appended to pendingGitHubDeletes so the next `crit push` can
-// issue DELETE upstream — without that, deleting a pushed comment would leave
-// a ghost on the PR. trackDeletedComment guards against a concurrent reload
+// spliced out locally. Provider-owned comments are queued for remote deletion
+// on the next push. trackDeletedComment guards against a concurrent reload
 // from disk resurrecting the just-removed entry before the next save.
 // deleteResult is the tri-state outcome of an authorized delete. Plain bool
 // can't distinguish "not found" from "forbidden" — handlers need both to
@@ -1629,7 +1682,10 @@ func (s *Session) DeleteFileCommentAs(filePath, id, requesterID string) deleteRe
 		return deleteResultForbidden
 	}
 	if c.GitHubID != 0 {
-		s.appendPendingGHDelete(c.GitHubID)
+		s.appendPendingRemoteDelete(RemoteRef{Forge: forge.GitHub, ChangeNumber: s.Focus.ChangeNumber, CommentID: c.GitHubID})
+	}
+	if c.GitLabNoteID != 0 && c.GitLabDiscussionID != "" {
+		s.appendPendingRemoteDelete(RemoteRef{Forge: forge.GitLab, ChangeNumber: s.Focus.ChangeNumber, CommentID: c.GitLabNoteID, ThreadID: c.GitLabDiscussionID})
 	}
 	f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
 	s.trackDeletedComment(f.Path, id)
@@ -1646,7 +1702,10 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 	}
 	c := f.Comments[i]
 	if c.GitHubID != 0 {
-		s.appendPendingGHDelete(c.GitHubID)
+		s.appendPendingRemoteDelete(RemoteRef{Forge: forge.GitHub, ChangeNumber: s.Focus.ChangeNumber, CommentID: c.GitHubID})
+	}
+	if c.GitLabNoteID != 0 && c.GitLabDiscussionID != "" {
+		s.appendPendingRemoteDelete(RemoteRef{Forge: forge.GitLab, ChangeNumber: s.Focus.ChangeNumber, CommentID: c.GitLabNoteID, ThreadID: c.GitLabDiscussionID})
 	}
 	f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
 	s.trackDeletedComment(f.Path, id)
@@ -1654,18 +1713,18 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 	return true
 }
 
-// appendPendingGHDelete adds a GitHub comment ID to the pending-deletes list
-// if it isn't already present. Caller must hold s.mu.
-func (s *Session) appendPendingGHDelete(ghID int64) {
-	if ghID == 0 {
+// appendPendingRemoteDelete queues a provider comment without duplicates.
+// Caller must hold s.mu.
+func (s *Session) appendPendingRemoteDelete(ref RemoteRef) {
+	if ref.CommentID == 0 || ref.Forge == "" {
 		return
 	}
-	for _, existing := range s.pendingGitHubDeletes {
-		if existing == ghID {
+	for _, existing := range s.pendingRemoteDeletes {
+		if existing == ref {
 			return
 		}
 	}
-	s.pendingGitHubDeletes = append(s.pendingGitHubDeletes, ghID)
+	s.pendingRemoteDeletes = append(s.pendingRemoteDeletes, ref)
 }
 
 // trackDeletedComment records a file comment ID as deleted so the merge logic
@@ -1744,10 +1803,8 @@ func (s *Session) UpdateReply(filePath, commentID, replyID, body string) (Reply,
 	return Reply{}, false
 }
 
-// DeleteReply removes a reply from a specific comment. Always spliced out
-// locally; replies that have been pushed (GitHubID != 0) get their GitHub ID
-// queued in pendingGitHubDeletes so the next `crit push` can DELETE them
-// upstream (replies share /pulls/comments/{id} with root comments).
+// DeleteReply removes a reply from a specific comment. Provider-owned replies
+// are queued for remote deletion on the next push.
 func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1758,7 +1815,10 @@ func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 	for j, r := range f.Comments[i].Replies {
 		if r.ID == replyID {
 			if r.GitHubID != 0 {
-				s.appendPendingGHDelete(r.GitHubID)
+				s.appendPendingRemoteDelete(RemoteRef{Forge: forge.GitHub, ChangeNumber: s.Focus.ChangeNumber, CommentID: r.GitHubID})
+			}
+			if r.GitLabNoteID != 0 && r.GitLabDiscussionID != "" {
+				s.appendPendingRemoteDelete(RemoteRef{Forge: forge.GitLab, ChangeNumber: s.Focus.ChangeNumber, CommentID: r.GitLabNoteID, ThreadID: r.GitLabDiscussionID})
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
 			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -2504,10 +2564,10 @@ func (s *Session) loadCritJSONLocked() {
 	s.story = cj.Story
 
 	// Restore pending DELETE intents so they survive across daemon restarts.
-	s.pendingGitHubDeletes = cj.PendingGitHubDeletes
-	s.lastLoadedPendingGHDeletes = make(map[int64]struct{}, len(cj.PendingGitHubDeletes))
-	for _, id := range cj.PendingGitHubDeletes {
-		s.lastLoadedPendingGHDeletes[id] = struct{}{}
+	s.pendingRemoteDeletes = append([]RemoteRef(nil), cj.PendingRemoteDeletes...)
+	s.lastLoadedPendingDeletes = make(map[RemoteRef]struct{}, len(cj.PendingRemoteDeletes))
+	for _, ref := range cj.PendingRemoteDeletes {
+		s.lastLoadedPendingDeletes[ref] = struct{}{}
 	}
 
 	// Record the mtime so the first ticker tick doesn't re-process our own file.

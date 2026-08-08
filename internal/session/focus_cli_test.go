@@ -9,7 +9,7 @@ import (
 )
 
 func TestFocusKeyArgs_PR(t *testing.T) {
-	sc := &CLIReviewConfig{Focus: &Focus{Kind: FocusRange, PRNumber: 295}}
+	sc := &CLIReviewConfig{Focus: &Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 295}}
 	got := FocusKeyArgs(sc)
 	if len(got) != 1 || got[0] != "pr:295" {
 		t.Errorf("got %v want [pr:295]", got)

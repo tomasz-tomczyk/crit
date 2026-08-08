@@ -72,7 +72,8 @@ type daemonFlagSet struct {
 	planDir                     string
 	planName                    string
 	fileArgs                    []string
-	prSpec                      string
+	changeSpec                  string
+	changeForge                 string
 	rangeSpec                   string
 	scopeSpec                   string
 	remoteFiles                 bool
@@ -103,10 +104,25 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	vcsFlag := fs.String("vcs", "", "VCS backend to use: git, sl/sapling, jj/jujutsu (default: auto-detect)")
 	planDir := fs.String("plan-dir", "", "")
 	planName := fs.String("name", "", "")
-	prSpec := fs.String("pr", "", "Review a specific PR by number or URL (e.g. 295 or https://github.com/o/r/pull/295)")
+	changeSpec := ""
+	changeForge := ""
+	fs.Func("pr", "Review a GitHub change request by number or URL", func(value string) error {
+		if changeForge != "" && changeForge != "github" {
+			return fmt.Errorf("--pr and --mr are mutually exclusive")
+		}
+		changeSpec, changeForge = value, "github"
+		return nil
+	})
+	fs.Func("mr", "Review a GitLab change request by number or URL", func(value string) error {
+		if changeForge != "" && changeForge != "gitlab" {
+			return fmt.Errorf("--pr and --mr are mutually exclusive")
+		}
+		changeSpec, changeForge = value, "gitlab"
+		return nil
+	})
 	rangeSpec := fs.String("range", "", "Review a commit range, base..head (e.g. abc1234..def5678)")
-	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR: layer (default) or full-stack")
-	remoteFiles := fs.Bool("remote", false, "Read PR file content via GitHub API instead of local git (avoids `git fetch`; requires gh)")
+	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR/MR: layer (default) or full-stack")
+	remoteFiles := fs.Bool("remote", false, "Read PR/MR file content through the selected forge API")
 	liveOrigin := fs.String("live-origin", "", "")
 	liveCookie := fs.String("live-cookie", "", "")
 	previewFile := fs.String("preview-file", "", "")
@@ -146,7 +162,8 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		planDir:                     *planDir,
 		planName:                    *planName,
 		fileArgs:                    fs.Args(),
-		prSpec:                      *prSpec,
+		changeSpec:                  changeSpec,
+		changeForge:                 changeForge,
 		rangeSpec:                   *rangeSpec,
 		scopeSpec:                   *scopeSpec,
 		remoteFiles:                 *remoteFiles,
@@ -242,14 +259,15 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) {
 		ignorePatterns = cfg.IgnorePatterns
 	}
 
-	f, err := focus.ResolveFocus(sf.prSpec, sf.rangeSpec, sf.scopeSpec, sf.remoteFiles, v, repoRoot)
+	change := focus.ChangeSpec{Forge: sf.changeForge, Value: sf.changeSpec}
+	f, err := focus.ResolveFocus(change, sf.rangeSpec, sf.scopeSpec, sf.remoteFiles, v, repoRoot)
 	if err != nil {
 		return nil, err
 	}
 
 	remoteFiles := sf.remoteFiles
 	if remoteFiles && f == nil {
-		fmt.Fprintln(os.Stderr, "Warning: --remote has no effect without --pr or --range; ignoring")
+		fmt.Fprintln(os.Stderr, "Warning: --remote has no effect without --pr, --mr, or --range; ignoring")
 		remoteFiles = false
 	}
 
@@ -329,8 +347,11 @@ func FocusKeyArgs(sc *DaemonCLIConfig) []string {
 		}
 		return sc.Files
 	}
-	if sc.Focus.PRNumber > 0 {
-		return []string{fmt.Sprintf("pr:%d", sc.Focus.PRNumber)}
+	if sc.Focus.ChangeNumber > 0 {
+		if sc.Focus.Forge == "gitlab" {
+			return []string{fmt.Sprintf("mr:%d", sc.Focus.ChangeNumber)}
+		}
+		return []string{fmt.Sprintf("pr:%d", sc.Focus.ChangeNumber)}
 	}
 	return []string{fmt.Sprintf("range:%s..%s", sc.Focus.BaseSHA, sc.Focus.HeadSHA)}
 }

@@ -119,6 +119,19 @@ func TestRenderHook_StoryGenerate_Stock(t *testing.T) {
 	}
 }
 
+func TestRenderHook_StoryGenerate_StockIncludesGitLabMR(t *testing.T) {
+	data := storyData()
+	data["mr_number"] = "17"
+	data["mr_url"] = "https://gitlab.com/acme/widget/-/merge_requests/17"
+	res, err := prompt.RenderHook(nil, nil, "", "", false, prompt.HookStoryGenerate, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Text, "MR !17") || !strings.Contains(res.Text, "https://gitlab.com/acme/widget/-/merge_requests/17") {
+		t.Fatalf("stock story prompt omitted GitLab MR context: %q", res.Text)
+	}
+}
+
 // Project-level override requires trust — useProject=false (untrusted) must
 // fall through to global/file/stock, mirroring the existing finish-hook trust
 // gating (render.go's useProject param, driven by EvaluateTrust).

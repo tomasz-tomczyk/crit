@@ -4719,7 +4719,7 @@ body.sidebar-resizing * {
 /* GitHub-synced comment badge -- small pill with the GitHub mark, same
    sizing as .outdated-badge. Uses neutral pill tokens so it reads as
    informational ("synced from GitHub") rather than warning (#370). */
-.github-badge {
+.forge-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -4745,6 +4745,9 @@ body.sidebar-resizing * {
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+}
+.gitlab-badge {
+  padding-left: 7px;
 }
 /* Drifted anchor context — full-width disclosure bar + line-numbered panel */
 .drifted-context {

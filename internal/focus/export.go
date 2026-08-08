@@ -5,6 +5,11 @@ func LooksLikePRURL(spec string) bool {
 	return prURLRe.MatchString(spec)
 }
 
+// LooksLikeMRURL reports whether spec is a GitLab merge request URL.
+func LooksLikeMRURL(spec string) bool {
+	return mrURLRe.MatchString(spec)
+}
+
 // ParsePRSpec resolves --pr <num|url> to a numeric PR number.
 func ParsePRSpec(spec string) (int, error) {
 	return parsePRSpec(spec)

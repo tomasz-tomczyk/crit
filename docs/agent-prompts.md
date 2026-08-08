@@ -10,8 +10,8 @@ Prompt hooks are **templates** (Go `text/template`), not shell commands. They fe
 | ---- | ---------- |
 | `on_finish_unresolved` | Finish review with open comments (fallback for all modes) |
 | `on_finish_unresolved:files` | Unresolved finish — single-file or plan review |
-| `on_finish_unresolved:diff` | Unresolved finish — branch / PR / range review |
-| `on_finish_unresolved:story` | Unresolved finish — branch / PR / range review with story mode present |
+| `on_finish_unresolved:diff` | Unresolved finish — branch / PR / MR / range review |
+| `on_finish_unresolved:story` | Unresolved finish — branch / PR / MR / range review with story mode present |
 | `on_finish_unresolved:live` | Unresolved finish — live URL review |
 | `on_finish_unresolved:preview` | Unresolved finish — static HTML preview |
 | `on_finish_approved` | Approve with zero unresolved comments (fallback) |
@@ -37,7 +37,7 @@ The same order applies to `on_finish_approved:story`. Crit does not fall back
 from story mode to `:diff`, because story mode is a generated editorial view
 over the diff and needs different agent instructions.
 
-`on_story_generate` has **no `:mode` split** — `crit story` only operates on diff scopes (git / `--pr` / `--range`), so there's nothing to disambiguate. See [Story generation prompt](#story-generation-prompt-on_story_generate) below.
+`on_story_generate` has **no `:mode` split** — `crit story` only operates on diff scopes (git / `--pr` / `--mr` / `--range`), so there's nothing to disambiguate. See [Story generation prompt](#story-generation-prompt-on_story_generate) below.
 
 ## Configuration
 
@@ -188,8 +188,9 @@ In addition to the shared variables above (`{{.session_key}}`,
 | `{{.story_schema_json}}` | JSON shape the agent must emit (`prologue`, `chapters`, `support` only — `crit story` fills in `version`, `generated_at`, `base_sha`, `head_sha`, `scope_fingerprint`, `coverage` after ingest) |
 | `{{.commit_messages}}` | `git log --oneline`-style commit messages over the diff scope |
 | `{{.diff_scope_kind}}` | `"committed"` or `"workingTree"` |
-| `{{.base_sha}}` / `{{.head_sha}}` / `{{.merge_base_sha}}` | SHAs for the diff scope (PR / range reviews) |
+| `{{.base_sha}}` / `{{.head_sha}}` / `{{.merge_base_sha}}` | SHAs for the diff scope (PR / MR / range reviews) |
 | `{{.pr_number}}` / `{{.pr_url}}` / `{{.pr_title}}` / `{{.pr_body}}` | PR-mode variables |
+| `{{.mr_number}}` / `{{.mr_url}}` | MR-mode variables |
 
 ### `agent_cmd` must be an agentic CLI
 

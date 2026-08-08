@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 // TestPostPushReplies_PartialFailure simulates a `gh api` POST that
@@ -99,7 +101,7 @@ esac
 
 // TestPushDeletedComments_PartialFailure regresses BLOCKER #2 of issue #449:
 // when DELETE succeeds for one queued ID and fails (HTTP 500) for another,
-// the successful ID must be drained from PendingGitHubDeletes on disk and
+// the successful ID must be drained from the neutral queue on disk and
 // the failed ID must remain queued for the next push. Combined with the
 // pushShouldExitFailure policy, a partial-success delete must NOT cause
 // `crit push` to exit non-zero when other work (posts, patches, drains)
@@ -143,8 +145,11 @@ esac
 		t.Fatal(err)
 	}
 	cj := CritJSON{
-		Files:                map[string]CritJSONFile{},
-		PendingGitHubDeletes: []int64{1001, 1002},
+		Files: map[string]CritJSONFile{},
+		PendingRemoteDeletes: []session.RemoteRef{
+			{Forge: "github", CommentID: 1001},
+			{Forge: "github", CommentID: 1002},
+		},
 	}
 	out, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
@@ -175,8 +180,9 @@ esac
 	if err := json.Unmarshal(data, &after); err != nil {
 		t.Fatal(err)
 	}
-	if len(after.PendingGitHubDeletes) != 1 || after.PendingGitHubDeletes[0] != 1002 {
-		t.Errorf("PendingGitHubDeletes after = %v, want [1002]", after.PendingGitHubDeletes)
+	refs := session.RemoteDeletesFor(after, "github")
+	if len(refs) != 1 || refs[0].CommentID != 1002 {
+		t.Errorf("GitHub remote deletes after = %v, want [1002]", refs)
 	}
 
 	// Exit-code policy: a partial delete failure with at least one drain

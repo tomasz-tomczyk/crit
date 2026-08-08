@@ -5984,13 +5984,14 @@
       replyTime.className = 'reply-time';
       replyTime.textContent = formatTime(reply.created_at);
       replyMeta.appendChild(replyTime);
-      if (reply.github_id) {
-        const ghBadge = document.createElement('span');
-        ghBadge.className = 'github-badge';
-        ghBadge.textContent = 'GitHub';
-        ghBadge.title = 'Synced from GitHub';
-        ghBadge.setAttribute('aria-label', 'Synced from GitHub');
-        replyMeta.appendChild(ghBadge);
+      const replyForge = reply.gitlab_note_id ? 'GitLab' : (reply.github_id ? 'GitHub' : '');
+      if (replyForge) {
+        const forgeBadge = document.createElement('span');
+        forgeBadge.className = 'forge-badge ' + replyForge.toLowerCase() + '-badge';
+        forgeBadge.textContent = replyForge;
+        forgeBadge.title = 'Synced from ' + replyForge;
+        forgeBadge.setAttribute('aria-label', 'Synced from ' + replyForge);
+        replyMeta.appendChild(forgeBadge);
       }
       replyHeader.appendChild(replyMeta);
 
@@ -9952,6 +9953,12 @@
       if (m && m[1]) suffix = ': ' + m[1];
       return truncateLabel('#' + entry.pr_number + suffix, max);
     }
+	if (entry.mr_number) {
+	  let suffix = '';
+	  const m = (entry.label || '').match(/^MR !\d+:\s*(.+)$/);
+	  if (m && m[1]) suffix = ': ' + m[1];
+	  return truncateLabel('!' + entry.mr_number + suffix, max);
+	}
     return truncateLabel(entry.label || (entry.head_sha ? entry.head_sha.slice(0, 7) : ''), max);
   }
 
@@ -9965,7 +9972,14 @@
       diff_scope: 'layer',
       is_stacked: true,
     };
-    if (entry.pr_number) focus.pr_number = entry.pr_number;
+	if (entry.pr_number) {
+	  focus.change_number = entry.pr_number;
+	  focus.forge = 'github';
+	}
+	if (entry.mr_number) {
+	  focus.change_number = entry.mr_number;
+	  focus.forge = 'gitlab';
+	}
     if (entry.base_ref_name) focus.base_ref_name = entry.base_ref_name;
     if (!entry.pr_number && entry.label) focus.label = entry.label;
     const defaultSHA = entry.default_sha || fallbackDefault;
@@ -9988,7 +10002,9 @@
     // No stack data yet (the /api/picker round-trip may take 2+ seconds
     // because of `gh pr list`). Fall back to fields already on Focus so
     // the chip's label is correct on first paint.
-    if (focus.pr_number) return '#' + focus.pr_number;
+    if (focus.change_number) {
+      return focus.forge === 'gitlab' ? '!' + focus.change_number : '#' + focus.change_number;
+    }
     if (focus.head_ref_name) return truncateLabel(focus.head_ref_name, 24);
     if (focus.label) return truncateLabel(focus.label, 24);
     if (focus.head_sha) return focus.head_sha.slice(0, 7);
@@ -10126,7 +10142,8 @@
           '</span>');
       } else {
         const payload = focusPayloadFromStackEntry(entry, focus);
-        const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number) : ('Switch to ' + label);
+		const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number)
+		  : (entry.mr_number ? ('Switch to MR !' + entry.mr_number) : ('Switch to ' + label));
         parts.push('<button type="button" class="' + rowClass + '" role="menuitem"' +
           ' data-action="switch"' +
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '"' +
@@ -10210,8 +10227,10 @@
       return;
     }
     let label;
-    if (lastRange.pr_number) {
-      label = 'Resume PR #' + lastRange.pr_number;
+    if (lastRange.change_number) {
+      label = lastRange.forge === 'gitlab'
+        ? 'Resume MR !' + lastRange.change_number
+        : 'Resume PR #' + lastRange.change_number;
     } else if (lastRange.head_ref_name) {
       label = 'Resume stack: ' + lastRange.head_ref_name;
     } else {
@@ -10406,7 +10425,10 @@
         head_sha: last.head_sha,
         diff_scope: last.diff_scope || 'layer',
       };
-      if (last.pr_number) payload.pr_number = last.pr_number;
+	  if (last.change_number) {
+		payload.change_number = last.change_number;
+		payload.forge = last.forge;
+	  }
       if (last.default_sha) payload.default_sha = last.default_sha;
       if (last.is_stacked) payload.is_stacked = true;
       if (last.label) payload.label = last.label;

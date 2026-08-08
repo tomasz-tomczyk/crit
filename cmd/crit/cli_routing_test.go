@@ -18,8 +18,10 @@ func TestRoutePositionalArgs(t *testing.T) {
 		args []string
 		want positionalRoute
 	}{
-		{"pr url", []string{"https://github.com/a/b/pull/295"}, positionalRoutePRReview},
-		{"pr url files tab", []string{"https://github.com/a/b/pull/295/files"}, positionalRoutePRReview},
+		{"pr url", []string{"https://github.com/a/b/pull/295"}, positionalRouteChangeReview},
+		{"pr url files tab", []string{"https://github.com/a/b/pull/295/files"}, positionalRouteChangeReview},
+		{"mr url", []string{"https://gitlab.com/a/b/-/merge_requests/17"}, positionalRouteChangeReview},
+		{"mr url diffs tab", []string{"https://gitlab.com/a/b/-/merge_requests/17/diffs"}, positionalRouteChangeReview},
 		{"live localhost", []string{"http://localhost:3000"}, positionalRouteLive},
 		{"live https", []string{"https://example.com/app"}, positionalRouteLive},
 		{"preview html", []string{htmlFile}, positionalRoutePreview},
@@ -35,21 +37,36 @@ func TestRoutePositionalArgs(t *testing.T) {
 	}
 }
 
-func TestPRReviewArgs(t *testing.T) {
-	args, ok := prReviewArgs([]string{"https://github.com/a/b/pull/42"})
-	if !ok {
-		t.Fatal("expected ok=true for PR URL")
+func TestChangeReviewArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		flag string
+	}{
+		{name: "GitHub PR", url: "https://github.com/a/b/pull/42", flag: "--pr"},
+		{name: "GitLab MR", url: "https://gitlab.com/a/b/-/merge_requests/17", flag: "--mr"},
+		{name: "self-hosted GitLab MR with nested groups", url: "https://gitlab.company.test/platform/tools/crit/-/merge_requests/23", flag: "--mr"},
 	}
-	want := []string{"--pr", "https://github.com/a/b/pull/42"}
-	if len(args) != len(want) || args[0] != want[0] || args[1] != want[1] {
-		t.Errorf("got %v, want %v", args, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args, ok := changeReviewArgs([]string{tt.url})
+			if !ok {
+				t.Fatalf("expected ok=true for %s", tt.url)
+			}
+			if len(args) != 2 || args[0] != tt.flag || args[1] != tt.url {
+				t.Errorf("got %v, want [%s %s]", args, tt.flag, tt.url)
+			}
+		})
 	}
 
-	if _, ok := prReviewArgs([]string{"https://example.com"}); ok {
-		t.Error("expected ok=false for non-PR URL")
+	if _, ok := changeReviewArgs([]string{"https://example.com"}); ok {
+		t.Error("expected ok=false for non-change URL")
 	}
-	if _, ok := prReviewArgs([]string{"295"}); ok {
-		t.Error("expected ok=false for bare PR number")
+	if _, ok := changeReviewArgs([]string{"295"}); ok {
+		t.Error("expected ok=false for bare change number")
+	}
+	if _, ok := changeReviewArgs([]string{"https://github.com/a/b/pull/42", "README.md"}); ok {
+		t.Error("expected ok=false for multiple arguments")
 	}
 }
 
@@ -73,6 +90,23 @@ func TestRunPositionalCLI_PRURLRewritesToReview(t *testing.T) {
 	runPositionalCLI([]string{"https://github.com/a/b/pull/7"})
 
 	want := []string{"--pr", "https://github.com/a/b/pull/7"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("RunReview args = %v, want %v", got, want)
+	}
+}
+
+func TestRunPositionalCLI_MRURLRewritesToReview(t *testing.T) {
+	var got []string
+	prevReview := runReviewForPositionalCLI
+	t.Cleanup(func() { runReviewForPositionalCLI = prevReview })
+	runReviewForPositionalCLI = func(args []string) error {
+		got = append([]string{}, args...)
+		return nil
+	}
+
+	runPositionalCLI([]string{"https://gitlab.com/a/b/-/merge_requests/7"})
+
+	want := []string{"--mr", "https://gitlab.com/a/b/-/merge_requests/7"}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("RunReview args = %v, want %v", got, want)
 	}

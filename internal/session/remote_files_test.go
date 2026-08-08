@@ -161,6 +161,39 @@ func TestSession_ReadFileAtSHA_RemoteModePropagatesError(t *testing.T) {
 	}
 }
 
+func TestBuildFilesForFocusUsesGitLabRemoteDiffs(t *testing.T) {
+	previousDiffs := FetchMRDiffs
+	previousContent := FetchMRFileContent
+	t.Cleanup(func() {
+		FetchMRDiffs = previousDiffs
+		FetchMRFileContent = previousContent
+	})
+	FetchMRDiffs = func(focus Focus) ([]RemoteDiffFile, error) {
+		if focus.Forge != "gitlab" || focus.ChangeNumber != 17 {
+			t.Fatalf("focus change = %s:%d, want gitlab:17", focus.Forge, focus.ChangeNumber)
+		}
+		return []RemoteDiffFile{{
+			FileChange: vcs.FileChange{Path: "new.go", Status: "added"},
+			Hunks:      vcs.ParseUnifiedDiff("@@ -0,0 +1 @@\n+package remote\n"),
+		}}, nil
+	}
+	FetchMRFileContent = func(_ Focus, sha, path string) ([]byte, error) {
+		if sha != "head" || path != "new.go" {
+			t.Fatalf("content request = (%q, %q)", sha, path)
+		}
+		return []byte("package remote\n"), nil
+	}
+	focus := Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 17, MRURL: "https://gitlab.example/a/b/-/merge_requests/17", BaseSHA: "base", HeadSHA: "head", DiffScope: DiffScopeLayer}
+	s := &Session{VCS: &fakeReadFileVCS{}, RepoRoot: t.TempDir(), RemoteFiles: true, Focus: focus}
+	files, base, err := s.buildFilesForFocus(focus, s.VCS, s.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != "base" || len(files) != 1 || files[0].Path != "new.go" || files[0].Content != "package remote\n" || len(files[0].DiffHunks) != 1 {
+		t.Fatalf("remote files = %+v, base=%q", files, base)
+	}
+}
+
 // fakeReadFileVCS lets us assert that local-mode reads call vcs.ReadFileAtSHA
 // while remote-mode reads do not.
 type fakeReadFileVCS struct {

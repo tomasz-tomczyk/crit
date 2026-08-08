@@ -12,6 +12,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -3108,11 +3109,15 @@ func TestZeroGitHubID_TreatedAsNotPushed(t *testing.T) {
 }
 
 // TestCollectDeletesForPush_ReturnsPendingList verifies that
-// collectDeletesForPush returns a copy of CritJSON.PendingGitHubDeletes.
+// collectDeletesForPush returns a copy of GitHub entries in the neutral queue.
 func TestCollectDeletesForPush_ReturnsPendingList(t *testing.T) {
 	cj := CritJSON{
-		PendingGitHubDeletes: []int64{100, 200, 300},
-		Files:                map[string]CritJSONFile{},
+		PendingRemoteDeletes: []session.RemoteRef{
+			{Forge: "github", CommentID: 100},
+			{Forge: "github", CommentID: 200},
+			{Forge: "github", CommentID: 300},
+		},
+		Files: map[string]CritJSONFile{},
 	}
 	got := collectDeletesForPush(cj)
 	if len(got) != 3 || got[0] != 100 || got[1] != 200 || got[2] != 300 {
@@ -3121,8 +3126,8 @@ func TestCollectDeletesForPush_ReturnsPendingList(t *testing.T) {
 
 	// Caller may mutate without affecting cj — verify independence.
 	got[0] = 999
-	if cj.PendingGitHubDeletes[0] != 100 {
-		t.Errorf("caller mutation leaked back into cj.PendingGitHubDeletes")
+	if cj.PendingRemoteDeletes[0].CommentID != 100 {
+		t.Errorf("caller mutation leaked back into cj.PendingRemoteDeletes")
 	}
 
 	// Empty input returns nil (no allocation).
@@ -3132,7 +3137,7 @@ func TestCollectDeletesForPush_ReturnsPendingList(t *testing.T) {
 }
 
 // TestUpdateCritJSONAfterDeletes_DrainsPendingList verifies that drained IDs
-// are removed from PendingGitHubDeletes on disk; non-drained IDs persist for
+// are removed from the neutral queue on disk; non-drained IDs persist for
 // retry on the next push.
 func TestUpdateCritJSONAfterDeletes_DrainsPendingList(t *testing.T) {
 	dir := t.TempDir()
@@ -3142,8 +3147,12 @@ func TestUpdateCritJSONAfterDeletes_DrainsPendingList(t *testing.T) {
 	reviewPath := filepath.Join(dir, "review.json")
 
 	cj := CritJSON{
-		PendingGitHubDeletes: []int64{100, 101, 102},
-		Files:                map[string]CritJSONFile{},
+		PendingRemoteDeletes: []session.RemoteRef{
+			{Forge: "github", CommentID: 100},
+			{Forge: "github", CommentID: 101},
+			{Forge: "github", CommentID: 102},
+		},
+		Files: map[string]CritJSONFile{},
 	}
 	data, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
@@ -3166,8 +3175,9 @@ func TestUpdateCritJSONAfterDeletes_DrainsPendingList(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(got.PendingGitHubDeletes) != 1 || got.PendingGitHubDeletes[0] != 101 {
-		t.Errorf("PendingGitHubDeletes after drain = %v, want [101]", got.PendingGitHubDeletes)
+	refs := session.RemoteDeletesFor(got, "github")
+	if len(refs) != 1 || refs[0].CommentID != 101 {
+		t.Errorf("GitHub remote deletes after drain = %v, want [101]", refs)
 	}
 }
 
@@ -3177,7 +3187,7 @@ func TestUpdateCritJSONAfterDeletes_DrainsPendingList(t *testing.T) {
 func TestUpdateCritJSONAfterDeletes_FullDrainOmitsField(t *testing.T) {
 	dir := t.TempDir()
 	reviewPath := filepath.Join(dir, "review.json")
-	cj := CritJSON{PendingGitHubDeletes: []int64{42}, Files: map[string]CritJSONFile{}}
+	cj := CritJSON{PendingRemoteDeletes: []session.RemoteRef{{Forge: "github", CommentID: 42}}, Files: map[string]CritJSONFile{}}
 	data, _ := json.MarshalIndent(cj, "", "  ")
 	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -3186,8 +3196,8 @@ func TestUpdateCritJSONAfterDeletes_FullDrainOmitsField(t *testing.T) {
 		t.Fatalf("update: %v", err)
 	}
 	raw, _ := os.ReadFile(reviewPath)
-	if strings.Contains(string(raw), "pending_github_deletes") {
-		t.Errorf("pending_github_deletes still present after full drain:\n%s", raw)
+	if strings.Contains(string(raw), "pending_remote_deletes") {
+		t.Errorf("pending_remote_deletes still present after full drain:\n%s", raw)
 	}
 }
 
@@ -3196,7 +3206,7 @@ func TestUpdateCritJSONAfterDeletes_FullDrainOmitsField(t *testing.T) {
 // already issued an intent to DELETE that must survive intermediate pulls.
 func TestMergeRootComment_SkipsPendingDelete(t *testing.T) {
 	cj := CritJSON{
-		PendingGitHubDeletes: []int64{999},
+		PendingRemoteDeletes: []session.RemoteRef{{Forge: "github", CommentID: 999}},
 		Files: map[string]CritJSONFile{
 			"a.go": {Status: "modified", Comments: []Comment{}},
 		},
@@ -3221,7 +3231,7 @@ func TestMergeRootComment_SkipsPendingDelete(t *testing.T) {
 // DELETE locally is not re-imported when its parent is already in cj.
 func TestMergeOrphanReplies_SkipsPendingDelete(t *testing.T) {
 	cj := CritJSON{
-		PendingGitHubDeletes: []int64{777},
+		PendingRemoteDeletes: []session.RemoteRef{{Forge: "github", CommentID: 777}},
 		Files: map[string]CritJSONFile{
 			"a.go": {Status: "modified", Comments: []Comment{
 				{ID: "c1", GitHubID: 500, Body: "parent", StartLine: 5, EndLine: 5, Author: "alice"},

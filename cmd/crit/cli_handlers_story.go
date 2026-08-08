@@ -26,7 +26,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
-// storyFlags holds parsed `crit story` options. Diff-scope flags (--pr,
+// storyFlags holds parsed `crit story` options. Diff-scope flags (--pr, --mr,
 // --range, default git) are parsed by server.ResolveDaemonCLIConfig and reach
 // us via the resolved config, so they are not repeated here.
 type storyFlags struct {
@@ -87,6 +87,7 @@ Examples:
   crit story --refresh                        Regenerate an existing story
   crit story --range main..HEAD               Generate for a commit range
   crit story --pr 123                         Generate for a GitHub PR
+  crit story --mr 123                         Generate for a GitLab MR
   crit story --prep /tmp/story-prep.txt       Write the full prep file for manual authoring
   crit story --guide                          Print the story authoring guide and JSON schema
   crit story --story-file /tmp/story.json     Ingest a pre-authored story JSON
@@ -104,6 +105,7 @@ Story options:
 
 Diff scope options:
       --pr <num|url>         Generate for a GitHub pull request
+      --mr <iid|url>         Generate for a GitLab merge request
       --range <base>..<head> Generate for a commit range
       --base-branch <branch> Override auto-detected base branch
       --output, -o <dir>     Crit data root for reviews (default: ~/.crit)
@@ -116,7 +118,7 @@ must be able to read the generated prep file and print raw story JSON.`)
 
 // scopeValueFlags take a value and are forwarded to the daemon config resolver.
 var scopeValueFlags = map[string]struct{}{
-	"--pr": {}, "--range": {}, "--base-branch": {}, "--scope": {}, "--vcs": {}, "--output": {}, "-o": {},
+	"--pr": {}, "--mr": {}, "--range": {}, "--base-branch": {}, "--scope": {}, "--vcs": {}, "--output": {}, "-o": {},
 }
 
 // parseStoryFlags splits `crit story` args into story-only flags and the
@@ -164,7 +166,7 @@ func (f *storyFlags) appendScopeArg(args []string, i *int) error {
 		return nil
 	}
 	// Anything else is a positional file arg — rejected.
-	return clicmd.ExitError{Code: 1, Err: errors.New("story requires a diff (git, --pr, or --range)")}
+	return clicmd.ExitError{Code: 1, Err: errors.New("story requires a diff (git, --pr, --mr, or --range)")}
 }
 
 // RunStory implements `crit story`. Phase 1 surface: --story-file, --prep,
@@ -300,7 +302,7 @@ func storyReviewConfig(scopeArgs []string) (*session.CLIReviewConfig, error) {
 		return &session.CLIReviewConfig{}, nil
 	}
 	if len(sc.Files) > 0 {
-		return nil, clicmd.ExitError{Code: 1, Err: errors.New("story requires a diff (git, --pr, or --range)")}
+		return nil, clicmd.ExitError{Code: 1, Err: errors.New("story requires a diff (git, --pr, --mr, or --range)")}
 	}
 	return sc, nil
 }
@@ -327,6 +329,11 @@ func buildStoryScope(scopeArgs []string) (session.StoryScope, error) {
 
 func fillStoryPRContext(scope *session.StoryScope) {
 	if scope == nil {
+		return
+	}
+	// An explicit MR already carries its GitLab identity from Focus. Do not
+	// invoke GitHub branch detection for a GitLab-scoped story.
+	if scope.MRNumber > 0 || scope.MRURL != "" {
 		return
 	}
 	var info *github.PRInfo
@@ -395,11 +402,11 @@ const storySchemaJSON = `{
 
 // resolveStoryGuide resolves the on_story_generate guide through the same
 // 5-level prompt-override precedence as other hooks, interpolating the §4.4
-// StoryContext variables (prep file PATH, schema, SHAs, PR vars, session key,
-// review path). It fires the SAME project-prompt trust gate the --guide path
-// uses, so the LLM path and --guide never diverge on trust. prepPath is the
-// on-disk prep file the guide instructs the agent to READ; sessionKey is the
-// review session key (empty for --guide, which has no scope resolution).
+// StoryContext variables (prep file PATH, schema, SHAs, PR/MR vars, session
+// key, review path). It fires the SAME project-prompt trust gate the --guide
+// path uses, so the LLM path and --guide never diverge on trust. prepPath is
+// the on-disk prep file the guide instructs the agent to READ; sessionKey is
+// the review session key (empty for --guide, which has no scope resolution).
 func resolveStoryGuide(scope session.StoryScope, critPath, prepPath, sessionKey string) (string, error) {
 	projectDir, err := daemon.ResolvedCWD()
 	if err != nil {
@@ -439,6 +446,10 @@ func resolveStoryGuide(scope session.StoryScope, critPath, prepPath, sessionKey 
 		ctx.PRNumber = strconv.Itoa(scope.PRNumber)
 	}
 	ctx.PRURL = scope.PRURL
+	if scope.MRNumber > 0 {
+		ctx.MRNumber = strconv.Itoa(scope.MRNumber)
+	}
+	ctx.MRURL = scope.MRURL
 	if ctx.PrepPath == "" {
 		ctx.PrepPath = "<run `crit story --prep <path>` first, then pass that path here>"
 	}

@@ -54,6 +54,9 @@ e2e-share:
 e2e-roundtrip: build
 	./scripts/e2e-roundtrip.sh
 
+e2e-gitlab-roundtrip: build
+	./scripts/e2e-gitlab-roundtrip.sh
+
 test-daemon:
 	./test/shell/test-daemon-reuse.sh
 
@@ -80,4 +83,4 @@ test-preview: build
 	@echo "Starting preview mode with sample page..."
 	./crit preview test/preview-sample/index.html
 
-.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted test-live-cdp e2e-share e2e-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-live-utils test-preview
+.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted test-live-cdp e2e-share e2e-roundtrip e2e-gitlab-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-live-utils test-preview

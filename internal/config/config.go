@@ -54,7 +54,9 @@ type Config struct {
 	// a project repo cannot force tabs to close. Nil means disabled; the CLI
 	// treats negative values as disabled too (see CloseOnApproveAfterMsEnabled).
 	CloseOnApproveAfterMs *int              `json:"close_on_approve_after_ms,omitempty"`
-	VCS                   string            `json:"vcs,omitempty"` // preferred VCS backend: "git", "sl", "jj"
+	VCS                   string            `json:"vcs,omitempty"`   // preferred VCS backend: "git", "sl", "jj"
+	Forge                 string            `json:"forge,omitempty"` // remote review provider: "auto", "github", "gitlab"
+	GitLabURL             string            `json:"gitlab_url,omitempty"`
 	ShareConsented        bool              `json:"share_consented,omitempty"`
 	LiveCookie            string            `json:"live_cookie,omitempty"`
 	LiveCookieFile        string            `json:"live_cookie_file,omitempty"`
@@ -151,6 +153,8 @@ func defaultConfig() generatedConfig {
 		CleanupOnApprove:   true,
 		NotifyOnRoundReady: false,
 		VCS:                "",
+		Forge:              "auto",
+		GitLabURL:          "https://gitlab.com",
 		Prompts:            map[string]string{},
 		Hooks:              map[string]string{},
 	}
@@ -181,6 +185,8 @@ type generatedConfig struct {
 	CleanupOnApprove   bool              `json:"cleanup_on_approve"`
 	NotifyOnRoundReady bool              `json:"notify_on_round_ready"`
 	VCS                string            `json:"vcs"`
+	Forge              string            `json:"forge"`
+	GitLabURL          string            `json:"gitlab_url"`
 	Prompts            map[string]string `json:"prompts"`
 	Hooks              map[string]string `json:"hooks"`
 }
@@ -283,6 +289,8 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	if project.VCS != "" {
 		merged.VCS = project.VCS
 	}
+	merged.Forge = preferProjectString(project.Forge, merged.Forge)
+	merged.GitLabURL = preferProjectString(project.GitLabURL, merged.GitLabURL)
 	if projectPresence.NoIntegrationCheck {
 		merged.NoIntegrationCheck = project.NoIntegrationCheck
 	}
@@ -328,6 +336,13 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	mergeProjectPrompts(&merged, project)
 	mergeProjectHooks(&merged, project)
 	return merged
+}
+
+func preferProjectString(project, global string) string {
+	if project != "" {
+		return project
+	}
+	return global
 }
 
 func mergeProjectPrompts(merged *Config, project Config) {
@@ -396,6 +411,7 @@ func LoadConfig(projectDir string) Config {
 	if merged.Host == "" {
 		merged.Host = "127.0.0.1"
 	}
+	applyRemoteReviewDefaults(&merged)
 
 	// 5. Fall back to VCS user name if no author configured.
 	// Try the configured VCS first, then fall back to the other.
@@ -420,6 +436,15 @@ func LoadConfig(projectDir string) Config {
 	}
 
 	return merged
+}
+
+func applyRemoteReviewDefaults(cfg *Config) {
+	if cfg.GitLabURL == "" {
+		cfg.GitLabURL = "https://gitlab.com"
+	}
+	if cfg.Forge == "" {
+		cfg.Forge = "auto"
+	}
 }
 
 // LoadPromptMaps reads prompts from global and project config without merging.

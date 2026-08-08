@@ -659,7 +659,7 @@ func TestResolveServerConfig_FileArgs(t *testing.T) {
 
 func TestParseDaemonFlags_PRAndRange(t *testing.T) {
 	sf := parseDaemonFlagsForTest([]string{"--pr", "1", "--range", "a..b"})
-	if sf.prSpec != "1" || sf.rangeSpec != "a..b" {
+	if sf.changeSpec != "1" || sf.changeForge != "github" || sf.rangeSpec != "a..b" {
 		t.Fatalf("expected both flags captured, got %+v", sf)
 	}
 }

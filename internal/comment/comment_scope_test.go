@@ -145,6 +145,22 @@ func TestResolveCommentScope(t *testing.T) {
 	}
 }
 
+func TestResolveCommentScopeCopiesChangeIdentity(t *testing.T) {
+	dir := t.TempDir()
+	withDaemonFocus(t, &Focus{
+		Kind: FocusRange, Forge: "gitlab", ChangeNumber: 17,
+		HeadSHA: "head", BaseSHA: "base", DiffScope: DiffScopeLayer,
+	})
+
+	scope, err := ResolveCommentScope(ScopeOverrideUnset, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.Forge != "gitlab" || scope.ChangeNumber != 17 {
+		t.Fatalf("change identity = (%q, %d), want (gitlab, 17)", scope.Forge, scope.ChangeNumber)
+	}
+}
+
 func TestRunComment_StampsScopeFromDaemon_LineLevel(t *testing.T) {
 	dir := t.TempDir()
 	withDaemonFocus(t, &Focus{Kind: FocusRange, HeadSHA: "head1", DiffScope: DiffScopeLayer})

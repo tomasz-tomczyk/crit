@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loadPage, clearAllComments } from './helpers';
-import { ensureRangeFocus } from './range-helpers';
+import { ensureRangeFocus, rangeFixture } from './range-helpers';
 
 // The Resume PR pill appears in working-tree mode whenever the session
 // remembers a recently-active range focus. Click restores that focus.
@@ -51,4 +51,31 @@ test('clicking Resume restores the previous range focus', async ({ page, request
     const s = await r.json();
     return s.focus.kind === 'range' ? s.focus.head_sha : '';
   }, { timeout: 5_000 }).toBe(startHead);
+});
+
+test('GitLab focus resumes from canonical forge and change_number fields', async ({ page, request }) => {
+  const fixture = rangeFixture();
+  const post = await request.post('/api/focus', {
+    data: {
+      kind: 'range',
+      forge: 'gitlab',
+      change_number: 17,
+      base_sha: fixture.base,
+      head_sha: fixture.head,
+      diff_scope: 'layer',
+    },
+  });
+  expect(post.ok()).toBeTruthy();
+
+  await loadPage(page);
+  await page.locator('#stackChipExit').click();
+  await expect(page.locator('#resumePrPill')).toHaveText('Resume MR !17');
+
+  await page.locator('#resumePrPill').click();
+  await expect.poll(async () => {
+    const response = await request.get('/api/session');
+    const focus = (await response.json()).focus;
+    if (focus.kind !== 'range') return '';
+    return `${focus.forge}:${focus.change_number}:${Object.prototype.hasOwnProperty.call(focus, 'mr_number')}`;
+  }, { timeout: 5_000 }).toBe('gitlab:17:false');
 });

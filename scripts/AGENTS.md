@@ -83,6 +83,6 @@ Every test logs its review URL (`t.Logf("  -> Review: ...")`) so you can open th
 - Always call `logReview(t, output)` after sharing so the URL is visible in test output
 - Use `writeTestCritJSON` (not `writeCritJSON` — that name conflicts with `github.go`)
 
-## e2e-roundtrip.sh
+## e2e-roundtrip.sh and e2e-gitlab-roundtrip.sh
 
-Runs the live GitHub PR roundtrip integration tests behind the `e2e_github` build tag. See `test/roundtrip/README.md` for one-time setup (sandbox repo, `CRIT_ROUNDTRIP_REPO`, `gh auth`) and authoring notes.
+These are the provider-specific runners for one live roundtrip suite in `internal/session`. GitHub uses the `e2e_github` tag, `CRIT_ROUNDTRIP_REPO`, and authenticated `gh`; GitLab uses the `e2e_gitlab` tag, `CRIT_GITLAB_ROUNDTRIP_PROJECT`, and authenticated `glab` (plus optional `CRIT_GITLAB_ROUNDTRIP_HOST` for self-managed instances). Both create and clean up a temporary change request and branch. See `test/roundtrip/README.md` for shared setup and authoring guidance.

@@ -15,6 +15,8 @@ type StoryContext struct {
 	PRURL           string
 	PRTitle         string
 	PRBody          string
+	MRNumber        string
+	MRURL           string
 	SessionKey      string
 	ReviewPath      string
 }
@@ -33,6 +35,8 @@ func (c StoryContext) TemplateData() map[string]any {
 		"pr_url":            c.PRURL,
 		"pr_title":          c.PRTitle,
 		"pr_body":           c.PRBody,
+		"mr_number":         c.MRNumber,
+		"mr_url":            c.MRURL,
 		"session_key":       c.SessionKey,
 		"review_path":       c.ReviewPath,
 	}

@@ -110,8 +110,8 @@ func TestParseScopeSpec(t *testing.T) {
 	}
 }
 
-func TestResolveFocus_PRAndRangeMutuallyExclusive(t *testing.T) {
-	_, err := ResolveFocus("1", "a..b", "", false, nil, "")
+func TestResolveFocus_ChangeAndRangeMutuallyExclusive(t *testing.T) {
+	_, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "1"}, "a..b", "", false, nil, "")
 	if err == nil {
 		t.Fatal("expected error from mutually-exclusive flags")
 	}
@@ -120,8 +120,26 @@ func TestResolveFocus_PRAndRangeMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestResolveFocus_RejectsIncompleteChangeSpec(t *testing.T) {
+	for _, change := range []ChangeSpec{
+		{Forge: "github"},
+		{Value: "42"},
+	} {
+		if _, err := ResolveFocus(change, "", "", false, nil, ""); err == nil {
+			t.Fatalf("expected error for incomplete change spec %+v", change)
+		}
+	}
+}
+
+func TestResolveFocus_RejectsUnsupportedForge(t *testing.T) {
+	_, err := ResolveFocus(ChangeSpec{Forge: "other", Value: "9"}, "", "", false, nil, "")
+	if err == nil || !strings.Contains(err.Error(), "unsupported change forge") {
+		t.Fatalf("expected unsupported forge error, got %v", err)
+	}
+}
+
 func TestResolveFocus_RangeWithoutVCS(t *testing.T) {
-	f, err := ResolveFocus("", "abc..def", "", false, nil, "")
+	f, err := ResolveFocus(ChangeSpec{}, "abc..def", "", false, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +155,7 @@ func TestResolveFocus_RangeWithoutVCS(t *testing.T) {
 }
 
 func TestResolveFocus_NilWhenNoFlags(t *testing.T) {
-	f, err := ResolveFocus("", "", "", false, nil, "")
+	f, err := ResolveFocus(ChangeSpec{}, "", "", false, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +165,7 @@ func TestResolveFocus_NilWhenNoFlags(t *testing.T) {
 }
 
 func TestResolveFocus_InvalidScopeRejected(t *testing.T) {
-	_, err := ResolveFocus("", "a..b", "bogus", false, nil, "")
+	_, err := ResolveFocus(ChangeSpec{}, "a..b", "bogus", false, nil, "")
 	if err == nil {
 		t.Fatal("expected error from invalid scope")
 	}
