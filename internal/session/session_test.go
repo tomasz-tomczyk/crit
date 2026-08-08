@@ -49,6 +49,10 @@ func newTestSession(t *testing.T) *Session {
 			},
 		},
 	}
+	// AddComment arms a 200ms debounced disk write. Quiesce before t.TempDir's
+	// cleanup so a delayed WriteFiles doesn't race with RemoveAll — on Windows
+	// that manifests as "directory is not empty".
+	t.Cleanup(func() { quiesceSession(t, s) })
 	return s
 }
 
@@ -3057,7 +3061,8 @@ func TestEnsureLoadedNotLazy(t *testing.T) {
 
 func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 	dir := initTestRepo(t)
-	vcs.SetDefaultBranchOverride("")
+	// Keep the fixture independent of cached or ambient default-branch detection.
+	vcs.SetDefaultBranchOverride("main")
 	defer func() { vcs.SetDefaultBranchOverride("") }()
 
 	gitT(t, dir, "checkout", "-b", "feature-many-files")
