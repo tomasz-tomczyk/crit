@@ -79,6 +79,16 @@ func TestCollectCodeFontFamiliesFiltersDeduplicatesAndSorts(t *testing.T) {
 	}
 }
 
+func TestDiscoverCodeFontFamiliesScansTheCurrentSystem(t *testing.T) {
+	families, err := discoverCodeFontFamilies()
+	if err != nil {
+		t.Fatalf("discoverCodeFontFamilies() error = %v", err)
+	}
+	if families == nil {
+		t.Fatal("discoverCodeFontFamilies() returned a nil result")
+	}
+}
+
 func TestInspectCodeFontParsesMonoAndProportionalFonts(t *testing.T) {
 	writeFont := func(name string, data []byte) fontscan.Location {
 		t.Helper()
