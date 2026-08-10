@@ -101,8 +101,8 @@
   }
 
   // ---- Code font ----
-  // The `codeFont` setting overrides --crit-font-mono, which every code line,
-  // diff row, and inline <code> resolves through. An empty value means "use
+  // The `codeFont` setting overrides --crit-font-code, which code lines,
+  // diff rows, and inline <code> resolve through. An empty value means "use
   // theme.css's stack", so the override is removed rather than set to a
   // hardcoded copy of the default — the default can then change in one place.
   //
@@ -112,6 +112,7 @@
     { id: 'default', label: 'Default (JetBrains Mono)', stack: '' },
     { id: 'system', label: 'System monospace', stack: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
   ];
+  const MAX_CODE_FONT_LENGTH = 256;
 
   // Returns the sanitized stack, or '' when the value can't be trusted as a
   // font-family list. setProperty already drops values containing a `;`, but
@@ -121,6 +122,7 @@
   function sanitizeCodeFont(value) {
     const v = String(value === null || value === undefined ? '' : value).trim();
     if (!v) return '';
+    if (v.length > MAX_CODE_FONT_LENGTH) return '';
     if (/[;{}<>@]/.test(v)) return '';
     if (/url\s*\(/i.test(v) || /expression\s*\(/i.test(v)) return '';
     if (typeof CSS !== 'undefined' && CSS && CSS.supports && !CSS.supports('font-family', v)) return '';
@@ -131,8 +133,8 @@
     const root = document.documentElement;
     if (!root || !root.style) return '';
     const clean = sanitizeCodeFont(stack);
-    if (clean) root.style.setProperty('--crit-font-mono', clean);
-    else root.style.removeProperty('--crit-font-mono');
+    if (clean) root.style.setProperty('--crit-font-code', clean);
+    else root.style.removeProperty('--crit-font-code');
     return clean;
   }
 

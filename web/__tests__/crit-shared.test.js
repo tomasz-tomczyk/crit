@@ -1121,16 +1121,17 @@ test('sanitizeCodeFont rejects values that could escape the declaration', () => 
   assert.equal(shared.sanitizeCodeFont('url(https://evil.example/f.woff)'), '');
   assert.equal(shared.sanitizeCodeFont('expression(alert(1))'), '');
   assert.equal(shared.sanitizeCodeFont('<script>'), '');
+  assert.equal(shared.sanitizeCodeFont('A'.repeat(257)), '');
 });
 
-test('applyCodeFont sets --crit-font-mono, and clears it for the default', () => {
+test('applyCodeFont sets --crit-font-code, and clears it for the default', () => {
   const { shared: s, props } = makeCodeFontSandbox();
   s.applyCodeFont("'Fira Code', monospace");
-  assert.equal(props['--crit-font-mono'], "'Fira Code', monospace");
+  assert.equal(props['--crit-font-code'], "'Fira Code', monospace");
   // Empty means "use theme.css's stack" — the override is removed, not
   // replaced with a copy of the default.
   s.applyCodeFont('');
-  assert.equal('--crit-font-mono' in props, false);
+  assert.equal('--crit-font-code' in props, false);
 });
 
 test('setCodeFont persists the sanitized stack and returns what was stored', () => {
@@ -1138,19 +1139,19 @@ test('setCodeFont persists the sanitized stack and returns what was stored', () 
   assert.equal(s.setCodeFont("'IBM Plex Mono', monospace"), "'IBM Plex Mono', monospace");
   assert.match(doc.cookie, /crit-settings=/);
   assert.equal(s.getSetting('codeFont', ''), "'IBM Plex Mono', monospace");
-  assert.equal(props['--crit-font-mono'], "'IBM Plex Mono', monospace");
+  assert.equal(props['--crit-font-code'], "'IBM Plex Mono', monospace");
 
   // A rejected value falls back to the default rather than being stored raw.
   assert.equal(s.setCodeFont('monospace; color: red'), '');
   assert.equal(s.getSetting('codeFont', ''), '');
-  assert.equal('--crit-font-mono' in props, false);
+  assert.equal('--crit-font-code' in props, false);
 });
 
 test('applyCodeFontFromCookie restores the stored stack', () => {
   const { shared: s, props } = makeCodeFontSandbox();
   s.setSetting('codeFont', "'Cascadia Code', Consolas, monospace");
   s.applyCodeFontFromCookie();
-  assert.equal(props['--crit-font-mono'], "'Cascadia Code', Consolas, monospace");
+  assert.equal(props['--crit-font-code'], "'Cascadia Code', Consolas, monospace");
 });
 
 test('CODE_FONT_PRESETS only includes always-available entries', () => {

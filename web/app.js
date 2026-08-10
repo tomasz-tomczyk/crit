@@ -9249,13 +9249,16 @@
         return r.json();
       }).then(function (data) {
         return Array.isArray(data.code_fonts) ? data.code_fonts : [];
-      }).catch(function () {
-        return [];
       });
     }
-    codeFontsRequest.then(function (families) {
+    const request = codeFontsRequest;
+    request.then(function (families) {
       cfg.code_fonts = families;
       if (settingsPanelOpen) renderSettingsPane(cfg);
+    }).catch(function () {
+      // Keep the built-ins visible and retry after a transient failure when
+      // the user next opens Settings.
+      if (codeFontsRequest === request) codeFontsRequest = null;
     });
   }
   function openSettingsPanel(tab) {

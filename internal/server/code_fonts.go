@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -21,22 +22,36 @@ var codeFontASCIIRunes = []rune{' ', '!', '0', 'A', 'W', 'a', 'i', 'm', '{', '}'
 // discoverCodeFontFamilies returns installed font families suitable for code.
 // A malformed, unreadable, or unsupported font is simply ignored: the picker
 // must remain useful even when a system font directory contains a bad file.
-func discoverCodeFontFamilies() []string {
+func discoverCodeFontFamilies() (families []string, err error) {
+	// Font discovery and parsing operate on arbitrary system files. Keep an
+	// upstream parser bug from taking down the HTTP request (or the daemon).
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			families = nil
+			err = fmt.Errorf("discover system fonts: %v", recovered)
+		}
+	}()
+
 	footprints, err := fontscan.SystemFonts(log.New(io.Discard, "", 0), "")
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	return collectCodeFontFamilies(footprints, inspectCodeFont), nil
+}
 
+type codeFontInspector func(fontscan.Location) (family string, accepted bool, err error)
+
+func collectCodeFontFamilies(footprints []fontscan.Footprint, inspect codeFontInspector) []string {
 	accepted := make(map[string]string)
 	for _, footprint := range footprints {
-		ft, err := loadCodeFont(footprint.Location)
+		family, suitable, err := safelyInspectCodeFont(inspect, footprint.Location)
 		if err != nil {
 			continue
 		}
-		if !isCodeMonospace(ft) {
+		if !suitable {
 			continue
 		}
-		family := strings.TrimSpace(ft.Describe().Family)
+		family = strings.TrimSpace(family)
 		if family == "" {
 			continue
 		}
@@ -54,6 +69,25 @@ func discoverCodeFontFamilies() []string {
 		return strings.ToLower(families[i]) < strings.ToLower(families[j])
 	})
 	return families
+}
+
+func safelyInspectCodeFont(inspect codeFontInspector, location fontscan.Location) (family string, accepted bool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			family = ""
+			accepted = false
+			err = fmt.Errorf("inspect code font: %v", recovered)
+		}
+	}()
+	return inspect(location)
+}
+
+func inspectCodeFont(location fontscan.Location) (string, bool, error) {
+	ft, err := loadCodeFont(location)
+	if err != nil {
+		return "", false, err
+	}
+	return ft.Describe().Family, isCodeMonospace(ft), nil
 }
 
 func loadCodeFont(location fontscan.Location) (*font.Font, error) {

@@ -113,9 +113,10 @@ type Server struct {
 	// codeFontFamilies is populated on the first /api/code-fonts request. Scanning
 	// font files can be relatively expensive, so keep it per daemon rather than
 	// repeating it whenever the Settings panel is opened.
-	codeFontFamiliesOnce sync.Once
-	codeFontFamilies     []string
-	codeFontDiscovery    func() []string
+	codeFontFamiliesMu     sync.Mutex
+	codeFontFamiliesLoaded bool
+	codeFontFamilies       []string
+	codeFontDiscovery      func() ([]string, error)
 }
 
 // NewServer creates a Server with the given session and configuration.
@@ -576,15 +577,27 @@ func (s *Server) handleCodeFonts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.codeFontFamiliesOnce.Do(func() {
+	s.codeFontFamiliesMu.Lock()
+	if !s.codeFontFamiliesLoaded {
+		families := []string{}
+		var err error
 		if s.codeFontDiscovery != nil {
-			s.codeFontFamilies = s.codeFontDiscovery()
+			families, err = s.codeFontDiscovery()
 		}
-		if s.codeFontFamilies == nil {
-			s.codeFontFamilies = []string{}
+		if err != nil {
+			s.codeFontFamiliesMu.Unlock()
+			http.Error(w, "Code font discovery failed", http.StatusServiceUnavailable)
+			return
 		}
-	})
-	writeJSON(w, map[string][]string{"code_fonts": s.codeFontFamilies})
+		if families == nil {
+			families = []string{}
+		}
+		s.codeFontFamilies = families
+		s.codeFontFamiliesLoaded = true
+	}
+	families := s.codeFontFamilies
+	s.codeFontFamiliesMu.Unlock()
+	writeJSON(w, map[string][]string{"code_fonts": families})
 }
 
 // addIntegrationStatus populates integration detection fields in the config response.

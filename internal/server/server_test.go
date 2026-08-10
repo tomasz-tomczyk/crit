@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1202,9 +1203,9 @@ func TestAPICodeFonts_CachesCodeFontDiscovery(t *testing.T) {
 	s, _ := newTestServer(t)
 	calls := 0
 	// The injected discovery function keeps this independent of local fonts.
-	s.codeFontDiscovery = func() []string {
+	s.codeFontDiscovery = func() ([]string, error) {
 		calls++
-		return []string{"Example Mono", "Sample Code Mono"}
+		return []string{"Example Mono", "Sample Code Mono"}, nil
 	}
 
 	for range 2 {
@@ -1231,7 +1232,7 @@ func TestAPICodeFonts_CachesCodeFontDiscovery(t *testing.T) {
 func TestAPIConfig_DoesNotDiscoverCodeFonts(t *testing.T) {
 	s, _ := newTestServer(t)
 	calls := 0
-	s.codeFontDiscovery = func() []string { calls++; return []string{"Ignored"} }
+	s.codeFontDiscovery = func() ([]string, error) { calls++; return []string{"Ignored"}, nil }
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest("GET", "/api/config", nil))
 	if w.Code != http.StatusOK {
@@ -1245,16 +1246,32 @@ func TestAPIConfig_DoesNotDiscoverCodeFonts(t *testing.T) {
 	}
 }
 
-func TestAPICodeFontsReturnsEmptyArrayWhenDiscoveryFails(t *testing.T) {
+func TestAPICodeFontsRetriesAfterDiscoveryFails(t *testing.T) {
 	s, _ := newTestServer(t)
-	s.codeFontDiscovery = func() []string { return nil }
+	calls := 0
+	s.codeFontDiscovery = func() ([]string, error) {
+		calls++
+		if calls == 1 {
+			return nil, errors.New("font scanner unavailable")
+		}
+		return []string{"Recovered Mono"}, nil
+	}
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest("GET", "/api/code-fonts", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first status = %d, want %d", w.Code, http.StatusServiceUnavailable)
 	}
-	if !strings.Contains(w.Body.String(), `"code_fonts":[]`) {
-		t.Errorf("response = %s, want code_fonts as an empty array", w.Body.String())
+
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/api/code-fonts", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("second status = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"code_fonts":["Recovered Mono"]`) {
+		t.Errorf("response = %s, want recovered font", w.Body.String())
+	}
+	if calls != 2 {
+		t.Errorf("font discovery calls = %d, want 2", calls)
 	}
 }
 

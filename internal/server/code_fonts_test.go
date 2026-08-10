@@ -1,6 +1,16 @@
 package server
 
-import "testing"
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/go-text/typesetting/fontscan"
+	"golang.org/x/image/font/gofont/gomono"
+	"golang.org/x/image/font/gofont/goregular"
+)
 
 func TestEqualAdvances(t *testing.T) {
 	tests := []struct {
@@ -32,5 +42,84 @@ func TestAcceptsCodeFontRequiresASCIICoverageForFixedPitchFonts(t *testing.T) {
 	}
 	if acceptsCodeFont(true, valid[:len(valid)-1]) {
 		t.Fatal("fixed-pitch font without complete ASCII coverage was accepted")
+	}
+}
+
+func TestCollectCodeFontFamiliesFiltersDeduplicatesAndSorts(t *testing.T) {
+	footprints := []fontscan.Footprint{
+		{Location: fontscan.Location{File: "zeta"}},
+		{Location: fontscan.Location{File: "alpha"}},
+		{Location: fontscan.Location{File: "duplicate"}},
+		{Location: fontscan.Location{File: "proportional"}},
+		{Location: fontscan.Location{File: "blank"}},
+		{Location: fontscan.Location{File: "broken"}},
+		{Location: fontscan.Location{File: "panics"}},
+	}
+	inspect := func(location fontscan.Location) (string, bool, error) {
+		switch location.File {
+		case "zeta":
+			return "Zeta Mono", true, nil
+		case "alpha", "duplicate":
+			return " Alpha Mono ", true, nil
+		case "proportional":
+			return "Readable Sans", false, nil
+		case "blank":
+			return "  ", true, nil
+		case "panics":
+			panic("unsupported font")
+		default:
+			return "", false, errors.New("bad font")
+		}
+	}
+
+	got := collectCodeFontFamilies(footprints, inspect)
+	want := []string{"Alpha Mono", "Zeta Mono"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("families = %v, want %v", got, want)
+	}
+}
+
+func TestInspectCodeFontParsesMonoAndProportionalFonts(t *testing.T) {
+	writeFont := func(name string, data []byte) fontscan.Location {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return fontscan.Location{File: path}
+	}
+
+	family, accepted, err := inspectCodeFont(writeFont("Go-Mono.ttf", gomono.TTF))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if family != "Go Mono" || !accepted {
+		t.Fatalf("Go Mono inspection = (%q, %v), want (%q, true)", family, accepted, "Go Mono")
+	}
+
+	_, accepted, err = inspectCodeFont(writeFont("Go-Regular.ttf", goregular.TTF))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted {
+		t.Fatal("proportional Go Regular was accepted")
+	}
+}
+
+func TestLoadCodeFontRejectsInvalidFileAndFaceIndex(t *testing.T) {
+	badPath := filepath.Join(t.TempDir(), "broken.ttf")
+	if err := os.WriteFile(badPath, []byte("not a font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCodeFont(fontscan.Location{File: badPath}); err == nil {
+		t.Fatal("invalid font was loaded")
+	}
+
+	monoPath := filepath.Join(t.TempDir(), "Go-Mono.ttf")
+	if err := os.WriteFile(monoPath, gomono.TTF, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCodeFont(fontscan.Location{File: monoPath, Index: 1}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("out-of-range face error = %v, want os.ErrNotExist", err)
 	}
 }

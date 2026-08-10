@@ -348,7 +348,7 @@
       html += '<div class="settings-display-row" id="codeFontCustomRow"' + (selectedFontId === 'custom' ? '' : ' hidden') + '>';
       html += '<label class="settings-display-label settings-display-label--sub" for="codeFontCustomInput">Custom font-family</label>';
       html += '<input type="text" class="settings-text-input" id="codeFontCustomInput" spellcheck="false" autocomplete="off"'
-        + ' placeholder="\'Fira Code\', monospace" value="' + esc(selectedFontId === 'custom' ? currentCodeFont : '') + '">';
+        + ' maxlength="256" placeholder="\'Fira Code\', monospace" value="' + esc(selectedFontId === 'custom' ? currentCodeFont : '') + '">';
       html += '</div>';
     }
 

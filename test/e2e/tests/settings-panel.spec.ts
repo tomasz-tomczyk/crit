@@ -133,17 +133,35 @@ test.describe('Settings Panel', () => {
     await expect(pane.locator('.settings-display-label').filter({ hasText: 'Content Width' })).toBeVisible();
   });
 
-  test('system code font overrides --crit-font-mono and persists across reload', async ({ page }) => {
-    await page.click('#settingsToggle');
+  test('system code font overrides --crit-font-code and persists across reload', async ({ page }) => {
     const monoFont = () =>
+      page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--crit-font-code').trim(),
+      );
+    const uiFont = () =>
       page.evaluate(() =>
         getComputedStyle(document.documentElement).getPropertyValue('--crit-font-mono').trim(),
       );
+    const originalUiFont = await uiFont();
+
+    await page.click('#settingsToggle');
     expect(await monoFont()).toContain('JetBrains Mono');
 
     await page.selectOption('#codeFontSelect', 'system');
     await expect(page.locator('#codeFontCustomRow')).toBeHidden();
     await expect.poll(monoFont).toBe('ui-monospace, SFMono-Regular, Menlo, Consolas, monospace');
+    expect(await uiFont()).toBe(originalUiFont);
+    const consumerFonts = await page.evaluate(() => {
+      const probe = document.createElement('div');
+      probe.innerHTML = '<div class="line-content code-line">code</div>'
+        + '<div class="suggestion-diff">suggestion</div>'
+        + '<div class="comment-body"><code>comment code</code></div>';
+      document.body.appendChild(probe);
+      return Array.from(probe.querySelectorAll('.code-line, .suggestion-diff, .comment-body code'))
+        .map(element => getComputedStyle(element).fontFamily);
+    });
+    expect(consumerFonts).toHaveLength(3);
+    consumerFonts.forEach(font => expect(font).toContain('ui-monospace'));
 
     await page.reload();
     await expect.poll(monoFont).toBe('ui-monospace, SFMono-Regular, Menlo, Consolas, monospace');
@@ -158,7 +176,7 @@ test.describe('Settings Panel', () => {
     await page.click('#settingsToggle');
     const monoFont = () =>
       page.evaluate(() =>
-        getComputedStyle(document.documentElement).getPropertyValue('--crit-font-mono').trim(),
+        getComputedStyle(document.documentElement).getPropertyValue('--crit-font-code').trim(),
       );
 
     await page.selectOption('#codeFontSelect', 'custom');
@@ -174,6 +192,28 @@ test.describe('Settings Panel', () => {
     await expect(page.locator('.mini-toast--error')).toContainText('valid font-family');
     await expect(input).toHaveAttribute('aria-invalid', 'true');
     await expect.poll(monoFont).toContain('JetBrains Mono');
+  });
+
+  test('installed font discovery retries after a transient failure', async ({ page }) => {
+    let requests = 0;
+    await page.route('**/api/code-fonts', async (route) => {
+      requests++;
+      if (requests === 1) {
+        await route.fulfill({ status: 503, body: 'Code font discovery failed' });
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ code_fonts: ['Retry Mono'] }),
+      });
+    });
+
+    await page.click('#settingsToggle');
+    await expect.poll(() => requests).toBe(1);
+    await page.click('#settingsClose');
+    await page.click('#settingsToggle');
+    await expect(page.locator('#codeFontSelect option', { hasText: 'Retry Mono' })).toHaveCount(1);
+    expect(requests).toBe(2);
   });
 
   test('settings pane shows configuration cards', async ({ page }) => {
