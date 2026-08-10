@@ -1275,6 +1275,28 @@ func TestAPICodeFontsRetriesAfterDiscoveryFails(t *testing.T) {
 	}
 }
 
+func TestAPICodeFontsCachesEmptyDiscoveryResult(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		discovery func() ([]string, error)
+	}{
+		{name: "nil result", discovery: func() ([]string, error) { return nil, nil }},
+		{name: "nil discovery function", discovery: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, _ := newTestServer(t)
+			s.codeFontDiscovery = tt.discovery
+			for range 2 {
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, httptest.NewRequest("GET", "/api/code-fonts", nil))
+				if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"code_fonts":[]`) {
+					t.Fatalf("status = %d, response = %s", w.Code, w.Body.String())
+				}
+			}
+		})
+	}
+}
+
 func TestApiConfig_IncludesHostedToken(t *testing.T) {
 	s, session := newTestServer(t)
 	session.SetSharedURLAndToken("https://crit.example/r/tok42", "delete")

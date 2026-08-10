@@ -43,6 +43,16 @@ func TestAcceptsCodeFontRequiresASCIICoverageForFixedPitchFonts(t *testing.T) {
 	if acceptsCodeFont(true, valid[:len(valid)-1]) {
 		t.Fatal("fixed-pitch font without complete ASCII coverage was accepted")
 	}
+	valid[0] = 0
+	if acceptsCodeFont(true, valid) {
+		t.Fatal("fixed-pitch font with a zero-width ASCII glyph was accepted")
+	}
+	if allAdvancesNonZero(nil) {
+		t.Fatal("empty advances were accepted")
+	}
+	if isCodeMonospace(nil) {
+		t.Fatal("nil font was accepted")
+	}
 }
 
 func TestCollectCodeFontFamiliesFiltersDeduplicatesAndSorts(t *testing.T) {
@@ -117,12 +127,19 @@ func TestInspectCodeFontParsesMonoAndProportionalFonts(t *testing.T) {
 }
 
 func TestLoadCodeFontRejectsInvalidFileAndFaceIndex(t *testing.T) {
+	if _, err := loadCodeFont(fontscan.Location{File: filepath.Join(t.TempDir(), "missing.ttf")}); err == nil {
+		t.Fatal("missing font was loaded")
+	}
+
 	badPath := filepath.Join(t.TempDir(), "broken.ttf")
 	if err := os.WriteFile(badPath, []byte("not a font"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadCodeFont(fontscan.Location{File: badPath}); err == nil {
 		t.Fatal("invalid font was loaded")
+	}
+	if _, accepted, err := inspectCodeFont(fontscan.Location{File: badPath}); err == nil || accepted {
+		t.Fatalf("invalid font inspection = (accepted %v, error %v)", accepted, err)
 	}
 
 	monoPath := filepath.Join(t.TempDir(), "Go-Mono.ttf")
