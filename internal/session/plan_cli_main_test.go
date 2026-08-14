@@ -138,6 +138,31 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 	}
 }
 
+func TestRunPlanHook_DisabledByEnvironment(t *testing.T) {
+	t.Setenv("CRIT_PLAN_REVIEW", "off")
+	setPlanHookStdin(t, []byte(`{
+		"session_id": "session-disabled",
+		"tool_input": {"plan": "# Should not open"}
+	}`))
+
+	previousReviewHook := runClaudePlanReviewHook
+	runClaudePlanReviewHook = func(string, []byte, func(bool, string)) {
+		t.Fatal("did not expect disabled plan hook to start a review")
+	}
+	t.Cleanup(func() {
+		runClaudePlanReviewHook = previousReviewHook
+	})
+
+	output := captureHookDecision(t, func() {
+		if err := RunPlanHook(); err != nil {
+			t.Fatalf("RunPlanHook() error = %v", err)
+		}
+	})
+	if len(output) != 0 {
+		t.Fatalf("disabled hook output = %q, want empty output", output)
+	}
+}
+
 func TestRunPlanHook_ApprovalSetsConfiguredMode(t *testing.T) {
 	homeDir := t.TempDir()
 	testutil.SetHome(t, homeDir)

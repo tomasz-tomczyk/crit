@@ -135,6 +135,22 @@ func TestRunCodexPlanHookReviewsTaggedPlanWhenStopHookActive(t *testing.T) {
 	}
 }
 
+func TestRunCodexPlanHookDisabledByEnvironment(t *testing.T) {
+	t.Setenv("CRIT_PLAN_REVIEW", "off")
+
+	prevHook := runCodexPlanReviewHook
+	t.Cleanup(func() { runCodexPlanReviewHook = prevHook })
+	runCodexPlanReviewHook = func(string, []byte) {
+		t.Fatal("did not expect disabled plan hook to start a review")
+	}
+
+	visible := "<proposed_plan>\n- should not open\n</proposed_plan>"
+	runCodexPlanHookWithInput(t, codexStopHookEvent{
+		SessionID:            "codex-session-disabled",
+		LastAssistantMessage: &visible,
+	})
+}
+
 func TestRunCodexPlanHookSkipsStopHookActiveWithoutTaggedPlan(t *testing.T) {
 	prevHook := runCodexPlanReviewHook
 	t.Cleanup(func() { runCodexPlanReviewHook = prevHook })

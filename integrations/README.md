@@ -68,6 +68,10 @@ deterministically, set `plan_approve_mode` in your global Crit config:
 }
 ```
 
+Disable automatic plan review per shell or globally with
+`export CRIT_PLAN_REVIEW=off`. This only disables the plan-exit hook; manually
+running `crit plan` still opens a review.
+
 Supported values are `default`, `manual`, `acceptEdits`, `plan`, `auto`,
 `dontAsk`, and `bypassPermissions`. The `manual` alias requires Claude Code
 2.1.200 or newer. On approval, Crit returns Claude Code's documented
@@ -125,7 +129,8 @@ Plugin source files live in `integrations/codex/plugin/crit/`. See [`integration
 
 Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` adds the proposed-plan hook — without it, typing `$crit` on an in-chat plan (e.g. after choosing "No and stay in Plan Mode") does nothing useful because there is no file path for `crit` to open.
 
-Disable the plan hook per-shell or globally: `export CRIT_PLAN_REVIEW=off`
+Disable automatic plan review per shell or globally with
+`export CRIT_PLAN_REVIEW=off`. Manual `crit plan` invocations are unaffected.
 
 ## Invocation policy
 
