@@ -1307,6 +1307,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 .line-content.table-row table.split-table {
   width: 100%;
   border-collapse: collapse;
+  /* Widths come from a shared, content-aware colgroup for every split row. */
   table-layout: fixed;
   font-size: 0.925rem;
   margin: 0;

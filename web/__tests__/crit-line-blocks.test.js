@@ -215,6 +215,36 @@ test('addGapLineBlocks marks empty lines as isEmpty', () => {
   assert.equal(blocks[3].isEmpty, false);
 });
 
+// --- buildTableColgroup ---
+
+test('buildTableColgroup sizes columns from content while preserving alignment', () => {
+  const cell = (type, content, style = '') => [
+    { type: type + '_open', attrGet: name => name === 'style' ? style : null },
+    { type: 'inline', content },
+    { type: type + '_close' }
+  ];
+  const tokens = [
+    { type: 'table_open' },
+    { type: 'tr_open' },
+    ...cell('th', '#'),
+    ...cell('th', 'Description', 'text-align:center'),
+    ...cell('th', 'State'),
+    { type: 'tr_close' },
+    { type: 'tr_open' },
+    ...cell('td', '1'),
+    ...cell('td', 'A much longer description that needs room'),
+    ...cell('td', 'Yes'),
+    { type: 'tr_close' },
+    { type: 'table_close' }
+  ];
+
+  const colgroup = lineBlocks.buildTableColgroup(tokens, 0, tokens.length - 1);
+  assert.match(colgroup, /^<colgroup>/);
+  assert.match(colgroup, /<col style="width:8\.00%">/);
+  assert.match(colgroup, /<col style="text-align:center;width:82\.00%">/);
+  assert.match(colgroup, /<col style="width:10\.00%">/);
+});
+
 // --- buildLineBlocks ---
 
 test('buildLineBlocks with simple paragraph tokens produces correct blocks', () => {

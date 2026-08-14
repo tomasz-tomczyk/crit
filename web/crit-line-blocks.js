@@ -313,25 +313,59 @@
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   }
 
+  // Split tables are rendered as one table per source row so every row can be
+  // commented on independently. Give each of those tables the same
+  // content-aware colgroup; otherwise fixed table layout makes every column
+  // equally wide, while auto layout lets each row choose different widths.
+  function buildTableColgroup(tokens, startIdx, endIdx) {
+    var preferredWidths = [];
+    var alignments = [];
+    var columnIndex = 0;
+
+    for (var j = startIdx + 1; j < endIdx; j++) {
+      var token = tokens[j];
+      if (token.type === 'tr_open') {
+        columnIndex = 0;
+      } else if (token.type === 'th_open' || token.type === 'td_open') {
+        var contentLength = 0;
+        for (var k = j + 1; k < endIdx &&
+             tokens[k].type !== 'th_close' && tokens[k].type !== 'td_close'; k++) {
+          if (tokens[k].type === 'inline') {
+            contentLength += Array.from(tokens[k].content || '').length;
+          }
+        }
+        preferredWidths[columnIndex] = Math.max(preferredWidths[columnIndex] || 0, contentLength);
+        if (token.type === 'th_open') {
+          alignments[columnIndex] = token.attrGet('style') || '';
+        }
+        columnIndex++;
+      }
+    }
+
+    if (!preferredWidths.length) return '';
+
+    // Four characters leaves compact columns enough room for cell padding;
+    // the upper bound keeps a single long prose/code cell from dominating.
+    var weights = preferredWidths.map(function(length) {
+      return Math.max(4, Math.min(48, length));
+    });
+    var totalWeight = weights.reduce(function(total, weight) { return total + weight; }, 0);
+
+    return '<colgroup>' + weights.map(function(weight, index) {
+      var alignment = alignments[index] || '';
+      if (alignment && alignment.slice(-1) !== ';') alignment += ';';
+      return '<col style="' + escapeAttr(alignment) + 'width:' +
+        (weight / totalWeight * 100).toFixed(2) + '%">';
+    }).join('') + '</colgroup>';
+  }
+
   // Handle a table token — split into per-row blocks.
   function handleTableToken(tokens, i, md, blocks, sourceLines, coveredUpTo, blockEnd) {
     var tableCloseIdx = findCloseToken(tokens, i);
 
-    // Build colgroup from header cell alignments
-    var colgroup = '';
-    var aligns = [];
-    for (var j = i + 1; j < tableCloseIdx; j++) {
-      if (tokens[j].type === 'th_open') {
-        aligns.push(tokens[j].attrGet('style') || '');
-      }
-    }
-    if (aligns.length) {
-      colgroup = '<colgroup>' +
-        aligns.map(function(s) { return '<col' + (s ? ' style="' + s + '"' : '') + '>'; }).join('') +
-        '</colgroup>';
-    }
+    var colgroup = buildTableColgroup(tokens, i, tableCloseIdx);
 
-    j = i + 1;
+    var j = i + 1;
     var inThead = false;
     var rowIndex = 0;
     var bodyRowIndex = 0;
@@ -511,6 +545,7 @@
     addGapLineBlocks: addGapLineBlocks,
     handleFenceToken: handleFenceToken,
     handleListToken: handleListToken,
+    buildTableColgroup: buildTableColgroup,
     handleTableToken: handleTableToken,
     handleBlockquoteToken: handleBlockquoteToken,
     slugifyHeading: slugifyHeading
