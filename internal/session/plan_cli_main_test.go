@@ -163,6 +163,16 @@ func TestRunPlanHook_DisabledByEnvironment(t *testing.T) {
 	}
 }
 
+func TestRunPlan_EnvironmentOptOutDoesNotDisableManualReview(t *testing.T) {
+	t.Setenv("CRIT_PLAN_REVIEW", "off")
+	testutil.SetHome(t, t.TempDir())
+
+	missingPlan := filepath.Join(t.TempDir(), "missing-plan.md")
+	if err := RunPlan([]string{missingPlan}); err == nil {
+		t.Fatal("manual RunPlan() unexpectedly skipped missing-file validation")
+	}
+}
+
 func TestRunPlanHook_ApprovalSetsConfiguredMode(t *testing.T) {
 	homeDir := t.TempDir()
 	testutil.SetHome(t, homeDir)
