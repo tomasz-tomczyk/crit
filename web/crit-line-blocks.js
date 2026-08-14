@@ -313,16 +313,26 @@
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   }
 
+  var graphemeSegmenter = typeof Intl !== 'undefined' && Intl.Segmenter
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
+
+  function visibleTextLength(content) {
+    var normalized = String(content || '').normalize('NFC');
+    if (graphemeSegmenter) return Array.from(graphemeSegmenter.segment(normalized)).length;
+    return Array.from(normalized).length;
+  }
+
   function inlineVisibleLength(token) {
     if (!token.children || token.children.length === 0) {
-      return Array.from(token.content || '').length;
+      return visibleTextLength(token.content);
     }
 
     return token.children.reduce(function(length, child) {
       if (child.nesting !== 0) return length;
-      var content = child.content || '';
-      if (child.type === 'html_inline') content = content.replace(/<[^>]*>/g, '');
-      return length + Array.from(content).length;
+      // markdown-it emits inline HTML tags separately from their visible text.
+      if (child.type === 'html_inline') return length;
+      return length + visibleTextLength(child.content);
     }, 0);
   }
 
@@ -364,11 +374,16 @@
     });
     var totalWeight = weights.reduce(function(total, weight) { return total + weight; }, 0);
 
+    var remainingPercent = 100;
     return '<colgroup>' + weights.map(function(weight, index) {
       var alignment = alignments[index] || '';
       if (alignment && alignment.slice(-1) !== ';') alignment += ';';
+      var percent = index === weights.length - 1
+        ? remainingPercent
+        : Number((weight / totalWeight * 100).toFixed(2));
+      remainingPercent -= percent;
       return '<col style="' + escapeAttr(alignment) + 'width:' +
-        (weight / totalWeight * 100).toFixed(2) + '%">';
+        percent.toFixed(2) + '%">';
     }).join('') + '</colgroup>';
   }
 
@@ -558,6 +573,7 @@
     addGapLineBlocks: addGapLineBlocks,
     handleFenceToken: handleFenceToken,
     handleListToken: handleListToken,
+    visibleTextLength: visibleTextLength,
     inlineVisibleLength: inlineVisibleLength,
     buildTableColgroup: buildTableColgroup,
     handleTableToken: handleTableToken,

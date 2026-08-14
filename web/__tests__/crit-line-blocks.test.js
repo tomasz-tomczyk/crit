@@ -264,6 +264,46 @@ test('buildTableColgroup measures rendered link labels instead of hidden URLs', 
   );
 });
 
+test('buildTableColgroup ignores inline HTML tags with quoted angle brackets', () => {
+  const md = markdownit({ html: true });
+  const tokens = md.parse(
+    '| Markup | Status |\n' +
+    '| --- | --- |\n' +
+    '| <span title="1 > 0">x</span> | ok |',
+    {}
+  );
+  const tableOpen = tokens.findIndex(token => token.type === 'table_open');
+  const tableClose = tokens.findIndex(token => token.type === 'table_close');
+
+  assert.equal(
+    lineBlocks.buildTableColgroup(tokens, tableOpen, tableClose),
+    '<colgroup><col style="width:50.00%"><col style="width:50.00%"></colgroup>'
+  );
+});
+
+test('visibleTextLength counts normalized grapheme clusters', () => {
+  assert.equal(lineBlocks.visibleTextLength('é'), 1);
+  assert.equal(lineBlocks.visibleTextLength('e\u0301'), 1);
+  assert.equal(lineBlocks.visibleTextLength('👨‍👩‍👧‍👦'), 1);
+});
+
+test('buildTableColgroup percentages sum to exactly 100', () => {
+  const md = markdownit();
+  const tokens = md.parse(
+    '| A | B | C | D | E | F |\n' +
+    '| --- | --- | --- | --- | --- | --- |\n' +
+    '| 1 | 2 | 3 | 4 | 5 | 6 |',
+    {}
+  );
+  const tableOpen = tokens.findIndex(token => token.type === 'table_open');
+  const tableClose = tokens.findIndex(token => token.type === 'table_close');
+  const colgroup = lineBlocks.buildTableColgroup(tokens, tableOpen, tableClose);
+  const widths = Array.from(colgroup.matchAll(/width:([\d.]+)%/g), match => Number(match[1]));
+
+  assert.equal(widths.reduce((total, width) => total + width, 0), 100);
+  assert.deepEqual(widths, [16.67, 16.67, 16.67, 16.67, 16.67, 16.65]);
+});
+
 // --- buildLineBlocks ---
 
 test('buildLineBlocks with simple paragraph tokens produces correct blocks', () => {
