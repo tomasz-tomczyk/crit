@@ -111,13 +111,13 @@ func resolvePlanSlug(name string, content []byte) string {
 }
 
 func RunPlan(args []string) error {
-	go backgroundCleanup()
-
 	pc := resolvePlanConfig(args)
 	content, err := readPlanContent(pc)
 	if err != nil {
 		return err
 	}
+
+	go backgroundCleanup()
 
 	slug := resolvePlanSlug(pc.name, content)
 	storageDir, err := PlanStorageDir(slug)
