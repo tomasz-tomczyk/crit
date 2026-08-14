@@ -1,7 +1,7 @@
 {
   "private": true,
   "dependencies": {
-    "@highlightjs/cdn-assets": "^11.11.1",
+    "@highlightjs/cdn-assets": "^11.11.2",
     "@sanity/diff-match-patch": "^3.2.0",
     "highlightjs-heex": "^1.0.1",
     "markdown-it": "^15.0.0",
