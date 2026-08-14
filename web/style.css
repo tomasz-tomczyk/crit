@@ -1303,52 +1303,57 @@ body.dragging { user-select: none; cursor: grabbing; }
   margin: 4px 0;
 }
 
-/* === Per-row table blocks === */
-.line-content.table-row table.split-table {
+/* === Native rendered tables === */
+.native-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.native-table {
   width: 100%;
   border-collapse: collapse;
-  /* Widths come from a shared, content-aware colgroup for every split row. */
-  table-layout: fixed;
+  table-layout: auto;
   font-size: 0.925rem;
   margin: 0;
 }
-.line-content.table-row th {
+.native-table .line-block {
+  display: table-row;
+}
+.native-table-gutter {
+  position: relative;
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  vertical-align: top;
+}
+.native-table-gutter > .line-gutter {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 44px;
+}
+.native-table th.line-content {
   text-align: left;
   font-weight: 600;
   padding: 10px 14px;
   color: var(--crit-editor-fg-secondary);
   border-bottom: 2px solid var(--crit-border);
 }
-.line-content.table-row td {
+.native-table td.line-content {
   padding: 8px 14px;
   border-bottom: 1px solid var(--crit-border);
 }
-.line-content.table-even td {
+.native-table tbody tr:nth-child(even) td.line-content {
   background: var(--crit-table-stripe);
 }
-.line-content.table-first {
-  border-top: 1px solid var(--crit-border);
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  overflow: hidden;
-}
-.line-content.table-last {
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  overflow: hidden;
-}
-.line-content.table-last td {
+.native-table .table-last td {
   border-bottom: none;
 }
-.line-content.table-separator {
-  height: 0;
-  padding: 0;
-  overflow: hidden;
+.native-table-separator {
+  display: none !important;
 }
-.line-block:has(.table-separator) {
-  height: 0;
-  overflow: hidden;
-  min-height: 0;
+.native-table-annotation > td {
+  padding: 0 24px 0 56px;
 }
 
 .line-content blockquote {

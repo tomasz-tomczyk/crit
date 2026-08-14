@@ -3316,10 +3316,46 @@
       }
     }
 
+    let activeTableId = null;
+    let activeTableHead = null;
+    let activeTableBody = null;
+
+    function appendTableAnnotation(section, element) {
+      const row = document.createElement('tr');
+      row.className = 'native-table-annotation';
+      const cell = document.createElement('td');
+      cell.colSpan = 100;
+      cell.appendChild(element);
+      row.appendChild(cell);
+      section.appendChild(row);
+    }
+
     for (let bi = 0; bi < file.lineBlocks.length; bi++) {
       const block = file.lineBlocks[bi];
+      const isTableBlock = !!block.tableId;
 
-      const lineBlockEl = document.createElement('div');
+      if (isTableBlock && block.tableId !== activeTableId) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'native-table-wrapper';
+        const table = document.createElement('table');
+        table.className = 'native-table';
+        activeTableHead = document.createElement('thead');
+        activeTableBody = document.createElement('tbody');
+        table.appendChild(activeTableHead);
+        table.appendChild(activeTableBody);
+        wrapper.appendChild(table);
+        container.appendChild(wrapper);
+        activeTableId = block.tableId;
+      } else if (!isTableBlock) {
+        activeTableId = null;
+        activeTableHead = null;
+        activeTableBody = null;
+      }
+      const tableSection = isTableBlock && block.tableSection === 'thead'
+        ? activeTableHead
+        : activeTableBody;
+
+      const lineBlockEl = document.createElement(isTableBlock ? 'tr' : 'div');
       lineBlockEl.className = 'line-block kb-nav';
       lineBlockEl.dataset.blockIndex = bi;
       lineBlockEl.dataset.startLine = block.startLine;
@@ -3381,17 +3417,42 @@
       commentGutter.appendChild(lineAdd);
       commentGutter.addEventListener('mousedown', handleGutterMouseDown);
 
-      // Content
-      const content = document.createElement('div');
-      content.className = buildContentClasses(block);
-      let html = block.html;
-      html = processTaskLists(html);
-      html = rewriteImageSrcs(html, file.path);
-      content.innerHTML = html;
-
       gutter.appendChild(commentGutter);
-      lineBlockEl.appendChild(gutter);
-      lineBlockEl.appendChild(content);
+      if (isTableBlock) {
+        const gutterCell = document.createElement('td');
+        gutterCell.className = 'native-table-gutter';
+        gutterCell.appendChild(gutter);
+        lineBlockEl.appendChild(gutterCell);
+
+        if (block.cssClass && block.cssClass.indexOf('table-separator') !== -1) {
+          lineBlockEl.classList.add('native-table-separator');
+          const separatorCell = document.createElement('td');
+          separatorCell.colSpan = 100;
+          lineBlockEl.appendChild(separatorCell);
+        } else {
+          let html = processTaskLists(block.html);
+          html = rewriteImageSrcs(html, file.path);
+          const scratch = document.createElement('table');
+          scratch.innerHTML = '<tbody>' + html + '</tbody>';
+          const renderedRow = scratch.querySelector('tr');
+          if (renderedRow) {
+            while (renderedRow.firstChild) {
+              const cell = renderedRow.firstChild;
+              cell.className = buildContentClasses(block) + (cell.className ? ' ' + cell.className : '');
+              lineBlockEl.appendChild(cell);
+            }
+          }
+        }
+      } else {
+        const content = document.createElement('div');
+        content.className = buildContentClasses(block);
+        let html = block.html;
+        html = processTaskLists(html);
+        html = rewriteImageSrcs(html, file.path);
+        content.innerHTML = html;
+        lineBlockEl.appendChild(gutter);
+        lineBlockEl.appendChild(content);
+      }
 
       // Insert deletion marker before this block if deletions occurred before it
       if (changeInfo && bi === 0 && deletionMarkerMap[0]) {
@@ -3399,10 +3460,12 @@
         marker0.className = 'deletion-marker';
         marker0.dataset.filePath = file.path;
         marker0.textContent = '\u2212' + deletionMarkerMap[0].count + ' line' + (deletionMarkerMap[0].count !== 1 ? 's' : '');
-        container.appendChild(marker0);
+        if (isTableBlock) appendTableAnnotation(tableSection, marker0);
+        else container.appendChild(marker0);
       }
 
-      container.appendChild(lineBlockEl);
+      if (isTableBlock) tableSection.appendChild(lineBlockEl);
+      else container.appendChild(lineBlockEl);
 
       // Insert deletion marker after this block if deletions occurred after it
       if (changeInfo && deletionMarkerMap[block.endLine]) {
@@ -3410,15 +3473,20 @@
         marker.className = 'deletion-marker';
         marker.dataset.filePath = file.path;
         marker.textContent = '\u2212' + deletionMarkerMap[block.endLine].count + ' line' + (deletionMarkerMap[block.endLine].count !== 1 ? 's' : '');
-        container.appendChild(marker);
+        if (isTableBlock) appendTableAnnotation(tableSection, marker);
+        else container.appendChild(marker);
       }
 
       // Comments after block
       for (const comment of blockComments) {
         if (comment.resolved) {
-          container.appendChild(createResolvedElement(comment, file.path));
+          const commentEl = createResolvedElement(comment, file.path);
+          if (isTableBlock) appendTableAnnotation(tableSection, commentEl);
+          else container.appendChild(commentEl);
         } else {
-          container.appendChild(createCommentElement(comment, file.path));
+          const commentEl = createCommentElement(comment, file.path);
+          if (isTableBlock) appendTableAnnotation(tableSection, commentEl);
+          else container.appendChild(commentEl);
         }
       }
 
@@ -3426,7 +3494,9 @@
       const fileForms = getFormsForFile(file.path);
       for (let fi = 0; fi < fileForms.length; fi++) {
         if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
-          container.appendChild(createCommentForm(fileForms[fi]));
+          const formEl = createCommentForm(fileForms[fi]);
+          if (isTableBlock) appendTableAnnotation(tableSection, formEl);
+          else container.appendChild(formEl);
         }
       }
     }
@@ -6067,9 +6137,11 @@
           const s = parseInt(el.dataset.startLine);
           const e = parseInt(el.dataset.endLine);
           if (s <= ln && e >= ln) {
-            // Get the content div (skip gutter)
-            const content = el.querySelector('.line-content');
-            if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
+            // Native table rows have one content element per cell. Other
+            // blocks have one content div.
+            el.querySelectorAll('.line-content').forEach(function(content) {
+              if (contentEls.indexOf(content) === -1) contentEls.push(content);
+            });
           }
         });
         // Diff view: diff lines with data-diff-line-num
@@ -9881,11 +9953,12 @@
             if (el.dataset.filePath !== range.filePath) return;
             const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
             if (s <= ln && endLn >= ln) {
-              const content = el.querySelector('.line-content');
-              if (content && contentEls.indexOf(content) === -1) {
-                fullText += (fullText ? '\n' : '') + content.textContent.trim();
-                contentEls.push(content);
-              }
+              el.querySelectorAll('.line-content').forEach(function(content) {
+                if (contentEls.indexOf(content) === -1) {
+                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                  contentEls.push(content);
+                }
+              });
             }
           });
           const selSide = range.side || '';

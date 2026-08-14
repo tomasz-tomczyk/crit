@@ -216,92 +216,23 @@ test('addGapLineBlocks marks empty lines as isEmpty', () => {
   assert.equal(blocks[3].isEmpty, false);
 });
 
-// --- buildTableColgroup ---
+// --- rendered tables ---
 
-test('buildTableColgroup sizes columns from content while preserving alignment', () => {
-  const cell = (type, content, style = '') => [
-    { type: type + '_open', attrGet: name => name === 'style' ? style : null },
-    { type: 'inline', content },
-    { type: type + '_close' }
-  ];
-  const tokens = [
-    { type: 'table_open' },
-    { type: 'tr_open' },
-    ...cell('th', '#'),
-    ...cell('th', 'Description', 'text-align:center'),
-    ...cell('th', 'State'),
-    { type: 'tr_close' },
-    { type: 'tr_open' },
-    ...cell('td', '1'),
-    ...cell('td', 'A much longer description that needs room'),
-    ...cell('td', 'Yes'),
-    { type: 'tr_close' },
-    { type: 'table_close' }
-  ];
-
-  const colgroup = lineBlocks.buildTableColgroup(tokens, 0, tokens.length - 1);
-  assert.match(colgroup, /^<colgroup>/);
-  assert.match(colgroup, /<col style="width:8\.00%">/);
-  assert.match(colgroup, /<col style="text-align:center;width:82\.00%">/);
-  assert.match(colgroup, /<col style="width:10\.00%">/);
-});
-
-test('buildTableColgroup measures rendered link labels instead of hidden URLs', () => {
+test('buildLineBlocks groups table rows for native table rendering', () => {
   const md = markdownit();
-  const tokens = md.parse(
-    '| Link | Status |\n' +
+  const source = '| Label | Status |\n' +
     '| --- | --- |\n' +
-    '| [x](https://example.com/a/very/very/very/long/hidden/path) | available |',
-    {}
-  );
-  const tableOpen = tokens.findIndex(token => token.type === 'table_open');
-  const tableClose = tokens.findIndex(token => token.type === 'table_close');
+    '| [x](https://example.com/a/very/long/hidden/path) | available |';
+  const blocks = lineBlocks.buildLineBlocks(md.parse(source, {}), md, source);
 
-  const colgroup = lineBlocks.buildTableColgroup(tokens, tableOpen, tableClose);
-  assert.equal(
-    colgroup,
-    '<colgroup><col style="width:30.77%"><col style="width:69.23%"></colgroup>'
-  );
-});
-
-test('buildTableColgroup ignores inline HTML tags with quoted angle brackets', () => {
-  const md = markdownit({ html: true });
-  const tokens = md.parse(
-    '| Markup | Status |\n' +
-    '| --- | --- |\n' +
-    '| <span title="1 > 0">x</span> | ok |',
-    {}
-  );
-  const tableOpen = tokens.findIndex(token => token.type === 'table_open');
-  const tableClose = tokens.findIndex(token => token.type === 'table_close');
-
-  assert.equal(
-    lineBlocks.buildTableColgroup(tokens, tableOpen, tableClose),
-    '<colgroup><col style="width:50.00%"><col style="width:50.00%"></colgroup>'
-  );
-});
-
-test('visibleTextLength counts normalized grapheme clusters', () => {
-  assert.equal(lineBlocks.visibleTextLength('é'), 1);
-  assert.equal(lineBlocks.visibleTextLength('e\u0301'), 1);
-  assert.equal(lineBlocks.visibleTextLength('👨‍👩‍👧‍👦'), 1);
-});
-
-test('buildTableColgroup percentages sum to exactly 100', () => {
-  const md = markdownit();
-  const tokens = md.parse(
-    '| A | B | C | D | E | F |\n' +
-    '| --- | --- | --- | --- | --- | --- |\n' +
-    '| 1 | 2 | 3 | 4 | 5 | 6 |',
-    {}
-  );
-  const tableOpen = tokens.findIndex(token => token.type === 'table_open');
-  const tableClose = tokens.findIndex(token => token.type === 'table_close');
-  const colgroup = lineBlocks.buildTableColgroup(tokens, tableOpen, tableClose);
-  const widths = Array.from(colgroup.matchAll(/width:([\d.]+)%/g), match => Number(match[1]));
-
-  assert.equal(widths.reduce((total, width) => total + width, 0), 100);
-  assert.deepEqual(widths, [16.67, 16.67, 16.67, 16.67, 16.67, 16.65]);
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0].tableId, blocks[1].tableId);
+  assert.equal(blocks[1].tableId, blocks[2].tableId);
+  assert.equal(blocks[0].tableSection, 'thead');
+  assert.equal(blocks[1].cssClass, 'table-separator');
+  assert.equal(blocks[2].tableSection, 'tbody');
+  assert.match(blocks[0].html, /^<tr>/);
+  assert.doesNotMatch(blocks[0].html, /<table|<colgroup/);
 });
 
 // --- buildLineBlocks ---
