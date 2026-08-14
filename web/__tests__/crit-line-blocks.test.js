@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
+const markdownit = require('markdown-it');
 
 // Load crit-line-blocks.js in a fake-browser shim.
 const src = fs.readFileSync(path.join(__dirname, '..', 'crit-line-blocks.js'), 'utf8');
@@ -243,6 +244,24 @@ test('buildTableColgroup sizes columns from content while preserving alignment',
   assert.match(colgroup, /<col style="width:8\.00%">/);
   assert.match(colgroup, /<col style="text-align:center;width:82\.00%">/);
   assert.match(colgroup, /<col style="width:10\.00%">/);
+});
+
+test('buildTableColgroup measures rendered link labels instead of hidden URLs', () => {
+  const md = markdownit();
+  const tokens = md.parse(
+    '| Link | Status |\n' +
+    '| --- | --- |\n' +
+    '| [x](https://example.com/a/very/very/very/long/hidden/path) | available |',
+    {}
+  );
+  const tableOpen = tokens.findIndex(token => token.type === 'table_open');
+  const tableClose = tokens.findIndex(token => token.type === 'table_close');
+
+  const colgroup = lineBlocks.buildTableColgroup(tokens, tableOpen, tableClose);
+  assert.equal(
+    colgroup,
+    '<colgroup><col style="width:30.77%"><col style="width:69.23%"></colgroup>'
+  );
 });
 
 // --- buildLineBlocks ---

@@ -313,6 +313,19 @@
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   }
 
+  function inlineVisibleLength(token) {
+    if (!token.children || token.children.length === 0) {
+      return Array.from(token.content || '').length;
+    }
+
+    return token.children.reduce(function(length, child) {
+      if (child.nesting !== 0) return length;
+      var content = child.content || '';
+      if (child.type === 'html_inline') content = content.replace(/<[^>]*>/g, '');
+      return length + Array.from(content).length;
+    }, 0);
+  }
+
   // Split tables are rendered as one table per source row so every row can be
   // commented on independently. Give each of those tables the same
   // content-aware colgroup; otherwise fixed table layout makes every column
@@ -331,7 +344,7 @@
         for (var k = j + 1; k < endIdx &&
              tokens[k].type !== 'th_close' && tokens[k].type !== 'td_close'; k++) {
           if (tokens[k].type === 'inline') {
-            contentLength += Array.from(tokens[k].content || '').length;
+            contentLength += inlineVisibleLength(tokens[k]);
           }
         }
         preferredWidths[columnIndex] = Math.max(preferredWidths[columnIndex] || 0, contentLength);
@@ -545,6 +558,7 @@
     addGapLineBlocks: addGapLineBlocks,
     handleFenceToken: handleFenceToken,
     handleListToken: handleListToken,
+    inlineVisibleLength: inlineVisibleLength,
     buildTableColgroup: buildTableColgroup,
     handleTableToken: handleTableToken,
     handleBlockquoteToken: handleBlockquoteToken,
