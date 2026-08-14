@@ -309,12 +309,65 @@
     return result;
   }
 
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  }
+
+  function inlineVisibleLength(token) {
+    if (!token.children || token.children.length === 0) {
+      return Array.from(token.content || '').length;
+    }
+
+    return token.children.reduce(function(length, child) {
+      if (child.nesting !== 0) return length;
+      var content = child.content || '';
+      if (child.type === 'html_inline') content = content.replace(/<[^>]*>/g, '');
+      return length + Array.from(content).length;
+    }, 0);
+  }
+
+  // Rendered diffs still place each source row in an independent line block.
+  // Give those fallback tables one shared colgroup so their columns align.
+  function buildTableColgroup(tokens, startIdx, endIdx) {
+    var preferredWidths = [];
+    var alignments = [];
+    var columnIndex = 0;
+
+    for (var j = startIdx + 1; j < endIdx; j++) {
+      var token = tokens[j];
+      if (token.type === 'tr_open') {
+        columnIndex = 0;
+      } else if (token.type === 'th_open' || token.type === 'td_open') {
+        var contentLength = 0;
+        for (var k = j + 1; k < endIdx &&
+             tokens[k].type !== 'th_close' && tokens[k].type !== 'td_close'; k++) {
+          if (tokens[k].type === 'inline') contentLength += inlineVisibleLength(tokens[k]);
+        }
+        preferredWidths[columnIndex] = Math.max(preferredWidths[columnIndex] || 0, contentLength);
+        if (token.type === 'th_open') alignments[columnIndex] = token.attrGet('style') || '';
+        columnIndex++;
+      }
+    }
+
+    if (!preferredWidths.length) return '';
+    var weights = preferredWidths.map(function(length) { return Math.max(4, Math.min(48, length)); });
+    var totalWeight = weights.reduce(function(total, weight) { return total + weight; }, 0);
+
+    return '<colgroup>' + weights.map(function(weight, index) {
+      var alignment = alignments[index] || '';
+      if (alignment && alignment.slice(-1) !== ';') alignment += ';';
+      return '<col style="' + escapeAttr(alignment) + 'width:' +
+        (weight / totalWeight * 100).toFixed(2) + '%">';
+    }).join('') + '</colgroup>';
+  }
+
   // Keep source rows as independently commentable blocks, but mark them as one
   // table so the DOM renderer can place every row in the same native table.
   function handleTableToken(tokens, i, md, blocks, sourceLines, coveredUpTo, blockEnd) {
     var tableCloseIdx = findCloseToken(tokens, i);
     var tableMap = tokens[i].map;
     var tableId = 'table-' + (tableMap ? tableMap[0] : i);
+    var fallbackColgroup = buildTableColgroup(tokens, i, tableCloseIdx);
 
     var j = i + 1;
     var inThead = false;
@@ -342,14 +395,18 @@
 
           var trTokens = tokens.slice(j, trCloseIdx + 1);
           var section = inThead ? 'thead' : 'tbody';
-          var rowHtml = md.renderer.render(trTokens, md.options, {});
+          var nativeRowHtml = md.renderer.render(trTokens, md.options, {});
+          var rowHtml = '<table class="split-table" data-table-id="' + escapeAttr(tableId) + '">' +
+            fallbackColgroup + '<' + section + '>' +
+            nativeRowHtml + '</' + section + '></table>';
 
           var cls = 'table-row';
           if (rowIndex === 0) cls += ' table-first';
           if (!inThead && bodyRowIndex % 2 === 1) cls += ' table-even';
           blocks.push({
             startLine: trMap[0] + 1, endLine: trMap[1],
-            html: rowHtml, isEmpty: false, cssClass: cls,
+            html: rowHtml, nativeRowHtml: nativeRowHtml,
+            isEmpty: false, cssClass: cls,
             tableId: tableId, tableSection: section
           });
           coveredUpTo = trMap[1];

@@ -2382,7 +2382,9 @@
     const prevAnchor = changeNavAnchorFromIdx(currentChangeIdx);
     changeGroups = [];
     // Document view: color-coded change blocks + deletion markers
-    const docEls = document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker');
+    const docEls = Array.from(document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker'))
+      .map(function(el) { return el.closest('.native-table-annotation') || el; })
+      .filter(function(el, index, elements) { return elements.indexOf(el) === index; });
     // Diff view: diff-added and diff-removed blocks in rendered diff (file mode)
     const diffEls = document.querySelectorAll('.diff-view .line-block.diff-added, .diff-view .line-block.diff-removed, .diff-view-unified .line-block.diff-added, .diff-view-unified .line-block.diff-removed');
     const all = docEls.length > 0 ? docEls : diffEls;
@@ -2405,7 +2407,7 @@
 
   function isConsecutiveSibling(a, b) {
     // Check if b immediately follows a, skipping comment elements between them
-    let node = a.nextElementSibling;
+    let node = nextLogicalTableSibling(a);
     while (node && node !== b) {
       // A non-changed line-block in between breaks the group
       if (node.classList.contains('line-block') &&
@@ -2414,10 +2416,18 @@
           !node.classList.contains('diff-added') &&
           !node.classList.contains('diff-removed')) return false;
       // Deletion markers don't break the group
-      if (node.classList.contains('deletion-marker')) { node = node.nextElementSibling; continue; }
-      node = node.nextElementSibling;
+      if (node.classList.contains('deletion-marker')) { node = nextLogicalTableSibling(node); continue; }
+      node = nextLogicalTableSibling(node);
     }
     return node === b;
+  }
+
+  function nextLogicalTableSibling(node) {
+    if (node.nextElementSibling) return node.nextElementSibling;
+    const section = node.parentElement;
+    if (!section || section.tagName !== 'THEAD') return null;
+    const table = section.closest('table.native-table');
+    return table && table.tBodies.length ? table.tBodies[0].firstElementChild : null;
   }
 
   function navigateToChange(dir, _mountedPath) {
@@ -3323,6 +3333,7 @@
     function appendTableAnnotation(section, element) {
       const row = document.createElement('tr');
       row.className = 'native-table-annotation';
+      if (element.dataset.filePath) row.dataset.filePath = element.dataset.filePath;
       const cell = document.createElement('td');
       cell.colSpan = 100;
       cell.appendChild(element);
@@ -3357,6 +3368,11 @@
 
       const lineBlockEl = document.createElement(isTableBlock ? 'tr' : 'div');
       lineBlockEl.className = 'line-block kb-nav';
+      if (isTableBlock && block.cssClass) {
+        block.cssClass.split(/\s+/).forEach(function(className) {
+          if (className) lineBlockEl.classList.add(className);
+        });
+      }
       lineBlockEl.dataset.blockIndex = bi;
       lineBlockEl.dataset.startLine = block.startLine;
       lineBlockEl.dataset.endLine = block.endLine;
@@ -3430,7 +3446,7 @@
           separatorCell.colSpan = 100;
           lineBlockEl.appendChild(separatorCell);
         } else {
-          let html = processTaskLists(block.html);
+          let html = processTaskLists(block.nativeRowHtml || block.html);
           html = rewriteImageSrcs(html, file.path);
           const scratch = document.createElement('table');
           scratch.innerHTML = '<tbody>' + html + '</tbody>';
@@ -6157,21 +6173,26 @@
 
       if (contentEls.length === 0) return;
 
-      // Collect all text nodes across the content elements
-      const textNodes = [];
-      contentEls.forEach(function(el) {
+      // Preserve a whitespace boundary between cells/line blocks while retaining
+      // each real text node's offsets for DOM highlighting.
+      const nodeRanges = [];
+      let fullText = '';
+      contentEls.forEach(function(el, contentIndex) {
+        if (contentIndex > 0) fullText += ' ';
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
         let node;
         while ((node = walker.nextNode())) {
-          if (node.textContent.length > 0) textNodes.push(node);
+          if (node.textContent.length === 0) continue;
+          const start = fullText.length;
+          fullText += node.textContent;
+          nodeRanges.push({ node: node, start: start, end: fullText.length });
         }
       });
 
-      if (textNodes.length === 0) return;
+      if (nodeRanges.length === 0) return;
 
       // Build concatenated text and find the quote within it.
       // Normalize the quote: collapse whitespace/newlines so cross-line selections match.
-      const fullText = textNodes.map(function(n) { return n.textContent; }).join('');
       const normalizedQuote = comment.quote.replace(/\s+/g, ' ');
       const normalizedFull = fullText.replace(/\s+/g, ' ');
       let quoteIdx = -1;
@@ -6218,20 +6239,19 @@
 
       // Walk text nodes to find which ones overlap with the quote range
       const quoteEnd = quoteIdx + matchLen;
-      let pos = 0;
-      for (let i = 0; i < textNodes.length; i++) {
-        const node = textNodes[i];
-        const nodeEnd = pos + node.textContent.length;
-        if (nodeEnd <= quoteIdx) { pos = nodeEnd; continue; }
-        if (pos >= quoteEnd) break;
+      for (let i = 0; i < nodeRanges.length; i++) {
+        const nodeRange = nodeRanges[i];
+        const node = nodeRange.node;
+        if (nodeRange.end <= quoteIdx) continue;
+        if (nodeRange.start >= quoteEnd) break;
 
         // This node overlaps with the quote range
-        const startInNode = Math.max(0, quoteIdx - pos);
-        const endInNode = Math.min(node.textContent.length, quoteEnd - pos);
+        const startInNode = Math.max(0, quoteIdx - nodeRange.start);
+        const endInNode = Math.min(node.textContent.length, quoteEnd - nodeRange.start);
 
         // Skip wrapping whitespace-only matches (e.g. newlines between blocks)
         const matchText = node.textContent.slice(startInNode, endInNode);
-        if (!matchText.trim()) { pos = nodeEnd; continue; }
+        if (!matchText.trim()) continue;
 
         if (startInNode === 0 && endInNode === node.textContent.length) {
           // Wrap entire text node
@@ -6255,7 +6275,6 @@
           if (after) frag.appendChild(document.createTextNode(after));
           node.parentNode.replaceChild(frag, node);
         }
-        pos = nodeEnd;
       }
     });
   }
@@ -9987,6 +10006,7 @@
             let charsBefore = 0;
             let foundEl = false;
             for (let ci = 0; ci < contentEls.length; ci++) {
+              if (ci > 0) charsBefore++;
               if (contentEls[ci].contains(startContainer)) {
                 const walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
                 let tn;
@@ -10004,13 +10024,8 @@
             }
 
             if (foundEl) {
-              let rawAll = '';
-              const rawUpTo = charsBefore;
-              for (let ri = 0; ri < contentEls.length; ri++) {
-                rawAll += contentEls[ri].textContent;
-                if (contentEls[ri].contains(startContainer)) break;
-              }
-              const textBefore = rawAll.slice(0, rawUpTo);
+              const rawAll = contentEls.map(function(el) { return el.textContent; }).join(' ');
+              const textBefore = rawAll.slice(0, charsBefore);
               quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
             }
           } catch { /* offset is a nice-to-have */ }

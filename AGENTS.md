@@ -285,7 +285,9 @@ Hunk headers (`@@ -27,6 +31,23 @@`), dual gutters, colored backgrounds for addit
 
 - `markdown-it` token.map quirks: last list item often claims a trailing blank line — code trims trailing blank lines from item ranges.
 - Table separators (`|---|---|`): not in tokens, appear as gap lines. Detected via regex and hidden with CSS.
-- Per-row tables: each row in its own `<table>` with `table-layout: fixed` + `<colgroup>` for column alignment.
+- Table rows remain separate source blocks for comments. Document view groups
+  them into one native auto-layout `<table>`; rendered diff paths retain
+  standalone row HTML as a compatibility fallback.
 - `splitHighlightedCode()` tracks open `<span>` tags across lines to properly close/reopen them.
 </important>
 

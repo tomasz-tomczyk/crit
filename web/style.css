@@ -1311,7 +1311,8 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 .native-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: auto;
   font-size: 0.925rem;
   margin: 0;
@@ -1343,8 +1344,22 @@ body.dragging { user-select: none; cursor: grabbing; }
   padding: 8px 14px;
   border-bottom: 1px solid var(--crit-border);
 }
-.native-table tbody tr:nth-child(even) td.line-content {
+.native-table tbody tr.table-even td.line-content {
   background: var(--crit-table-stripe);
+}
+.native-table .line-block.has-comment > .line-content {
+  background: var(--crit-comment-range-bg);
+}
+.native-table .line-block:hover > .line-content,
+.native-table .line-block.selected > .line-content,
+.native-table .line-block.form-selected > .line-content {
+  background: var(--crit-brand-subtle);
+}
+.native-table .line-block.focused > .line-content {
+  background: var(--crit-line-focus-bg);
+}
+.native-table .line-block.change-flash > .line-content {
+  animation: change-flash 1s ease-out;
 }
 .native-table .table-last td {
   border-bottom: none;
@@ -1355,6 +1370,20 @@ body.dragging { user-select: none; cursor: grabbing; }
 .native-table-annotation > td {
   padding: 0 24px 0 56px;
 }
+
+/* Rendered round diffs cannot group rows across the two diff sides, so their
+   per-row fallback tables share renderer-generated column widths. */
+.line-content.table-row table.split-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.925rem;
+  margin: 0;
+}
+.line-content.table-even td { background: var(--crit-table-stripe); }
+.line-content.table-last td { border-bottom: none; }
+.line-content.table-separator { height: 0; padding: 0; overflow: hidden; }
+.line-block:has(.table-separator) { height: 0; overflow: hidden; min-height: 0; }
 
 .line-content blockquote {
   margin: 6px 0;

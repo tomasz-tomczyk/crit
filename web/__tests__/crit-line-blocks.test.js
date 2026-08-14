@@ -231,8 +231,11 @@ test('buildLineBlocks groups table rows for native table rendering', () => {
   assert.equal(blocks[0].tableSection, 'thead');
   assert.equal(blocks[1].cssClass, 'table-separator');
   assert.equal(blocks[2].tableSection, 'tbody');
-  assert.match(blocks[0].html, /^<tr>/);
-  assert.doesNotMatch(blocks[0].html, /<table|<colgroup/);
+  assert.match(blocks[0].nativeRowHtml, /^<tr>/);
+  assert.doesNotMatch(blocks[0].nativeRowHtml, /<table|<colgroup/);
+  assert.match(blocks[0].html, /^<table class="split-table" data-table-id="table-0">/);
+  assert.match(blocks[0].html, /<col style="width:35\.71%"><col style="width:64\.29%">/);
+  assert.match(blocks[2].html, /<col style="width:35\.71%"><col style="width:64\.29%">/);
 });
 
 // --- buildLineBlocks ---
