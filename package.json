@@ -12,7 +12,7 @@
     "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/test-diff-render.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "eslint": "^10.8.0",
     "stylelint": "^17.14.1"
   }
