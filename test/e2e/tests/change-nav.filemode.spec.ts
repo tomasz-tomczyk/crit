@@ -198,6 +198,31 @@ test.describe('Change Navigation — File Mode', () => {
     expect(await fallbackTables.first().evaluate(element => getComputedStyle(element).marginTop)).toBe('0px');
   });
 
+  test('navigating to a deleted table row flashes its deletion marker', async ({ page, request }) => {
+    await loadPage(page);
+    const current = fs.readFileSync(path.join(fixtureDir, 'plan.md'), 'utf-8');
+    const deletedRow = '| Key storage | Env var, database | Database | Supports rotation |\n';
+    expect(current).toContain(deletedRow);
+    await doRoundWithEdit(page, request, fixtureDir, 'plan.md', current.replace(deletedRow, ''));
+
+    const section = mdSection(page);
+    const annotation = section.locator('.native-table-annotation', {
+      has: page.locator('.deletion-marker'),
+    });
+    await expect(annotation).toBeVisible();
+    const label = section.locator('.change-nav-label');
+    const totalGroups = Number((await label.textContent())?.match(/\/ (\d+) changes?/)?.[1]);
+    expect(totalGroups).toBeGreaterThan(0);
+    for (let index = 0; index < totalGroups; index++) {
+      await page.keyboard.press('n');
+      if (await annotation.evaluate(element => element.classList.contains('change-flash'))) break;
+    }
+
+    await expect(annotation).toHaveClass(/change-flash/);
+    const marker = annotation.locator('.deletion-marker');
+    expect(await marker.evaluate(element => getComputedStyle(element).animationName)).toContain('change-flash');
+  });
+
   test('n key navigates to next change', async ({ page, request }) => {
     await loadPage(page);
 

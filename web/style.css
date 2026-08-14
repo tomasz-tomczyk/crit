@@ -994,6 +994,9 @@ body.visual-mode .diff-split-row.focused .diff-split-side {
 .deletion-marker.change-flash {
   animation: change-flash 1s ease-out;
 }
+.native-table-annotation.change-flash .deletion-marker {
+  animation: change-flash 1s ease-out;
+}
 
 /* ===== Gutter ===== */
 .line-gutter {
