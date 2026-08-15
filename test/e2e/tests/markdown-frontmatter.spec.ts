@@ -24,9 +24,12 @@ test.describe('Markdown frontmatter — skill.md', () => {
 
     await expect(section.locator('h1', { hasText: 'this would become an h1' })).toHaveCount(0);
     await expect(section.locator('.line-block[data-start-line="1"] .fence-marker', { hasText: '---' })).toBeVisible();
-    await expect(section.locator('.line-block[data-start-line="7"] .fence-marker', { hasText: '---' })).toBeVisible();
-    await expect(section.locator('.line-block[data-start-line="2"] .code-line, .line-block[data-start-line="2"] code.hljs')).toContainText('name: demo-skill');
+    await expect(section.locator('.line-block[data-start-line="8"] .fence-marker', { hasText: '---' })).toBeVisible();
+    await expect(section.locator('.line-block[data-start-line="2"] code.hljs')).toContainText('name: demo-skill');
     await expect(section.locator('.line-block[data-start-line="2"] [class^="hljs-"]').first()).toBeVisible();
+    // Line 4 is a YAML `# comment` — must not become a heading.
+    await expect(section.locator('.line-block[data-start-line="4"]')).toContainText('this would become an h1');
+    await expect(section.locator('.line-block[data-start-line="4"] h1, .line-block[data-start-line="4"] h2')).toHaveCount(0);
 
     for (let line = 1; line <= 10; line++) {
       await expect(section.locator(`.line-block[data-start-line="${line}"]`)).toHaveCount(1);
@@ -41,8 +44,11 @@ test.describe('Markdown frontmatter — skill.md', () => {
     const bodyCard = reloadedSection.locator(`.comment-card[data-comment-id="${bodyComment.id}"]`);
     await expect(frontmatterCard).toBeVisible();
     await expect(bodyCard).toBeVisible();
-    await expect(reloadedSection.locator('.line-block[data-start-line="2"] + .comment-block').filter({ has: frontmatterCard })).toHaveCount(1);
-    await expect(reloadedSection.locator('.line-block[data-start-line="10"] + .comment-block').filter({ has: bodyCard })).toHaveCount(1);
+    await expect(frontmatterCard).toContainText('Frontmatter comment');
+    await expect(bodyCard).toContainText('Body comment');
+    // Anchored to the frontmatter / body lines (has-comment on the line-block).
+    await expect(reloadedSection.locator('.line-block[data-start-line="2"].has-comment')).toBeVisible();
+    await expect(reloadedSection.locator('.line-block[data-start-line="10"].has-comment')).toBeVisible();
     await expect(reloadedSection.locator('.line-block[data-start-line="2"]')).toContainText('name: demo-skill');
     await expect(reloadedSection.locator('.line-block[data-start-line="10"]')).toContainText('Skill Body');
 
