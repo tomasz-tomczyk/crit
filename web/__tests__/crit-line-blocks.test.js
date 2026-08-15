@@ -37,6 +37,14 @@ test('rewriteFrontmatterAsYamlFence converts only valid opening and closing deli
   );
 });
 
+test('rewriteFrontmatterAsYamlFence allows trailing spaces on delimiters', () => {
+  const content = '---  \nname: demo\n---\t\n\n# Body';
+  assert.equal(
+    lineBlocks.rewriteFrontmatterAsYamlFence(content),
+    '```yaml\nname: demo\n```\n\n# Body'
+  );
+});
+
 test('rewriteFrontmatterAsYamlFence preserves content without a closing delimiter', () => {
   const content = '---\nname: demo\n# Not a closing delimiter';
   assert.equal(lineBlocks.rewriteFrontmatterAsYamlFence(content), content);
