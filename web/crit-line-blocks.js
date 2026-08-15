@@ -21,10 +21,10 @@
   // Callers retain the original content for source line display.
   function rewriteFrontmatterAsYamlFence(content) {
     var lines = content.split('\n');
-    if (!/^\uFEFF?---\r?$/.test(lines[0])) return content;
+    if (!/^\uFEFF?---[ \t]*\r?$/.test(lines[0])) return content;
 
     for (var i = 1; i < lines.length; i++) {
-      if (/^(?:---|\.\.\.)\r?$/.test(lines[i])) {
+      if (/^(?:---|\.\.\.)[ \t]*\r?$/.test(lines[i])) {
         lines[0] = '```yaml' + (lines[0].endsWith('\r') ? '\r' : '');
         lines[i] = '```' + (lines[i].endsWith('\r') ? '\r' : '');
         return lines.join('\n');
