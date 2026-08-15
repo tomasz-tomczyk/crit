@@ -575,6 +575,23 @@ Feature: User login
 GHERKIN
 git add login.feature
 
+# Stage a Markdown file with YAML frontmatter for document-view coverage.
+cat > skill.md << 'MDFILE'
+---
+name: demo-skill
+description: A skill for agents
+# this would become an h1 if parsed as markdown
+paths:
+  - "src/**/*.go"
+  - "internal/*.go"
+---
+
+# Skill Body
+
+Body paragraph for commenting.
+MDFILE
+git add skill.md
+
 # === Unstaged changes (working tree only) ===
 # Create an untracked file
 cat > config.yaml << 'EOF'

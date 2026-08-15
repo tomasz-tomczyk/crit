@@ -17,6 +17,23 @@
       .replace(/^-+|-+$/g, '');
   }
 
+  // Turn valid document frontmatter into a YAML fence without shifting maps.
+  // Callers retain the original content for source line display.
+  function rewriteFrontmatterAsYamlFence(content) {
+    var lines = content.split('\n');
+    if (!/^\uFEFF?---\r?$/.test(lines[0])) return content;
+
+    for (var i = 1; i < lines.length; i++) {
+      if (/^(?:---|\.\.\.)\r?$/.test(lines[i])) {
+        lines[0] = '```yaml' + (lines[0].endsWith('\r') ? '\r' : '');
+        lines[i] = '```' + (lines[i].endsWith('\r') ? '\r' : '');
+        return lines.join('\n');
+      }
+    }
+
+    return content;
+  }
+
   // Split highlighted HTML into per-line strings, preserving open spans across lines.
   function splitHighlightedCode(html) {
     var result = [];
@@ -487,6 +504,7 @@
 
   var api = {
     splitHighlightedCode: splitHighlightedCode,
+    rewriteFrontmatterAsYamlFence: rewriteFrontmatterAsYamlFence,
     buildCodeLineBlocks: buildCodeLineBlocks,
     buildLineBlocks: buildLineBlocks,
     findCloseToken: findCloseToken,

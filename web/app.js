@@ -1202,7 +1202,8 @@
   // ===== Markdown Parsing =====
   function parseMarkdown(content) {
     headingSlugCounter.clear();
-    const tokens = documentMd.parse(content, {});
+    const rewrittenContent = rewriteFrontmatterAsYamlFence(content);
+    const tokens = documentMd.parse(rewrittenContent, {});
     const blocks = buildLineBlocks(tokens, documentMd, content);
     const tocItems = extractTocItems(tokens);
     return { blocks, tocItems };
@@ -1226,6 +1227,7 @@
   const splitHighlightedCode = window.crit.lineBlocks.splitHighlightedCode;
   const buildCodeLineBlocks = window.crit.lineBlocks.buildCodeLineBlocks;
   const buildLineBlocks = window.crit.lineBlocks.buildLineBlocks;
+  const rewriteFrontmatterAsYamlFence = window.crit.lineBlocks.rewriteFrontmatterAsYamlFence;
 
   // ===== Utility Functions =====
   function processTaskLists(html) {
