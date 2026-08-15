@@ -63,7 +63,8 @@ test.describe('Commit Selection', () => {
     const fileSections = page.locator('.file-section');
     await expect(async () => {
       const count = await fileSections.count();
-      expect(count).toBeLessThanOrEqual(5);
+      // Auth commit touches several files; skill.md is included (branch fixture).
+      expect(count).toBeLessThanOrEqual(6);
       expect(count).toBeGreaterThan(0);
     }).toPass();
   });
