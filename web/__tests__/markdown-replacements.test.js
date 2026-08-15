@@ -21,7 +21,7 @@ function makeDocumentMd() {
 
 function makeCommentMd() {
   const md = markdownit({
-    html: false,
+    html: true,
     linkify: true,
     typographer: true,
     highlight() { return ''; }

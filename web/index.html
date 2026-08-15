@@ -323,9 +323,14 @@
 
       // markdown-it powers comment-body rendering inside the shared
       // buildCommentCard. Loaded for /live too so live rows reach parity
-      // with code-review's renderer.
-      var mi = document.createElement('script'); mi.src = 'markdown-it.min.js';
+      // with code-review's renderer. DOMPurify + comment-html sanitize the
+      // html:true output before innerHTML assignment.
+      var mi = document.createElement('script'); mi.src = 'markdown-it.min.js'; mi.async = false;
       document.head.appendChild(mi);
+      var dp = document.createElement('script'); dp.src = 'dompurify.min.js'; dp.async = false;
+      document.head.appendChild(dp);
+      var chm = document.createElement('script'); chm.src = 'comment-html.js'; chm.async = false;
+      document.head.appendChild(chm);
 
       var l = document.createElement('link');
       l.rel = 'stylesheet';
@@ -403,7 +408,7 @@
           });
         });
       }
-      var bootGate = [trackTag(sh), trackTag(cr), trackTag(dr), trackTag(ctpl), trackTag(sse), trackTag(cf), trackTag(ru), trackTag(mi, true)]
+      var bootGate = [trackTag(sh), trackTag(cr), trackTag(dr), trackTag(ctpl), trackTag(sse), trackTag(cf), trackTag(ru), trackTag(mi, true), trackTag(dp), trackTag(chm)]
         .concat(depTags.map(function (t) { return trackTag(t); }));
       Promise.all(bootGate).then(function (results) {
         var failed = results.filter(function (r) { return !r.ok && !r.optional; });
@@ -427,6 +432,8 @@
       // "Cannot read properties of undefined (reading 'installSidebarResize')"
       // (and similar for other window.crit.shared.* helpers).
       var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; v1.async = false; document.body.appendChild(v1);
+      var dp = document.createElement('script'); dp.src = 'dompurify.min.js'; dp.async = false; document.body.appendChild(dp);
+      var chm = document.createElement('script'); chm.src = 'comment-html.js'; chm.async = false; document.body.appendChild(chm);
       var v2 = document.createElement('script'); v2.src = 'highlight.min.js'; v2.async = false; document.body.appendChild(v2);
       var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; v3.async = false; document.body.appendChild(v3);
       var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; v4.async = false; document.body.appendChild(v4);

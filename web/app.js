@@ -3,7 +3,7 @@
 
   // ===== Comment Markdown Renderer =====
   const commentMd = window.markdownit({
-    html: false,
+    html: true,
     linkify: true,
     typographer: true,
     highlight: function(str, lang) {
@@ -245,6 +245,14 @@
       return self.renderToken(tokens, idx, options);
     };
   })();
+  const renderCommentMarkdown = commentMd.render.bind(commentMd);
+  commentMd.render = function(src, env) {
+    return window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env));
+  };
+  const renderInlineCommentMarkdown = commentMd.renderInline.bind(commentMd);
+  commentMd.renderInline = function(src, env) {
+    return window.crit.commentHtml.sanitize(renderInlineCommentMarkdown(src, env));
+  };
 
   // ===== Document Markdown Renderer =====
   const documentMd = window.markdownit({

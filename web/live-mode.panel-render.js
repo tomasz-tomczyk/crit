@@ -46,7 +46,7 @@
       var commentMd = null;
       try {
         if (typeof window.markdownit === 'function') {
-          commentMd = window.markdownit({ html: false, linkify: true, breaks: true });
+          commentMd = window.markdownit({ html: true, linkify: true, breaks: true });
           commentMd.renderer.rules.image = function (tokens, idx, options, _env, self) {
             var token = tokens[idx];
             var srcIdx = token.attrIndex('src');
@@ -57,6 +57,10 @@
               }
             }
             return self.renderToken(tokens, idx, options);
+          };
+          var renderCommentMarkdown = commentMd.render.bind(commentMd);
+          commentMd.render = function (src, env) {
+            return window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env));
           };
         }
       } catch (_) {}

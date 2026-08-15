@@ -256,7 +256,7 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 - `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root
 - Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
 - HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)
-- Comment renderer uses `html: false` (XSS prevention in user comments)
+- Comment renderer uses `html: true` then DOMPurify with a pinned GitHub-compatible allowlist (`web/comment-html.js`) before `innerHTML` — never trust raw comment HTML
 - Document renderer uses `html: true` intentionally (reviewing local files)
 </important>
 
