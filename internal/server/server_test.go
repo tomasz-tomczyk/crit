@@ -1960,9 +1960,12 @@ func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
 	srv, session := newTestServer(t)
 	session.AddComment(session.Files[0].Path, 1, 1, "", "test", "", "", "")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	done := make(chan struct{})
 	go func() {
-		req := httptest.NewRequest(http.MethodGet, "/api/wait-for-event", nil)
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/wait-for-event", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 		close(done)
@@ -1977,6 +1980,14 @@ func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
 		t.Fatal("long-poll should not return on comments-changed event")
 	case <-time.After(200 * time.Millisecond):
 		// Good — still blocking
+	}
+
+	// Stop the long-poll before the test's temporary directory is cleaned up.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("long-poll did not stop after request cancellation")
 	}
 }
 
