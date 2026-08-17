@@ -19,8 +19,12 @@ func RunPull(args []string) error {
 	if err != nil {
 		return err
 	}
-	if kind == Auto && argsContainMRURL(cleanArgs) {
-		kind = GitLab
+	if kind == Auto {
+		if argsContainMRURL(cleanArgs) {
+			kind = GitLab
+		} else if argsContainPRURL(cleanArgs) {
+			kind = GitHub
+		}
 	}
 	request, err := parsePullRequest(cleanArgs)
 	if err != nil {
@@ -40,8 +44,12 @@ func RunPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	if kind == Auto && argsContainMRURL(cleanArgs) {
-		kind = GitLab
+	if kind == Auto {
+		if argsContainMRURL(cleanArgs) {
+			kind = GitLab
+		} else if argsContainPRURL(cleanArgs) {
+			kind = GitHub
+		}
 	}
 	request, err := parsePushRequest(cleanArgs)
 	if err != nil {
@@ -114,6 +122,15 @@ func extractKindFlag(args []string) (Kind, []string, error) {
 func argsContainMRURL(args []string) bool {
 	for _, arg := range args {
 		if strings.Contains(arg, "/-/merge_requests/") {
+			return true
+		}
+	}
+	return false
+}
+
+func argsContainPRURL(args []string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, "/pull/") {
 			return true
 		}
 	}

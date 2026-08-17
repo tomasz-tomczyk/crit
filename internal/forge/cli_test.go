@@ -97,6 +97,15 @@ func TestArgsContainMRURL(t *testing.T) {
 	}
 }
 
+func TestArgsContainPRURL(t *testing.T) {
+	if !argsContainPRURL([]string{"https://github.com/a/b/pull/4"}) {
+		t.Fatal("PR URL not detected")
+	}
+	if argsContainPRURL([]string{"https://gitlab.example.com/a/b/-/merge_requests/4"}) {
+		t.Fatal("GitLab URL detected as PR")
+	}
+}
+
 func TestRunPullSelectsGitLabFromURLAndDispatches(t *testing.T) {
 	provider := &cliTestProvider{kind: GitLab}
 	selected := withCLIProvider(t, provider)
@@ -109,6 +118,35 @@ func TestRunPullSelectsGitLabFromURLAndDispatches(t *testing.T) {
 	}
 	if provider.pullRequest.OutputDir != "reviews" || provider.pullRequest.ChangeSpec != url {
 		t.Fatalf("pull request = %+v", provider.pullRequest)
+	}
+}
+
+func TestRunPullSelectsGitHubFromPRURLBeforeRemoteDetection(t *testing.T) {
+	gitHubProvider := &cliTestProvider{kind: GitHub}
+	gitLabProvider := &cliTestProvider{kind: GitLab}
+	oldSelect := SelectProviderFn
+	var selected Kind
+	SelectProviderFn = func(kind Kind) (Provider, error) {
+		selected = kind
+		if kind == Auto {
+			return gitLabProvider, nil
+		}
+		return gitHubProvider, nil
+	}
+	t.Cleanup(func() { SelectProviderFn = oldSelect })
+
+	url := "https://github.com/acme/widget/pull/9"
+	if err := RunPull([]string{"--output", "reviews", url}); err != nil {
+		t.Fatal(err)
+	}
+	if selected != GitHub {
+		t.Fatalf("selected provider = %q, want github", selected)
+	}
+	if gitHubProvider.pullRequest.ChangeSpec != url {
+		t.Fatalf("GitHub pull request = %+v, want URL %q", gitHubProvider.pullRequest, url)
+	}
+	if gitLabProvider.pullRequest.ChangeSpec != "" {
+		t.Fatalf("GitLab provider received request despite GitHub PR URL: %+v", gitLabProvider.pullRequest)
 	}
 }
 

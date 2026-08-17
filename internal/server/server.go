@@ -1267,7 +1267,7 @@ func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
 		}
 		comments, reviewRound = share.LoadCommentsForShare(critPath, filePaths, s.author)
 	}
-	cliArgs := share.LoadCliArgsFromReviewFile(critPath)
+	cliArgs := s.shareCLIArgsForSession(sess)
 	deleteToken := sess.GetDeleteToken()
 	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
 }
@@ -1383,7 +1383,7 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 		ShareURL:    hostedURL,
 		DeleteToken: deleteToken,
 		ReviewRound: sess.ReviewRound,
-		CliArgs:     share.LoadCliArgsFromReviewFile(critPath),
+		CliArgs:     s.shareCLIArgsForSession(sess),
 	}
 	if data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review); readErr == nil {
 		var onDisk CritJSON
@@ -1391,9 +1391,6 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 			existingCfg.LastShareHash = onDisk.LastShareHash
 			if onDisk.ReviewRound > 0 {
 				existingCfg.ReviewRound = onDisk.ReviewRound
-			}
-			if len(onDisk.CliArgs) > 0 {
-				existingCfg.CliArgs = onDisk.CliArgs
 			}
 		}
 	}

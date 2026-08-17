@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -206,6 +207,77 @@ func TestShareCLIArgsForSession_NormalizesPersistedPreviewArgs(t *testing.T) {
 
 	if got := (&Server{}).shareCLIArgsForSession(sess); len(got) != 2 || got[0] != "preview" || got[1] != "persisted.html" {
 		t.Fatalf("persisted cli args = %v, want [preview persisted.html]", got)
+	}
+}
+
+func newPreviewReshareTestServer(t *testing.T) (*Server, *Session, string) {
+	t.Helper()
+	dir := t.TempDir()
+	origin := filepath.Join(dir, "original-preview.html")
+	if err := os.WriteFile(origin, []byte("<!doctype html><h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := &Session{
+		Mode:        "files",
+		ReviewType:  "preview",
+		RepoRoot:    dir,
+		OutputDir:   dir,
+		Origin:      origin,
+		CLIArgs:     []string{"preview", origin},
+		ReviewRound: 1,
+		Files: []*FileEntry{{
+			Path: "original-preview.html", AbsPath: origin, Content: "<!doctype html><h1>Preview</h1>",
+		}},
+	}
+	sess.InitTestChannels()
+	stale, err := json.Marshal(CritJSON{
+		CliArgs: []string{"files", "stale.md"},
+		Files:   map[string]CritJSONFile{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := session.ReviewPathsFor(sess.CritJSONPath()).Review
+	if err := os.MkdirAll(filepath.Dir(reviewPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, sess, origin
+}
+
+func TestHandleUpsertPayload_PreviewPreservesOriginalCLIPath(t *testing.T) {
+	s, _, origin := newPreviewReshareTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/share/upsert-payload", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var payload struct {
+		CLIArgs []string `json:"cli_args"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(payload.CLIArgs, []string{"preview", origin}) {
+		t.Fatalf("cli_args = %v, want [preview %s]", payload.CLIArgs, origin)
+	}
+}
+
+func TestReshareUpsertInputs_PreviewPreservesOriginalCLIPath(t *testing.T) {
+	s, sess, origin := newPreviewReshareTestServer(t)
+	_, _, cfg, err := s.reshareUpsertInputs(sess, "https://crit.md/r/preview", "delete-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.CliArgs, []string{"preview", origin}) {
+		t.Fatalf("cli args = %v, want [preview %s]", cfg.CliArgs, origin)
 	}
 }
 
