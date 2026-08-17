@@ -9381,322 +9381,37 @@
     document.body.classList.toggle('hide-resolved', isHideResolved());
   }
 
-  function updatePillIndicator(indicatorId, values, current) {
-    const indicator = document.getElementById(indicatorId);
-    if (!indicator) return;
-    const idx = values.indexOf(current);
-    if (idx >= 0) {
-      indicator.style.left = (idx * (100 / values.length)) + '%';
-      indicator.style.width = (100 / values.length) + '%';
-    }
-  }
-
   function renderSettingsPane(cfg) {
     const pane = document.getElementById('settingsPane');
     const shared = window.crit && window.crit.settingsPanes;
-    if (shared && shared.renderSettingsTab) {
-      const isGit = session.mode === 'git';
-      const hooks = {
-        applyTheme: window.applyTheme,
-        applyWidth: applyWidth,
-        getHideResolved: isHideResolved,
-        setHideResolved: setHideResolved,
-        onHideResolvedChange: function () { refreshHideResolvedView(); },
-        hasActivePendingUpdates: hasActivePendingUpdates,
-        announceCopy: announceCopy,
-        escape: escapeHtml,
-      };
-      // Ignore-whitespace only applies to code diffs (git mode). Providing the
-      // hooks + show flag only in git mode keeps the toggle out of file/preview
-      // review, where there are no git diffs to recompute.
-      if (isGit) {
-        hooks.getIgnoreWhitespace = function () { return ignoreWhitespace; };
-        hooks.setIgnoreWhitespace = function (v) { ignoreWhitespace = !!v; setSetting('ignoreWhitespace', ignoreWhitespace); };
-        hooks.onIgnoreWhitespaceChange = function () { reloadForScope(); };
-      }
-      shared.renderSettingsTab(pane, {
-        mode: 'code-review',
-        cfg: cfg,
-        show: isGit ? { ignoreWhitespace: true } : undefined,
-        hooks: hooks,
-      });
+    if (!shared || typeof shared.renderSettingsTab !== 'function') {
+      console.error('Crit settings panes failed to load.');
       return;
     }
-    // Fallback (shared module not loaded — should never happen since
-    // crit-settings-panes.js is loaded before app.js).
-    const currentTheme = getSetting('theme', 'system');
-    const currentWidth = getSetting('width', 'default');
-    let html = '';
-    html += '<div class="settings-section-label">Display</div>';
-    html += '<div class="settings-display-group">';
-
-    // Theme row
-    html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Theme</span>';
-    html += '<div class="settings-pill settings-pill--theme" id="settingsThemePill" role="group" aria-label="Theme">';
-    html += '<div class="settings-pill-indicator" id="settingsThemeIndicator"></div>';
-    const themeIcons = {
-      system: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>',
-      light: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>',
-      dark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>'
+    const isGit = session.mode === 'git';
+    const hooks = {
+      applyTheme: window.applyTheme,
+      applyWidth: applyWidth,
+      getHideResolved: isHideResolved,
+      setHideResolved: setHideResolved,
+      onHideResolvedChange: function () { refreshHideResolvedView(); },
+      hasActivePendingUpdates: hasActivePendingUpdates,
+      announceCopy: announceCopy,
+      escape: escapeHtml,
     };
-    ['system', 'light', 'dark'].forEach(function(theme) {
-      const active = theme === currentTheme ? ' active' : '';
-      html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-theme="' + theme + '" title="' + theme.charAt(0).toUpperCase() + theme.slice(1) + ' theme">' + themeIcons[theme] + '</button>';
-    });
-    html += '</div></div>';
-
-    // Width row
-    html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--crit-editor-fg-muted)">(file mode)</span></span>';
-    html += '<div class="settings-pill settings-pill--width" id="settingsWidthPill" role="group" aria-label="Content width">';
-    html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
-    ['compact', 'default', 'wide'].forEach(function(w) {
-      const active = w === currentWidth ? ' active' : '';
-      html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
-    });
-    html += '</div></div>';
-
-    // Hide resolved row
-    const hideResolved = isHideResolved();
-    html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Hide resolved comments</span>';
-    html += '<label class="comments-panel-switch">';
-    html += '<input type="checkbox" id="hideResolvedToggle" aria-label="Hide resolved comments"' + (hideResolved ? ' checked' : '') + '>';
-    html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
-    html += '</label>';
-    html += '</div>';
-
-    html += '</div>'; // close settings-display-group
-
-    // Configuration section
-    html += '<div class="settings-section-label">Configuration</div>';
-    html += '<div class="config-cards">';
-
-    // Update card (shown only when an update is available)
-    if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
-      const upgradeCmd = 'brew update && brew upgrade crit';
-      const releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHtml(cfg.latest_version);
-      const alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
-      html += '<div class="config-card config-card--orange"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
-      html += '<span class="config-card-title">Update available</span>';
-      html += '<span class="config-card-value">v' + escapeHtml(cfg.latest_version) + '</span>';
-      html += '</div>';
-      html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(upgradeCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(upgradeCmd) + '">Copy</button></div>';
-      html += '<div class="config-card-body" id="updateCardBody">';
-      html += '<div class="config-card-actions">';
-      html += '<a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes</a>';
-      if (alreadyDismissed) {
-        html += '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-      } else {
-        html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + escapeHtml(cfg.latest_version) + '">Don\'t remind me until next version</button>';
-      }
-      html += '</div>';
-      html += '</div>';
-      html += '</div>';
+    // Ignore-whitespace only applies to code diffs (git mode). Providing the
+    // hooks + show flag only in git mode keeps the toggle out of file/preview
+    // review, where there are no git diffs to recompute.
+    if (isGit) {
+      hooks.getIgnoreWhitespace = function () { return ignoreWhitespace; };
+      hooks.setIgnoreWhitespace = function (v) { ignoreWhitespace = !!v; setSetting('ignoreWhitespace', ignoreWhitespace); };
+      hooks.onIgnoreWhitespaceChange = function () { reloadForScope(); };
     }
-
-    // Account card (only show if sharing is enabled)
-    if (cfg.share_url) {
-      if (cfg.auth_logged_in) {
-        const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
-        html += '<div class="config-card config-card--green"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-        html += '<span class="config-card-title">Account</span>';
-        html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
-        html += '</div></div>';
-      } else {
-        html += '<div class="config-card config-card--red config-card--unconfigured"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-red)">&#9675;</span>';
-        html += '<span class="config-card-title">Account</span>';
-        html += '</div>';
-        html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
-        html += '<div class="config-card-cmd"><span>$ crit auth login</span><button class="config-card-copy" data-copy="crit auth login">Copy</button></div>';
-        html += '</div>';
-      }
-    }
-
-    // Agent Command card
-    if (cfg.agent_cmd_enabled) {
-      html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-      html += '<span class="config-card-title">Agent Command</span>';
-      html += '</div>';
-      html += '<div class="config-card-cmd-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></div>';
-      html += '</div>';
-    } else {
-      html += '<div class="config-card config-card--orange config-card--unconfigured"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9675;</span>';
-      html += '<span class="config-card-title">Agent Command</span>';
-      html += '</div>';
-      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--crit-brand)">Learn more</a></div>';
-      html += '<div class="config-card-snippet">{"agent_cmd": "claude -p"}\n// Also: "opencode run", "aider --message"</div>';
-      html += '</div>';
-    }
-
-    // Integration card (hidden if no_integration_check)
-    if (!cfg.no_integration_check) {
-      const integrations = cfg.integrations || [];
-      const anyInstalled = cfg.any_integration_installed;
-      if (anyInstalled) {
-        const current = integrations.filter(function(i) { return i.status === 'current'; });
-        const stale = integrations.filter(function(i) { return i.status === 'stale'; });
-        if (stale.length > 0) {
-          const si = stale[0];
-          const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
-          const dismissedMap = getSetting('dismissedIntegrations', {}) || {};
-          const intAlreadyDismissed = !!si.hash && dismissedMap[si.agent] === si.hash;
-          html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
-          html += '<span class="config-card-title">AI Integration</span>';
-          html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
-          html += '</div>';
-          const hintLines = si.hint.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-          hintLines.forEach(function(line) {
-            const parts = line.split('|');
-            let label = '';
-            let cmd = line.replace(/^Run:\s*/i, '');
-            if (parts.length === 2) {
-              label = parts[0];
-              cmd = parts[1];
-            }
-            html += '<div class="config-card-cmd">';
-            if (label) html += '<span class="config-card-cmd-label">' + escapeHtml(label) + '</span>';
-            html += '<span>$ ' + escapeHtml(cmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(cmd) + '">Copy</button></div>';
-          });
-          if (si.hash) {
-            html += '<div class="config-card-body" id="integrationCardBody">';
-            html += '<div class="config-card-actions config-card-actions--end">';
-            if (intAlreadyDismissed) {
-              html += '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
-            } else {
-              html += '<button type="button" class="config-card-dismiss" id="integrationDismissBtn" data-agent="' + escapeHtml(si.agent) + '" data-hash="' + escapeHtml(si.hash) + '">Don\'t remind me until next version</button>';
-            }
-            html += '</div>';
-            html += '</div>';
-          }
-          html += '</div>';
-        } else if (current.length > 0) {
-          const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
-          html += '<div class="config-card config-card--green"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-          html += '<span class="config-card-title">AI Integration</span>';
-          html += '<span class="config-card-value">' + escapeHtml(name) + ' (up to date)</span>';
-          html += '</div></div>';
-        }
-      } else {
-        const available = (cfg.integrations_available || []).join(' \u00b7 ');
-        html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
-        html += '<span class="config-card-title">AI Integration</span>';
-        html += '<span class="config-card-badge">Recommended</span>';
-        html += '</div>';
-        html += '<div class="config-card-body">Install a plugin so your AI agent can launch crit, read comments, and iterate.</div>';
-        html += '<div class="config-card-cmd"><span>$ crit install claude-code</span><button class="config-card-copy" data-copy="crit install claude-code">Copy</button></div>';
-        if (available) html += '<div class="config-card-agents">Also: ' + escapeHtml(available) + '</div>';
-        html += '</div>';
-      }
-    }
-
-    // Share card
-    if (cfg.share_url) {
-      let hostname;
-      try { hostname = new URL(cfg.share_url).hostname; } catch { hostname = cfg.share_url; }
-      html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-      html += '<span class="config-card-title">Sharing enabled</span>';
-      html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
-      html += '</div></div>';
-    } else {
-      html += '<div class="config-card config-card--gray config-card--unconfigured"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-editor-fg-muted)">&mdash;</span>';
-      html += '<span class="config-card-title">Share</span>';
-      html += '<span class="config-card-value">Disabled</span>';
-      html += '</div></div>';
-    }
-    html += '</div>'; // close config-cards
-
-    pane.innerHTML = html;
-
-    // Wire up theme pill clicks
-    pane.querySelectorAll('[data-settings-theme]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const theme = btn.dataset.settingsTheme;
-        applyTheme(theme);
-        pane.querySelectorAll('[data-settings-theme]').forEach(function(b) { b.classList.toggle('active', b.dataset.settingsTheme === theme); });
-        updatePillIndicator('settingsThemeIndicator', ['system', 'light', 'dark'], theme);
-      });
-    });
-    updatePillIndicator('settingsThemeIndicator', ['system', 'light', 'dark'], currentTheme);
-
-    // Wire up width pill clicks
-    pane.querySelectorAll('[data-settings-width]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const w = btn.dataset.settingsWidth;
-        applyWidth(w);
-        pane.querySelectorAll('[data-settings-width]').forEach(function(b) { b.classList.toggle('active', b.dataset.settingsWidth === w); });
-        updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], w);
-      });
-    });
-    updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], currentWidth);
-
-    // Wire up hide-resolved toggle
-    const hideResolvedToggle = pane.querySelector('#hideResolvedToggle');
-    if (hideResolvedToggle) {
-      hideResolvedToggle.addEventListener('change', function() {
-        setHideResolved(hideResolvedToggle.checked);
-        refreshHideResolvedView();
-      });
-    }
-
-    // Wire up "Don't remind me" button on the update card
-    const dismissBtn = pane.querySelector('#updateDismissBtn');
-    if (dismissBtn) {
-      dismissBtn.addEventListener('click', function() {
-        const version = dismissBtn.dataset.dismissVersion || '';
-        setSetting('updatesDismissed', version);
-        const updateBtn = document.getElementById('updateBtn');
-        if (updateBtn && !hasActivePendingUpdates()) updateBtn.style.display = 'none';
-        const body = pane.querySelector('#updateCardBody');
-        if (body) {
-          dismissBtn.outerHTML = '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-        }
-      });
-    }
-
-    // Wire up "Don't remind me" button on the AI Integration card
-    const integrationDismissBtn = pane.querySelector('#integrationDismissBtn');
-    if (integrationDismissBtn) {
-      integrationDismissBtn.addEventListener('click', function() {
-        const agent = integrationDismissBtn.dataset.agent || '';
-        const hash = integrationDismissBtn.dataset.hash || '';
-        if (!agent || !hash) return;
-        const map = getSetting('dismissedIntegrations', {}) || {};
-        map[agent] = hash;
-        setSetting('dismissedIntegrations', map);
-        const updateBtn = document.getElementById('updateBtn');
-        if (updateBtn && !hasActivePendingUpdates()) updateBtn.style.display = 'none';
-        integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
-      });
-    }
-
-    // Wire up copy buttons
-    pane.querySelectorAll('.config-card-copy').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const text = btn.dataset.copy;
-        navigator.clipboard.writeText(text).then(function() {
-          btn.textContent = '\u2713 Copied';
-          btn.setAttribute('aria-label', 'Copied');
-          announceCopy();
-          btn.classList.add('copied');
-          setTimeout(function() {
-            btn.textContent = 'Copy';
-            btn.setAttribute('aria-label', 'Copy');
-            btn.classList.remove('copied');
-          }, 1500);
-        });
-      });
+    shared.renderSettingsTab(pane, {
+      mode: 'code-review',
+      cfg: cfg,
+      show: isGit ? { ignoreWhitespace: true } : undefined,
+      hooks: hooks,
     });
   }
 

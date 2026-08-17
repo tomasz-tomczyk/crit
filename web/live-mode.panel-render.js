@@ -46,7 +46,19 @@
       var commentMd = null;
       try {
         if (typeof window.markdownit === 'function') {
-          commentMd = window.markdownit({ html: true, linkify: true, breaks: true });
+          commentMd = window.markdownit({
+            html: true,
+            linkify: true,
+            typographer: true,
+            highlight: function (str, lang) {
+              var highlighter = window.hljs;
+              if (lang && highlighter && highlighter.getLanguage(lang)) {
+                try { return highlighter.highlight(str, { language: lang }).value; } catch (_) {}
+              }
+              return '';
+            },
+          });
+          commentMd.disable('replacements');
           commentMd.renderer.rules.image = function (tokens, idx, options, _env, self) {
             var token = tokens[idx];
             var srcIdx = token.attrIndex('src');

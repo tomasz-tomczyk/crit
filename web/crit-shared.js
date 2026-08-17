@@ -227,6 +227,9 @@
 
     var t = document.createElement('div');
     t.className = 'mini-toast mini-toast--' + kind;
+    t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    t.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+    t.setAttribute('aria-atomic', 'true');
     t.textContent = (message == null) ? '' : String(message);
     host.appendChild(t);
 

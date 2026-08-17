@@ -203,6 +203,7 @@ function makeToastSandbox() {
       _listeners: {},
       classList: elClassList(),
       textContent: '',
+      attrs: {},
       _className: '',
       get className() { return this._className; },
       set className(v) {
@@ -221,6 +222,12 @@ function makeToastSandbox() {
         if (i >= 0) this._children.splice(i, 1);
         child.parentNode = null;
         return child;
+      },
+      setAttribute(name, value) {
+        this.attrs[name] = String(value);
+      },
+      getAttribute(name) {
+        return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
       },
       addEventListener(evt, cb /* , opts */) {
         (this._listeners[evt] = this._listeners[evt] || []).push(cb);
@@ -302,6 +309,22 @@ test('showToast applies kind modifier class', () => {
   const t = host._children[0];
   assert.equal(t.classList.contains('mini-toast'), true);
   assert.equal(t.classList.contains('mini-toast--error'), true);
+});
+
+test('showToast exposes ordinary feedback as a polite status', () => {
+  const { shared: s, body } = makeToastSandbox();
+  s.showToast('Saved');
+  const t = body.querySelector('.mini-toast-host')._children[0];
+  assert.equal(t.getAttribute('role'), 'status');
+  assert.equal(t.getAttribute('aria-live'), 'polite');
+});
+
+test('showToast exposes errors as assertive alerts', () => {
+  const { shared: s, body } = makeToastSandbox();
+  s.showToast('Not a valid font-family value', { kind: 'error' });
+  const t = body.querySelector('.mini-toast-host')._children[0];
+  assert.equal(t.getAttribute('role'), 'alert');
+  assert.equal(t.getAttribute('aria-live'), 'assertive');
 });
 
 test('showToast: rAF adds the visible class for the entry transition', () => {
