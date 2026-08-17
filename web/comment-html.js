@@ -35,12 +35,26 @@
     'width', 'itemprop', 'class', 'data-ref-id'
   ];
   // Crit-generated classes only — suggestion diffs + highlight/ref spans.
-  var SAFE_CLASS = /^(?:hljs(?:-[\w-]+)?|file-ref|comment-ref|comment-ref-code|suggestion(?:-[\w-]+)+|diff-word-(?:del|add))$/;
+  // language-* survives so markdown-it fenced-code classes remain after sanitize.
+  var SAFE_CLASS = /^(?:hljs(?:-[\w-]+)?|language-[\w-]+|file-ref|comment-ref|comment-ref-code|suggestion(?:-[\w-]+)+|diff-word-(?:del|add))$/;
   var SAFE_COMMENT_REF = /^(?:c|r|rp)_[a-f0-9]{6,}$/;
   var SAFE_URL = /^(?:(?:https?|mailto):|(?:\/|\.{1,2}\/|#))/i;
 
   function isSafeUrl(value) {
     return value === '' || SAFE_URL.test(String(value).trim());
+  }
+
+  // Split srcset candidates (comma-separated), keep only entries whose URL
+  // passes the same SAFE_URL check used for src/href.
+  function sanitizeSrcset(value) {
+    var kept = [];
+    String(value).split(',').forEach(function (entry) {
+      var trimmed = entry.trim();
+      if (!trimmed) return;
+      var url = trimmed.split(/\s+/)[0];
+      if (isSafeUrl(url)) kept.push(trimmed);
+    });
+    return kept.join(', ');
   }
 
   purify.addHook('afterSanitizeAttributes', function (node) {
@@ -49,6 +63,11 @@
         node.removeAttribute(attr);
       }
     });
+    if (node.hasAttribute && node.hasAttribute('srcset')) {
+      var cleaned = sanitizeSrcset(node.getAttribute('srcset'));
+      if (cleaned) node.setAttribute('srcset', cleaned);
+      else node.removeAttribute('srcset');
+    }
     if (node.hasAttribute && node.hasAttribute('class')) {
       var classes = node.getAttribute('class').split(/\s+/).filter(function (value) {
         return SAFE_CLASS.test(value);
