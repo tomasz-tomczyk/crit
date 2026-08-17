@@ -3056,9 +3056,17 @@ func TestEnsureLoadedNotLazy(t *testing.T) {
 }
 
 func TestNewSessionFromGitLazyThreshold(t *testing.T) {
+	// DefaultBranch is cached process-wide, while this test creates a fresh
+	// repository whose branch is renamed to main after its initial commit.
+	// Reset the cache so an earlier test cannot make the merge-base lookup use
+	// a stale branch name and accidentally include README.md in the change set.
+	vcs.ResetDefaultBranchOnceForTest()
 	dir := initTestRepo(t)
 	vcs.SetDefaultBranchOverride("")
-	defer func() { vcs.SetDefaultBranchOverride("") }()
+	defer func() {
+		vcs.SetDefaultBranchOverride("")
+		vcs.ResetDefaultBranchOnceForTest()
+	}()
 
 	gitT(t, dir, "checkout", "-b", "feature-many-files")
 	for i := 0; i < 120; i++ {
