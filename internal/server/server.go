@@ -900,6 +900,30 @@ func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, e
 	return sess.LoadShareFilesFromDisk(), "", nil
 }
 
+// shareCLIArgsForSession prefers persisted metadata. Preview metadata is
+// normalized to the canonical ["preview", path] shape and falls back to the
+// live session when the persisted value is stale or malformed. File-review
+// sessions retain their existing review.json-only behavior.
+func (s *Server) shareCLIArgsForSession(sess *Session) []string {
+	if sess == nil {
+		return nil
+	}
+	cliArgs := share.LoadCliArgsFromReviewFile(sess.CritJSONPath())
+	if sess.ReviewType != "preview" {
+		return cliArgs
+	}
+	if len(cliArgs) >= 2 && cliArgs[0] == "preview" && cliArgs[1] != "" {
+		return []string{"preview", cliArgs[1]}
+	}
+	if len(sess.CLIArgs) >= 2 && sess.CLIArgs[0] == "preview" && sess.CLIArgs[1] != "" {
+		return []string{"preview", sess.CLIArgs[1]}
+	}
+	if sess.Origin != "" {
+		return []string{"preview", sess.Origin}
+	}
+	return nil
+}
+
 func (s *Server) writeExistingShareIfPresent(w http.ResponseWriter) (bool, error) {
 	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
 	// where a concurrent DELETE /api/share-url could clear the token between two calls).
@@ -1000,7 +1024,8 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		commentPaths = scopePaths
 	}
 
-	res, err := share.ShareReviewFiles(critPath, files, commentPaths, s.shareURL, s.authTokenSnapshot(), s.author, shareReq.Org, shareReq.Visibility, reviewType)
+	cliArgs := s.shareCLIArgsForSession(s.session.Load())
+	res, err := share.ShareReviewFilesWithCLIArgs(critPath, files, commentPaths, s.shareURL, s.authTokenSnapshot(), s.author, cliArgs, shareReq.Org, shareReq.Visibility, reviewType)
 	if err != nil {
 		if errors.Is(err, share.ErrShareUnauthorized) {
 			auth.ClearAuthIdentity()
@@ -1200,7 +1225,7 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 	if reviewRound == 0 {
 		reviewRound = 1
 	}
-	writeJSON(w, share.BuildSharePayload(files, comments, reviewRound, nil, "", "", "preview"))
+	writeJSON(w, share.BuildSharePayload(files, comments, reviewRound, s.shareCLIArgsForSession(sess), "", "", "preview"))
 }
 
 // handleUpsertPayload returns the JSON payload that would be PUT to

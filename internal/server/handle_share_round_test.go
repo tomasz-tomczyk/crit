@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -86,6 +87,125 @@ func TestHandleShare_Success(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&result)
 	if result["url"] != "https://crit.md/r/test123" {
 		t.Errorf("url = %v", result["url"])
+	}
+}
+
+func TestHandleShare_FreshPreviewPreservesMetadataWithoutReviewFile(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	dir := t.TempDir()
+	originalPath := filepath.Join("artifacts", "reports", "checkout.html")
+	origin := filepath.Join(dir, originalPath)
+	if err := os.MkdirAll(filepath.Dir(origin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(origin, []byte("<!doctype html><h1>Checkout</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var captured map[string]any
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.md/r/preview123",
+			"delete_token": "tok_preview",
+		})
+	}))
+	defer critWeb.Close()
+
+	sess := &Session{
+		Mode:        "files",
+		ReviewType:  "preview",
+		RepoRoot:    dir,
+		OutputDir:   dir,
+		Origin:      origin,
+		ReviewRound: 1,
+		Files: []*FileEntry{{
+			Path: originalPath, AbsPath: origin, FileType: "code", Content: "<!doctype html><h1>Checkout</h1>",
+		}},
+	}
+	sess.InitTestChannels()
+	s, err := NewServer(sess, frontendFS, critWeb.URL, false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.authMu.Lock()
+	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/share", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	cliArgs, _ := captured["cli_args"].([]any)
+	if len(cliArgs) != 2 || cliArgs[0] != "preview" || cliArgs[1] != origin {
+		t.Errorf("cli_args = %v, want [preview %s]", cliArgs, origin)
+	}
+	files, _ := captured["files"].([]any)
+	if len(files) != 1 || files[0].(map[string]any)["path"] != session.PreviewMainHTMLKey {
+		t.Errorf("files = %v, want entry HTML at %q", files, session.PreviewMainHTMLKey)
+	}
+
+	// A stale review file must not override the live preview's canonical path.
+	stale, err := json.Marshal(CritJSON{CliArgs: []string{"files", "stale.html"}, Files: map[string]CritJSONFile{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := session.ReviewPathsFor(sess.CritJSONPath()).Review
+	if err := os.MkdirAll(filepath.Dir(reviewPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.shareCLIArgsForSession(sess); len(got) != 2 || got[0] != "preview" || got[1] != origin {
+		t.Errorf("cli args with stale persisted metadata = %v, want [preview %s]", got, origin)
+	}
+}
+
+func TestShareCLIArgsForSession_PreviewFallbacks(t *testing.T) {
+	s := &Server{}
+
+	if got := s.shareCLIArgsForSession(nil); got != nil {
+		t.Fatalf("nil session cli args = %v, want nil", got)
+	}
+
+	live := &Session{ReviewType: "preview", CLIArgs: []string{"preview", "live.html", "ignored"}}
+	if got := s.shareCLIArgsForSession(live); len(got) != 2 || got[0] != "preview" || got[1] != "live.html" {
+		t.Fatalf("live session cli args = %v, want [preview live.html]", got)
+	}
+
+	empty := &Session{ReviewType: "preview"}
+	if got := s.shareCLIArgsForSession(empty); got != nil {
+		t.Fatalf("empty preview cli args = %v, want nil", got)
+	}
+}
+
+func TestShareCLIArgsForSession_NormalizesPersistedPreviewArgs(t *testing.T) {
+	dir := t.TempDir()
+	sess := &Session{ReviewType: "preview", OutputDir: dir, RepoRoot: dir}
+	persisted, err := json.Marshal(CritJSON{
+		CliArgs: []string{"preview", "persisted.html", "ignored"},
+		Files:   map[string]CritJSONFile{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := session.ReviewPathsFor(sess.CritJSONPath()).Review
+	if err := os.MkdirAll(filepath.Dir(reviewPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, persisted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := (&Server{}).shareCLIArgsForSession(sess); len(got) != 2 || got[0] != "preview" || got[1] != "persisted.html" {
+		t.Fatalf("persisted cli args = %v, want [preview persisted.html]", got)
 	}
 }
 

@@ -244,6 +244,16 @@ func remapPreviewCommentFiles(comments []ShareComment) {
 // and POSTs the files to crit-web. Used by both the CLI (`crit share`) and the
 // server's POST /api/share endpoint so payload wiring stays in one place.
 func ShareReviewFiles(critPath string, files []ShareFile, filePaths []string, svcURL, authToken, fallbackAuthor, org, visibility, reviewType string) (ShareReviewFilesResult, error) {
+	return ShareReviewFilesWithCLIArgs(
+		critPath, files, filePaths, svcURL, authToken, fallbackAuthor,
+		LoadCliArgsFromReviewFile(critPath), org, visibility, reviewType,
+	)
+}
+
+// ShareReviewFilesWithCLIArgs is ShareReviewFiles with caller-supplied CLI
+// metadata. Server-backed sessions use it so a first share can preserve the
+// live session arguments before review.json has been written.
+func ShareReviewFilesWithCLIArgs(critPath string, files []ShareFile, filePaths []string, svcURL, authToken, fallbackAuthor string, cliArgs []string, org, visibility, reviewType string) (ShareReviewFilesResult, error) {
 	comments, reviewRound := LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	if reviewType == "preview" {
 		// Preview comments are stored under the session's on-disk path (passed
@@ -251,7 +261,6 @@ func ShareReviewFiles(critPath string, files []ShareFile, filePaths []string, sv
 		// previewMainHTMLKey — re-key so crit-web attaches them to that entry.
 		remapPreviewCommentFiles(comments)
 	}
-	cliArgs := LoadCliArgsFromReviewFile(critPath)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility, reviewType)
 	if err != nil {

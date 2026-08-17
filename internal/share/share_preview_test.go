@@ -25,9 +25,10 @@ func TestParseShareFlagsPreview(t *testing.T) {
 }
 
 // TestPostPreviewShareDispatch verifies the --preview path crawls the local
-// HTML file (plus its assets) and POSTs a payload with review_type=preview and
-// a base64-encoded binary entry. A stub server stands in for crit-web so the
-// test exercises the full dispatch seam without the network.
+// HTML file (plus its assets) and POSTs a payload with review_type=preview,
+// original path metadata, and a base64-encoded binary entry. A stub server
+// stands in for crit-web so the test exercises the full dispatch seam without
+// the network.
 func TestPostPreviewShareDispatch(t *testing.T) {
 	dir := t.TempDir()
 	writeSharePreviewFixture(t, dir)
@@ -56,6 +57,11 @@ func TestPostPreviewShareDispatch(t *testing.T) {
 
 	if got["review_type"] != "preview" {
 		t.Errorf("review_type = %v, want preview", got["review_type"])
+	}
+	wantPath := filepath.Join(dir, "index.html")
+	cliArgs, ok := got["cli_args"].([]any)
+	if !ok || len(cliArgs) != 2 || cliArgs[0] != "preview" || cliArgs[1] != wantPath {
+		t.Errorf("cli_args = %v, want [preview %s]", got["cli_args"], wantPath)
 	}
 
 	files, ok := got["files"].([]any)

@@ -48,7 +48,7 @@ func postPreviewShare(htmlPath, svcURL, authToken string) (string, error) {
 		return "", fmt.Errorf("crawling preview assets: %w", err)
 	}
 
-	payload := BuildSharePayload(files, nil, 1, nil, "", "", "preview")
+	payload := BuildSharePayload(files, nil, 1, []string{"preview", htmlPath}, "", "", "preview")
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshaling preview payload: %w", err)

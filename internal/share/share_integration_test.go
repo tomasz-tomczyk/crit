@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 func critWebURL(t *testing.T) string {
@@ -457,6 +460,58 @@ func documentFromAPI(t *testing.T, baseURL, token string) []map[string]any {
 }
 
 // --- New test cases ---
+
+// TestShareSyncPreviewPreservesOriginalPath verifies the standalone preview
+// share keeps the source path as display metadata without renaming the crawled
+// entry HTML artifact.
+func TestShareSyncPreviewPreservesOriginalPath(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	originalPath := filepath.Join("artifacts", "reports", "checkout.html")
+
+	if err := os.MkdirAll(filepath.Join(dir, "artifacts", "reports"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, originalPath), []byte("<!doctype html><title>Checkout</title><h1>Checkout</h1>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := runCritCmd(t, binary, dir,
+		"share", "--share-url", baseURL, "--preview", originalPath)
+	if err != nil {
+		t.Fatalf("crit share --preview failed: %s\n%s", err, output)
+	}
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	files := documentFromAPI(t, baseURL, token)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 crawled file, got %d", len(files))
+	}
+	if files[0]["path"] != session.PreviewMainHTMLKey {
+		t.Errorf("preview artifact path = %v, want %q", files[0]["path"], session.PreviewMainHTMLKey)
+	}
+
+	resp, err := http.Get(fmt.Sprintf("%s/r/%s", baseURL, token))
+	if err != nil {
+		t.Fatalf("review page request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("review page returned %d", resp.StatusCode)
+	}
+	page, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading review page: %v", err)
+	}
+	pageHTML := string(page)
+	titleStart := strings.Index(pageHTML, "<title")
+	titleEnd := strings.Index(pageHTML, "</title>")
+	if titleStart == -1 || titleEnd <= titleStart || !strings.Contains(pageHTML[titleStart:titleEnd], originalPath) {
+		t.Errorf("review page title does not contain original preview path %q", originalPath)
+	}
+}
 
 // TestShareSyncNoComments verifies sharing a file with no comments.
 func TestShareSyncNoComments(t *testing.T) {

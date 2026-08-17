@@ -134,6 +134,14 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 	if got := comments[0].(map[string]any)["file"]; got != previewMainHTMLKey {
 		t.Errorf("comment file = %v, want %q", got, previewMainHTMLKey)
 	}
+	cliArgs, _ := payload["cli_args"].([]any)
+	if len(cliArgs) != 2 || cliArgs[0] != "preview" || cliArgs[1] != sessPath {
+		t.Errorf("cli_args = %v, want [preview %s]", cliArgs, sessPath)
+	}
+	files, _ := payload["files"].([]any)
+	if len(files) == 0 || files[0].(map[string]any)["path"] != previewMainHTMLKey {
+		t.Errorf("files = %v, want entry HTML at %q", files, previewMainHTMLKey)
+	}
 }
 
 // previewSessionWithPin builds a preview Session with two FileEntries: the
@@ -146,6 +154,7 @@ func previewSessionWithPin(dir, origin, review, sessPath string) *Session {
 		ReviewType:     "preview",
 		RepoRoot:       dir,
 		Origin:         origin,
+		CLIArgs:        []string{"preview", sessPath, "ignored-extra"},
 		ReviewFilePath: review,
 		ReviewRound:    1,
 		Files: []*FileEntry{
