@@ -68,6 +68,10 @@
       if (cleaned) node.setAttribute('srcset', cleaned);
       else node.removeAttribute('srcset');
     }
+    if (node.tagName === 'IMG' && node.hasAttribute && !node.hasAttribute('src') && node.hasAttribute('srcset')) {
+      var firstUrl = node.getAttribute('srcset').split(/\s+/)[0];
+      if (isSafeUrl(firstUrl)) node.setAttribute('src', firstUrl);
+    }
     if (node.hasAttribute && node.hasAttribute('class')) {
       var classes = node.getAttribute('class').split(/\s+/).filter(function (value) {
         return SAFE_CLASS.test(value);
