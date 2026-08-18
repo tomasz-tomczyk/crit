@@ -46,6 +46,9 @@ test.describe('Native rendered tables', () => {
 
     const layout = await table.evaluate(element => getComputedStyle(element).tableLayout);
     expect(layout).toBe('auto');
+    const wrap = await table.locator('thead th.line-content').first()
+      .evaluate(element => getComputedStyle(element).overflowWrap);
+    expect(wrap).toBe('break-word');
 
     const wrapper = table.locator('..');
     const borderWidth = await wrapper.evaluate(element => getComputedStyle(element).borderTopWidth);

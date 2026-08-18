@@ -1314,6 +1314,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 .native-table {
   width: 100%;
+  max-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: auto;
@@ -1336,6 +1337,10 @@ body.dragging { user-select: none; cursor: grabbing; }
   box-sizing: border-box;
   width: 44px;
 }
+.native-table th.line-content,
+.native-table td.line-content {
+  overflow-wrap: break-word;
+}
 .native-table th.line-content {
   text-align: left;
   font-weight: 600;
@@ -1346,6 +1351,10 @@ body.dragging { user-select: none; cursor: grabbing; }
 .native-table td.line-content {
   padding: 8px 14px;
   border-bottom: 1px solid var(--crit-border);
+}
+.native-table .line-content code {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 .native-table tbody tr.table-even td.line-content {
   background: var(--crit-table-stripe);

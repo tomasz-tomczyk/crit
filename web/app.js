@@ -3330,12 +3330,18 @@
     let activeTableHead = null;
     let activeTableBody = null;
 
+    function nativeTableColCount(section) {
+      const table = section.closest('table');
+      const sample = table && table.querySelector('tr.line-block:not(.native-table-separator)');
+      return (sample && sample.cells.length) || 1;
+    }
+
     function appendTableAnnotation(section, element) {
       const row = document.createElement('tr');
       row.className = 'native-table-annotation';
       if (element.dataset.filePath) row.dataset.filePath = element.dataset.filePath;
       const cell = document.createElement('td');
-      cell.colSpan = 100;
+      cell.colSpan = nativeTableColCount(section);
       cell.appendChild(element);
       row.appendChild(cell);
       section.appendChild(row);
