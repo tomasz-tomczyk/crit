@@ -3736,8 +3736,8 @@
     // single-side range from the visual selection so the form attaches under
     // the selected change (see resolveUnifiedDragFormRange).
     if (diffMode !== 'split' &&
-        diffDragState.anchorVisualIdx != null && !isNaN(diffDragState.anchorVisualIdx) &&
-        diffDragState.currentVisualIdx != null && !isNaN(diffDragState.currentVisualIdx)) {
+        typeof diffDragState.anchorVisualIdx === 'number' && !isNaN(diffDragState.anchorVisualIdx) &&
+        typeof diffDragState.currentVisualIdx === 'number' && !isNaN(diffDragState.currentVisualIdx)) {
       const vLo = Math.min(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
       const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
       const releaseVisualIdx = diffDragState.currentVisualIdx;
