@@ -286,3 +286,66 @@ test('buildSplitChangeRows handles dels-only and adds-only', function() {
   assert.equal(addOnly.length, 1);
   assert.equal(addOnly[0].add.NewNum, 3);
 });
+
+// --- resolveUnifiedDragFormRange ---
+// Unified drag may cross old/new number spaces. The form must resolve to a
+// single side (the release line's) with start/end from that side only, so
+// appendDiffForm can attach it under the selected change.
+
+test('resolveUnifiedDragFormRange uses release side across del→add selection', function() {
+  // Visual selection: old 33-36 then new 34-37 (user's screenshot case).
+  // Released on the last added line.
+  var selected = [
+    { visualIdx: 10, lineNum: 33, side: 'old' },
+    { visualIdx: 11, lineNum: 34, side: 'old' },
+    { visualIdx: 12, lineNum: 35, side: 'old' },
+    { visualIdx: 13, lineNum: 36, side: 'old' },
+    { visualIdx: 14, lineNum: 34, side: '' },
+    { visualIdx: 15, lineNum: 35, side: '' },
+    { visualIdx: 16, lineNum: 36, side: '' },
+    { visualIdx: 17, lineNum: 37, side: '' },
+  ];
+  var fallback = { startLine: 33, endLine: 37, side: 'old' }; // buggy mixed-space range
+  var resolved = diffRenderer.resolveUnifiedDragFormRange(selected, 17, fallback);
+  assert.deepEqual(resolved, { startLine: 34, endLine: 37, side: '' });
+});
+
+test('resolveUnifiedDragFormRange uses release side across add→del selection', function() {
+  var selected = [
+    { visualIdx: 10, lineNum: 33, side: 'old' },
+    { visualIdx: 11, lineNum: 34, side: 'old' },
+    { visualIdx: 12, lineNum: 35, side: 'old' },
+    { visualIdx: 13, lineNum: 36, side: 'old' },
+    { visualIdx: 14, lineNum: 34, side: '' },
+    { visualIdx: 15, lineNum: 35, side: '' },
+    { visualIdx: 16, lineNum: 36, side: '' },
+    { visualIdx: 17, lineNum: 37, side: '' },
+  ];
+  var fallback = { startLine: 33, endLine: 37, side: '' };
+  // Released on the first deleted line (dragged upward).
+  var resolved = diffRenderer.resolveUnifiedDragFormRange(selected, 10, fallback);
+  assert.deepEqual(resolved, { startLine: 33, endLine: 36, side: 'old' });
+});
+
+test('resolveUnifiedDragFormRange keeps same-side ranges intact', function() {
+  var selected = [
+    { visualIdx: 5, lineNum: 33, side: 'old' },
+    { visualIdx: 6, lineNum: 34, side: 'old' },
+    { visualIdx: 7, lineNum: 36, side: 'old' },
+  ];
+  var fallback = { startLine: 33, endLine: 36, side: 'old' };
+  var resolved = diffRenderer.resolveUnifiedDragFormRange(selected, 7, fallback);
+  assert.deepEqual(resolved, { startLine: 33, endLine: 36, side: 'old' });
+});
+
+test('resolveUnifiedDragFormRange returns fallback when selection is empty', function() {
+  var fallback = { startLine: 10, endLine: 12, side: 'old' };
+  assert.deepEqual(
+    diffRenderer.resolveUnifiedDragFormRange([], 0, fallback),
+    fallback
+  );
+  assert.deepEqual(
+    diffRenderer.resolveUnifiedDragFormRange(null, 0, fallback),
+    fallback
+  );
+});

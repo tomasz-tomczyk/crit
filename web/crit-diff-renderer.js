@@ -276,6 +276,39 @@
     return rows;
   }
 
+  // Resolve a unified-diff drag into a single-side form range.
+  // Unified drag may cross old/new number spaces (del OldNum vs add NewNum).
+  // Mixing those with Math.min/max while keeping the anchor side produces a
+  // form that appendDiffForm cannot attach (invisible until split re-render).
+  // selectedLines: [{ visualIdx, lineNum, side }, ...] in visual order.
+  // releaseVisualIdx: the line where the pointer was released.
+  // fallback: { startLine, endLine, side } used when selection is empty.
+  function resolveUnifiedDragFormRange(selectedLines, releaseVisualIdx, fallback) {
+    if (!selectedLines || selectedLines.length === 0) return fallback;
+    var release = null;
+    for (var i = 0; i < selectedLines.length; i++) {
+      if (selectedLines[i].visualIdx === releaseVisualIdx) {
+        release = selectedLines[i];
+        break;
+      }
+    }
+    if (!release) release = selectedLines[selectedLines.length - 1];
+    var side = release.side || '';
+    var nums = [];
+    for (var j = 0; j < selectedLines.length; j++) {
+      var line = selectedLines[j];
+      if ((line.side || '') === side && line.lineNum > 0) {
+        nums.push(line.lineNum);
+      }
+    }
+    if (nums.length === 0) return fallback;
+    return {
+      startLine: Math.min.apply(null, nums),
+      endLine: Math.max.apply(null, nums),
+      side: side,
+    };
+  }
+
   var api = {
     lineSimilarity: lineSimilarity,
     bestWordDiffPairing: bestWordDiffPairing,
@@ -285,6 +318,7 @@
     applyWordDiffPair: applyWordDiffPair,
     buildHunkWordDiffs: buildHunkWordDiffs,
     buildSplitChangeRows: buildSplitChangeRows,
+    resolveUnifiedDragFormRange: resolveUnifiedDragFormRange,
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};

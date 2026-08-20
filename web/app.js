@@ -3550,6 +3550,7 @@
   const applyWordDiffPair = window.crit.diffRenderer.applyWordDiffPair;
   const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
   const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
+  const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
@@ -3725,11 +3726,47 @@
     document.body.classList.remove('dragging');
 
     if (!diffDragState) return;
-    const rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
-    const rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
 
+    let rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
+    let rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
+    let side = diffDragState.side;
     const fp = diffDragState.filePath;
-    const side = diffDragState.side;
+
+    // Unified mode may drag across old/new number spaces. Resolve to a
+    // single-side range from the visual selection so the form attaches under
+    // the selected change (see resolveUnifiedDragFormRange).
+    if (diffMode !== 'split' &&
+        diffDragState.anchorVisualIdx != null && !isNaN(diffDragState.anchorVisualIdx) &&
+        diffDragState.currentVisualIdx != null && !isNaN(diffDragState.currentVisualIdx)) {
+      const vLo = Math.min(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
+      const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
+      const releaseVisualIdx = diffDragState.currentVisualIdx;
+      const selected = [];
+      const section = document.getElementById('file-section-' + fp);
+      if (section) {
+        const els = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
+        for (let i = 0; i < els.length; i++) {
+          const vi = parseInt(els[i].dataset.diffVisualIdx, 10);
+          if (isNaN(vi) || vi < vLo || vi > vHi) continue;
+          const ln = parseInt(els[i].dataset.diffLineNum, 10);
+          if (!ln) continue;
+          selected.push({
+            visualIdx: vi,
+            lineNum: ln,
+            side: els[i].dataset.diffSide || '',
+          });
+        }
+      }
+      const resolved = resolveUnifiedDragFormRange(selected, releaseVisualIdx, {
+        startLine: rangeStart,
+        endLine: rangeEnd,
+        side: side,
+      });
+      rangeStart = resolved.startLine;
+      rangeEnd = resolved.endLine;
+      side = resolved.side;
+    }
+
     diffDragState = null;
     unifiedVisualStart = null;
     unifiedVisualEnd = null;
