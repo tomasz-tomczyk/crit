@@ -2645,14 +2645,23 @@
       }
       // Expanding: let native <details> handle it
     });
-    // open is set before this listener is attached, so the create-time open
-    // does not fire toggle here. Do not gate the first event — that would
-    // swallow the user's first collapse/expand.
+    // Setting .open above queues a toggle event rather than firing one, so it
+    // arrives here after this listener is attached. Loading a lazy file for
+    // that synthetic event pulls in the whole review at once. Track the last
+    // state, not the first event — a real toggle always flips it.
+    let lastOpen = section.open;
     section.addEventListener('toggle', function() {
+      const readerToggled = section.open !== lastOpen;
+      lastOpen = section.open;
       file.collapsed = !section.open;
       if (section.open) {
-        if (file.lazy) loadLazyFile(section, file);
-        else ensureFileBodyMounted(section, file);
+        // Eager files mount either way — under the threshold the whole
+        // review is meant to render.
+        if (file.lazy) {
+          if (readerToggled) loadLazyFile(section, file);
+        } else {
+          ensureFileBodyMounted(section, file);
+        }
       } else if (!fileHasOpenLineForms(file.path)) {
         deferFileBody(section);
       }

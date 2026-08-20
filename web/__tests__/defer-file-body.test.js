@@ -27,10 +27,14 @@ test('file body mount/unmount helpers are wired into details toggle without init
   assert.match(appSrc, /function deferFileBody\s*\(/);
   assert.match(appSrc, /function populateFileBody\s*\(/);
   assert.match(appSrc, /data-body-deferred/);
-  // Setting open before the listener means there is no synthetic first toggle
-  // to swallow — an initialToggle flag would drop the first real user toggle.
+  // Setting open before the listener does still deliver a synthetic toggle:
+  // it is queued, not fired. Gate the lazy fetch on the open state actually
+  // changing, not on an event count — an initialToggle flag would drop the
+  // first real user toggle, and ungated it loads every file in the review.
   assert.doesNotMatch(appSrc, /initialToggle/);
-  assert.match(appSrc, /if \(section\.open\) \{\s*if \(file\.lazy\) loadLazyFile\(section, file\);\s*else ensureFileBodyMounted\(section, file\);/s);
+  assert.match(appSrc, /if \(readerToggled\) loadLazyFile\(section, file\);/);
+  // Eager files must still mount, so a review under the threshold renders full.
+  assert.match(appSrc, /\} else \{\s*ensureFileBodyMounted\(section, file\);/s);
   assert.match(appSrc, /else if \(!fileHasOpenLineForms\(file\.path\)\) \{\s*deferFileBody\(section\);/s);
 });
 
