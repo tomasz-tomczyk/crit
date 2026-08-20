@@ -40,7 +40,7 @@ func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (h
 	}
 
 	// Use a transport with DisableCompression=true so http.Transport does
-	// not silently re-add Accept-Encoding: gzip after our Director strips
+	// not silently re-add Accept-Encoding: gzip after our Rewrite strips
 	// it. Stripping matters because we need the upstream body uncompressed
 	// in order to inject scripts.
 	transport := &http.Transport{
@@ -53,21 +53,25 @@ func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (h
 	}
 
 	rp := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Scheme = target.Scheme
-			req.URL.Host = target.Host
-			req.Host = target.Host
-			req.Header.Del("Accept-Encoding")
-			req.Header.Del("If-None-Match")
-			req.Header.Del("If-Modified-Since")
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			// SetURL leaves Out.Host empty so the Host header follows
+			// Out.URL.Host; set it explicitly to keep the previous behaviour
+			// of presenting the target's host upstream.
+			r.Out.Host = target.Host
+			// Director added X-Forwarded-For for us; Rewrite does not.
+			r.SetXForwarded()
+			r.Out.Header.Del("Accept-Encoding")
+			r.Out.Header.Del("If-None-Match")
+			r.Out.Header.Del("If-Modified-Since")
 			if upstreamCookies != "" {
-				req.Header.Set("Cookie", upstreamCookies)
+				r.Out.Header.Set("Cookie", upstreamCookies)
 			}
-			if req.Header.Get("Origin") != "" {
-				req.Header.Set("Origin", target.Scheme+"://"+target.Host)
+			if r.In.Header.Get("Origin") != "" {
+				r.Out.Header.Set("Origin", target.Scheme+"://"+target.Host)
 			}
-			if req.Header.Get("Referer") != "" {
-				req.Header.Set("Referer", target.Scheme+"://"+target.Host+req.URL.Path)
+			if r.In.Header.Get("Referer") != "" {
+				r.Out.Header.Set("Referer", target.Scheme+"://"+target.Host+r.Out.URL.Path)
 			}
 		},
 		Transport:      transport,
