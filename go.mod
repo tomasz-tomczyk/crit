@@ -16,3 +16,5 @@ require golang.org/x/net v0.55.0
 require github.com/gorilla/websocket v1.5.3
 
 require golang.org/x/image v0.44.0
+
+replace github.com/go-text/typesetting => github.com/felix-dumit/typesetting v0.3.5-0.20260820032151-e2bdb1c6edd8
