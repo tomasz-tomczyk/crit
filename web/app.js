@@ -3742,7 +3742,7 @@
       const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
       const releaseVisualIdx = diffDragState.currentVisualIdx;
       const selected = [];
-      const section = document.getElementById('file-section-' + fp);
+      const section = currentRenderedFileSection(fp);
       if (section) {
         const els = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
         for (let i = 0; i < els.length; i++) {
