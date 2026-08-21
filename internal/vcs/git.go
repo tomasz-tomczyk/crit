@@ -633,6 +633,50 @@ func ResolveDefaultBranchSHA(vcs VCS, repoRoot, defaultBranch string) (string, e
 	}
 }
 
+// ResolveCommitOID resolves ref (branch name, tag, abbreviated SHA, or full
+// OID) to a full commit object id. Used to canonicalize Focus.BaseSHA/HeadSHA
+// so comment focus_keys stay stable when stack navigation switches between
+// symbolic refs and resolved OIDs.
+func ResolveCommitOID(v VCS, ref, dir string) (string, error) {
+	if v == nil {
+		return "", fmt.Errorf("nil VCS")
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("empty ref")
+	}
+	switch v.Name() {
+	case "git":
+		out, err := RunGitInDir(dir, "rev-parse", "--verify", ref+"^{commit}")
+		if err != nil {
+			return "", fmt.Errorf("resolve %q: %w", ref, err)
+		}
+		return strings.TrimSpace(out), nil
+	case "jj":
+		sha, err := ResolveJJRevisionToCommitID(dir, ref)
+		if err != nil {
+			return "", fmt.Errorf("resolve %q: %w", ref, err)
+		}
+		sha = strings.TrimSpace(sha)
+		if sha == "" {
+			return "", fmt.Errorf("resolve %q: empty commit id", ref)
+		}
+		return sha, nil
+	case "sl":
+		out, err := SLCommandInDir(dir, "log", "-r", ref, "-T", "{node}", "-l", "1")
+		if err != nil {
+			return "", fmt.Errorf("resolve %q: %w", ref, err)
+		}
+		out = strings.TrimSpace(out)
+		if out == "" {
+			return "", fmt.Errorf("resolve %q: empty node", ref)
+		}
+		return out, nil
+	default:
+		return "", fmt.Errorf("resolve not supported for vcs=%q", v.Name())
+	}
+}
+
 // walkAncestors enumerates HEAD-first the recent ancestor SHAs that are
 // candidates for stack stops. Capped at maxDepth.
 func WalkAncestors(vcs VCS, repoRoot string, maxDepth int) ([]string, error) {

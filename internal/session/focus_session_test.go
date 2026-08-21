@@ -751,3 +751,104 @@ func TestBuildFilesForWorkingTree_NumstatWarn(t *testing.T) {
 		t.Fatalf("stderr = %q, want numstat warning", stderr)
 	}
 }
+
+// TestSetFocus_CanonicalizesBranchRefsToFullSHAs locks the going-forward fix for
+// stacked-PR comment visibility: range focus used to keep branch names in
+// BaseSHA/HeadSHA (from --range parent..feature or early stack payloads), so
+// focusKeyFor stamped comments as range:branch..branch. A later SetFocus with
+// resolved OIDs produced a different focus_key and hid those comments with no
+// hidden_unresolved signal. SetFocus must rewrite refs to full commit OIDs
+// before storing Focus so stamps stay stable across stack navigation.
+func TestSetFocus_CanonicalizesBranchRefsToFullSHAs(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "branch", "parent")
+	gitT(t, dir, "checkout", "-b", "feature")
+	commitAt(t, dir, "added.txt", "hello\n", "add file")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+		Branch:    "feature",
+	}
+	t.Cleanup(func() { quiesceSession(t, s) })
+
+	if err := s.SetFocus(Focus{
+		Kind:      FocusRange,
+		BaseSHA:   "parent",
+		HeadSHA:   "feature",
+		DiffScope: DiffScopeLayer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.Focus.BaseSHA != base {
+		t.Fatalf("BaseSHA = %q, want full OID %q", s.Focus.BaseSHA, base)
+	}
+	if s.Focus.HeadSHA != head {
+		t.Fatalf("HeadSHA = %q, want full OID %q", s.Focus.HeadSHA, head)
+	}
+
+	c, ok := s.AddComment("added.txt", 1, 1, "RIGHT", "keep me visible", "", "reviewer", "u1")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	wantKey := fmt.Sprintf("range:%s..%s", base, head)
+	if c.FocusKey != wantKey {
+		t.Fatalf("FocusKey = %q, want %q", c.FocusKey, wantKey)
+	}
+
+	// Simulate stack-popover re-entry with OID form of the same tips.
+	if err := s.SetFocus(Focus{
+		Kind:      FocusRange,
+		BaseSHA:   base,
+		HeadSHA:   head,
+		DiffScope: DiffScopeLayer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var got *FileEntry
+	for _, f := range s.Files {
+		if f.Path == "added.txt" {
+			got = f
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("added.txt missing after OID SetFocus")
+	}
+	visible := 0
+	for _, comment := range got.Comments {
+		if visibleInFocus(comment, s.Focus) {
+			visible++
+		}
+	}
+	if visible != 1 {
+		t.Fatalf("visible comments after OID re-focus = %d (comments=%+v); want 1", visible, got.Comments)
+	}
+}
+
+// TestSetFocus_ExpandsShortSHAsToFullOIDs ensures abbreviated SHAs also
+// canonicalize so focus keys never mix short and full forms.
+func TestSetFocus_ExpandsShortSHAsToFullOIDs(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "added.txt", "y\n", "add y")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}}
+	t.Cleanup(func() { quiesceSession(t, s) })
+
+	if err := s.SetFocus(Focus{
+		Kind:      FocusRange,
+		BaseSHA:   base[:7],
+		HeadSHA:   head[:7],
+		DiffScope: DiffScopeLayer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.Focus.BaseSHA != base || s.Focus.HeadSHA != head {
+		t.Fatalf("Focus SHAs = %s..%s, want %s..%s", s.Focus.BaseSHA, s.Focus.HeadSHA, base, head)
+	}
+}

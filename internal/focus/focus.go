@@ -278,6 +278,17 @@ func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRo
 		if !vcs.HasObject(head, repoRoot) {
 			return nil, fmt.Errorf("head SHA %s not present locally", head)
 		}
+		// Resolve branch names / abbreviated SHAs to full OIDs so Focus and
+		// comment focus_keys stay stable when the UI later re-enters with OIDs.
+		baseOID, err := vcs.ResolveCommitOID(v, base, repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolving base %q: %w", base, err)
+		}
+		headOID, err := vcs.ResolveCommitOID(v, head, repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolving head %q: %w", head, err)
+		}
+		base, head = baseOID, headOID
 	}
 	return &Focus{
 		Kind:      FocusRange,

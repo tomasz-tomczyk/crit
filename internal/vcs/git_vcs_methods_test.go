@@ -271,3 +271,24 @@ func TestGitVCS_WorkingTreeFingerprint(t *testing.T) {
 		t.Error("WorkingTreeFingerprint empty for dirty tree")
 	}
 }
+
+func TestResolveCommitOID_BranchAndShortSHA(t *testing.T) {
+	dir := InitTestRepo(t)
+	full := GitRun(t, dir, "rev-parse", "HEAD")
+	v := &GitVCS{}
+
+	got, err := ResolveCommitOID(v, "main", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != full {
+		t.Fatalf("branch resolve = %q, want %q", got, full)
+	}
+	got, err = ResolveCommitOID(v, full[:7], dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != full {
+		t.Fatalf("short SHA resolve = %q, want %q", got, full)
+	}
+}
