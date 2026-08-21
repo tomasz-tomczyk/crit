@@ -42,9 +42,10 @@ const sandbox = {
     DiffMatchPatch: mockDMP,
   },
   document: {},
+  NodeFilter: { SHOW_TEXT: 4 },
 };
-const fn = new Function('window', 'document', src + '\nreturn window;');
-fn(sandbox.window, sandbox.document);
+const fn = new Function('window', 'document', 'NodeFilter', src + '\nreturn window;');
+fn(sandbox.window, sandbox.document, sandbox.NodeFilter);
 const diffRenderer = sandbox.window.crit.diffRenderer;
 
 // --- lineSimilarity ---
@@ -484,8 +485,13 @@ test('app.js wires text selection through resolveTextSelectionLineRange', functi
   var appJs = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   assert.match(
     appJs,
-    /preferredSideFromNode\(range\.startContainer\)/,
-    'getLineRangeFromSelection must derive preferred side from selection start'
+    /preferredSideFromNode\(selection\.anchorNode\)/,
+    'getLineRangeFromSelection must prefer selection.anchorNode for side'
+  );
+  assert.match(
+    appJs,
+    /selectedTextWithinElements\(selection,\s*contentEls\)/,
+    'quote capture must clip to side-filtered contentEls'
   );
   assert.match(
     appJs,
@@ -498,3 +504,52 @@ test('app.js wires text selection through resolveTextSelectionLineRange', functi
     'old bail-out comment for mixed sides must be gone'
   );
 });
+
+test('selectedTextWithinElements joins only intersecting contentEls', function() {
+  // Minimal Selection/Range stubs — no jsdom.
+  var t1 = { textContent: 'old line', nodeType: 3 };
+  var t2 = { textContent: 'new line', nodeType: 3 };
+  var el1 = {
+    _nodes: [t1],
+    contains: function(n) { return n === t1 || n === this; },
+  };
+  var el2 = {
+    _nodes: [t2],
+    contains: function(n) { return n === t2 || n === this; },
+  };
+  // TreeWalker stub via document.createTreeWalker — inject via global in helper.
+  // Instead exercise by monkeypatching: call with selection that only hits el2.
+  var selRange = {
+    startContainer: t2,
+    startOffset: 0,
+    endContainer: t2,
+    endOffset: 8,
+    intersectsNode: function(el) { return el === el2; },
+  };
+  var selection = {
+    rangeCount: 1,
+    getRangeAt: function() { return selRange; },
+    containsNode: function(n, _partial) { return n === t2; },
+  };
+  // Mutate the sandbox document the module closed over (no jsdom).
+  var prevTW = sandbox.document.createTreeWalker;
+  sandbox.document.createTreeWalker = function(root, _what, _filter) {
+    var nodes = root._nodes || [];
+    var i = -1;
+    return {
+      nextNode: function() {
+        i++;
+        return i < nodes.length ? nodes[i] : null;
+      },
+    };
+  };
+  try {
+    assert.equal(
+      diffRenderer.selectedTextWithinElements(selection, [el1, el2]),
+      'new line'
+    );
+  } finally {
+    sandbox.document.createTreeWalker = prevTW;
+  }
+});
+

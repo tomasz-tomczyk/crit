@@ -3553,6 +3553,7 @@
   const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
   const resolveTextSelectionLineRange = window.crit.diffRenderer.resolveTextSelectionLineRange;
   const preferredSideFromNode = window.crit.diffRenderer.preferredSideFromNode;
+  const selectedTextWithinElements = window.crit.diffRenderer.selectedTextWithinElements;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
@@ -5060,9 +5061,13 @@
 
     if (candidates.length === 0) return null;
 
-    // Prefer the side where the selection started. Split multi-line selects and
-    // unified del+add ranges often intersect both sides; bail only on multi-file.
-    const preferredSide = preferredSideFromNode(range.startContainer);
+    // Prefer the side where the user started dragging (anchorNode). Range
+    // startContainer is document-order and wrong for reverse selections.
+    // Split multi-line / unified del+add often intersect both sides.
+    let preferredSide = preferredSideFromNode(selection.anchorNode);
+    if (preferredSide === undefined) {
+      preferredSide = preferredSideFromNode(range.startContainer);
+    }
     return resolveTextSelectionLineRange(candidates, preferredSide);
   }
 
@@ -9744,6 +9749,11 @@
             }
           });
         }
+        // Prefer text clipped to side-filtered contentEls so unified del+add
+        // selections don't pollute the quote with the opposite side.
+        const clipped = selectedTextWithinElements(selection, contentEls);
+        if (clipped) selectedText = clipped;
+
         const normalizedSelected = selectedText.replace(/\s+/g, ' ');
         const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
         if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {

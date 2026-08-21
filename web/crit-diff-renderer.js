@@ -370,6 +370,41 @@
     };
   }
 
+  // Collect only the parts of a Selection that fall inside contentEls
+  // (side-filtered). Avoids quote pollution when the Range also spans the
+  // opposite diff side (unified del+add).
+  function selectedTextWithinElements(selection, contentEls) {
+    if (!selection || !selection.rangeCount || !contentEls || !contentEls.length) {
+      return '';
+    }
+    var selRange = selection.getRangeAt(0);
+    var parts = [];
+    for (var i = 0; i < contentEls.length; i++) {
+      var el = contentEls[i];
+      if (!selRange.intersectsNode(el)) continue;
+      var elParts = [];
+      var showText = (typeof NodeFilter !== 'undefined' && NodeFilter.SHOW_TEXT) ? NodeFilter.SHOW_TEXT : 4;
+      var walker = document.createTreeWalker(el, showText, null);
+      var tn;
+      while ((tn = walker.nextNode())) {
+        if (typeof selection.containsNode === 'function' && !selection.containsNode(tn, true)) {
+          continue;
+        }
+        var text = tn.textContent || '';
+        if (tn === selRange.startContainer && tn === selRange.endContainer) {
+          text = text.slice(selRange.startOffset, selRange.endOffset);
+        } else if (tn === selRange.startContainer) {
+          text = text.slice(selRange.startOffset);
+        } else if (tn === selRange.endContainer) {
+          text = text.slice(0, selRange.endOffset);
+        }
+        if (text) elParts.push(text);
+      }
+      if (elParts.length) parts.push(elParts.join(''));
+    }
+    return parts.join('\n').trim();
+  }
+
   // Walk from a selection start node to the nearest commentable line and
   // return its diff side ('' for new, 'old' for old, undefined for markdown).
   function preferredSideFromNode(node) {
@@ -395,6 +430,7 @@
     resolveUnifiedDragFormRange: resolveUnifiedDragFormRange,
     resolveTextSelectionLineRange: resolveTextSelectionLineRange,
     preferredSideFromNode: preferredSideFromNode,
+    selectedTextWithinElements: selectedTextWithinElements,
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};
