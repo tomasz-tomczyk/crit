@@ -3551,6 +3551,8 @@
   const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
   const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
   const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
+  const resolveTextSelectionLineRange = window.crit.diffRenderer.resolveTextSelectionLineRange;
+  const preferredSideFromNode = window.crit.diffRenderer.preferredSideFromNode;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
@@ -5051,33 +5053,17 @@
         startLine: ln,
         endLine: ln,
         blockIndex: null,
-        side: el.dataset.diffSide || undefined,
+        // Keep '' for new-side so mixed-side resolution can filter ('' vs 'old').
+        side: el.dataset.diffSide || '',
       });
     });
 
     if (candidates.length === 0) return null;
 
-    // All candidates must share filePath and side. If the selection straddles
-    // multiple files or diff sides, bail out rather than guess.
-    const filePath = candidates[0].filePath;
-    const side = candidates[0].side;
-    for (let i = 1; i < candidates.length; i++) {
-      if (candidates[i].filePath !== filePath) return null;
-      if (candidates[i].side !== side) return null;
-    }
-
-    let startLine = Infinity;
-    let endLine = -Infinity;
-    let afterBlockIndex = null;
-    for (const c of candidates) {
-      if (c.startLine < startLine) startLine = c.startLine;
-      if (c.endLine > endLine) endLine = c.endLine;
-      if (c.blockIndex !== null && (afterBlockIndex === null || c.blockIndex > afterBlockIndex)) {
-        afterBlockIndex = c.blockIndex;
-      }
-    }
-
-    return { filePath, startLine, endLine, afterBlockIndex, side };
+    // Prefer the side where the selection started. Split multi-line selects and
+    // unified del+add ranges often intersect both sides; bail only on multi-file.
+    const preferredSide = preferredSideFromNode(range.startContainer);
+    return resolveTextSelectionLineRange(candidates, preferredSide);
   }
 
   function closeEmptyReviewForm() {

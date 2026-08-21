@@ -309,6 +309,80 @@
     };
   }
 
+  // Text select-to-comment can intersect both diff sides (split DOM-order
+  // bleed; unified del+add). Prefer the selection-start side and keep only
+  // that side's line numbers so the form attaches under the intended change.
+  // candidates: [{ filePath, startLine, endLine, blockIndex, side }, ...]
+  // preferredSide: side from the selection start ('old' | '' | undefined).
+  function resolveTextSelectionLineRange(candidates, preferredSide) {
+    if (!candidates || candidates.length === 0) return null;
+
+    var filePath = candidates[0].filePath;
+    for (var i = 1; i < candidates.length; i++) {
+      if (candidates[i].filePath !== filePath) return null;
+    }
+
+    // Classify sides. Markdown line-blocks use undefined; diff new uses ''.
+    var sideKeys = {};
+    for (var d = 0; d < candidates.length; d++) {
+      var raw = candidates[d].side;
+      var key = raw === undefined ? '__md__' : (raw || '');
+      sideKeys[key] = true;
+    }
+    var keys = Object.keys(sideKeys);
+
+    var side;
+    if (keys.length === 1 && keys[0] === '__md__') {
+      side = undefined;
+    } else if (preferredSide !== undefined && preferredSide !== null) {
+      side = preferredSide || '';
+    } else if (keys.length === 1) {
+      side = keys[0] === '__md__' ? undefined : keys[0];
+    } else {
+      // Mixed diff sides with no preferred side — don't guess (DOM order is
+      // left-first and would bias toward old).
+      return null;
+    }
+
+    var startLine = Infinity;
+    var endLine = -Infinity;
+    var afterBlockIndex = null;
+    var matched = 0;
+    for (var j = 0; j < candidates.length; j++) {
+      var c = candidates[j];
+      if (side !== undefined && (c.side || '') !== side) continue;
+      matched++;
+      if (c.startLine < startLine) startLine = c.startLine;
+      if (c.endLine > endLine) endLine = c.endLine;
+      if (c.blockIndex !== null && c.blockIndex !== undefined &&
+          (afterBlockIndex === null || c.blockIndex > afterBlockIndex)) {
+        afterBlockIndex = c.blockIndex;
+      }
+    }
+    if (matched === 0) return null;
+
+    return {
+      filePath: filePath,
+      startLine: startLine,
+      endLine: endLine,
+      afterBlockIndex: afterBlockIndex,
+      side: side,
+    };
+  }
+
+  // Walk from a selection start node to the nearest commentable line and
+  // return its diff side ('' for new, 'old' for old, undefined for markdown).
+  function preferredSideFromNode(node) {
+    if (!node) return undefined;
+    // Element nodes (and element-like stubs) expose closest; text nodes use parent.
+    var el = typeof node.closest === 'function' ? node : node.parentElement;
+    if (!el || typeof el.closest !== 'function') return undefined;
+    var diffLine = el.closest('[data-diff-line-num]');
+    if (diffLine) return diffLine.dataset.diffSide || '';
+    if (el.closest('.line-block[data-file-path]')) return undefined;
+    return undefined;
+  }
+
   var api = {
     lineSimilarity: lineSimilarity,
     bestWordDiffPairing: bestWordDiffPairing,
@@ -319,6 +393,8 @@
     buildHunkWordDiffs: buildHunkWordDiffs,
     buildSplitChangeRows: buildSplitChangeRows,
     resolveUnifiedDragFormRange: resolveUnifiedDragFormRange,
+    resolveTextSelectionLineRange: resolveTextSelectionLineRange,
+    preferredSideFromNode: preferredSideFromNode,
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};

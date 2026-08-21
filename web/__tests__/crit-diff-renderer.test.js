@@ -349,3 +349,152 @@ test('resolveUnifiedDragFormRange returns fallback when selection is empty', fun
     fallback
   );
 });
+
+// --- resolveTextSelectionLineRange ---
+// Text selection (select-to-comment via `c`) can intersect both diff sides:
+// - split: multi-line right selection includes left nodes via DOM order
+// - unified: selection spanning del+add mixes old/new sides
+// Resolve to the preferred side (selection start) and that side's line range.
+
+test('resolveTextSelectionLineRange keeps same-side split selection', function() {
+  var candidates = [
+    { filePath: 'a.ex', startLine: 7, endLine: 7, blockIndex: null, side: '' },
+    { filePath: 'a.ex', startLine: 8, endLine: 8, blockIndex: null, side: '' },
+  ];
+  assert.deepEqual(
+    diffRenderer.resolveTextSelectionLineRange(candidates, ''),
+    { filePath: 'a.ex', startLine: 7, endLine: 8, afterBlockIndex: null, side: '' }
+  );
+});
+
+test('resolveTextSelectionLineRange filters split bleed to preferred new side', function() {
+  // Multi-line right selection also intersects left lines between rows.
+  var candidates = [
+    { filePath: 'a.ex', startLine: 7, endLine: 7, blockIndex: null, side: '' },
+    { filePath: 'a.ex', startLine: 8, endLine: 8, blockIndex: null, side: 'old' },
+    { filePath: 'a.ex', startLine: 8, endLine: 8, blockIndex: null, side: '' },
+    { filePath: 'a.ex', startLine: 9, endLine: 9, blockIndex: null, side: 'old' },
+  ];
+  assert.deepEqual(
+    diffRenderer.resolveTextSelectionLineRange(candidates, ''),
+    { filePath: 'a.ex', startLine: 7, endLine: 8, afterBlockIndex: null, side: '' }
+  );
+});
+
+test('resolveTextSelectionLineRange filters split bleed to preferred old side', function() {
+  var candidates = [
+    { filePath: 'a.ex', startLine: 7, endLine: 7, blockIndex: null, side: 'old' },
+    { filePath: 'a.ex', startLine: 8, endLine: 8, blockIndex: null, side: '' },
+    { filePath: 'a.ex', startLine: 8, endLine: 8, blockIndex: null, side: 'old' },
+  ];
+  assert.deepEqual(
+    diffRenderer.resolveTextSelectionLineRange(candidates, 'old'),
+    { filePath: 'a.ex', startLine: 7, endLine: 8, afterBlockIndex: null, side: 'old' }
+  );
+});
+
+test('resolveTextSelectionLineRange filters unified del+add to start side', function() {
+  var candidates = [
+    { filePath: 'a.ex', startLine: 33, endLine: 33, blockIndex: null, side: 'old' },
+    { filePath: 'a.ex', startLine: 34, endLine: 34, blockIndex: null, side: 'old' },
+    { filePath: 'a.ex', startLine: 34, endLine: 34, blockIndex: null, side: '' },
+    { filePath: 'a.ex', startLine: 35, endLine: 35, blockIndex: null, side: '' },
+  ];
+  assert.deepEqual(
+    diffRenderer.resolveTextSelectionLineRange(candidates, 'old'),
+    { filePath: 'a.ex', startLine: 33, endLine: 34, afterBlockIndex: null, side: 'old' }
+  );
+  assert.deepEqual(
+    diffRenderer.resolveTextSelectionLineRange(candidates, ''),
+    { filePath: 'a.ex', startLine: 34, endLine: 35, afterBlockIndex: null, side: '' }
+  );
+});
+
+test('resolveTextSelectionLineRange returns null for multi-file selection', function() {
+  var candidates = [
+    { filePath: 'a.ex', startLine: 1, endLine: 1, blockIndex: null, side: '' },
+    { filePath: 'b.ex', startLine: 2, endLine: 2, blockIndex: null, side: '' },
+  ];
+  assert.equal(diffRenderer.resolveTextSelectionLineRange(candidates, ''), null);
+});
+
+test('resolveTextSelectionLineRange returns null for empty candidates', function() {
+  assert.equal(diffRenderer.resolveTextSelectionLineRange([], ''), null);
+  assert.equal(diffRenderer.resolveTextSelectionLineRange(null, ''), null);
+});
+
+test('resolveTextSelectionLineRange preserves markdown afterBlockIndex', function() {
+  var candidates = [
+    { filePath: 'doc.md', startLine: 10, endLine: 12, blockIndex: 3, side: undefined },
+    { filePath: 'doc.md', startLine: 13, endLine: 14, blockIndex: 4, side: undefined },
+  ];
+  assert.deepEqual(
+    diffRenderer.resolveTextSelectionLineRange(candidates, undefined),
+    { filePath: 'doc.md', startLine: 10, endLine: 14, afterBlockIndex: 4, side: undefined }
+  );
+});
+
+test('preferredSideFromNode walks to nearest diff line side', function() {
+  // Minimal element chain: text parent → content → side el with dataset
+  var sideEl = {
+    dataset: { diffLineNum: '8', diffSide: '' },
+    closest: function(sel) {
+      if (sel === '[data-diff-line-num]') return this;
+      return null;
+    },
+  };
+  var textParent = {
+    closest: function(sel) { return sideEl.closest(sel); },
+  };
+  assert.equal(diffRenderer.preferredSideFromNode(textParent), '');
+
+  var oldSideEl = {
+    dataset: { diffLineNum: '8', diffSide: 'old' },
+    closest: function(sel) {
+      if (sel === '[data-diff-line-num]') return this;
+      return null;
+    },
+  };
+  assert.equal(diffRenderer.preferredSideFromNode(oldSideEl), 'old');
+});
+
+test('preferredSideFromNode returns undefined for markdown line blocks', function() {
+  var block = {
+    closest: function(sel) {
+      if (sel === '[data-diff-line-num]') return null;
+      if (sel === '.line-block[data-file-path]') return this;
+      return null;
+    },
+  };
+  assert.equal(diffRenderer.preferredSideFromNode(block), undefined);
+});
+
+test('resolveTextSelectionLineRange returns null when mixed sides lack preferredSide', function() {
+  var candidates = [
+    { filePath: 'a.ex', startLine: 7, endLine: 7, blockIndex: null, side: '' },
+    { filePath: 'a.ex', startLine: 8, endLine: 8, blockIndex: null, side: 'old' },
+  ];
+  assert.equal(diffRenderer.resolveTextSelectionLineRange(candidates, undefined), null);
+  assert.equal(diffRenderer.resolveTextSelectionLineRange(candidates, null), null);
+});
+
+// Wiring: app.js must resolve mixed-side text selections via the helpers above
+// (not bail on side mismatch).
+test('app.js wires text selection through resolveTextSelectionLineRange', function() {
+  var appJs = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(
+    appJs,
+    /preferredSideFromNode\(range\.startContainer\)/,
+    'getLineRangeFromSelection must derive preferred side from selection start'
+  );
+  assert.match(
+    appJs,
+    /resolveTextSelectionLineRange\(candidates,\s*preferredSide\)/,
+    'getLineRangeFromSelection must resolve via resolveTextSelectionLineRange'
+  );
+  assert.doesNotMatch(
+    appJs,
+    /If the selection straddles\s+multiple files or diff sides, bail out/,
+    'old bail-out comment for mixed sides must be gone'
+  );
+});
