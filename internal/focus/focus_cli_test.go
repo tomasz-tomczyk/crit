@@ -173,6 +173,15 @@ func TestResolveFocus_InvalidScopeRejected(t *testing.T) {
 	}
 }
 
+func TestResolveFocus_RangeResolveOIDError(t *testing.T) {
+	// HasObject succeeds via the fake, but ResolveCommitOID rejects unknown VCS names.
+	v := &fakeStackVCS{name: "hg", hasSeq: []bool{true, true}}
+	_, err := ResolveFocus(ChangeSpec{}, "base..head", "", false, v, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "resolving") {
+		t.Fatalf("got %v, want resolving error", err)
+	}
+}
+
 func TestResolveFocus_RangeResolvesBranchNamesToOIDs(t *testing.T) {
 	vcs.ClearGitEnvForTest(t) // HasObject/rev-parse must not inherit hook GIT_DIR
 	dir := vcs.InitTestRepo(t)

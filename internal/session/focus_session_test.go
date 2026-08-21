@@ -852,3 +852,77 @@ func TestSetFocus_ExpandsShortSHAsToFullOIDs(t *testing.T) {
 		t.Fatalf("Focus SHAs = %s..%s, want %s..%s", s.Focus.BaseSHA, s.Focus.HeadSHA, base, head)
 	}
 }
+
+func TestCanonicalizeFocusSHAs_RemoteAndNilNoops(t *testing.T) {
+	f := Focus{Kind: FocusRange, BaseSHA: "parent", HeadSHA: "feature", DiffScope: DiffScopeLayer}
+	if err := canonicalizeFocusSHAs(&f, &vcs.GitVCS{}, t.TempDir(), true); err != nil {
+		t.Fatal(err)
+	}
+	if f.BaseSHA != "parent" || f.HeadSHA != "feature" {
+		t.Fatalf("remoteFiles should leave symbolic refs alone: %+v", f)
+	}
+	if err := canonicalizeFocusSHAs(nil, &vcs.GitVCS{}, t.TempDir(), false); err != nil {
+		t.Fatal(err)
+	}
+	wt := Focus{Kind: FocusWorkingTree}
+	if err := canonicalizeFocusSHAs(&wt, &vcs.GitVCS{}, t.TempDir(), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCanonicalizeFocusSHAs_DefaultSHAAndErrors(t *testing.T) {
+	dir := initTestRepo(t)
+	main := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-b", "feature")
+	commitAt(t, dir, "f.txt", "x\n", "add")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+	base := main
+
+	f := Focus{
+		Kind: FocusRange, BaseSHA: base, HeadSHA: head,
+		DefaultSHA: "main", DiffScope: DiffScopeFullStack,
+	}
+	if err := canonicalizeFocusSHAs(&f, &vcs.GitVCS{}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if f.DefaultSHA != main {
+		t.Fatalf("DefaultSHA = %q, want %q", f.DefaultSHA, main)
+	}
+
+	bad := Focus{Kind: FocusRange, BaseSHA: "missing-base", HeadSHA: head, DiffScope: DiffScopeLayer}
+	if err := canonicalizeFocusSHAs(&bad, &vcs.GitVCS{}, dir, false); err == nil {
+		t.Fatal("expected base resolve error")
+	}
+	badHead := Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: "missing-head", DiffScope: DiffScopeLayer}
+	if err := canonicalizeFocusSHAs(&badHead, &vcs.GitVCS{}, dir, false); err == nil {
+		t.Fatal("expected head resolve error")
+	}
+	badDef := Focus{
+		Kind: FocusRange, BaseSHA: base, HeadSHA: head,
+		DefaultSHA: "missing-default", DiffScope: DiffScopeFullStack,
+	}
+	if err := canonicalizeFocusSHAs(&badDef, &vcs.GitVCS{}, dir, false); err == nil {
+		t.Fatal("expected default resolve error")
+	}
+}
+
+func TestSetFocus_CanonicalizeErrorSurfaces(t *testing.T) {
+	dir := initTestRepo(t)
+	// HasObject says yes; ResolveCommitOID rejects Name "hg".
+	v := &canonicalizeFailVCS{}
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: v}
+	t.Cleanup(func() { quiesceSession(t, s) })
+	err := s.SetFocus(Focus{
+		Kind: FocusRange, BaseSHA: "a", HeadSHA: "b", DiffScope: DiffScopeLayer,
+	})
+	if err == nil || !strings.Contains(err.Error(), "canonicalizing") {
+		t.Fatalf("got %v, want canonicalizing error", err)
+	}
+}
+
+// canonicalizeFailVCS pretends objects exist so validateFocusSHAs passes, but
+// ResolveCommitOID rejects its Name ("hg").
+type canonicalizeFailVCS struct{ vcs.GitVCS }
+
+func (c *canonicalizeFailVCS) Name() string               { return "hg" }
+func (c *canonicalizeFailVCS) HasObject(_, _ string) bool { return true }

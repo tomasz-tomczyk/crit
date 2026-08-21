@@ -272,10 +272,10 @@ func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRo
 	// In --remote mode, content reads come from the GitHub API; we can't
 	// prove the SHAs exist locally because we don't intend to use them.
 	if !remoteFiles && v != nil {
-		if !vcs.HasObject(base, repoRoot) {
+		if !v.HasObject(base, repoRoot) {
 			return nil, fmt.Errorf("base SHA %s not present locally", base)
 		}
-		if !vcs.HasObject(head, repoRoot) {
+		if !v.HasObject(head, repoRoot) {
 			return nil, fmt.Errorf("head SHA %s not present locally", head)
 		}
 		// Resolve branch names / abbreviated SHAs to full OIDs so Focus and
