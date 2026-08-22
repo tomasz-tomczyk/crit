@@ -125,6 +125,25 @@ test('applyWordDiffToHtml skips over HTML tags without counting them', function(
   assert.equal(result, '<span>a</span><span class="hl">b</span>');
 });
 
+test('applyWordDiffToHtml keeps highlight spans open across nested hljs tags', function() {
+  // highlight.js can nest many spans inside a single changed token (e.g. HEEx #{...}).
+  // Closing/reopening word-diff spans at every tag boundary creates empty highlight
+  // spans that render as phantom whitespace in the diff viewer.
+  var oldLine = '                <span class="text-gray-500 sm:text-sm" id="price-currency-for-sms">USD</span>';
+  var newLine = '                <span class="text-gray-500 sm:text-sm" id={"price-currency-for-feature-#{ef.index}"}>';
+  var hlLine =
+    '<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">span</span> ' +
+    '<span class="hljs-attr">class</span>=<span class="hljs-string">"text-gray-500 sm:text-sm"</span> ' +
+    '<span class="hljs-attr">id</span>=<span class="hljs-string">{</span></span></span>' +
+    '<span class="language-elixir"><span class="hljs-string"><span class="hljs-subst">' +
+    '<span class="hljs-string">"price-currency-for-feature-#{ef.index}"</span></span></span></span>' +
+    '<span class="language-xml"><span class="hljs-tag">}&gt;</span></span>';
+  var wd = diffRenderer.wordDiff(oldLine, newLine);
+  assert.ok(wd && wd.newRanges.length > 0);
+  var result = diffRenderer.applyWordDiffToHtml(hlLine, wd.newRanges, 'diff-word-add');
+  assert.equal(result.match(/<span class="diff-word-add"><\/span>/g), null);
+});
+
 // --- bestWordDiffPairing ---
 
 test('bestWordDiffPairing pairs similar lines together', function() {

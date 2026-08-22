@@ -142,15 +142,14 @@
     var i = 0;             // position in html string
 
     while (i < html.length) {
-      // Skip HTML tags (don't count them as visible characters)
+      // Skip HTML tags (don't count them as visible characters).
+      // Keep any open word-diff span across tags — closing/reopening at each tag
+      // boundary creates empty highlight spans inside nested hljs markup.
       if (html[i] === '<') {
-        // If we're in a word-diff range, close it before the tag, reopen after
-        if (inRange) result += '</span>';
         var tagEnd = html.indexOf('>', i);
         if (tagEnd === -1) { result += html.slice(i); break; }
         result += html.slice(i, tagEnd + 1);
         i = tagEnd + 1;
-        if (inRange) result += '<span class="' + cssClass + '">';
         continue;
       }
 
