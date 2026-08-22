@@ -1779,6 +1779,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 
 .reply-body {
+  font-family: var(--crit-font-body);
   font-size: 14px;
   line-height: 1.6;
   overflow: hidden;
