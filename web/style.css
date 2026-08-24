@@ -1737,6 +1737,35 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-editor-fg-secondary);
 }
 
+/* Sanitized comment markdown keeps no classes, so key off the elements.
+   A comment card is narrow: cells take a full border, not row rules alone. */
+.comment-body table,
+.reply-body table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.95em;
+}
+
+.comment-body th,
+.comment-body td,
+.reply-body th,
+.reply-body td {
+  border: 1px solid var(--crit-border);
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.comment-body th,
+.reply-body th {
+  font-weight: 600;
+  background: var(--crit-editor-bg-elevated);
+}
+
+.comment-body tbody tr:nth-child(even) td,
+.reply-body tbody tr:nth-child(even) td {
+  background: var(--crit-table-stripe);
+}
+
 .comment-time {
   font-size: 11px;
   color: var(--crit-editor-fg-muted);
