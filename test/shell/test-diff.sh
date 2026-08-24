@@ -583,8 +583,15 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comments" \
     "author": "reviewer"
   }' > /dev/null
 
-# Finish the review to write the review file
-REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
+# Finish the review to write the review file. /api/finish reports the review
+# itself and not where it landed, so read the path from /api/config: review_path
+# names the identity folder that holds review.json.
+curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" > /dev/null
+REVIEW_FILE=$(curl -sf "http://127.0.0.1:$PORT/api/config" | python3 -c "
+import json, os, sys
+path = json.load(sys.stdin)['review_path']
+print(path if path.endswith('review.json') else os.path.join(path, 'review.json'))
+")
 
 # --- Seed GitHub-synced comments (issue #370) ---
 # The POST API has no `github_id` field (synced comments normally arrive via
