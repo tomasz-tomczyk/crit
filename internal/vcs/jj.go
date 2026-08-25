@@ -572,9 +572,9 @@ func jjCommitRevset(sha string) string {
 // jjFileset wraps a path in jj's file: pattern. jj parses path arguments as
 // fileset expressions even after "--", so a bare path containing an operator
 // character either fails to parse ("(") or silently matches nothing ("["),
-// and the file renders as unchanged. Next.js route groups and dynamic
-// segments — "(group)", "[slug]" — hit this on every path. file: keeps the
-// cwd-relative resolution a bare path already had.
+// and the file renders as unchanged (issue #858). Next.js route groups and
+// dynamic segments hit this on every path. file: keeps the cwd-relative
+// resolution a bare path already had.
 func jjFileset(path string) string {
 	return fmt.Sprintf("file:%q", path)
 }

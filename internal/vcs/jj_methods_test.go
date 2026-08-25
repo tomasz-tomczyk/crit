@@ -561,9 +561,9 @@ func TestIsSimpleJJBookmarkName(t *testing.T) {
 	}
 }
 
-// jj parses path arguments as fileset expressions even after "--", so a path
-// containing an operator character used to fail to parse and the file rendered
-// as unchanged. Next.js route groups and dynamic segments hit this constantly.
+// Regression test for issue #858. Both operators are covered because they
+// failed differently: "(" errored, "[" matched nothing and returned no diff
+// with no error at all.
 func TestJJVCS_PathsWithFilesetOperators(t *testing.T) {
 	for _, dirName := range []string{"(group)", "[dynamic]", "(group)/[dynamic]"} {
 		t.Run(dirName, func(t *testing.T) {
