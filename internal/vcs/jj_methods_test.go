@@ -560,3 +560,56 @@ func TestIsSimpleJJBookmarkName(t *testing.T) {
 		}
 	}
 }
+
+// jj parses path arguments as fileset expressions even after "--", so a path
+// containing an operator character used to fail to parse and the file rendered
+// as unchanged. Next.js route groups and dynamic segments hit this constantly.
+func TestJJVCS_PathsWithFilesetOperators(t *testing.T) {
+	for _, dirName := range []string{"(group)", "[dynamic]", "(group)/[dynamic]"} {
+		t.Run(dirName, func(t *testing.T) {
+			dir := initTestJJRepoWithLocalMain(t)
+			j := &JJVCS{}
+			base := runJJ(t, dir, "log", "-r", "bookmarks(exact:\"main\")", "--no-graph", "-T", "commit_id")
+
+			rel := filepath.Join("src", dirName, "page.tsx")
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, rel), []byte("export const a = 1;\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			withCwd(t, dir)
+
+			changes, err := j.ChangedFilesFromBaseInDir(base, dir)
+			if err != nil {
+				t.Fatalf("ChangedFilesFromBaseInDir: %v", err)
+			}
+			if len(changes) == 0 {
+				t.Fatalf("no changed files reported for %q", rel)
+			}
+
+			hunks, err := j.FileDiffUnified(rel, base, dir, false)
+			if err != nil {
+				t.Fatalf("FileDiffUnified(%q): %v", rel, err)
+			}
+			if len(hunks) == 0 {
+				t.Errorf("FileDiffUnified(%q) returned no hunks; the path was parsed as a fileset expression", rel)
+			}
+		})
+	}
+}
+
+func TestJJFileset(t *testing.T) {
+	cases := map[string]string{
+		"src/plain/page.tsx":      `file:"src/plain/page.tsx"`,
+		"src/(group)/page.tsx":    `file:"src/(group)/page.tsx"`,
+		"src/[slug]/page.tsx":     `file:"src/[slug]/page.tsx"`,
+		`src/od"d/page.tsx`:       `file:"src/od\"d/page.tsx"`,
+		`src/back\slash/page.tsx`: `file:"src/back\\slash/page.tsx"`,
+	}
+	for in, want := range cases {
+		if got := jjFileset(in); got != want {
+			t.Errorf("jjFileset(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
