@@ -285,8 +285,11 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 		return nil // relative — already proxy-relative
 	}
 	if locURL.Host == upstream.Host {
-		locURL.Scheme = resp.Request.URL.Scheme
-		locURL.Host = resp.Request.URL.Host
+		locURL.Scheme = ""
+		locURL.Host = ""
+		if locURL.Path == "" {
+			locURL.Path = "/"
+		}
 		resp.Header.Set("Location", locURL.String())
 		return nil
 	}

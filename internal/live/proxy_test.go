@@ -292,6 +292,40 @@ func TestProxyModifyResponse_SameOriginRedirectRewritten(t *testing.T) {
 	}
 }
 
+func TestProxyModifyResponse_AbsoluteSameOriginRedirectRewritten(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			// Absolute Location on the target's own origin, as Laravel's
+			// redirect()->route() emits
+			w.Header().Set("Location", "http://"+r.Host+"/admin")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>admin</body></html>")
+	}))
+	defer upstream.Close()
+	upURL, _ := url.Parse(upstream.URL)
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	if strings.Contains(loc, upURL.Host) {
+		t.Errorf("Location still points to upstream, iframe would leave the proxy origin: %s", loc)
+	}
+	if loc != "/admin" {
+		t.Errorf("Location = %q, want %q", loc, "/admin")
+	}
+}
+
 func TestProxyModifyResponse_CrossOriginRedirect200Stub(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://accounts.google.com/oauth", http.StatusFound)
