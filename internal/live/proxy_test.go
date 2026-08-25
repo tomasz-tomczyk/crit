@@ -292,6 +292,37 @@ func TestProxyModifyResponse_SameOriginRedirectRewritten(t *testing.T) {
 	}
 }
 
+func TestProxyRewrite_TargetPathIsNotPrefixedOntoRequests(t *testing.T) {
+	var gotPaths []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	// A live URL with a path: the frontend requests that path as the initial
+	// route, so the proxy must not prefix it a second time
+	proxy, _ := newLiveProxy(upstream.URL+"/some/page", 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	for _, p := range []string{"/some/page", "/assets/app.css"} {
+		resp, err := http.Get(ps.URL + p)
+		if err != nil {
+			t.Fatalf("request %s: %v", p, err)
+		}
+		resp.Body.Close()
+	}
+	want := []string{"/some/page", "/assets/app.css"}
+	if len(gotPaths) != len(want) {
+		t.Fatalf("upstream saw %v, want %v", gotPaths, want)
+	}
+	for i := range want {
+		if gotPaths[i] != want[i] {
+			t.Errorf("upstream path[%d] = %q, want %q", i, gotPaths[i], want[i])
+		}
+	}
+}
+
 func TestProxyRewrite_SendsForwardedHeaders(t *testing.T) {
 	var gotHost, gotProto, gotPort, gotFor string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

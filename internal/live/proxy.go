@@ -30,14 +30,17 @@ var agentScriptFiles = []string{
 }
 
 // newLiveProxy builds a reverse proxy for a live-mode session.
-// upstreamOrigin is the target URL, optionally including a path prefix
-// (e.g. "http://localhost:3000" or "http://localhost:3333/live.html").
+// upstreamOrigin is the target URL. Any path on it is the iframe's initial
+// route, loaded by the frontend.
 // apiPort is the API server's port, used to construct the agent script URL.
 func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (http.Handler, error) {
 	target, err := url.Parse(upstreamOrigin)
 	if err != nil {
 		return nil, fmt.Errorf("parsing upstream origin %q: %w", upstreamOrigin, err)
 	}
+	// Drop the path so SetURL doesn't join it onto every proxied request
+	target.Path = ""
+	target.RawPath = ""
 
 	// Use a transport with DisableCompression=true so http.Transport does
 	// not silently re-add Accept-Encoding: gzip after our Rewrite strips
