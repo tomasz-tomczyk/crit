@@ -292,6 +292,72 @@ func TestProxyModifyResponse_SameOriginRedirectRewritten(t *testing.T) {
 	}
 }
 
+func TestProxyRewrite_SendsForwardedHeaders(t *testing.T) {
+	var gotHost, gotProto, gotPort, gotFor string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Header.Get("X-Forwarded-Host")
+		gotProto = r.Header.Get("X-Forwarded-Proto")
+		gotPort = r.Header.Get("X-Forwarded-Port")
+		gotFor = r.Header.Get("X-Forwarded-For")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	psURL, _ := url.Parse(ps.URL)
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	if gotHost != psURL.Host {
+		t.Errorf("X-Forwarded-Host = %q, want the proxy host %q", gotHost, psURL.Host)
+	}
+	if gotProto != "http" {
+		t.Errorf("X-Forwarded-Proto = %q, want %q", gotProto, "http")
+	}
+	if gotPort != psURL.Port() {
+		t.Errorf("X-Forwarded-Port = %q, want the proxy port %q", gotPort, psURL.Port())
+	}
+	if gotFor == "" {
+		t.Error("X-Forwarded-For is empty, want the client IP")
+	}
+}
+
+func TestProxyModifyResponse_ProxyOriginRedirectIsNotCrossOrigin(t *testing.T) {
+	var proxyHost string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// What an app generates once it trusts the forwarded headers
+		proxyHost = r.Header.Get("X-Forwarded-Host")
+		w.Header().Set("Location", "http://"+proxyHost+"/login")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status = %d, want 302 passed through", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "cross-origin-redirect") {
+		t.Error("a redirect to the proxy's own origin was treated as cross-origin")
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want %q", loc, "/login")
+	}
+}
+
 func TestProxyModifyResponse_AbsoluteSameOriginRedirectRewritten(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {

@@ -55,6 +55,12 @@ func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (h
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
+			// SetURL sends the upstream's own Host, so tell the app where the
+			// proxy is and let it generate URLs pointing back at us
+			pr.SetXForwarded()
+			if _, port, err := net.SplitHostPort(pr.In.Host); err == nil {
+				pr.Out.Header.Set("X-Forwarded-Port", port)
+			}
 			pr.Out.Header.Del("Accept-Encoding")
 			pr.Out.Header.Del("If-None-Match")
 			pr.Out.Header.Del("If-Modified-Since")
@@ -284,7 +290,7 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	if locURL.Host == "" {
 		return nil // relative — already proxy-relative
 	}
-	if locURL.Host == upstream.Host {
+	if locURL.Host == upstream.Host || locURL.Host == resp.Request.Header.Get("X-Forwarded-Host") {
 		locURL.Scheme = ""
 		locURL.Host = ""
 		if locURL.Path == "" {
