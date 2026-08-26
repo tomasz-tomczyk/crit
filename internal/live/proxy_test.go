@@ -328,6 +328,57 @@ func TestProxyRewrite_TargetPathIsNotPrefixedOntoRequests(t *testing.T) {
 	}
 }
 
+func TestProxyRewrite_RefererKeepsReferringPagePath(t *testing.T) {
+	var gotReferer string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotReferer = r.Header.Get("Referer")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	// A form on /claims/create posting to /claims: "redirect back" reads the
+	// referer, so it has to point at the create page
+	req, _ := http.NewRequest(http.MethodPost, ps.URL+"/claims", nil)
+	req.Header.Set("Referer", ps.URL+"/claims/create?step=2")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	want := upstream.URL + "/claims/create?step=2"
+	if gotReferer != want {
+		t.Errorf("Referer = %q, want %q", gotReferer, want)
+	}
+}
+
+func TestProxyRewrite_RefererDropsUserinfoAndFragment(t *testing.T) {
+	var gotReferer string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotReferer = r.Header.Get("Referer")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	psURL, _ := url.Parse(ps.URL)
+	req, _ := http.NewRequest(http.MethodPost, ps.URL+"/claims", nil)
+	req.Header.Set("Referer", "http://user:pass@"+psURL.Host+"/claims/create#section")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	want := upstream.URL + "/claims/create"
+	if gotReferer != want {
+		t.Errorf("Referer = %q, want %q (userinfo and fragment must not reach the upstream)", gotReferer, want)
+	}
+}
+
 func TestProxyRewrite_SendsForwardedHeaders(t *testing.T) {
 	var gotHost, gotProto, gotPort, gotFor string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
