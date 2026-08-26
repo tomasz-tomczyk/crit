@@ -3,7 +3,7 @@
 
   // ===== Comment Markdown Renderer =====
   const commentMd = window.markdownit({
-    html: false,
+    html: true,
     linkify: true,
     typographer: true,
     highlight: function(str, lang) {
@@ -13,6 +13,9 @@
       return '';
     }
   });
+  // Disable (c)/(r)/(tm) → ©/®/™ replacements so enumerated options render
+  // literally. Keep typographer (smart quotes) and disable only replacements.
+  commentMd.disable('replacements');
 
   // ===== File Reference Inline Rule =====
   commentMd.inline.ruler.push('file_ref', function(state, silent) {
@@ -82,7 +85,29 @@
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
   function scrollToCommentRef(id) {
-    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    let card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    if (!card) {
+      // Line cards live in deferred .file-body — mount the owning file and retry.
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const comments = f.comments || [];
+        let found = false;
+        for (let j = 0; j < comments.length; j++) {
+          if (comments[j].id === id) { found = true; break; }
+        }
+        if (!found) continue;
+        const section = document.getElementById('file-section-' + f.path);
+        if (!section) continue;
+        section.open = true;
+        if (f.lazy) {
+          loadLazyFile(section, f, function() { scrollToCommentRef(id); });
+          return;
+        }
+        ensureFileBodyMounted(section, f);
+        card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+        break;
+      }
+    }
     if (!card) return;
     // Make sure any containing <details> file section is open
     const section = card.closest('details');
@@ -220,6 +245,14 @@
       return self.renderToken(tokens, idx, options);
     };
   })();
+  const renderCommentMarkdown = commentMd.render.bind(commentMd);
+  commentMd.render = function(src, env) {
+    return window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env));
+  };
+  const renderInlineCommentMarkdown = commentMd.renderInline.bind(commentMd);
+  commentMd.renderInline = function(src, env) {
+    return window.crit.commentHtml.sanitize(renderInlineCommentMarkdown(src, env));
+  };
 
   // ===== Document Markdown Renderer =====
   const documentMd = window.markdownit({
@@ -233,6 +266,9 @@
       return '';
     }
   });
+  // Disable (c)/(r)/(tm) → ©/®/™ replacements so enumerated options render
+  // literally. Keep typographer (smart quotes) and disable only replacements.
+  documentMd.disable('replacements');
 
   // Add id attributes and anchor links to headings
   const HEADING_LINK_SVG = '<svg class="heading-anchor-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m7.775 3.275 1.25-1.25a3.5 3.5 0 1 1 4.95 4.95l-2.5 2.5a3.5 3.5 0 0 1-4.95 0 .751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018 1.998 1.998 0 0 0 2.83 0l2.5-2.5a2.002 2.002 0 0 0-2.83-2.83l-1.25 1.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042Zm-4.69 9.64a1.998 1.998 0 0 0 2.83 0l1.25-1.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042l-1.25 1.25a3.5 3.5 0 1 1-4.95-4.95l2.5-2.5a3.5 3.5 0 0 1 4.95 0 .751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018 1.998 1.998 0 0 0-2.83 0l-2.5 2.5a2.002 2.002 0 0 0 0 2.83Z"></path></svg>';
@@ -359,6 +395,7 @@
   let settingsPanelOpen = false;
   let settingsPanelTab = 'settings';
   let cachedConfig = null; // populated on first panel open
+  let codeFontsRequest = null; // deferred until the Settings overlay opens
 
   let diffMode = getSetting('diffMode', 'split'); // 'split' or 'unified'
   // Mobile viewports always render unified diffs. Split is unusable in <=768px
@@ -378,7 +415,7 @@
       } else {
         diffMode = getSetting('diffMode', 'split');
       }
-      renderAllFiles();
+      renderAllFilesKeepingPlace();
     });
   }
   let diffScope = getSetting('diffScope', null); // null = no preference saved yet
@@ -553,7 +590,7 @@
         lineBlocks: null,
         previousLineBlocks: null,
         tocItems: [],
-        collapsed: true,
+        collapsed: false,
         viewMode: (session.mode === 'git') ? 'diff' : 'document',
         additions: fi.additions || 0,
         deletions: fi.deletions || 0,
@@ -803,6 +840,9 @@
   async function init() {
     initTheme();
     initWidth();
+    // Code font is a pure CSS-variable override; no mode-specific work here,
+    // so the shared helper owns read + apply.
+    if (window.crit && window.crit.shared) window.crit.shared.applyCodeFontFromCookie();
     initSidebarWidths();
 
     // Measure actual header height and set CSS variable for sticky offsets
@@ -1170,7 +1210,8 @@
   // ===== Markdown Parsing =====
   function parseMarkdown(content) {
     headingSlugCounter.clear();
-    const tokens = documentMd.parse(content, {});
+    const rewrittenContent = rewriteFrontmatterAsYamlFence(content);
+    const tokens = documentMd.parse(rewrittenContent, {});
     const blocks = buildLineBlocks(tokens, documentMd, content);
     const tocItems = extractTocItems(tokens);
     return { blocks, tocItems };
@@ -1194,6 +1235,7 @@
   const splitHighlightedCode = window.crit.lineBlocks.splitHighlightedCode;
   const buildCodeLineBlocks = window.crit.lineBlocks.buildCodeLineBlocks;
   const buildLineBlocks = window.crit.lineBlocks.buildLineBlocks;
+  const rewriteFrontmatterAsYamlFence = window.crit.lineBlocks.rewriteFrontmatterAsYamlFence;
 
   // ===== Utility Functions =====
   function processTaskLists(html) {
@@ -1252,8 +1294,25 @@
   // ===== File Tree Sidebar =====
   let activeTreePath = null;
   let treeObserver = null;
+  let bodyMountObserver = null;
   let ignoreTreeObserverUntil = 0;
+  let ignoreBodyMountObserverUntil = 0;
+  let bodyMountSuppressTimer = null;
   const treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
+
+  // Suppress observer-driven mounts briefly (e.g. during scrollToFile) so
+  // adjacent bodies don't push the target out of view. When the window
+  // expires, remount anything still visible — IntersectionObserver will not
+  // re-fire for elements that stayed intersecting while we ignored callbacks.
+  function suppressBodyMountObserver(ms) {
+    ignoreBodyMountObserverUntil = Date.now() + ms;
+    if (bodyMountSuppressTimer) clearTimeout(bodyMountSuppressTimer);
+    bodyMountSuppressTimer = setTimeout(function() {
+      bodyMountSuppressTimer = null;
+      if (Date.now() < ignoreBodyMountObserverUntil) return;
+      mountVisibleDeferredBodies();
+    }, ms + 10);
+  }
 
   function buildFileTree(fileList) {
     // Build a nested tree from flat paths
@@ -1320,7 +1379,9 @@
     if (files.length > 1) {
       const collapseBtn = document.createElement('button');
       collapseBtn.className = 'file-tree-collapse-btn';
-      collapseBtn.title = 'Collapse all files';
+      const initiallyExpanded = files.some(function(f) { return !f.collapsed; });
+      collapseBtn.title = initiallyExpanded ? 'Collapse all files' : 'Expand all files';
+      collapseBtn.classList.toggle('all-collapsed', !initiallyExpanded);
       // Stacked chevron SVG
       collapseBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 3.22a.75.75 0 0 1 1.06 0L8 5.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 4.28a.75.75 0 0 1 0-1.06zm0 5a.75.75 0 0 1 1.06 0L8 10.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 9.28a.75.75 0 0 1 0-1.06z"/></svg>';
       collapseBtn.addEventListener('click', function() {
@@ -1331,6 +1392,10 @@
         const sections = document.querySelectorAll('.file-section');
         for (let i = 0; i < sections.length; i++) {
           sections[i].open = !anyExpanded;
+        }
+        if (!anyExpanded) {
+          // Re-attach observer so it fires for newly visible sections and mounts their bodies.
+          setupBodyMountObserver();
         }
         collapseBtn.title = anyExpanded ? 'Expand all files' : 'Collapse all files';
         collapseBtn.classList.toggle('all-collapsed', anyExpanded);
@@ -1641,6 +1706,69 @@
     }
   }
 
+  function setupBodyMountObserver() {
+    if (bodyMountObserver) bodyMountObserver.disconnect();
+    const sections = document.querySelectorAll('.file-section[id]');
+    if (sections.length === 0) return;
+
+    bodyMountObserver = new IntersectionObserver(function(entries) {
+      // Skip observer-driven mounts briefly after a manual scrollToFile so the
+      // requested file doesn't get pushed out of view by adjacent bodies mounting.
+      if (Date.now() < ignoreBodyMountObserverUntil) return;
+      let mountedAny = false;
+      for (let i = 0; i < entries.length; i++) {
+        if (!entries[i].isIntersecting) continue;
+        const section = entries[i].target;
+        if (!section.open) continue;
+        const path = section.id.replace('file-section-', '');
+        const file = getFileByPath(path);
+        if (!file) continue;
+        if (file.lazy) {
+          loadLazyFile(section, file);
+        } else {
+          mountDeferredBody(section, file);
+          mountedAny = true;
+        }
+      }
+      if (mountedAny) {
+        renderMermaidBlocks();
+        rebuildNavList();
+        applyHideResolved();
+      }
+    }, { rootMargin: '100% 0px 100% 0px' });
+
+    for (let i = 0; i < sections.length; i++) {
+      bodyMountObserver.observe(sections[i]);
+    }
+  }
+
+  function mountVisibleDeferredBodies() {
+    const sections = document.querySelectorAll('.file-section[id]');
+    if (sections.length === 0) return;
+    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+    let mountedAny = false;
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+      if (!section.open) continue;
+      const rect = section.getBoundingClientRect();
+      if (rect.bottom < -windowHeight || rect.top > windowHeight * 2) continue;
+      const path = section.id.replace('file-section-', '');
+      const file = getFileByPath(path);
+      if (!file) continue;
+      if (file.lazy) {
+        loadLazyFile(section, file);
+      } else {
+        mountDeferredBody(section, file);
+        mountedAny = true;
+      }
+    }
+    if (mountedAny) {
+      renderMermaidBlocks();
+      rebuildNavList();
+      applyHideResolved();
+    }
+  }
+
   function scrollToFile(filePath) {
     const sectionEl = document.getElementById('file-section-' + filePath);
     if (!sectionEl) return;
@@ -1648,9 +1776,27 @@
     const file = getFileByPath(filePath);
     if (file) file.collapsed = false;
     sectionEl.open = true;
-    // Suppress IntersectionObserver for 200ms so it doesn't override our manual active state
+    // toggle handler mounts deferred bodies; call explicitly so layout exists before scroll
+    if (file) {
+      if (file.lazy) {
+        // Scroll to header immediately while loading; re-scroll to the loaded section once
+        // the body mounts so the user lands reliably on the requested file.
+        sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+        loadLazyFile(sectionEl, file, function onLoaded(newSection) {
+          const el = newSection || document.getElementById('file-section-' + filePath);
+          if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
+        });
+      } else {
+        ensureFileBodyMounted(sectionEl, file);
+      }
+    }
+    // Suppress observers briefly so adjacent bodies mounting don't push the
+    // requested file out of view after we scroll to it.
     ignoreTreeObserverUntil = Date.now() + 200;
-    sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+    suppressBodyMountObserver(500);
+    if (!file || !file.lazy) {
+      sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
     updateTreeActive(filePath);
   }
 
@@ -1669,16 +1815,359 @@
     // Render the inline Review Conversation section above filesContainer
     renderReviewConversation();
 
-    // Re-attach intersection observer for file tree active tracking
+    // Re-attach intersection observers for file tree active tracking and
+    // deferred body mounting (keeps large reviews fast while leaving files open).
     setupTreeObserver();
+    setupBodyMountObserver();
+    // Mount bodies that are already visible so first paint doesn't show empty
+    // open sections while the observer fires.
+    mountVisibleDeferredBodies();
     rebuildNavList();
     applyHideResolved();
+  }
+
+  // A full rebuild hands back sections whose bodies are deferred, so every file
+  // the reader had already scrolled past collapses to nothing, the document
+  // ends up shorter than the current offset, and the browser clamps to the top.
+  // Use this for view toggles that must rebuild diffs (split/unified, rendered
+  // diff) but should leave the reader where they were. Remounts only bodies at
+  // or above the reading position — below-fold stays deferred — and pins the
+  // mid-viewport line (falling back to the topmost intersecting file section).
+  // Not for hide-resolved (CSS + highlight sync) or initial load / scope change.
+  function renderAllFilesKeepingPlace() {
+    const mounted = mountedFilePaths();
+    const sectionAnchor = topVisibleSectionAnchor();
+    const lineAnchor = readingLineAnchor();
+
+    renderAllFiles();
+
+    const remountThrough = remountThroughIndex(sectionAnchor, lineAnchor);
+    let remounted = false;
+    for (let i = 0; i < mounted.length; i++) {
+      const path = mounted[i];
+      const idx = files.findIndex(function(f) { return f.path === path; });
+      if (remountThrough >= 0 && idx > remountThrough) continue;
+      const file = getFileByPath(path);
+      const section = document.getElementById('file-section-' + path);
+      if (!file || !section || !section.open || file.lazy) continue;
+      mountDeferredBody(section, file);
+      remounted = true;
+    }
+    if (remounted) {
+      renderMermaidBlocks();
+      rebuildNavList();
+      applyHideResolved();
+    }
+
+    if (restoreReadingLineAnchor(lineAnchor)) return;
+    if (!sectionAnchor) return;
+    const section = document.getElementById(sectionAnchor.id);
+    if (!section) return;
+    const delta = section.getBoundingClientRect().top - sectionAnchor.top;
+    if (Math.abs(delta) < 1) return;
+    window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+  }
+
+  function remountThroughIndex(sectionAnchor, lineAnchor) {
+    let through = -1;
+    if (sectionAnchor) {
+      const path = sectionAnchor.id.replace('file-section-', '');
+      through = Math.max(through, files.findIndex(function(f) { return f.path === path; }));
+    }
+    if (lineAnchor && lineAnchor.filePath) {
+      through = Math.max(through, files.findIndex(function(f) { return f.path === lineAnchor.filePath; }));
+    }
+    return through;
+  }
+
+  function mountedFilePaths() {
+    const paths = [];
+    const sections = document.querySelectorAll('#filesContainer .file-section[id]');
+    for (let i = 0; i < sections.length; i++) {
+      const body = sections[i].querySelector(':scope > .file-body');
+      if (body && body.getAttribute('data-body-deferred') !== '1') {
+        paths.push(sections[i].id.replace('file-section-', ''));
+      }
+    }
+    return paths;
+  }
+
+  // The first file section still touching the viewport, plus where its top sits
+  // relative to it — fallback when no mid-viewport line is available.
+  function topVisibleSectionAnchor() {
+    const sections = document.querySelectorAll('#filesContainer .file-section[id]');
+    for (let i = 0; i < sections.length; i++) {
+      const rect = sections[i].getBoundingClientRect();
+      if (rect.bottom > 0) return { id: sections[i].id, top: rect.top };
+    }
+    return null;
+  }
+
+  // The line/block closest to the vertical center of the viewport — preferred
+  // restore target so split↔unified doesn't slide the hunk the reader was on.
+  // Prefer the new/right side when both halves of a split row sit at the same
+  // Y: unified tags context/add lines by NewNum with an empty side, so an
+  // old-side capture often has nothing to restore to after the switch.
+  function readingLineAnchor() {
+    const midY = (window.innerHeight || 0) / 2;
+    const nodes = document.querySelectorAll(
+      '#filesContainer .diff-line[data-diff-line-num], ' +
+      '#filesContainer .diff-split-side[data-diff-line-num], ' +
+      '#filesContainer .line-block[data-start-line]'
+    );
+    let best = null;
+    let bestDist = Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom <= 0 || rect.top >= (window.innerHeight || 0)) continue;
+      const dist = Math.abs((rect.top + rect.bottom) / 2 - midY);
+      const isBlock = el.classList.contains('line-block');
+      const side = el.dataset.diffSide || '';
+      const preferNew = !isBlock && side === '';
+      const bestPreferNew = best && best.kind === 'diff' && best.side === '';
+      if (dist > bestDist + 0.5) continue;
+      if (Math.abs(dist - bestDist) <= 0.5 && best && !(preferNew && !bestPreferNew)) continue;
+      bestDist = dist;
+      best = {
+        kind: isBlock ? 'block' : 'diff',
+        filePath: el.dataset.diffFilePath || el.dataset.filePath || '',
+        lineNum: parseInt(isBlock ? el.dataset.startLine : el.dataset.diffLineNum, 10),
+        side: side,
+        top: rect.top,
+      };
+    }
+    return best && best.filePath && best.lineNum > 0 ? best : null;
+  }
+
+  function restoreReadingLineAnchor(anchor) {
+    if (!anchor) return false;
+    let el = null;
+    if (anchor.kind === 'block') {
+      const blocks = document.querySelectorAll(
+        '#filesContainer .line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"]'
+      );
+      for (let i = 0; i < blocks.length; i++) {
+        const start = parseInt(blocks[i].dataset.startLine, 10);
+        const end = parseInt(blocks[i].dataset.endLine, 10);
+        if (anchor.lineNum >= start && anchor.lineNum <= end) { el = blocks[i]; break; }
+      }
+    } else {
+      const base =
+        '#filesContainer [data-diff-file-path="' + CSS.escape(anchor.filePath) + '"]' +
+        '[data-diff-line-num="' + anchor.lineNum + '"]';
+      el = document.querySelector(base + '[data-diff-side="' + CSS.escape(anchor.side) + '"]') ||
+        document.querySelector(base);
+    }
+    if (!el) return false;
+    const delta = el.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+    return true;
+  }
+
+  // Hide-resolved: cards are CSS (`body.hide-resolved`). Line highlights are
+  // baked in at render time via isHideResolved(), so toggle them in place on
+  // currently-mounted bodies instead of wiping #filesContainer.
+  function refreshHideResolvedView() {
+    applyHideResolved();
+    const root = storyActive()
+      ? document.getElementById('storyPane')
+      : document.getElementById('filesContainer');
+    if (!root) return;
+    const sections = root.querySelectorAll('.file-section[id]');
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+      const path = section.dataset.storyFile ||
+        (section.id.indexOf('file-section-') === 0
+          ? section.id.slice('file-section-'.length)
+          : null);
+      if (!path) continue;
+      syncCommentHighlightsInSection(section, getFileByPath(path));
+    }
+  }
+
+  function syncCommentHighlightsInSection(section, file) {
+    if (!section || !file) return;
+    const body = section.querySelector(':scope > .file-body');
+    if (!body || body.getAttribute('data-body-deferred') === '1') return;
+
+    const lineBlocks = body.querySelectorAll('.line-block[data-start-line]');
+    if (lineBlocks.length > 0) {
+      const rangeSet = buildCommentIndices(file.comments || []).rangeSet;
+      for (let i = 0; i < lineBlocks.length; i++) {
+        const el = lineBlocks[i];
+        const start = parseInt(el.dataset.startLine, 10);
+        const end = parseInt(el.dataset.endLine, 10);
+        let inRange = false;
+        for (let ln = start; ln <= end; ln++) {
+          if (rangeSet.has(ln + ':')) { inRange = true; break; }
+        }
+        el.classList.toggle('has-comment', inRange);
+      }
+    }
+
+    const unified = body.querySelector('.diff-container.unified');
+    if (unified) {
+      const visualSet = buildUnifiedCommentVisualSet(file.diffHunks || [], file.comments || []);
+      const lines = unified.querySelectorAll('.diff-line[data-diff-visual-idx]');
+      for (let i = 0; i < lines.length; i++) {
+        const el = lines[i];
+        el.classList.toggle('has-comment', visualSet.has(parseInt(el.dataset.diffVisualIdx, 10)));
+      }
+    }
+
+    const split = body.querySelector('.diff-container.split');
+    if (split) {
+      const rangeSet = buildCommentIndices(file.comments || []).rangeSet;
+      const sides = split.querySelectorAll('.diff-split-side[data-diff-line-num]');
+      for (let i = 0; i < sides.length; i++) {
+        const el = sides[i];
+        const key = parseInt(el.dataset.diffLineNum, 10) + ':' + (el.dataset.diffSide || '');
+        el.classList.toggle('has-comment', rangeSet.has(key));
+      }
+    }
   }
 
   function rebuildNavList() {
     navElements = Array.from(document.querySelectorAll('.kb-nav'));
     buildChangeGroups();
     restoreKeyboardFocus();
+  }
+
+  // Deferred / lazy file bodies are absent from .kb-nav and change-group
+  // queries. Keyboard nav (j/k, n/N) must mount the next file when it hits a
+  // section boundary so off-screen deferred content stays reachable.
+  function fileSectionNeedsMount(file) {
+    if (!file) return false;
+    const section = document.getElementById('file-section-' + file.path);
+    if (!section) return false;
+    if (file.lazy) return true;
+    const body = section.querySelector(':scope > .file-body');
+    return !!(body && body.getAttribute('data-body-deferred') === '1');
+  }
+
+  function fileLikelyHasChanges(file) {
+    if (!file) return false;
+    if (file.diffHunks && file.diffHunks.length > 0) return true;
+    // Lazy placeholders ship empty diffHunks until loadLazyFile; numstat
+    // additions/deletions are the only change signal available beforehand.
+    if (file.lazy && ((file.additions || 0) > 0 || (file.deletions || 0) > 0)) return true;
+    return false;
+  }
+
+  // Find the next deferred/lazy file between fromPath and towardPath.
+  // Optional predicate (e.g. fileLikelyHasChanges) skips mount candidates that
+  // would not qualify — so a deferred no-hunk file cannot block a later one.
+  function findDeferredFileForNav(fromPath, towardPath, direction, predicate) {
+    let fromIdx = -1;
+    let towardIdx = direction > 0 ? files.length : -1;
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].path === fromPath) fromIdx = i;
+      if (towardPath && files[i].path === towardPath) towardIdx = i;
+    }
+    if (fromIdx < 0) return null;
+    if (direction > 0) {
+      for (let i = fromIdx + 1; i < towardIdx; i++) {
+        if (!fileSectionNeedsMount(files[i])) continue;
+        if (predicate && !predicate(files[i])) continue;
+        return files[i];
+      }
+    } else {
+      for (let i = fromIdx - 1; i > towardIdx; i--) {
+        if (!fileSectionNeedsMount(files[i])) continue;
+        if (predicate && !predicate(files[i])) continue;
+        return files[i];
+      }
+    }
+    return null;
+  }
+
+  function mountFileForNav(file, onReady) {
+    const section = document.getElementById('file-section-' + file.path);
+    if (!section) {
+      if (onReady) onReady(false);
+      return;
+    }
+    section.open = true;
+    if (file.lazy) {
+      loadLazyFile(section, file, function() { if (onReady) onReady(true); });
+      return;
+    }
+    ensureFileBodyMounted(section, file);
+    if (onReady) onReady(true);
+  }
+
+  function navElementFilePath(el) {
+    if (!el) return null;
+    return el.dataset.filePath || el.dataset.diffFilePath ||
+      (el.querySelector && (function() {
+        const side = el.querySelector('.diff-split-side[data-diff-file-path]');
+        return side ? side.dataset.diffFilePath : null;
+      })());
+  }
+
+  function navigateBlock(direction, _mountedPath) {
+    const allNav = navElements;
+    if (allNav.length === 0) {
+      const start = direction > 0 ? 0 : files.length - 1;
+      const step = direction > 0 ? 1 : -1;
+      for (let i = start; i >= 0 && i < files.length; i += step) {
+        const section = document.getElementById('file-section-' + files[i].path);
+        if (!section || !section.open) continue;
+        if (fileSectionNeedsMount(files[i]) && files[i].path !== _mountedPath) {
+          mountFileForNav(files[i], function() { navigateBlock(direction, files[i].path); });
+          return;
+        }
+      }
+      return;
+    }
+
+    let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
+    if (curIdx === -1) {
+      const match = findNavElementForFocusTarget(getKeyboardFocusTarget());
+      if (match) curIdx = allNav.indexOf(match);
+    }
+
+    let nextIdx;
+    if (curIdx === -1) {
+      nextIdx = direction > 0 ? 0 : allNav.length - 1;
+    } else {
+      nextIdx = curIdx + direction;
+      const curPath = focusedFilePath || navElementFilePath(focusedElement) || navElementFilePath(allNav[curIdx]);
+      if (nextIdx < 0 || nextIdx >= allNav.length) {
+        const deferred = curPath ? findDeferredFileForNav(curPath, null, direction) : null;
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateBlock(direction, deferred.path); });
+          return;
+        }
+        return;
+      }
+      const nextPath = navElementFilePath(allNav[nextIdx]);
+      if (curPath && nextPath && curPath !== nextPath) {
+        const deferred = findDeferredFileForNav(curPath, nextPath, direction);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateBlock(direction, deferred.path); });
+          return;
+        }
+      }
+    }
+
+    document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
+    focusedElement = allNav[nextIdx];
+    focusedElement.classList.add('focused');
+    focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (focusedElement.dataset.filePath) {
+      focusedFilePath = focusedElement.dataset.filePath;
+      focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
+    } else {
+      const navTarget = navFocusTargetFromElement(focusedElement);
+      if (navTarget) {
+        focusedFilePath = navTarget.filePath;
+        focusedBlockIndex = null;
+      }
+    }
+    rememberKeyboardFocusFromNav(focusedElement);
+    if (visualMode) extendVisualSelection();
   }
 
   function rememberKeyboardFocusTarget(target) {
@@ -1861,10 +2350,41 @@
     }
   }
 
+  function changeNavAnchorFromIdx(idx) {
+    if (idx < 0 || idx >= changeGroups.length) return null;
+    const g = changeGroups[idx];
+    let fileGroupIdx = 0;
+    for (let i = 0; i < idx; i++) {
+      if (changeGroups[i].filePath === g.filePath) fileGroupIdx++;
+    }
+    return { filePath: g.filePath, fileGroupIdx: fileGroupIdx };
+  }
+
+  function findChangeIdxForAnchor(anchor) {
+    if (!anchor) return -1;
+    let fileGroupIdx = 0;
+    for (let i = 0; i < changeGroups.length; i++) {
+      if (changeGroups[i].filePath !== anchor.filePath) continue;
+      if (fileGroupIdx === anchor.fileGroupIdx) return i;
+      fileGroupIdx++;
+    }
+    // File still present but group count shrank — land on its last group.
+    let last = -1;
+    for (let i = 0; i < changeGroups.length; i++) {
+      if (changeGroups[i].filePath === anchor.filePath) last = i;
+    }
+    return last;
+  }
+
   function buildChangeGroups() {
+    // Remounting a deferred/lazy body rebuilds groups and would otherwise wipe
+    // currentChangeIdx, breaking atEnd/atStart and wrap chaining on retry.
+    const prevAnchor = changeNavAnchorFromIdx(currentChangeIdx);
     changeGroups = [];
     // Document view: color-coded change blocks + deletion markers
-    const docEls = document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker');
+    const docEls = Array.from(document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker'))
+      .map(function(el) { return el.closest('.native-table-annotation') || el; })
+      .filter(function(el, index, elements) { return elements.indexOf(el) === index; });
     // Diff view: diff-added and diff-removed blocks in rendered diff (file mode)
     const diffEls = document.querySelectorAll('.diff-view .line-block.diff-added, .diff-view .line-block.diff-removed, .diff-view-unified .line-block.diff-added, .diff-view-unified .line-block.diff-removed');
     const all = docEls.length > 0 ? docEls : diffEls;
@@ -1881,13 +2401,13 @@
         group.elements.push(el);
       }
     }
-    currentChangeIdx = -1;
+    currentChangeIdx = findChangeIdxForAnchor(prevAnchor);
     updateChangeCounters();
   }
 
   function isConsecutiveSibling(a, b) {
     // Check if b immediately follows a, skipping comment elements between them
-    let node = a.nextElementSibling;
+    let node = nextLogicalTableSibling(a);
     while (node && node !== b) {
       // A non-changed line-block in between breaks the group
       if (node.classList.contains('line-block') &&
@@ -1896,14 +2416,50 @@
           !node.classList.contains('diff-added') &&
           !node.classList.contains('diff-removed')) return false;
       // Deletion markers don't break the group
-      if (node.classList.contains('deletion-marker')) { node = node.nextElementSibling; continue; }
-      node = node.nextElementSibling;
+      if (node.classList.contains('deletion-marker')) { node = nextLogicalTableSibling(node); continue; }
+      node = nextLogicalTableSibling(node);
     }
     return node === b;
   }
 
-  function navigateToChange(dir) {
-    if (changeGroups.length === 0) return;
+  function nextLogicalTableSibling(node) {
+    if (node.nextElementSibling) return node.nextElementSibling;
+    const section = node.parentElement;
+    if (!section || section.tagName !== 'THEAD') return null;
+    const table = section.closest('table.native-table');
+    return table && table.tBodies.length ? table.tBodies[0].firstElementChild : null;
+  }
+
+  function navigateToChange(dir, _mountedPath) {
+    // Empty groups: try mounting a deferred file that has diffs, then retry.
+    if (changeGroups.length === 0) {
+      const start = dir > 0 ? 0 : files.length - 1;
+      const step = dir > 0 ? 1 : -1;
+      for (let i = start; i >= 0 && i < files.length; i += step) {
+        if (!fileLikelyHasChanges(files[i])) continue;
+        if (fileSectionNeedsMount(files[i]) && files[i].path !== _mountedPath) {
+          mountFileForNav(files[i], function() { navigateToChange(dir, files[i].path); });
+          return;
+        }
+      }
+      return;
+    }
+
+    // At the last/first mounted change group — mount deferred neighbors first
+    // so n/N can reach off-screen file bodies.
+    if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length) {
+      const atEnd = dir > 0 && currentChangeIdx === changeGroups.length - 1;
+      const atStart = dir < 0 && currentChangeIdx === 0;
+      if (atEnd || atStart) {
+        const curPath = changeGroups[currentChangeIdx].filePath;
+        const deferred = findDeferredFileForNav(curPath, null, dir, fileLikelyHasChanges);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
+          return;
+        }
+      }
+    }
+
     // Remove previous flash
     document.querySelectorAll('.change-flash').forEach(function(el) { el.classList.remove('change-flash'); });
 
@@ -1943,6 +2499,27 @@
           if (elCenter < viewCenter - threshold) { targetIdx = i; break; }
         }
         if (targetIdx === -1) targetIdx = changeGroups.length - 1;
+      }
+    }
+
+    // Crossing into another file: mount any deferred file between so its
+    // changes aren't skipped.
+    if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length && targetIdx >= 0) {
+      const fromPath = changeGroups[currentChangeIdx].filePath;
+      const toPath = changeGroups[targetIdx].filePath;
+      const wrapping = (dir > 0 && targetIdx < currentChangeIdx) || (dir < 0 && targetIdx > currentChangeIdx);
+      if (wrapping) {
+        const deferred = findDeferredFileForNav(fromPath, null, dir, fileLikelyHasChanges);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
+          return;
+        }
+      } else if (fromPath && toPath && fromPath !== toPath) {
+        const deferred = findDeferredFileForNav(fromPath, toPath, dir, fileLikelyHasChanges);
+        if (deferred && deferred.path !== _mountedPath) {
+          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
+          return;
+        }
       }
     }
 
@@ -1997,7 +2574,11 @@
     }
   }
 
-  function renderFileByPath(filePath) {
+  // opts.preserveDeferred keeps an off-screen body deferred across the
+  // re-render instead of mounting it, so a section above the viewport doesn't
+  // suddenly grow and shift what the reader is looking at. The mount observer
+  // fills it in once it scrolls near the viewport.
+  function renderFileByPath(filePath, opts) {
     const file = getFileByPath(filePath);
     if (!file) return;
     saveOpenFormContent(filePath);
@@ -2007,8 +2588,18 @@
     }
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
-    oldSection.replaceWith(renderFileSection(file));
+    const oldBody = oldSection.querySelector(':scope > .file-body');
+    const keepDeferred = !!(opts && opts.preserveDeferred) &&
+      !!oldBody && oldBody.getAttribute('data-body-deferred') === '1';
+    const newSection = renderFileSection(file);
+    oldSection.replaceWith(newSection);
+    if (newSection.open && !keepDeferred) {
+      if (file.lazy) loadLazyFile(newSection, file);
+      else ensureFileBodyMounted(newSection, file);
+    }
     renderMermaidBlocks();
+    setupBodyMountObserver();
+    mountVisibleDeferredBodies();
     rebuildNavList();
     applyHideResolved();
   }
@@ -2054,63 +2645,27 @@
       }
       // Expanding: let native <details> handle it
     });
+    // Setting .open above queues a toggle event rather than firing one, so it
+    // arrives here after this listener is attached. Loading a lazy file for
+    // that synthetic event pulls in the whole review at once. Track the last
+    // state, not the first event — a real toggle always flips it.
+    let lastOpen = section.open;
     section.addEventListener('toggle', function() {
+      const readerToggled = section.open !== lastOpen;
+      lastOpen = section.open;
       file.collapsed = !section.open;
+      if (section.open) {
+        // Eager files mount either way — under the threshold the whole
+        // review is meant to render.
+        if (file.lazy) {
+          if (readerToggled) loadLazyFile(section, file);
+        } else {
+          ensureFileBodyMounted(section, file);
+        }
+      } else if (!fileHasOpenLineForms(file.path)) {
+        deferFileBody(section);
+      }
     });
-
-    // Lazy file: load content on first expand
-    if (file.lazy) {
-      section.addEventListener('toggle', function onLazyExpand() {
-        if (!section.open || !file.lazy) return;
-        if (file._lazyLoading) return;
-        file._lazyLoading = true;
-        section.removeEventListener('toggle', onLazyExpand);
-        section.classList.add('file-section-loading');
-
-        loadSingleFile({
-          path: file.path,
-          old_path: file.oldPath,
-          status: file.status,
-          file_type: file.fileType,
-          additions: file.additions,
-          deletions: file.deletions,
-        }, effectiveDiffScope()).then(function(loaded) {
-          // Copy loaded data into the existing file object
-          file.oldPath = loaded.oldPath;
-          file.content = loaded.content;
-          file.previousContent = loaded.previousContent;
-          file.comments = loaded.comments;
-          file.diffHunks = loaded.diffHunks;
-          file._autoExpandDone = false;
-          file.lineBlocks = loaded.lineBlocks;
-          file.previousLineBlocks = loaded.previousLineBlocks;
-          file.tocItems = loaded.tocItems;
-          file.diffTooLarge = loaded.diffTooLarge;
-          file.diffLoaded = loaded.diffLoaded;
-          file.lazy = false;
-          file._lazyLoading = false;
-          if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-          if (loaded.lang) file.lang = loaded.lang;
-
-          // Re-render this file section in place
-          section.classList.remove('file-section-loading');
-          const newSection = renderFileSection(file);
-          newSection.open = section.open;
-          section.replaceWith(newSection);
-
-          // Update UI state
-          renderFileTree();
-          updateCommentCount();
-          rebuildNavList();
-        }).catch(function() {
-          file._lazyLoading = false;
-          // Guard against stale DOM node: only re-attach if still in the document
-          if (!section.isConnected) return;
-          section.classList.remove('file-section-loading');
-          section.addEventListener('toggle', onLazyExpand);
-        });
-      });
-    }
 
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
@@ -2189,10 +2744,13 @@
       if (session.mode !== 'git') {
         const changeNav = document.createElement('div');
         changeNav.className = 'change-nav';
+        const sc = window.crit && window.crit.shortcuts;
+        const prevChangeKeys = (sc && sc.getBinding('previous_change')) || 'Shift+N';
+        const nextChangeKeys = (sc && sc.getBinding('next_change')) || 'n';
         changeNav.innerHTML =
-          '<button class="change-nav-btn" data-dir="-1" title="Previous change (N)">&#9650;</button>' +
+          '<button class="change-nav-btn" data-dir="-1" title="Previous change (' + escapeHtml(prevChangeKeys) + ')">&#9650;</button>' +
           '<span class="change-nav-label" data-file-path="' + escapeHtml(file.path) + '"></span>' +
-          '<button class="change-nav-btn" data-dir="1" title="Next change (n)">&#9660;</button>';
+          '<button class="change-nav-btn" data-dir="1" title="Next change (' + escapeHtml(nextChangeKeys) + ')">&#9660;</button>';
         changeNav.addEventListener('click', function(e) {
           const btn = e.target.closest('.change-nav-btn');
           if (!btn) return;
@@ -2268,9 +2826,124 @@
       section.appendChild(fileCommentsContainer);
     }
 
-    // File body
+    // File body — mount heavy diff/document DOM only while expanded. Keeping
+    // <details> open by default (GitHub-style) but deferring the body until it
+    // scrolls near the viewport keeps first paint cheap on large PRs.
     const body = document.createElement('div');
     body.className = 'file-body';
+    section.appendChild(body);
+
+    body.setAttribute('data-body-deferred', '1');
+
+    return section;
+  }
+
+  function fileHasOpenLineForms(filePath) {
+    return getFormsForFile(filePath).some(function(f) { return f.scope !== 'file'; });
+  }
+
+  function loadLazyFile(section, file, onLoaded) {
+    if (!section.open) return;
+    if (!file.lazy) {
+      if (onLoaded) onLoaded(section);
+      return;
+    }
+    if (!file._lazyLoadCallbacks) file._lazyLoadCallbacks = [];
+    if (onLoaded) file._lazyLoadCallbacks.push(onLoaded);
+    if (file._lazyLoading) return;
+    file._lazyLoading = true;
+    section.classList.add('file-section-loading');
+
+    loadSingleFile({
+      path: file.path,
+      old_path: file.oldPath,
+      status: file.status,
+      file_type: file.fileType,
+      additions: file.additions,
+      deletions: file.deletions,
+    }, effectiveDiffScope()).then(function(loaded) {
+      // Copy loaded data into the existing file object
+      file.oldPath = loaded.oldPath;
+      file.content = loaded.content;
+      file.previousContent = loaded.previousContent;
+      file.comments = loaded.comments;
+      file.diffHunks = loaded.diffHunks;
+      file._autoExpandDone = false;
+      file.lineBlocks = loaded.lineBlocks;
+      file.previousLineBlocks = loaded.previousLineBlocks;
+      file.tocItems = loaded.tocItems;
+      file.diffTooLarge = loaded.diffTooLarge;
+      file.diffLoaded = loaded.diffLoaded;
+      file.lazy = false;
+      file._lazyLoading = false;
+      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
+      if (loaded.lang) file.lang = loaded.lang;
+
+      const callbacks = file._lazyLoadCallbacks || [];
+      file._lazyLoadCallbacks = [];
+
+      // Re-render this file section in place (prefer live node if caller raced).
+      let liveSection = section;
+      if (!section.isConnected) {
+        liveSection = document.getElementById('file-section-' + file.path);
+        if (!liveSection) {
+          for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
+          return;
+        }
+      }
+      liveSection.classList.remove('file-section-loading');
+      const newSection = renderFileSection(file);
+      newSection.open = liveSection.open;
+      liveSection.replaceWith(newSection);
+      // Always mount when open: observer may be suppressed (scrollToFile) and
+      // will not re-fire for an already-intersecting replacement section.
+      if (newSection.open) ensureFileBodyMounted(newSection, file);
+
+      // Update UI state
+      renderFileTree();
+      updateCommentCount();
+      setupBodyMountObserver();
+      rebuildNavList();
+      for (let i = 0; i < callbacks.length; i++) callbacks[i](newSection);
+    }).catch(function() {
+      file._lazyLoading = false;
+      const callbacks = file._lazyLoadCallbacks || [];
+      file._lazyLoadCallbacks = [];
+      // Guard against stale DOM node: only re-attach if still in the document
+      if (section.isConnected) section.classList.remove('file-section-loading');
+      for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
+    });
+  }
+
+  function deferFileBody(section) {
+    const body = section.querySelector(':scope > .file-body');
+    if (!body || body.getAttribute('data-body-deferred') === '1') return;
+    body.innerHTML = '';
+    body.setAttribute('data-body-deferred', '1');
+    rebuildNavList();
+  }
+
+  function mountDeferredBody(section, file) {
+    const body = section.querySelector(':scope > .file-body');
+    if (!body || body.getAttribute('data-body-deferred') !== '1') return;
+    populateFileBody(body, file);
+    highlightQuotesInSection(section, file);
+  }
+
+  function ensureFileBodyMounted(section, file) {
+    if (!section || !file || file.lazy) return;
+    const body = section.querySelector(':scope > .file-body');
+    if (!body) return;
+    if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount > 0) return;
+    mountDeferredBody(section, file);
+    renderMermaidBlocks();
+    rebuildNavList();
+    applyHideResolved();
+  }
+
+  function populateFileBody(body, file) {
+    body.innerHTML = '';
+    body.removeAttribute('data-body-deferred');
 
     const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
 
@@ -2314,10 +2987,6 @@
     } else {
       body.appendChild(renderDocumentView(file));
     }
-
-    section.appendChild(body);
-    highlightQuotesInSection(section, file);
-    return section;
   }
 
   // ===== Rendered Diff View (Markdown, file mode) =====
@@ -2666,11 +3335,59 @@
       }
     }
 
+    let activeTableId = null;
+    let activeTableHead = null;
+    let activeTableBody = null;
+
+    function nativeTableColCount(section) {
+      const table = section.closest('table');
+      const sample = table && table.querySelector('tr.line-block:not(.native-table-separator)');
+      return (sample && sample.cells.length) || 1;
+    }
+
+    function appendTableAnnotation(section, element) {
+      const row = document.createElement('tr');
+      row.className = 'native-table-annotation';
+      if (element.dataset.filePath) row.dataset.filePath = element.dataset.filePath;
+      const cell = document.createElement('td');
+      cell.colSpan = nativeTableColCount(section);
+      cell.appendChild(element);
+      row.appendChild(cell);
+      section.appendChild(row);
+    }
+
     for (let bi = 0; bi < file.lineBlocks.length; bi++) {
       const block = file.lineBlocks[bi];
+      const isTableBlock = !!block.tableId;
 
-      const lineBlockEl = document.createElement('div');
+      if (isTableBlock && block.tableId !== activeTableId) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'native-table-wrapper';
+        const table = document.createElement('table');
+        table.className = 'native-table';
+        activeTableHead = document.createElement('thead');
+        activeTableBody = document.createElement('tbody');
+        table.appendChild(activeTableHead);
+        table.appendChild(activeTableBody);
+        wrapper.appendChild(table);
+        container.appendChild(wrapper);
+        activeTableId = block.tableId;
+      } else if (!isTableBlock) {
+        activeTableId = null;
+        activeTableHead = null;
+        activeTableBody = null;
+      }
+      const tableSection = isTableBlock && block.tableSection === 'thead'
+        ? activeTableHead
+        : activeTableBody;
+
+      const lineBlockEl = document.createElement(isTableBlock ? 'tr' : 'div');
       lineBlockEl.className = 'line-block kb-nav';
+      if (isTableBlock && block.cssClass) {
+        block.cssClass.split(/\s+/).forEach(function(className) {
+          if (className) lineBlockEl.classList.add(className);
+        });
+      }
       lineBlockEl.dataset.blockIndex = bi;
       lineBlockEl.dataset.startLine = block.startLine;
       lineBlockEl.dataset.endLine = block.endLine;
@@ -2731,17 +3448,42 @@
       commentGutter.appendChild(lineAdd);
       commentGutter.addEventListener('mousedown', handleGutterMouseDown);
 
-      // Content
-      const content = document.createElement('div');
-      content.className = buildContentClasses(block);
-      let html = block.html;
-      html = processTaskLists(html);
-      html = rewriteImageSrcs(html, file.path);
-      content.innerHTML = html;
-
       gutter.appendChild(commentGutter);
-      lineBlockEl.appendChild(gutter);
-      lineBlockEl.appendChild(content);
+      if (isTableBlock) {
+        const gutterCell = document.createElement('td');
+        gutterCell.className = 'native-table-gutter';
+        gutterCell.appendChild(gutter);
+        lineBlockEl.appendChild(gutterCell);
+
+        if (block.cssClass && block.cssClass.indexOf('table-separator') !== -1) {
+          lineBlockEl.classList.add('native-table-separator');
+          const separatorCell = document.createElement('td');
+          separatorCell.colSpan = 100;
+          lineBlockEl.appendChild(separatorCell);
+        } else {
+          let html = processTaskLists(block.nativeRowHtml || block.html);
+          html = rewriteImageSrcs(html, file.path);
+          const scratch = document.createElement('table');
+          scratch.innerHTML = '<tbody>' + html + '</tbody>';
+          const renderedRow = scratch.querySelector('tr');
+          if (renderedRow) {
+            while (renderedRow.firstChild) {
+              const cell = renderedRow.firstChild;
+              cell.className = buildContentClasses(block) + (cell.className ? ' ' + cell.className : '');
+              lineBlockEl.appendChild(cell);
+            }
+          }
+        }
+      } else {
+        const content = document.createElement('div');
+        content.className = buildContentClasses(block);
+        let html = block.html;
+        html = processTaskLists(html);
+        html = rewriteImageSrcs(html, file.path);
+        content.innerHTML = html;
+        lineBlockEl.appendChild(gutter);
+        lineBlockEl.appendChild(content);
+      }
 
       // Insert deletion marker before this block if deletions occurred before it
       if (changeInfo && bi === 0 && deletionMarkerMap[0]) {
@@ -2749,10 +3491,12 @@
         marker0.className = 'deletion-marker';
         marker0.dataset.filePath = file.path;
         marker0.textContent = '\u2212' + deletionMarkerMap[0].count + ' line' + (deletionMarkerMap[0].count !== 1 ? 's' : '');
-        container.appendChild(marker0);
+        if (isTableBlock) appendTableAnnotation(tableSection, marker0);
+        else container.appendChild(marker0);
       }
 
-      container.appendChild(lineBlockEl);
+      if (isTableBlock) tableSection.appendChild(lineBlockEl);
+      else container.appendChild(lineBlockEl);
 
       // Insert deletion marker after this block if deletions occurred after it
       if (changeInfo && deletionMarkerMap[block.endLine]) {
@@ -2760,15 +3504,20 @@
         marker.className = 'deletion-marker';
         marker.dataset.filePath = file.path;
         marker.textContent = '\u2212' + deletionMarkerMap[block.endLine].count + ' line' + (deletionMarkerMap[block.endLine].count !== 1 ? 's' : '');
-        container.appendChild(marker);
+        if (isTableBlock) appendTableAnnotation(tableSection, marker);
+        else container.appendChild(marker);
       }
 
       // Comments after block
       for (const comment of blockComments) {
         if (comment.resolved) {
-          container.appendChild(createResolvedElement(comment, file.path));
+          const commentEl = createResolvedElement(comment, file.path);
+          if (isTableBlock) appendTableAnnotation(tableSection, commentEl);
+          else container.appendChild(commentEl);
         } else {
-          container.appendChild(createCommentElement(comment, file.path));
+          const commentEl = createCommentElement(comment, file.path);
+          if (isTableBlock) appendTableAnnotation(tableSection, commentEl);
+          else container.appendChild(commentEl);
         }
       }
 
@@ -2776,7 +3525,9 @@
       const fileForms = getFormsForFile(file.path);
       for (let fi = 0; fi < fileForms.length; fi++) {
         if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
-          container.appendChild(createCommentForm(fileForms[fi]));
+          const formEl = createCommentForm(fileForms[fi]);
+          if (isTableBlock) appendTableAnnotation(tableSection, formEl);
+          else container.appendChild(formEl);
         }
       }
     }
@@ -2799,6 +3550,10 @@
   const applyWordDiffPair = window.crit.diffRenderer.applyWordDiffPair;
   const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
   const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
+  const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
+  const resolveTextSelectionLineRange = window.crit.diffRenderer.resolveTextSelectionLineRange;
+  const preferredSideFromNode = window.crit.diffRenderer.preferredSideFromNode;
+  const selectedTextWithinElements = window.crit.diffRenderer.selectedTextWithinElements;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
@@ -2974,11 +3729,47 @@
     document.body.classList.remove('dragging');
 
     if (!diffDragState) return;
-    const rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
-    const rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
 
+    let rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
+    let rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
+    let side = diffDragState.side;
     const fp = diffDragState.filePath;
-    const side = diffDragState.side;
+
+    // Unified mode may drag across old/new number spaces. Resolve to a
+    // single-side range from the visual selection so the form attaches under
+    // the selected change (see resolveUnifiedDragFormRange).
+    if (diffMode !== 'split' &&
+        typeof diffDragState.anchorVisualIdx === 'number' && !isNaN(diffDragState.anchorVisualIdx) &&
+        typeof diffDragState.currentVisualIdx === 'number' && !isNaN(diffDragState.currentVisualIdx)) {
+      const vLo = Math.min(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
+      const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
+      const releaseVisualIdx = diffDragState.currentVisualIdx;
+      const selected = [];
+      const section = currentRenderedFileSection(fp);
+      if (section) {
+        const els = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
+        for (let i = 0; i < els.length; i++) {
+          const vi = parseInt(els[i].dataset.diffVisualIdx, 10);
+          if (isNaN(vi) || vi < vLo || vi > vHi) continue;
+          const ln = parseInt(els[i].dataset.diffLineNum, 10);
+          if (!ln) continue;
+          selected.push({
+            visualIdx: vi,
+            lineNum: ln,
+            side: els[i].dataset.diffSide || '',
+          });
+        }
+      }
+      const resolved = resolveUnifiedDragFormRange(selected, releaseVisualIdx, {
+        startLine: rangeStart,
+        endLine: rangeEnd,
+        side: side,
+      });
+      rangeStart = resolved.startLine;
+      rangeEnd = resolved.endLine;
+      side = resolved.side;
+    }
+
     diffDragState = null;
     unifiedVisualStart = null;
     unifiedVisualEnd = null;
@@ -4263,33 +5054,21 @@
         startLine: ln,
         endLine: ln,
         blockIndex: null,
-        side: el.dataset.diffSide || undefined,
+        // Keep '' for new-side so mixed-side resolution can filter ('' vs 'old').
+        side: el.dataset.diffSide || '',
       });
     });
 
     if (candidates.length === 0) return null;
 
-    // All candidates must share filePath and side. If the selection straddles
-    // multiple files or diff sides, bail out rather than guess.
-    const filePath = candidates[0].filePath;
-    const side = candidates[0].side;
-    for (let i = 1; i < candidates.length; i++) {
-      if (candidates[i].filePath !== filePath) return null;
-      if (candidates[i].side !== side) return null;
+    // Prefer the side where the user started dragging (anchorNode). Range
+    // startContainer is document-order and wrong for reverse selections.
+    // Split multi-line / unified del+add often intersect both sides.
+    let preferredSide = preferredSideFromNode(selection.anchorNode);
+    if (preferredSide === undefined) {
+      preferredSide = preferredSideFromNode(range.startContainer);
     }
-
-    let startLine = Infinity;
-    let endLine = -Infinity;
-    let afterBlockIndex = null;
-    for (const c of candidates) {
-      if (c.startLine < startLine) startLine = c.startLine;
-      if (c.endLine > endLine) endLine = c.endLine;
-      if (c.blockIndex !== null && (afterBlockIndex === null || c.blockIndex > afterBlockIndex)) {
-        afterBlockIndex = c.blockIndex;
-      }
-    }
-
-    return { filePath, startLine, endLine, afterBlockIndex, side };
+    return resolveTextSelectionLineRange(candidates, preferredSide);
   }
 
   function closeEmptyReviewForm() {
@@ -5354,13 +6133,14 @@
       replyTime.className = 'reply-time';
       replyTime.textContent = formatTime(reply.created_at);
       replyMeta.appendChild(replyTime);
-      if (reply.github_id) {
-        const ghBadge = document.createElement('span');
-        ghBadge.className = 'github-badge';
-        ghBadge.textContent = 'GitHub';
-        ghBadge.title = 'Synced from GitHub';
-        ghBadge.setAttribute('aria-label', 'Synced from GitHub');
-        replyMeta.appendChild(ghBadge);
+      const replyForge = reply.gitlab_note_id ? 'GitLab' : (reply.github_id ? 'GitHub' : '');
+      if (replyForge) {
+        const forgeBadge = document.createElement('span');
+        forgeBadge.className = 'forge-badge ' + replyForge.toLowerCase() + '-badge';
+        forgeBadge.textContent = replyForge;
+        forgeBadge.title = 'Synced from ' + replyForge;
+        forgeBadge.setAttribute('aria-label', 'Synced from ' + replyForge);
+        replyMeta.appendChild(forgeBadge);
       }
       replyHeader.appendChild(replyMeta);
 
@@ -5416,9 +6196,11 @@
           const s = parseInt(el.dataset.startLine);
           const e = parseInt(el.dataset.endLine);
           if (s <= ln && e >= ln) {
-            // Get the content div (skip gutter)
-            const content = el.querySelector('.line-content');
-            if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
+            // Native table rows have one content element per cell. Other
+            // blocks have one content div.
+            el.querySelectorAll('.line-content').forEach(function(content) {
+              if (contentEls.indexOf(content) === -1) contentEls.push(content);
+            });
           }
         });
         // Diff view: diff lines with data-diff-line-num
@@ -5434,21 +6216,26 @@
 
       if (contentEls.length === 0) return;
 
-      // Collect all text nodes across the content elements
-      const textNodes = [];
-      contentEls.forEach(function(el) {
+      // Preserve a whitespace boundary between cells/line blocks while retaining
+      // each real text node's offsets for DOM highlighting.
+      const nodeRanges = [];
+      let fullText = '';
+      contentEls.forEach(function(el, contentIndex) {
+        if (contentIndex > 0) fullText += ' ';
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
         let node;
         while ((node = walker.nextNode())) {
-          if (node.textContent.length > 0) textNodes.push(node);
+          if (node.textContent.length === 0) continue;
+          const start = fullText.length;
+          fullText += node.textContent;
+          nodeRanges.push({ node: node, start: start, end: fullText.length });
         }
       });
 
-      if (textNodes.length === 0) return;
+      if (nodeRanges.length === 0) return;
 
       // Build concatenated text and find the quote within it.
       // Normalize the quote: collapse whitespace/newlines so cross-line selections match.
-      const fullText = textNodes.map(function(n) { return n.textContent; }).join('');
       const normalizedQuote = comment.quote.replace(/\s+/g, ' ');
       const normalizedFull = fullText.replace(/\s+/g, ' ');
       let quoteIdx = -1;
@@ -5495,20 +6282,19 @@
 
       // Walk text nodes to find which ones overlap with the quote range
       const quoteEnd = quoteIdx + matchLen;
-      let pos = 0;
-      for (let i = 0; i < textNodes.length; i++) {
-        const node = textNodes[i];
-        const nodeEnd = pos + node.textContent.length;
-        if (nodeEnd <= quoteIdx) { pos = nodeEnd; continue; }
-        if (pos >= quoteEnd) break;
+      for (let i = 0; i < nodeRanges.length; i++) {
+        const nodeRange = nodeRanges[i];
+        const node = nodeRange.node;
+        if (nodeRange.end <= quoteIdx) continue;
+        if (nodeRange.start >= quoteEnd) break;
 
         // This node overlaps with the quote range
-        const startInNode = Math.max(0, quoteIdx - pos);
-        const endInNode = Math.min(node.textContent.length, quoteEnd - pos);
+        const startInNode = Math.max(0, quoteIdx - nodeRange.start);
+        const endInNode = Math.min(node.textContent.length, quoteEnd - nodeRange.start);
 
         // Skip wrapping whitespace-only matches (e.g. newlines between blocks)
         const matchText = node.textContent.slice(startInNode, endInNode);
-        if (!matchText.trim()) { pos = nodeEnd; continue; }
+        if (!matchText.trim()) continue;
 
         if (startInNode === 0 && endInNode === node.textContent.length) {
           // Wrap entire text node
@@ -5532,7 +6318,6 @@
           if (after) frag.appendChild(document.createTextNode(after));
           node.parentNode.replaceChild(frag, node);
         }
-        pos = nodeEnd;
       }
     });
   }
@@ -6174,10 +6959,12 @@
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-sm';
     cancelBtn.textContent = 'Cancel';
+    cancelBtn.disabled = !!isPending;
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'btn btn-sm btn-primary';
     submitBtn.textContent = 'Reply';
+    submitBtn.disabled = !!isPending;
 
     buttons.appendChild(cancelBtn);
     buttons.appendChild(submitBtn);
@@ -6688,9 +7475,21 @@
     const section = document.getElementById('file-section-' + filePath);
     if (!section) return;
     if (!section.open) section.open = true;
-    const commentCard = section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-    if (!commentCard) return;
-    flashCommentCard(commentCard);
+    const file = getFileByPath(filePath);
+    const flashCardIn = function(el) {
+      if (!el) return;
+      const commentCard = el.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+      if (commentCard) flashCommentCard(commentCard);
+    };
+    // Line comment cards live inside .file-body — mount (or lazy-load) first.
+    if (file && file.lazy) {
+      loadLazyFile(section, file, function onLoaded(newSection) {
+        flashCardIn(newSection || document.getElementById('file-section-' + filePath));
+      });
+      return;
+    }
+    if (file) ensureFileBodyMounted(section, file);
+    flashCardIn(section);
   }
 
   // ===== PR Overview Panel =====
@@ -7145,6 +7944,7 @@
         for (let i = 0; i < files.length; i++) {
           previousCommentSignatures.set(files[i].path, JSON.stringify(files[i].comments || []));
         }
+        const previousReviewSignature = JSON.stringify(reviewComments || []);
         await Promise.all(files.map(async function(f) {
           return fetch('/api/file/comments?path=' + enc(f.path))
             .then(function(r) { return r.ok ? r.json() : []; })
@@ -7174,14 +7974,19 @@
           saveOpenFormContent(files[i].path);
         }
         checkAgentReplies(reviewComments);
-        if (storyActive()) {
-          for (let i = 0; i < files.length; i++) {
-            const before = previousCommentSignatures.get(files[i].path) || '[]';
-            const after = JSON.stringify(files[i].comments || []);
-            if (before !== after) renderStoryFileByPath(files[i].path);
-          }
-        } else {
-          renderAllFiles();
+        // Re-render only the files whose comments actually changed. Rebuilding
+        // every section would re-defer all off-screen bodies, collapsing the
+        // document height and throwing the reader back to the top.
+        const inStory = storyActive();
+        for (let i = 0; i < files.length; i++) {
+          const before = previousCommentSignatures.get(files[i].path) || '[]';
+          const after = JSON.stringify(files[i].comments || []);
+          if (before === after) continue;
+          if (inStory) renderStoryFileByPath(files[i].path);
+          else renderFileByPath(files[i].path, { preserveDeferred: true });
+        }
+        if (!inStory && JSON.stringify(reviewComments || []) !== previousReviewSignature) {
+          renderReviewConversation();
         }
         updateCommentCount();
         updateTreeCommentBadges();
@@ -7591,7 +8396,7 @@
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === mode);
       });
-      if (storyActive()) renderStory(); else renderAllFiles();
+      if (storyActive()) renderStory(); else renderAllFilesKeepingPlace();
     });
   });
 
@@ -7599,7 +8404,7 @@
   document.getElementById('diffToggle').addEventListener('click', function() {
     diffActive = !diffActive;
     updateDiffModeToggle();
-    renderAllFiles();
+    renderAllFilesKeepingPlace();
   });
 
   // ===== Compare chrome (target + commit range) =====
@@ -8333,67 +9138,147 @@
   let navCommentId = null;
   let navHighlightTimer;
 
-  function navigateToComment(direction) {
+  function collectNavigableComments() {
+    // Document order matching render: file-scope cards above the body, then
+    // line comments by end_line / start_line. Used so [/] can reach comments
+    // whose .file-body is still deferred.
+    const list = [];
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi];
+      const comments = file.comments || [];
+      if (comments.length === 0) continue;
+      if (file.orphaned) {
+        for (let ci = 0; ci < comments.length; ci++) {
+          list.push({ id: comments[ci].id, filePath: file.path, resolved: !!comments[ci].resolved });
+        }
+        continue;
+      }
+      const fileScope = [];
+      const lineScope = [];
+      for (let ci = 0; ci < comments.length; ci++) {
+        if (comments[ci].scope === 'file') fileScope.push(comments[ci]);
+        else lineScope.push(comments[ci]);
+      }
+      for (let ci = 0; ci < fileScope.length; ci++) {
+        list.push({ id: fileScope[ci].id, filePath: file.path, resolved: !!fileScope[ci].resolved });
+      }
+      lineScope.sort(function(a, b) {
+        const ae = a.end_line || 0, be = b.end_line || 0;
+        if (ae !== be) return ae - be;
+        const as = a.start_line || 0, bs = b.start_line || 0;
+        return as - bs;
+      });
+      for (let ci = 0; ci < lineScope.length; ci++) {
+        list.push({ id: lineScope[ci].id, filePath: file.path, resolved: !!lineScope[ci].resolved });
+      }
+    }
+    return list;
+  }
+
+  function highlightNavComment(commentId, filePath) {
     const panel = document.getElementById('commentsPanel');
-    const container = document.querySelector('.main-content');
-    const allCards = Array.from(container.querySelectorAll('.comment-card')).filter(function(card) {
-      return !panel || !panel.contains(card);
-    });
-    const isEligible = function(card) {
-      return !isHideResolved() || !card.classList.contains('resolved-card');
+    function applyHighlight(root) {
+      if (!root) return false;
+      const candidates = root.querySelectorAll
+        ? root.querySelectorAll('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
+        : [];
+      let target = null;
+      for (let i = 0; i < candidates.length; i++) {
+        if (panel && panel.contains(candidates[i])) continue;
+        target = candidates[i];
+        break;
+      }
+      if (!target) return false;
+
+      if (navHighlightTimer) {
+        clearTimeout(navHighlightTimer);
+        document.querySelectorAll('.comment-nav-highlight').forEach(function(el) {
+          el.classList.remove('comment-nav-highlight');
+        });
+      }
+
+      const header = document.querySelector('.header');
+      const headerHeight = header ? header.offsetHeight : 52;
+      const rect = target.getBoundingClientRect();
+      const fileSection = target.closest('.file-section');
+      const fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
+      const fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
+      window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
+      target.classList.add('comment-nav-highlight');
+      navHighlightTimer = setTimeout(function() {
+        target.classList.remove('comment-nav-highlight');
+        navHighlightTimer = null;
+      }, 1000);
+      return true;
+    }
+
+    const section = document.getElementById('file-section-' + filePath);
+    if (!section) return;
+    if (!section.open) section.open = true;
+
+    // File-scope cards sit outside .file-body and may already be mounted.
+    if (applyHighlight(section)) return;
+
+    const file = getFileByPath(filePath);
+    if (file && file.lazy) {
+      loadLazyFile(section, file, function onLoaded(newSection) {
+        applyHighlight(newSection || document.getElementById('file-section-' + filePath));
+      });
+      return;
+    }
+    if (file) ensureFileBodyMounted(section, file);
+    applyHighlight(section);
+  }
+
+  function navigateToComment(direction) {
+    const all = collectNavigableComments();
+    const isEligible = function(entry) {
+      return !isHideResolved() || !entry.resolved;
     };
-    const cards = allCards.filter(isEligible);
-    if (cards.length === 0) return;
+    const eligible = all.filter(isEligible);
+    if (eligible.length === 0) return;
 
     const header = document.querySelector('.header');
     const headerHeight = header ? header.offsetHeight : 52;
 
-    // Keep the current position in the full order even when that card becomes
-    // hidden, then scan in the requested direction for the next eligible card.
+    // Keep the current position in the full order even when that comment becomes
+    // hidden, then scan in the requested direction for the next eligible entry.
     let idx = -1;
     if (navCommentId) {
-      for (let i = 0; i < allCards.length; i++) {
-        if (allCards[i].dataset.commentId === navCommentId) { idx = i; break; }
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].id === navCommentId) { idx = i; break; }
       }
     }
 
     let target;
     if (idx >= 0) {
-      for (let step = 1; step <= allCards.length; step++) {
-        const candidateIdx = (idx + direction * step + allCards.length) % allCards.length;
-        if (isEligible(allCards[candidateIdx])) {
-          target = allCards[candidateIdx];
+      for (let step = 1; step <= all.length; step++) {
+        const candidateIdx = (idx + direction * step + all.length) % all.length;
+        if (isEligible(all[candidateIdx])) {
+          target = all[candidateIdx];
           break;
         }
       }
     } else if (direction === 1) {
-      // First use: pick first card below the header area by viewport position
+      // First use: pick first mounted card below the header when available,
+      // otherwise the first eligible model entry (may need a mount).
       let targetIdx = -1;
-      for (let j = 0; j < cards.length; j++) {
-        if (cards[j].getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
+      for (let j = 0; j < eligible.length; j++) {
+        const card = document.querySelector(
+          '.main-content .comment-card[data-comment-id="' + CSS.escape(eligible[j].id) + '"]'
+        );
+        if (!card) continue;
+        if (card.getBoundingClientRect().top > headerHeight + 8) { targetIdx = j; break; }
       }
       if (targetIdx < 0) targetIdx = 0;
-      target = cards[targetIdx];
+      target = eligible[targetIdx];
     } else {
-      target = cards[cards.length - 1];
+      target = eligible[eligible.length - 1];
     }
 
-    navCommentId = target.dataset.commentId;
-
-    if (navHighlightTimer) {
-      clearTimeout(navHighlightTimer);
-      document.querySelectorAll('.comment-nav-highlight').forEach(function(el) {
-        el.classList.remove('comment-nav-highlight');
-      });
-    }
-
-    const rect = target.getBoundingClientRect();
-    const fileSection = target.closest('.file-section');
-    const fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
-    const fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
-    window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
-    target.classList.add('comment-nav-highlight');
-    navHighlightTimer = setTimeout(function() { target.classList.remove('comment-nav-highlight'); navHighlightTimer = null; }, 1000);
+    if (!target) return;
+    navCommentId = target.id;
+    highlightNavComment(target.id, target.filePath);
   }
 
   document.getElementById('commentNavPrev').addEventListener('click', function() { navigateToComment(-1); });
@@ -8481,11 +9366,22 @@
         settingsPanelOpen = true;
         settingsPanelTab = tab || 'settings';
         if (!cachedConfig) {
-          fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
+          fetch('/api/config').then(function (r) {
+            if (!r.ok) throw new Error('Could not load configuration');
+            return r.json();
+          }).then(function (cfg) {
             cachedConfig = cfg;
             renderSettingsPane(cfg);
             renderAboutPane(cfg);
+            loadCodeFonts(cfg);
+          }).catch(function () {
+            cachedConfig = {};
+            renderSettingsPane(cachedConfig);
+            renderAboutPane(cachedConfig);
+            loadCodeFonts(cachedConfig);
           });
+        } else {
+          loadCodeFonts(cachedConfig);
         }
         renderShortcutsPane();
       },
@@ -8493,6 +9389,27 @@
       onClose: function () { settingsPanelOpen = false; },
     });
     return settingsCtl;
+  }
+
+  function loadCodeFonts(cfg) {
+    if (Array.isArray(cfg.code_fonts)) return;
+    if (!codeFontsRequest) {
+      codeFontsRequest = fetch('/api/code-fonts').then(function (r) {
+        if (!r.ok) throw new Error('Could not load code fonts');
+        return r.json();
+      }).then(function (data) {
+        return Array.isArray(data.code_fonts) ? data.code_fonts : [];
+      });
+    }
+    const request = codeFontsRequest;
+    request.then(function (families) {
+      cfg.code_fonts = families;
+      if (settingsPanelOpen) renderSettingsPane(cfg);
+    }).catch(function () {
+      // Keep the built-ins visible and retry after a transient failure when
+      // the user next opens Settings.
+      if (codeFontsRequest === request) codeFontsRequest = null;
+    });
   }
   function openSettingsPanel(tab) {
     settingsPanelTab = tab || 'settings';
@@ -8507,322 +9424,37 @@
     document.body.classList.toggle('hide-resolved', isHideResolved());
   }
 
-  function updatePillIndicator(indicatorId, values, current) {
-    const indicator = document.getElementById(indicatorId);
-    if (!indicator) return;
-    const idx = values.indexOf(current);
-    if (idx >= 0) {
-      indicator.style.left = (idx * (100 / values.length)) + '%';
-      indicator.style.width = (100 / values.length) + '%';
-    }
-  }
-
   function renderSettingsPane(cfg) {
     const pane = document.getElementById('settingsPane');
     const shared = window.crit && window.crit.settingsPanes;
-    if (shared && shared.renderSettingsTab) {
-      const isGit = session.mode === 'git';
-      const hooks = {
-        applyTheme: window.applyTheme,
-        applyWidth: applyWidth,
-        getHideResolved: isHideResolved,
-        setHideResolved: setHideResolved,
-        onHideResolvedChange: function () { renderAllFiles(); },
-        hasActivePendingUpdates: hasActivePendingUpdates,
-        announceCopy: announceCopy,
-        escape: escapeHtml,
-      };
-      // Ignore-whitespace only applies to code diffs (git mode). Providing the
-      // hooks + show flag only in git mode keeps the toggle out of file/preview
-      // review, where there are no git diffs to recompute.
-      if (isGit) {
-        hooks.getIgnoreWhitespace = function () { return ignoreWhitespace; };
-        hooks.setIgnoreWhitespace = function (v) { ignoreWhitespace = !!v; setSetting('ignoreWhitespace', ignoreWhitespace); };
-        hooks.onIgnoreWhitespaceChange = function () { reloadForScope(); };
-      }
-      shared.renderSettingsTab(pane, {
-        mode: 'code-review',
-        cfg: cfg,
-        show: isGit ? { ignoreWhitespace: true } : undefined,
-        hooks: hooks,
-      });
+    if (!shared || typeof shared.renderSettingsTab !== 'function') {
+      console.error('Crit settings panes failed to load.');
       return;
     }
-    // Fallback (shared module not loaded — should never happen since
-    // crit-settings-panes.js is loaded before app.js).
-    const currentTheme = getSetting('theme', 'system');
-    const currentWidth = getSetting('width', 'default');
-    let html = '';
-    html += '<div class="settings-section-label">Display</div>';
-    html += '<div class="settings-display-group">';
-
-    // Theme row
-    html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Theme</span>';
-    html += '<div class="settings-pill settings-pill--theme" id="settingsThemePill" role="group" aria-label="Theme">';
-    html += '<div class="settings-pill-indicator" id="settingsThemeIndicator"></div>';
-    const themeIcons = {
-      system: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .234.545v.345a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-.345a.75.75 0 0 1 .234-.545c.118-.111.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75h-7.5Z" clip-rule="evenodd"/></svg>',
-      light: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></svg>',
-      dark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M14.438 10.148c.19-.425-.321-.787-.748-.601A5.5 5.5 0 0 1 6.453 2.31c.186-.427-.176-.938-.6-.748a6.501 6.501 0 1 0 8.585 8.586Z"/></svg>'
+    const isGit = session.mode === 'git';
+    const hooks = {
+      applyTheme: window.applyTheme,
+      applyWidth: applyWidth,
+      getHideResolved: isHideResolved,
+      setHideResolved: setHideResolved,
+      onHideResolvedChange: function () { refreshHideResolvedView(); },
+      hasActivePendingUpdates: hasActivePendingUpdates,
+      announceCopy: announceCopy,
+      escape: escapeHtml,
     };
-    ['system', 'light', 'dark'].forEach(function(theme) {
-      const active = theme === currentTheme ? ' active' : '';
-      html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-theme="' + theme + '" title="' + theme.charAt(0).toUpperCase() + theme.slice(1) + ' theme">' + themeIcons[theme] + '</button>';
-    });
-    html += '</div></div>';
-
-    // Width row
-    html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Content Width <span style="font-weight:400;color:var(--crit-editor-fg-muted)">(file mode)</span></span>';
-    html += '<div class="settings-pill settings-pill--width" id="settingsWidthPill" role="group" aria-label="Content width">';
-    html += '<div class="settings-pill-indicator" id="settingsWidthIndicator"></div>';
-    ['compact', 'default', 'wide'].forEach(function(w) {
-      const active = w === currentWidth ? ' active' : '';
-      html += '<button type="button" class="settings-pill-btn' + active + '" data-settings-width="' + w + '">' + w.charAt(0).toUpperCase() + w.slice(1) + '</button>';
-    });
-    html += '</div></div>';
-
-    // Hide resolved row
-    const hideResolved = isHideResolved();
-    html += '<div class="settings-display-row">';
-    html += '<span class="settings-display-label">Hide resolved comments</span>';
-    html += '<label class="comments-panel-switch">';
-    html += '<input type="checkbox" id="hideResolvedToggle" aria-label="Hide resolved comments"' + (hideResolved ? ' checked' : '') + '>';
-    html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
-    html += '</label>';
-    html += '</div>';
-
-    html += '</div>'; // close settings-display-group
-
-    // Configuration section
-    html += '<div class="settings-section-label">Configuration</div>';
-    html += '<div class="config-cards">';
-
-    // Update card (shown only when an update is available)
-    if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
-      const upgradeCmd = 'brew update && brew upgrade crit';
-      const releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHtml(cfg.latest_version);
-      const alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
-      html += '<div class="config-card config-card--orange"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
-      html += '<span class="config-card-title">Update available</span>';
-      html += '<span class="config-card-value">v' + escapeHtml(cfg.latest_version) + '</span>';
-      html += '</div>';
-      html += '<div class="config-card-cmd"><span>$ ' + escapeHtml(upgradeCmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(upgradeCmd) + '">Copy</button></div>';
-      html += '<div class="config-card-body" id="updateCardBody">';
-      html += '<div class="config-card-actions">';
-      html += '<a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes</a>';
-      if (alreadyDismissed) {
-        html += '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-      } else {
-        html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + escapeHtml(cfg.latest_version) + '">Don\'t remind me until next version</button>';
-      }
-      html += '</div>';
-      html += '</div>';
-      html += '</div>';
+    // Ignore-whitespace only applies to code diffs (git mode). Providing the
+    // hooks + show flag only in git mode keeps the toggle out of file/preview
+    // review, where there are no git diffs to recompute.
+    if (isGit) {
+      hooks.getIgnoreWhitespace = function () { return ignoreWhitespace; };
+      hooks.setIgnoreWhitespace = function (v) { ignoreWhitespace = !!v; setSetting('ignoreWhitespace', ignoreWhitespace); };
+      hooks.onIgnoreWhitespaceChange = function () { reloadForScope(); };
     }
-
-    // Account card (only show if sharing is enabled)
-    if (cfg.share_url) {
-      if (cfg.auth_logged_in) {
-        const display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
-        html += '<div class="config-card config-card--green"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-        html += '<span class="config-card-title">Account</span>';
-        html += '<span class="config-card-value">' + escapeHtml(display) + '</span>';
-        html += '</div></div>';
-      } else {
-        html += '<div class="config-card config-card--red config-card--unconfigured"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-red)">&#9675;</span>';
-        html += '<span class="config-card-title">Account</span>';
-        html += '</div>';
-        html += '<div class="config-card-body">Not logged in. Sign in to link reviews to your account and track review history.</div>';
-        html += '<div class="config-card-cmd"><span>$ crit auth login</span><button class="config-card-copy" data-copy="crit auth login">Copy</button></div>';
-        html += '</div>';
-      }
-    }
-
-    // Agent Command card
-    if (cfg.agent_cmd_enabled) {
-      html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-      html += '<span class="config-card-title">Agent Command</span>';
-      html += '</div>';
-      html += '<div class="config-card-cmd-value"><code>' + escapeHtml(cfg.agent_cmd || cfg.agent_name || '') + '</code></div>';
-      html += '</div>';
-    } else {
-      html += '<div class="config-card config-card--orange config-card--unconfigured"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9675;</span>';
-      html += '<span class="config-card-title">Agent Command</span>';
-      html += '</div>';
-      html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--crit-brand)">Learn more</a></div>';
-      html += '<div class="config-card-snippet">{"agent_cmd": "claude -p"}\n// Also: "opencode run", "aider --message"</div>';
-      html += '</div>';
-    }
-
-    // Integration card (hidden if no_integration_check)
-    if (!cfg.no_integration_check) {
-      const integrations = cfg.integrations || [];
-      const anyInstalled = cfg.any_integration_installed;
-      if (anyInstalled) {
-        const current = integrations.filter(function(i) { return i.status === 'current'; });
-        const stale = integrations.filter(function(i) { return i.status === 'stale'; });
-        if (stale.length > 0) {
-          const si = stale[0];
-          const name = si.agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
-          const dismissedMap = getSetting('dismissedIntegrations', {}) || {};
-          const intAlreadyDismissed = !!si.hash && dismissedMap[si.agent] === si.hash;
-          html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
-          html += '<span class="config-card-title">AI Integration</span>';
-          html += '<span class="config-card-value">' + escapeHtml(name) + ' (update available)</span>';
-          html += '</div>';
-          const hintLines = si.hint.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-          hintLines.forEach(function(line) {
-            const parts = line.split('|');
-            let label = '';
-            let cmd = line.replace(/^Run:\s*/i, '');
-            if (parts.length === 2) {
-              label = parts[0];
-              cmd = parts[1];
-            }
-            html += '<div class="config-card-cmd">';
-            if (label) html += '<span class="config-card-cmd-label">' + escapeHtml(label) + '</span>';
-            html += '<span>$ ' + escapeHtml(cmd) + '</span><button class="config-card-copy" data-copy="' + escapeHtml(cmd) + '">Copy</button></div>';
-          });
-          if (si.hash) {
-            html += '<div class="config-card-body" id="integrationCardBody">';
-            html += '<div class="config-card-actions config-card-actions--end">';
-            if (intAlreadyDismissed) {
-              html += '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
-            } else {
-              html += '<button type="button" class="config-card-dismiss" id="integrationDismissBtn" data-agent="' + escapeHtml(si.agent) + '" data-hash="' + escapeHtml(si.hash) + '">Don\'t remind me until next version</button>';
-            }
-            html += '</div>';
-            html += '</div>';
-          }
-          html += '</div>';
-        } else if (current.length > 0) {
-          const name = current[0].agent.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/-/g, ' ');
-          html += '<div class="config-card config-card--green"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-          html += '<span class="config-card-title">AI Integration</span>';
-          html += '<span class="config-card-value">' + escapeHtml(name) + ' (up to date)</span>';
-          html += '</div></div>';
-        }
-      } else {
-        const available = (cfg.integrations_available || []).join(' \u00b7 ');
-        html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
-        html += '<span class="config-card-title">AI Integration</span>';
-        html += '<span class="config-card-badge">Recommended</span>';
-        html += '</div>';
-        html += '<div class="config-card-body">Install a plugin so your AI agent can launch crit, read comments, and iterate.</div>';
-        html += '<div class="config-card-cmd"><span>$ crit install claude-code</span><button class="config-card-copy" data-copy="crit install claude-code">Copy</button></div>';
-        if (available) html += '<div class="config-card-agents">Also: ' + escapeHtml(available) + '</div>';
-        html += '</div>';
-      }
-    }
-
-    // Share card
-    if (cfg.share_url) {
-      let hostname;
-      try { hostname = new URL(cfg.share_url).hostname; } catch { hostname = cfg.share_url; }
-      html += '<div class="config-card config-card--green"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-      html += '<span class="config-card-title">Sharing enabled</span>';
-      html += '<span class="config-card-value">' + escapeHtml(hostname) + '</span>';
-      html += '</div></div>';
-    } else {
-      html += '<div class="config-card config-card--gray config-card--unconfigured"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-editor-fg-muted)">&mdash;</span>';
-      html += '<span class="config-card-title">Share</span>';
-      html += '<span class="config-card-value">Disabled</span>';
-      html += '</div></div>';
-    }
-    html += '</div>'; // close config-cards
-
-    pane.innerHTML = html;
-
-    // Wire up theme pill clicks
-    pane.querySelectorAll('[data-settings-theme]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const theme = btn.dataset.settingsTheme;
-        applyTheme(theme);
-        pane.querySelectorAll('[data-settings-theme]').forEach(function(b) { b.classList.toggle('active', b.dataset.settingsTheme === theme); });
-        updatePillIndicator('settingsThemeIndicator', ['system', 'light', 'dark'], theme);
-      });
-    });
-    updatePillIndicator('settingsThemeIndicator', ['system', 'light', 'dark'], currentTheme);
-
-    // Wire up width pill clicks
-    pane.querySelectorAll('[data-settings-width]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const w = btn.dataset.settingsWidth;
-        applyWidth(w);
-        pane.querySelectorAll('[data-settings-width]').forEach(function(b) { b.classList.toggle('active', b.dataset.settingsWidth === w); });
-        updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], w);
-      });
-    });
-    updatePillIndicator('settingsWidthIndicator', ['compact', 'default', 'wide'], currentWidth);
-
-    // Wire up hide-resolved toggle
-    const hideResolvedToggle = pane.querySelector('#hideResolvedToggle');
-    if (hideResolvedToggle) {
-      hideResolvedToggle.addEventListener('change', function() {
-        setHideResolved(hideResolvedToggle.checked);
-        renderAllFiles();
-      });
-    }
-
-    // Wire up "Don't remind me" button on the update card
-    const dismissBtn = pane.querySelector('#updateDismissBtn');
-    if (dismissBtn) {
-      dismissBtn.addEventListener('click', function() {
-        const version = dismissBtn.dataset.dismissVersion || '';
-        setSetting('updatesDismissed', version);
-        const updateBtn = document.getElementById('updateBtn');
-        if (updateBtn && !hasActivePendingUpdates()) updateBtn.style.display = 'none';
-        const body = pane.querySelector('#updateCardBody');
-        if (body) {
-          dismissBtn.outerHTML = '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-        }
-      });
-    }
-
-    // Wire up "Don't remind me" button on the AI Integration card
-    const integrationDismissBtn = pane.querySelector('#integrationDismissBtn');
-    if (integrationDismissBtn) {
-      integrationDismissBtn.addEventListener('click', function() {
-        const agent = integrationDismissBtn.dataset.agent || '';
-        const hash = integrationDismissBtn.dataset.hash || '';
-        if (!agent || !hash) return;
-        const map = getSetting('dismissedIntegrations', {}) || {};
-        map[agent] = hash;
-        setSetting('dismissedIntegrations', map);
-        const updateBtn = document.getElementById('updateBtn');
-        if (updateBtn && !hasActivePendingUpdates()) updateBtn.style.display = 'none';
-        integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
-      });
-    }
-
-    // Wire up copy buttons
-    pane.querySelectorAll('.config-card-copy').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const text = btn.dataset.copy;
-        navigator.clipboard.writeText(text).then(function() {
-          btn.textContent = '\u2713 Copied';
-          btn.setAttribute('aria-label', 'Copied');
-          announceCopy();
-          btn.classList.add('copied');
-          setTimeout(function() {
-            btn.textContent = 'Copy';
-            btn.setAttribute('aria-label', 'Copy');
-            btn.classList.remove('copied');
-          }, 1500);
-        });
-      });
+    shared.renderSettingsTab(pane, {
+      mode: 'code-review',
+      cfg: cfg,
+      show: isGit ? { ignoreWhitespace: true } : undefined,
+      hooks: hooks,
     });
   }
 
@@ -8889,36 +9521,7 @@
     switch (shortcutAction || e.key) {
       case 'next_block': case 'previous_block': {
         e.preventDefault();
-        const allNav = navElements;
-        if (allNav.length === 0) return;
-        let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
-        if (curIdx === -1) {
-          const match = findNavElementForFocusTarget(getKeyboardFocusTarget());
-          if (match) curIdx = allNav.indexOf(match);
-        }
-        if (curIdx === -1) {
-          curIdx = shortcutAction === 'next_block' ? 0 : allNav.length - 1;
-        } else {
-          if (shortcutAction === 'next_block' && curIdx < allNav.length - 1) curIdx++;
-          if (shortcutAction === 'previous_block' && curIdx > 0) curIdx--;
-        }
-        document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
-        focusedElement = allNav[curIdx];
-        focusedElement.classList.add('focused');
-        focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        // Sync legacy state
-        if (focusedElement.dataset.filePath) {
-          focusedFilePath = focusedElement.dataset.filePath;
-          focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
-        } else {
-          const navTarget = navFocusTargetFromElement(focusedElement);
-          if (navTarget) {
-            focusedFilePath = navTarget.filePath;
-            focusedBlockIndex = null;
-          }
-        }
-        rememberKeyboardFocusFromNav(focusedElement);
-        if (visualMode) extendVisualSelection();
+        navigateBlock(shortcutAction === 'next_block' ? 1 : -1);
         break;
       }
       case 'visual_mode': {
@@ -9022,7 +9625,7 @@
       case 'toggle_resolved': {
         e.preventDefault();
         setHideResolved(!isHideResolved());
-        renderAllFiles();
+        refreshHideResolvedView();
         const ht = document.getElementById('hideResolvedToggle');
         if (ht) ht.checked = isHideResolved();
         break;
@@ -9045,13 +9648,11 @@
         break;
       }
       case 'next_change': {
-        if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(1);
         break;
       }
       case 'previous_change': {
-        if (changeGroups.length === 0) break;
         e.preventDefault();
         navigateToChange(-1);
         break;
@@ -9129,11 +9730,12 @@
             if (el.dataset.filePath !== range.filePath) return;
             const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
             if (s <= ln && endLn >= ln) {
-              const content = el.querySelector('.line-content');
-              if (content && contentEls.indexOf(content) === -1) {
-                fullText += (fullText ? '\n' : '') + content.textContent.trim();
-                contentEls.push(content);
-              }
+              el.querySelectorAll('.line-content').forEach(function(content) {
+                if (contentEls.indexOf(content) === -1) {
+                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
+                  contentEls.push(content);
+                }
+              });
             }
           });
           const selSide = range.side || '';
@@ -9147,6 +9749,11 @@
             }
           });
         }
+        // Prefer text clipped to side-filtered contentEls so unified del+add
+        // selections don't pollute the quote with the opposite side.
+        const clipped = selectedTextWithinElements(selection, contentEls);
+        if (clipped) selectedText = clipped;
+
         const normalizedSelected = selectedText.replace(/\s+/g, ' ');
         const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
         if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {
@@ -9162,6 +9769,7 @@
             let charsBefore = 0;
             let foundEl = false;
             for (let ci = 0; ci < contentEls.length; ci++) {
+              if (ci > 0) charsBefore++;
               if (contentEls[ci].contains(startContainer)) {
                 const walker = document.createTreeWalker(contentEls[ci], NodeFilter.SHOW_TEXT, null);
                 let tn;
@@ -9179,13 +9787,8 @@
             }
 
             if (foundEl) {
-              let rawAll = '';
-              const rawUpTo = charsBefore;
-              for (let ri = 0; ri < contentEls.length; ri++) {
-                rawAll += contentEls[ri].textContent;
-                if (contentEls[ri].contains(startContainer)) break;
-              }
-              const textBefore = rawAll.slice(0, rawUpTo);
+              const rawAll = contentEls.map(function(el) { return el.textContent; }).join(' ');
+              const textBefore = rawAll.slice(0, charsBefore);
               quoteOffset = textBefore.replace(/\s+/g, ' ').trimStart().length;
             }
           } catch { /* offset is a nice-to-have */ }
@@ -9253,6 +9856,12 @@
       if (m && m[1]) suffix = ': ' + m[1];
       return truncateLabel('#' + entry.pr_number + suffix, max);
     }
+    if (entry.mr_number) {
+      let suffix = '';
+      const m = (entry.label || '').match(/^MR !\d+:\s*(.+)$/);
+      if (m && m[1]) suffix = ': ' + m[1];
+      return truncateLabel('!' + entry.mr_number + suffix, max);
+    }
     return truncateLabel(entry.label || (entry.head_sha ? entry.head_sha.slice(0, 7) : ''), max);
   }
 
@@ -9266,9 +9875,16 @@
       diff_scope: 'layer',
       is_stacked: true,
     };
-    if (entry.pr_number) focus.pr_number = entry.pr_number;
+    if (entry.pr_number) {
+      focus.change_number = entry.pr_number;
+      focus.forge = 'github';
+    }
+    if (entry.mr_number) {
+      focus.change_number = entry.mr_number;
+      focus.forge = 'gitlab';
+    }
     if (entry.base_ref_name) focus.base_ref_name = entry.base_ref_name;
-    if (!entry.pr_number && entry.label) focus.label = entry.label;
+    if (!entry.pr_number && !entry.mr_number && entry.label) focus.label = entry.label;
     const defaultSHA = entry.default_sha || fallbackDefault;
     if (defaultSHA) focus.default_sha = defaultSHA;
     return focus;
@@ -9289,7 +9905,9 @@
     // No stack data yet (the /api/picker round-trip may take 2+ seconds
     // because of `gh pr list`). Fall back to fields already on Focus so
     // the chip's label is correct on first paint.
-    if (focus.pr_number) return '#' + focus.pr_number;
+    if (focus.change_number) {
+      return focus.forge === 'gitlab' ? '!' + focus.change_number : '#' + focus.change_number;
+    }
     if (focus.head_ref_name) return truncateLabel(focus.head_ref_name, 24);
     if (focus.label) return truncateLabel(focus.label, 24);
     if (focus.head_sha) return focus.head_sha.slice(0, 7);
@@ -9427,7 +10045,8 @@
           '</span>');
       } else {
         const payload = focusPayloadFromStackEntry(entry, focus);
-        const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number) : ('Switch to ' + label);
+        const aria = entry.pr_number ? ('Switch to PR #' + entry.pr_number)
+          : (entry.mr_number ? ('Switch to MR !' + entry.mr_number) : ('Switch to ' + label));
         parts.push('<button type="button" class="' + rowClass + '" role="menuitem"' +
           ' data-action="switch"' +
           ' data-head-sha="' + escapeHtml(entry.head_sha || '') + '"' +
@@ -9511,8 +10130,10 @@
       return;
     }
     let label;
-    if (lastRange.pr_number) {
-      label = 'Resume PR #' + lastRange.pr_number;
+    if (lastRange.change_number) {
+      label = lastRange.forge === 'gitlab'
+        ? 'Resume MR !' + lastRange.change_number
+        : 'Resume PR #' + lastRange.change_number;
     } else if (lastRange.head_ref_name) {
       label = 'Resume stack: ' + lastRange.head_ref_name;
     } else {
@@ -9707,7 +10328,10 @@
         head_sha: last.head_sha,
         diff_scope: last.diff_scope || 'layer',
       };
-      if (last.pr_number) payload.pr_number = last.pr_number;
+      if (last.change_number) {
+        payload.change_number = last.change_number;
+        payload.forge = last.forge;
+      }
       if (last.default_sha) payload.default_sha = last.default_sha;
       if (last.is_stacked) payload.is_stacked = true;
       if (last.label) payload.label = last.label;

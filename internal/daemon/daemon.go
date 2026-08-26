@@ -192,6 +192,11 @@ func ValidSessionKey(key string) bool {
 	return true
 }
 
+// InvalidSessionIDError returns the shared error for a malformed --session value.
+func InvalidSessionIDError(id string) error {
+	return fmt.Errorf("invalid session ID %q (expected 12-character hex)", id)
+}
+
 // sessionsDir returns the path to ~/.crit/sessions/.
 func sessionsDir() (string, error) {
 	home, err := os.UserHomeDir()

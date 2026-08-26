@@ -138,6 +138,41 @@ func TestRunPlanHook_ApprovalEchoesCompleteToolInput(t *testing.T) {
 	}
 }
 
+func TestRunPlanHook_DisabledByEnvironment(t *testing.T) {
+	t.Setenv("CRIT_PLAN_REVIEW", "off")
+	setPlanHookStdin(t, []byte(`{
+		"session_id": "session-disabled",
+		"tool_input": {"plan": "# Should not open"}
+	}`))
+
+	previousReviewHook := runClaudePlanReviewHook
+	runClaudePlanReviewHook = func(string, []byte, func(bool, string)) {
+		t.Fatal("did not expect disabled plan hook to start a review")
+	}
+	t.Cleanup(func() {
+		runClaudePlanReviewHook = previousReviewHook
+	})
+
+	output := captureHookDecision(t, func() {
+		if err := RunPlanHook(); err != nil {
+			t.Fatalf("RunPlanHook() error = %v", err)
+		}
+	})
+	if len(output) != 0 {
+		t.Fatalf("disabled hook output = %q, want empty output", output)
+	}
+}
+
+func TestRunPlan_EnvironmentOptOutDoesNotDisableManualReview(t *testing.T) {
+	t.Setenv("CRIT_PLAN_REVIEW", "off")
+	testutil.SetHome(t, t.TempDir())
+
+	missingPlan := filepath.Join(t.TempDir(), "missing-plan.md")
+	if err := RunPlan([]string{missingPlan}); err == nil {
+		t.Fatal("manual RunPlan() unexpectedly skipped missing-file validation")
+	}
+}
+
 func TestRunPlanHook_ApprovalSetsConfiguredMode(t *testing.T) {
 	homeDir := t.TempDir()
 	testutil.SetHome(t, homeDir)

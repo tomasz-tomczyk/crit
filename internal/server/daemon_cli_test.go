@@ -27,10 +27,18 @@ func TestResolveDaemonCLIConfig_RemoteDefaultsFalse(t *testing.T) {
 }
 
 func TestFocusKeyArgs_PR(t *testing.T) {
-	sc := &server.DaemonCLIConfig{Focus: &server.Focus{Kind: server.FocusRange, PRNumber: 295}}
+	sc := &server.DaemonCLIConfig{Focus: &server.Focus{Kind: server.FocusRange, Forge: "github", ChangeNumber: 295}}
 	got := server.FocusKeyArgs(sc)
 	if len(got) != 1 || got[0] != "pr:295" {
 		t.Errorf("got %v want [pr:295]", got)
+	}
+}
+
+func TestFocusKeyArgs_MR(t *testing.T) {
+	sc := &server.DaemonCLIConfig{Focus: &server.Focus{Kind: server.FocusRange, Forge: "gitlab", ChangeNumber: 42}}
+	got := server.FocusKeyArgs(sc)
+	if len(got) != 1 || got[0] != "mr:42" {
+		t.Errorf("got %v want [mr:42]", got)
 	}
 }
 

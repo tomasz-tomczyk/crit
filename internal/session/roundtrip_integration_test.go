@@ -656,7 +656,7 @@ func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
 
 	// Delete locally — simulate the daemon's DELETE /api/comment/{id},
 	// which splices the record out and queues the GitHub ID in
-	// PendingGitHubDeletes for the next push to drain.
+	// the neutral remote-delete queue for the next push to drain.
 	e.editReviewFile(func(cj *CritJSON) {
 		removed := false
 		for path, f := range cj.Files {
@@ -674,7 +674,7 @@ func TestRoundtrip_LocalDeletePropagates(t *testing.T) {
 		if !removed {
 			t.Fatal("did not find pushed comment to delete locally")
 		}
-		cj.PendingGitHubDeletes = append(cj.PendingGitHubDeletes, pushedID)
+		cj.PendingRemoteDeletes = append(cj.PendingRemoteDeletes, RemoteRef{Forge: "github", CommentID: pushedID})
 	})
 
 	// Push: expect the remote comment to disappear.

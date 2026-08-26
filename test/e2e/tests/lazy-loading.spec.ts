@@ -10,9 +10,9 @@ test.describe('Lazy loading', () => {
     const res = await request.get('/api/session');
     const session = await res.json();
 
-    // Git-mode fixture has <100 files — none should be lazy
+    // Git-mode fixture has <25 files — none should be lazy
     expect(session.files.length).toBeGreaterThan(0);
-    expect(session.files.length).toBeLessThan(100);
+    expect(session.files.length).toBeLessThan(25);
 
     for (const file of session.files) {
       expect(file.lazy).toBeFalsy();

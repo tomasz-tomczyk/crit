@@ -1,41 +1,45 @@
 # Roundtrip integration tests
 
-End-to-end exercise of `crit pull` / `crit push` against a real GitHub repo
-and PR. Each scenario:
+The roundtrip suite exercises `crit pull` and `crit push` against real change requests on both supported forges. Both providers' tests live in `internal/session` and drive the compiled Crit CLI; provider APIs are used only for fixture lifecycle and remote-state assertions.
 
-1. Clones a sandbox repo into a tempdir
-2. Pushes a unique branch + opens a PR
-3. Drives `crit` (and `gh api`) through one specific state transition
-4. Asserts on local review-file state AND live PR comment state via `gh api`
-5. Closes the PR and deletes the branch in `t.Cleanup`
+| Provider | Build tag | Project variable | CLI | Runner |
+| --- | --- | --- | --- | --- |
+| GitHub | `e2e_github` | `CRIT_ROUNDTRIP_REPO` | `gh` | `make e2e-roundtrip` |
+| GitLab | `e2e_gitlab` | `CRIT_GITLAB_ROUNDTRIP_PROJECT` | `glab` | `make e2e-gitlab-roundtrip` |
+
+Each scenario:
+
+1. Creates a unique branch and opens a PR or MR against the sandbox's initialized default branch.
+2. Drives public `crit comment`, `crit pull`, and `crit push` commands through a state transition.
+3. Asserts both local review-file state and live provider comment/thread state.
+4. Closes the change request and deletes the temporary branch in `t.Cleanup`.
 
 ## One-time setup
 
-1. Pick a GitHub account or org you control. The sandbox repo is throwaway. The default in the harness is `crit-md/crit-roundtrip-sandbox`; override with your own slug if you don't have access.
-2. Run the bootstrap procedure documented at the top of `docs/superpowers/plans/2026-05-04-pr-roundtrip-test-harness.md` (Task 1). It creates `<owner>/crit-roundtrip-sandbox`.
-3. Export `CRIT_ROUNDTRIP_REPO=<owner>/crit-roundtrip-sandbox` in your shell (or stick it in a direnv `.envrc.local`).
-4. Confirm `gh auth status` is green.
+Use throwaway repositories named `<owner>/crit-roundtrip-sandbox`. The shared defaults are `crit-md/crit-roundtrip-sandbox` on both providers.
+
+- GitHub: export `CRIT_ROUNDTRIP_REPO=<owner>/crit-roundtrip-sandbox` and confirm `gh auth status`. The harness clones over SSH by default; set `CRIT_ROUNDTRIP_CLONE_URL` to override it.
+- GitLab: export `CRIT_GITLAB_ROUNDTRIP_PROJECT=<owner>/crit-roundtrip-sandbox` and confirm `glab auth status`. The authenticated user must be able to push branches, create/close MRs, comment, and resolve discussions. The project must have an initialized default branch. For self-managed GitLab, also set `CRIT_GITLAB_ROUNDTRIP_HOST=gitlab.example.com` and configure Crit's `gitlab_url` for that host.
 
 ## Running
 
 ```bash
-make e2e-roundtrip                                                  # all scenarios
-./scripts/e2e-roundtrip.sh -run TestRoundtrip_PushIsIdempotent -v   # one
+make e2e-roundtrip
+make e2e-gitlab-roundtrip
+
+./scripts/e2e-roundtrip.sh -run TestRoundtrip_PushIsIdempotent -v
+./scripts/e2e-gitlab-roundtrip.sh -run TestGitLabRoundtrip_FullCommentLifecycle -v
 ```
 
 ## Adding a scenario
 
-- Add a `TestRoundtrip_<Name>` function to `roundtrip_integration_test.go`.
-- Always start with `e := newRoundtripEnv(t)` — it owns branch+PR lifecycle.
-- Read remote state via `e.listRemoteComments()`; read local state via `e.allLocalComments()` or `e.reviewFile()`.
-- For new low-level helpers (e.g. editing a comment via the API), add them to `roundtrip_helpers_test.go` rather than inline.
+- GitHub scenarios use `roundtrip_integration_test.go` and `roundtrip_helpers_test.go`; start with `e := newRoundtripEnv(t)`.
+- GitLab scenarios use `gitlab_roundtrip_integration_test.go`; start with `e := newGitLabRoundtripEnv(t)`.
+- Keep provider API calls in harness helpers. Exercise Crit behavior through the compiled binary rather than calling provider implementation functions directly.
+- Assert remote IDs, thread/reply structure, resolution, deletion, and repeated pull/push idempotency where applicable.
 
 ## Caveats
 
-- These tests hit GitHub's public API. They are slow (~10–25s per scenario) and rate-limited. Don't add them to the default `go test` run — they live behind the `e2e_github` build tag for that reason.
-- Each scenario costs one open-then-closed PR in the sandbox. GitHub does not allow deleting closed PRs, so the sandbox accumulates closed PR history. That's fine.
-- `gh pr close --delete-branch` is best-effort. If a test panics before cleanup runs, dangling branches remain — clean periodically with `gh pr list --repo <slug> --state closed --limit 100 --json headRefName` if you care.
-
-## Cloning over HTTPS vs SSH
-
-Helpers default to `git@github.com:<slug>.git` (SSH) so they work with the typical `gh` setup that uses SSH for git operations. To force HTTPS (or any other URL form), export `CRIT_ROUNDTRIP_CLONE_URL=https://github.com/<slug>.git` before running the suite.
+- These tests are intentionally excluded from default `go test ./...`: they are slow, networked, rate-limited, and mutate sandbox repositories.
+- Closed PR/MR history remains in the sandboxes, but temporary branches and open change requests should not remain after cleanup.
+- If a process is killed before `t.Cleanup`, inspect the sandbox for branches named `rt-*` or `crit-gitlab-e2e-*`.

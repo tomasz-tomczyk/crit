@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -926,9 +927,10 @@ func mergeGHCommentsWithNames(cj *session.CritJSON, ghComments []ghComment, name
 
 	roots, replyMap := separateRootsAndReplies(ghComments)
 
-	pendingDeletes := make(map[int64]bool, len(cj.PendingGitHubDeletes))
-	for _, id := range cj.PendingGitHubDeletes {
-		pendingDeletes[id] = true
+	remoteDeletes := session.RemoteDeletesFor(*cj, forge.GitHub)
+	pendingDeletes := make(map[int64]bool, len(remoteDeletes))
+	for _, ref := range remoteDeletes {
+		pendingDeletes[ref.CommentID] = true
 	}
 
 	added := 0
@@ -1361,11 +1363,14 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 // intents recorded against this review file. The returned slice is a copy
 // so the caller can safely mutate or iterate while updating cj concurrently.
 func collectDeletesForPush(cj session.CritJSON) []int64 {
-	if len(cj.PendingGitHubDeletes) == 0 {
+	refs := session.RemoteDeletesFor(cj, forge.GitHub)
+	if len(refs) == 0 {
 		return nil
 	}
-	out := make([]int64, len(cj.PendingGitHubDeletes))
-	copy(out, cj.PendingGitHubDeletes)
+	out := make([]int64, len(refs))
+	for i, ref := range refs {
+		out[i] = ref.CommentID
+	}
 	return out
 }
 
@@ -1422,9 +1427,8 @@ func parseGHIncludeStatus(out []byte) int {
 	return 0
 }
 
-// updateCritJSONAfterDeletes removes drained GitHub IDs from
-// PendingGitHubDeletes on disk. IDs not in `drained` (DELETE failed or was
-// not attempted) remain in the list so the next push retries them.
+// updateCritJSONAfterDeletes removes drained GitHub IDs from the neutral
+// remote-delete queue. IDs not in `drained` remain for the next push.
 func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 	if len(drained) == 0 {
 		return nil
@@ -1443,18 +1447,15 @@ func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 		return err
 	}
 
-	kept := make([]int64, 0, len(cj.PendingGitHubDeletes))
-	for _, id := range cj.PendingGitHubDeletes {
-		if _, drained := drainedSet[id]; drained {
+	refs := session.RemoteDeletesFor(cj, forge.GitHub)
+	kept := make([]session.RemoteRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, drained := drainedSet[ref.CommentID]; drained {
 			continue
 		}
-		kept = append(kept, id)
+		kept = append(kept, ref)
 	}
-	if len(kept) == 0 {
-		cj.PendingGitHubDeletes = nil
-	} else {
-		cj.PendingGitHubDeletes = kept
-	}
+	session.ReplaceRemoteDeletes(&cj, forge.GitHub, kept)
 
 	out, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {

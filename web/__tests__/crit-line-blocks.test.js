@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
+const markdownit = require('markdown-it');
 
 // Load crit-line-blocks.js in a fake-browser shim.
 const src = fs.readFileSync(path.join(__dirname, '..', 'crit-line-blocks.js'), 'utf8');
@@ -16,14 +17,88 @@ const sandbox = {
       }
     },
     hljs: {
-      getLanguage: function() { return null; },
-      highlight: function() { return { value: '' }; }
+      getLanguage: function(language) { return language === 'yaml'; },
+      highlight: function(content) {
+        return { value: content.replace(/^(\w+):/gm, '<span class="hljs-attr">$1</span>:') };
+      }
     }
   },
   document: {}
 };
 fn(sandbox.window, sandbox.document);
 const lineBlocks = sandbox.window.crit.lineBlocks;
+
+// --- rewriteFrontmatterAsYamlFence ---
+
+test('rewriteFrontmatterAsYamlFence converts only valid opening and closing delimiters', () => {
+  const content = '---\nname: demo\n...\n\n# Body';
+  assert.equal(
+    lineBlocks.rewriteFrontmatterAsYamlFence(content),
+    '```yaml\nname: demo\n```\n\n# Body'
+  );
+});
+
+test('rewriteFrontmatterAsYamlFence allows trailing spaces on delimiters', () => {
+  const content = '---  \nname: demo\n---\t\n\n# Body';
+  assert.equal(
+    lineBlocks.rewriteFrontmatterAsYamlFence(content),
+    '```yaml\nname: demo\n```\n\n# Body'
+  );
+});
+
+test('rewriteFrontmatterAsYamlFence preserves content without a closing delimiter', () => {
+  const content = '---\nname: demo\n# Not a closing delimiter';
+  assert.equal(lineBlocks.rewriteFrontmatterAsYamlFence(content), content);
+});
+
+test('rewriteFrontmatterAsYamlFence ignores delimiters that are not on the first line', () => {
+  const content = 'Intro\n---\nname: demo\n---';
+  assert.equal(lineBlocks.rewriteFrontmatterAsYamlFence(content), content);
+});
+
+test('rewriteFrontmatterAsYamlFence preserves line count and document maps', () => {
+  const content = [
+    '\uFEFF---',
+    'name: demo',
+    '# not a heading',
+    'paths:',
+    '  - "src/**/*.go"',
+    '---',
+    '',
+    '# Skill Body'
+  ].join('\n');
+  const rewritten = lineBlocks.rewriteFrontmatterAsYamlFence(content);
+  const tokens = [
+    { type: 'fence', map: [0, 6], info: 'yaml', content: 'name: demo\n# not a heading\npaths:\n  - "src/**/*.go"\n' },
+    { type: 'heading_open', map: [7, 8], nesting: 1, tag: 'h1' },
+    { type: 'inline', map: [7, 8], nesting: 0, content: 'Skill Body' },
+    { type: 'heading_close', map: null, nesting: -1, tag: 'h1' }
+  ];
+  const md = {
+    options: {},
+    renderer: {
+      render: function(renderedTokens) {
+        return renderedTokens.some(token => token.type === 'heading_open')
+          ? '<h1>Skill Body</h1>'
+          : '';
+      }
+    }
+  };
+  const blocks = lineBlocks.buildLineBlocks(tokens, md, content);
+
+  assert.equal(rewritten.split('\n').length, content.split('\n').length);
+  assert.equal(tokens[0].info, 'yaml');
+  assert.equal(tokens.some(token => token.type === 'heading_open' && token.map[0] === 2), false);
+
+  for (let line = 1; line <= 8; line++) {
+    assert.ok(blocks.some(block => block.startLine === line), `line ${line} is commentable`);
+  }
+  assert.equal(blocks[0].html, '<span class="fence-marker">﻿---</span>');
+  assert.match(blocks[1].html, /code class="hljs"/);
+  assert.match(blocks[1].html, /hljs-attr/);
+  assert.equal(blocks[5].html, '<span class="fence-marker">---</span>');
+  assert.ok(blocks.some(block => block.startLine === 8 && /<h1/.test(block.html)));
+});
 
 // --- splitHighlightedCode ---
 
@@ -139,6 +214,28 @@ test('addGapLineBlocks marks empty lines as isEmpty', () => {
   assert.equal(blocks[1].isEmpty, true);
   assert.equal(blocks[2].isEmpty, true);
   assert.equal(blocks[3].isEmpty, false);
+});
+
+// --- rendered tables ---
+
+test('buildLineBlocks groups table rows for native table rendering', () => {
+  const md = markdownit();
+  const source = '| Label | Status |\n' +
+    '| --- | --- |\n' +
+    '| [x](https://example.com/a/very/long/hidden/path) | available |';
+  const blocks = lineBlocks.buildLineBlocks(md.parse(source, {}), md, source);
+
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0].tableId, blocks[1].tableId);
+  assert.equal(blocks[1].tableId, blocks[2].tableId);
+  assert.equal(blocks[0].tableSection, 'thead');
+  assert.equal(blocks[1].cssClass, 'table-separator');
+  assert.equal(blocks[2].tableSection, 'tbody');
+  assert.match(blocks[0].nativeRowHtml, /^<tr>/);
+  assert.doesNotMatch(blocks[0].nativeRowHtml, /<table|<colgroup/);
+  assert.match(blocks[0].html, /^<table class="split-table" data-table-id="table-0">/);
+  assert.match(blocks[0].html, /<col style="width:35\.71%"><col style="width:64\.29%">/);
+  assert.match(blocks[2].html, /<col style="width:35\.71%"><col style="width:64\.29%">/);
 });
 
 // --- buildLineBlocks ---

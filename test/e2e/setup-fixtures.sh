@@ -461,6 +461,23 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 - Top gamma
 MDFILE
 
+# Markdown file with YAML frontmatter (document-view coverage for #821).
+# Committed with the branch so staged-scope counts stay stable.
+cat > skill.md << 'MDFILE'
+---
+name: demo-skill
+description: A skill for agents
+# this would become an h1 if parsed as markdown
+paths:
+  - "src/**/*.go"
+  - "internal/*.go"
+---
+
+# Skill Body
+
+Body paragraph for commenting.
+MDFILE
+
 # Modify routes.go: change beginning and end, leave large middle gap (>20 unchanged lines)
 cat > routes.go << 'GOFILE'
 package main

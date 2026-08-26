@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -381,5 +383,32 @@ func TestWaitBackground_TimesOut(t *testing.T) {
 	close(release)
 	if !s.WaitBackground(time.Second) {
 		t.Error("WaitBackground did not drain after the goroutine exited")
+	}
+}
+
+func TestRunAgentCmd_MissingCommentLogs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	s, session := newTestServer(t)
+	session.RepoRoot = dir
+	s.agentCmd = "echo agent-miss"
+
+	s.runAgentCmd("hello", "missing_review", "")
+	if !strings.Contains(buf.String(), "not found as review-level comment") {
+		t.Fatalf("log = %q, want review-level miss message", buf.String())
+	}
+
+	buf.Reset()
+	s.runAgentCmd("hello", "missing_file", "test.md")
+	if !strings.Contains(buf.String(), `not found in file "test.md"`) {
+		t.Fatalf("log = %q, want file miss message", buf.String())
 	}
 }

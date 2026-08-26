@@ -169,3 +169,49 @@ func TestParsePullFlags_ErrorIsExitCode1(t *testing.T) {
 		t.Errorf("exit code = %d, want 1", exitErr.Code)
 	}
 }
+
+func TestParsePullFlagsSession(t *testing.T) {
+	got, err := parsePullFlags([]string{"--session", "aaaaaaaaaaaa", "42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := pullFlags{sessionID: "aaaaaaaaaaaa", prFlag: 42}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+
+	_, err = parsePullFlags([]string{"--session"})
+	var exitErr clicmd.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+		t.Fatalf("error = %v, want ExitError code 1", err)
+	}
+
+	got, err = parsePullFlags([]string{"--session", "bbbbbbbbbbbb", "-o", "/tmp/out", "7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.sessionID != "bbbbbbbbbbbb" || got.outputDir != "/tmp/out" || got.prFlag != 7 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestParseResolvedPullFlagsSession(t *testing.T) {
+	configuredOutput := configureOutputForTest(t)
+	f, err := parseResolvedPullFlags([]string{"--session", "cccccccccccc", "9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.sessionID != "cccccccccccc" || f.prFlag != 9 {
+		t.Fatalf("flags = %+v", f)
+	}
+	if f.configuredOutput != configuredOutput {
+		t.Fatalf("configuredOutput = %q, want %q", f.configuredOutput, configuredOutput)
+	}
+}
+
+func TestShouldRedirectReviewForPRWithSession(t *testing.T) {
+	// --session pins the review identity the same way --output does.
+	if shouldRedirectReviewForPR(42, true) {
+		t.Fatal("pinned session should not redirect")
+	}
+}

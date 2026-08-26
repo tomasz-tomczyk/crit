@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
+	"os/exec"
+	"strings"
+	"time"
+
 	"github.com/tomasz-tomczyk/crit/internal/browser"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/github"
+	"github.com/tomasz-tomczyk/crit/internal/gitlab"
 	"github.com/tomasz-tomczyk/crit/internal/live"
 	"github.com/tomasz-tomczyk/crit/internal/notify"
 	"github.com/tomasz-tomczyk/crit/internal/preview"
@@ -62,12 +69,91 @@ var (
 	atomicWriteFile    = session.AtomicWriteFile
 )
 
+func selectProvider(explicit forge.Kind) (forge.Provider, error) {
+	cfg := config.LoadConfig("")
+	selection := cfg.Forge
+	if explicit != "" && explicit != forge.Auto {
+		selection = string(explicit)
+	}
+	remote := ""
+	if out, err := exec.Command("git", "remote", "get-url", "origin").Output(); err == nil {
+		remote = strings.TrimSpace(string(out))
+	}
+	if selection == "" || selection == string(forge.Auto) {
+		host := forge.RemoteHost(remote)
+		if host != "" && !strings.Contains(host, "github") && !strings.Contains(host, "gitlab") && glabOwnsHost(host) {
+			selection = string(forge.GitLab)
+		}
+	}
+	kind, err := forge.DetectKind(selection, remote)
+	if err != nil {
+		return nil, err
+	}
+	if kind == forge.GitLab {
+		return gitlab.NewProvider(cfg.GitLabURL)
+	}
+	return github.Provider{}, nil
+}
+
+func glabOwnsHost(host string) bool {
+	if _, err := exec.LookPath("glab"); err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "glab", "auth", "status", "--hostname", host).Run() == nil
+}
+
+func fetchChange(provider forge.Provider, number int) (forge.ChangeRequest, error) {
+	return provider.Get(context.Background(), forge.RepoContext{}, forge.ChangeID{Number: number})
+}
+
+func listOpenGitLabChanges(ctx context.Context) ([]forge.ChangeSummary, error) {
+	provider, err := gitlab.NewProvider(config.LoadConfig("").GitLabURL)
+	if err != nil {
+		return nil, err
+	}
+	return provider.ListOpen(ctx, forge.RepoContext{})
+}
+
 func init() {
+	forge.SelectProviderFn = selectProvider
+	forge.ReviewFn = session.RunReview
 	session.InvalidatePRCache = github.InvalidatePRCache
+	session.FetchMRFileContent = func(f session.Focus, sha, path string) ([]byte, error) {
+		project := f.RemoteProject
+		if sha == f.BaseSHA && f.RemoteBaseProject != "" {
+			project = f.RemoteBaseProject
+		}
+		provider, err := gitlab.NewProvider(config.LoadConfig("").GitLabURL)
+		if err != nil {
+			return nil, err
+		}
+		return provider.FetchFile(context.Background(), forge.RepoContext{}, forge.RepoRef{
+			Project: project, Host: f.RemoteHost,
+		}, sha, path)
+	}
+	session.FetchMRDiffs = func(f session.Focus) ([]session.RemoteDiffFile, error) {
+		provider, err := gitlab.NewProvider(config.LoadConfig("").GitLabURL)
+		if err != nil {
+			return nil, err
+		}
+		return provider.FetchDiffs(context.Background(), forge.RepoContext{}, forge.ChangeID{
+			Number: f.ChangeNumber, Project: f.RemoteBaseProject, Host: f.RemoteHost,
+		})
+	}
 	session.PrintVersionFn = printVersion
 	session.PrintHelpFn = printHelp
 	server.PrintVersionFn = printVersion
 	server.PrintHelpFn = printHelp
+	server.ListOpenMRsFn = listOpenGitLabChanges
+	server.DetectForgeKindFn = func() forge.Kind {
+		provider, err := selectProvider(forge.Auto)
+		if err != nil {
+			return forge.GitHub
+		}
+		return provider.Kind()
+	}
 	session.InstalledAgentsFn = installedAgents
 	session.CheckMissingIntegrationsFn = checkMissingIntegrations
 	session.PrintMissingHintsFn = printMissingHints
@@ -113,12 +199,12 @@ func init() {
 		})
 	}
 	focus.SetPRResolveHooks(
-		func(prNum int) (focus.PRResolveInfo, error) {
+		func(prNum int) (focus.ChangeResolveInfo, error) {
 			info, err := github.FetchPRByNumber(prNum)
 			if err != nil {
-				return focus.PRResolveInfo{}, err
+				return focus.ChangeResolveInfo{}, err
 			}
-			return focus.PRResolveInfo{
+			return focus.ChangeResolveInfo{
 				URL:               info.URL,
 				Number:            info.Number,
 				Title:             info.Title,
@@ -130,7 +216,7 @@ func init() {
 				IsCrossRepository: info.IsCrossRepository,
 			}, nil
 		},
-		func(info focus.PRResolveInfo, v vcs.VCS) bool {
+		func(info focus.ChangeResolveInfo, v vcs.VCS) bool {
 			return github.IsStackedPR(&PRInfo{
 				URL:               info.URL,
 				Number:            info.Number,
@@ -142,6 +228,32 @@ func init() {
 				HeadRepoURL:       info.HeadRepoURL,
 				IsCrossRepository: info.IsCrossRepository,
 			}, v)
+		},
+	)
+	focus.SetMRResolveHooks(
+		func(spec string) (focus.ChangeResolveInfo, error) {
+			id, err := gitlab.ParseMRSpec(spec)
+			if err != nil {
+				return focus.ChangeResolveInfo{}, err
+			}
+			provider, providerErr := gitlab.NewProvider(config.LoadConfig("").GitLabURL)
+			if providerErr != nil {
+				return focus.ChangeResolveInfo{}, providerErr
+			}
+			change, err := provider.Get(context.Background(), forge.RepoContext{}, id)
+			if err != nil {
+				return focus.ChangeResolveInfo{}, err
+			}
+			return focus.ChangeResolveInfo{
+				URL: change.URL, Number: change.ID.Number, Title: change.Title,
+				BaseRefOid: change.BaseSHA, HeadRefOid: change.HeadSHA,
+				BaseRefName: change.BaseRefName, HeadRefName: change.HeadRefName,
+				HeadRepoURL: change.HeadRepo.CloneURL, BaseRepoProject: change.BaseRepo.Project, HeadRepoProject: change.HeadRepo.Project,
+				HeadRepoHost: change.HeadRepo.Host, IsCrossRepository: change.CrossRepository,
+			}, nil
+		},
+		func(info focus.ChangeResolveInfo, v vcs.VCS) bool {
+			return v != nil && v.DefaultBranch() != "" && info.BaseRefName != v.DefaultBranch()
 		},
 	)
 }

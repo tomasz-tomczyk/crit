@@ -60,13 +60,55 @@ func resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput string, f
 	if explicitOutput != "" {
 		return identityUnderDataRoot(explicitOutput, fileArgs)
 	}
-	if path := ResolveReviewPathFromDaemon(cwd); path != "" {
+	path, err := ResolveReviewPathFromDaemon(cwd)
+	if err != nil {
+		return "", err
+	}
+	if path != "" {
 		return path, nil
 	}
 	if configuredOutput != "" {
 		return identityUnderDataRoot(configuredOutput, fileArgs)
 	}
 	return ResolveReviewPathWithArgs("", fileArgs)
+}
+
+// ResolveCommandReviewPathWithSession prefers an explicit --session override,
+// then falls through to ResolveCommandReviewPath. --session cannot be combined
+// with --output (session selects the review identity; output selects storage).
+func ResolveCommandReviewPathWithSession(sessionID, explicitOutput, configuredOutput string) (string, error) {
+	return resolveCommandReviewPathWithSession(sessionID, explicitOutput, configuredOutput, nil)
+}
+
+// ResolveCommandReviewPathWithSessionArgs is ResolveCommandReviewPathWithSession
+// with file arguments retained for the centralized fallback session key.
+func ResolveCommandReviewPathWithSessionArgs(sessionID, explicitOutput, configuredOutput string, fileArgs []string) (string, error) {
+	return resolveCommandReviewPathWithSession(sessionID, explicitOutput, configuredOutput, fileArgs)
+}
+
+func resolveCommandReviewPathWithSession(sessionID, explicitOutput, configuredOutput string, fileArgs []string) (string, error) {
+	if sessionID != "" {
+		if explicitOutput != "" {
+			return "", fmt.Errorf("--session cannot be used with --output")
+		}
+		return ResolveSessionReviewPath(sessionID)
+	}
+	return resolveCommandReviewPathWithArgs(explicitOutput, configuredOutput, fileArgs)
+}
+
+// ResolveSessionReviewPath resolves --session <id> to a live review path.
+func ResolveSessionReviewPath(sessionID string) (string, error) {
+	if !daemon.ValidSessionKey(sessionID) {
+		return "", daemon.InvalidSessionIDError(sessionID)
+	}
+	entry, alive := daemon.FindAliveSession(sessionID)
+	if !alive {
+		return "", fmt.Errorf("no active review session %s", sessionID)
+	}
+	if entry.ReviewPath == "" {
+		return "", fmt.Errorf("active review session %s has no review path", sessionID)
+	}
+	return entry.ReviewPath, nil
 }
 
 // ResolveReviewPathWithArgs is like ResolveReviewPath but includes file args
@@ -81,7 +123,11 @@ func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, err
 		return "", err
 	}
 
-	if path := ResolveReviewPathFromDaemon(cwd); path != "" {
+	path, err := ResolveReviewPathFromDaemon(cwd)
+	if err != nil {
+		return "", err
+	}
+	if path != "" {
 		return path, nil
 	}
 
@@ -102,7 +148,11 @@ func identityUnderDataRoot(dataRoot string, fileArgs []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if key := sessionKeyFromDaemon(cwd); key != "" {
+	key, err := sessionKeyFromDaemon(cwd)
+	if err != nil {
+		return "", err
+	}
+	if key != "" {
 		return reviewpath.IdentityUnderDataRoot(dataRoot, key)
 	}
 	return reviewpath.IdentityUnderDataRoot(dataRoot, sessionKeyForArgs(cwd, fileArgs))
@@ -110,20 +160,23 @@ func identityUnderDataRoot(dataRoot string, fileArgs []string) (string, error) {
 
 // sessionKeyFromDaemon returns the registry key of the best matching live
 // daemon for cwd, or "" if none. Prefer this over recomputing SessionKey when
-// placing a review under a custom data root.
-func sessionKeyFromDaemon(cwd string) string {
-	path := ResolveReviewPathFromDaemon(cwd)
+// placing a review under a custom data root. Errors when multiple sessions match.
+func sessionKeyFromDaemon(cwd string) (string, error) {
+	path, err := ResolveReviewPathFromDaemon(cwd)
+	if err != nil {
+		return "", err
+	}
 	if path == "" {
-		return ""
+		return "", nil
 	}
 	base := filepath.Base(path)
 	if base == ".crit" {
-		return "" // plan-mode identity is not a session key
+		return "", nil // plan-mode identity is not a session key
 	}
 	if daemon.ValidSessionKey(base) {
-		return base
+		return base, nil
 	}
-	return ""
+	return "", nil
 }
 
 func sessionKeyForArgs(cwd string, fileArgs []string) string {
@@ -137,59 +190,84 @@ func sessionKeyForArgs(cwd string, fileArgs []string) string {
 	return daemon.SessionKey(cwd, branch, nil)
 }
 
+// AmbiguousSessionsError is returned when multiple live sessions match cwd+branch.
+func AmbiguousSessionsError(keys []string) error {
+	return fmt.Errorf("multiple active review sessions match this directory and branch (%s); choose one with --session <id> (run `crit status` to list them)", strings.Join(keys, ", "))
+}
+
+// MatchingLiveSessions returns alive sessions for cwd (falling back to the VCS
+// repo root). A sole cwd (or repo-root) session is accepted regardless of
+// branch — important on detached HEAD where CurrentBranch() is "HEAD" but the
+// session still records the real branch name. When multiple sessions exist,
+// they are narrowed with SessionsForBranch; if none match the current branch,
+// all unfiltered candidates are returned so the caller can surface ambiguity
+// rather than silently falling through. A RepoRoot failure is treated as
+// "no repo-root sessions" rather than a hard error, matching `crit status`.
+func MatchingLiveSessions(cwd, branch string, backend vcs.VCS) ([]daemon.SessionEntry, []string, error) {
+	sessions, keys, err := daemon.ListSessionsForCWDWithKeys(cwd)
+	if err != nil {
+		return nil, nil, err
+	}
+	sessions, keys = narrowMatchingSessions(sessions, keys, branch)
+	if len(sessions) > 0 || backend == nil {
+		return sessions, keys, nil
+	}
+	repoRoot, rootErr := backend.RepoRoot()
+	if rootErr != nil {
+		// Soft-fail like `crit status`: missing repo root is "no repo sessions".
+		return nil, nil, nil //nolint:nilerr // intentional soft-fail
+	}
+	if repoRoot == "" || repoRoot == cwd {
+		return nil, nil, nil
+	}
+	sessions, keys = daemon.ListSessionsForRepoRoot(repoRoot)
+	sessions, keys = narrowMatchingSessions(sessions, keys, branch)
+	return sessions, keys, nil
+}
+
+// narrowMatchingSessions applies the single-session / branch-filter rules used
+// by MatchingLiveSessions. Exactly one candidate wins without a branch check;
+// multiple candidates are filtered to branch, falling back to the full set
+// when the filter empties (so callers can error on ambiguity).
+func narrowMatchingSessions(sessions []daemon.SessionEntry, keys []string, branch string) ([]daemon.SessionEntry, []string) {
+	if len(sessions) <= 1 {
+		return sessions, keys
+	}
+	matched, matchedKeys := daemon.SessionsForBranch(sessions, keys, branch)
+	if len(matched) == 0 {
+		return sessions, keys
+	}
+	return matched, matchedKeys
+}
+
 // ResolveReviewPathFromDaemon checks the daemon registry for a running session
 // and returns its review path. Tries exact CWD match first, then falls back to
 // matching by git repo root (handles subdirectory mismatch — e.g. daemon started
 // from repo/api but crit comment run from repo/).
-func ResolveReviewPathFromDaemon(cwd string) string {
-	sessions, _ := daemon.ListSessionsForCWD(cwd)
-	if path := pickReviewPath(sessions); path != "" {
-		return path
+// Returns an error when multiple same-branch sessions match.
+func ResolveReviewPathFromDaemon(cwd string) (string, error) {
+	branch := ""
+	backend := vcs.DetectVCS("")
+	if backend != nil {
+		branch = backend.CurrentBranch()
 	}
-
-	// Fallback: match by VCS repo root.
-	if len(sessions) == 0 {
-		vcs := vcs.DetectVCS("")
-		if vcs == nil {
-			return ""
-		}
-		if repoRoot, err := vcs.RepoRoot(); err == nil && repoRoot != cwd {
-			repoSessions, _ := daemon.ListSessionsForRepoRoot(repoRoot)
-			if path := pickReviewPath(repoSessions); path != "" {
-				return path
-			}
-		}
+	sessions, keys, err := MatchingLiveSessions(cwd, branch, backend)
+	if err != nil {
+		return "", err
 	}
-	return ""
+	return ResolveReviewPathFromSessions(sessions, keys)
 }
 
-// pickReviewPath selects a review path from a list of sessions.
-// Returns the path if exactly one session has one, or defers to branch matching for multiple.
-func pickReviewPath(sessions []daemon.SessionEntry) string {
-	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
-		return sessions[0].ReviewPath
-	}
+// ResolveReviewPathFromSessions picks the ReviewPath from matching daemon sessions.
+// Exactly one session with a ReviewPath succeeds; multiple matching sessions error.
+func ResolveReviewPathFromSessions(sessions []daemon.SessionEntry, keys []string) (string, error) {
 	if len(sessions) > 1 {
-		return ResolveReviewPathFromSessions(sessions)
+		return "", AmbiguousSessionsError(keys)
 	}
-	return ""
-}
-
-// ResolveReviewPathFromSessions picks the best ReviewPath from multiple daemon sessions.
-// Tries current branch first, then falls back to the first session with a ReviewPath.
-func ResolveReviewPathFromSessions(sessions []daemon.SessionEntry) string {
-	branch := vcs.CurrentBranch()
-	for _, s := range sessions {
-		if s.Branch == branch && s.ReviewPath != "" {
-			return s.ReviewPath
-		}
+	if len(sessions) == 1 && sessions[0].ReviewPath != "" {
+		return sessions[0].ReviewPath, nil
 	}
-	for _, s := range sessions {
-		if s.ReviewPath != "" {
-			return s.ReviewPath
-		}
-	}
-	return ""
+	return "", nil
 }
 
 // SnapshotsFile is the per-round-content sidecar inside a review folder. Lives

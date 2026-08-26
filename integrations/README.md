@@ -68,6 +68,10 @@ deterministically, set `plan_approve_mode` in your global Crit config:
 }
 ```
 
+Disable automatic plan review per shell or globally with
+`export CRIT_PLAN_REVIEW=off`. This only disables the plan-exit hook; manually
+running `crit plan` still opens a review.
+
 Supported values are `default`, `manual`, `acceptEdits`, `plan`, `auto`,
 `dontAsk`, and `bypassPermissions`. The `manual` alias requires Claude Code
 2.1.200 or newer. On approval, Crit returns Claude Code's documented
@@ -125,14 +129,16 @@ Plugin source files live in `integrations/codex/plugin/crit/`. See [`integration
 
 Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` adds the proposed-plan hook — without it, typing `$crit` on an in-chat plan (e.g. after choosing "No and stay in Plan Mode") does nothing useful because there is no file path for `crit` to open.
 
-Disable the plan hook per-shell or globally: `export CRIT_PLAN_REVIEW=off`
+Disable automatic plan review per shell or globally with
+`export CRIT_PLAN_REVIEW=off`. Manual `crit plan` invocations are unaffected.
 
 ## Invocation policy
 
-The interactive `crit` review cycle is manual by default. A normal request to
-review code, a plan, a diff, a PR, or a page does not start Crit. Invoke the
-platform command explicitly (`/crit`, `$crit`, `/skill:crit`, `/crit.md`, or
-Windsurf's `/crit`, as appropriate) or directly ask the agent to use Crit.
+The interactive `crit` review cycle is wording-gated, not hard-disabled.
+Skill descriptions and workflow docs tell agents to launch Crit only when the
+user invokes the platform command (`/crit`, `$crit`, `/skill:crit`, `/crit.md`,
+or Windsurf's `/crit`, as appropriate) or directly asks to use Crit. A normal
+request to review code, a plan, a diff, a PR, or a page does not count.
 
 `crit-cli` is intentionally model-discoverable. It teaches agents how to leave
 and reply to Crit comments, interpret review JSON, share reviews, and synchronize
@@ -141,10 +147,6 @@ GitHub PR feedback, but it does not start the interactive review cycle.
 The only automatic interactive path is a lifecycle hook immediately after
 planning mode. The Claude Code plugin, Codex plugin, and Gemini CLI integration
 retain their existing plan-exit hooks.
-
-When upgrading Cline, OpenCode, or Windsurf, `crit install` removes the obsolete
-auto-invoked path only when it still exactly matches a previously shipped Crit
-file. Modified files are preserved with a warning and must be removed manually.
 
 ## What these do
 

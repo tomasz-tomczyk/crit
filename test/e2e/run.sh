@@ -13,6 +13,8 @@ NOGIT_PORT="${CRIT_TEST_NOGIT_PORT:-3126}"
 MULTI_PORT="${CRIT_TEST_MULTI_PORT:-3127}"
 RANGE_PORT="${CRIT_TEST_RANGE_PORT:-3128}"
 LIVE_PORT="${CRIT_TEST_LIVE_PORT:-3129}"
+SHARE_PORT="${CRIT_TEST_SHARE_PORT:-3132}"
+STUB_PORT="${CRIT_TEST_STUB_PORT:-3133}"
 
 # Build crit once (skip if CRIT_BIN already points to an existing binary, e.g. CI coverage builds)
 if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
@@ -33,7 +35,7 @@ fi
 (cd "$SCRIPT_DIR" && npx playwright install chromium)
 
 # Kill any stale processes on our test ports before starting fresh
-for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
+for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT" "$SHARE_PORT" "$STUB_PORT"; do
   e2e_kill_port "$port"
 done
 
@@ -55,10 +57,12 @@ bash setup-fixtures-range-mode.sh "$RANGE_PORT" &
 RANGE_PID=$!
 bash setup-fixtures-livemode.sh "$LIVE_PORT" &
 LIVE_PID=$!
+bash setup-fixtures-sharetransport.sh "$SHARE_PORT" "$STUB_PORT" &
+SHARE_PID=$!
 
 cleanup() {
-  kill "$GIT_PID" "$GIT2_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
-  wait "$GIT_PID" "$GIT2_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" 2>/dev/null || true
+  kill "$GIT_PID" "$GIT2_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" "$SHARE_PID" 2>/dev/null || true
+  wait "$GIT_PID" "$GIT2_PID" "$FILE_PID" "$SINGLE_PID" "$NOGIT_PID" "$MULTI_PID" "$RANGE_PID" "$LIVE_PID" "$SHARE_PID" 2>/dev/null || true
   # On Git Bash `kill <bash-pid>` doesn't reap the spawned crit.exe child;
   # taskkill /T flushes the whole tree.
   e2e_kill_stray_crit
@@ -67,7 +71,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Wait for servers to be ready
-for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT"; do
+for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT" "$SHARE_PORT"; do
   while ! curl -sf "http://localhost:$port/api/session" >/dev/null 2>&1; do
     sleep 0.1
   done
@@ -95,6 +99,8 @@ if [ $# -eq 0 ]; then
   PW_RANGE=$!
   npx playwright test --project=live-mode > "$PWLOGS/live.log" 2>&1 &
   PW_LIVE=$!
+  npx playwright test --project=share-transport > "$PWLOGS/share.log" 2>&1 &
+  PW_SHARE=$!
 
   # Mobile shares the git-mode fixture (port 3123) and both projects call
   # DELETE /api/comments in beforeEach, so they must not overlap. Wait for
@@ -115,6 +121,7 @@ if [ $# -eq 0 ]; then
   wait $PW_MULTI  || FAILED=1
   wait $PW_RANGE  || FAILED=1
   wait $PW_LIVE   || FAILED=1
+  wait $PW_SHARE  || FAILED=1
   if [ -n "${PW_MOBILE:-}" ]; then
     wait $PW_MOBILE || FAILED=1
   fi

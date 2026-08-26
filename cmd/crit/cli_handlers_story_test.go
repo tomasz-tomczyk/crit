@@ -97,7 +97,7 @@ func TestStorySessionKeyInvariant_Range(t *testing.T) {
 func TestStorySessionKeyInvariant_PRArgs(t *testing.T) {
 	setupStoryRepo(t)
 	cwd, _ := daemon.ResolvedCWD()
-	prFocus := &session.Focus{Kind: session.FocusRange, PRNumber: 75, BaseSHA: "b", HeadSHA: "h"}
+	prFocus := &session.Focus{Kind: session.FocusRange, Forge: "github", ChangeNumber: 75, BaseSHA: "b", HeadSHA: "h"}
 	cfg := &session.CLIReviewConfig{Focus: prFocus}
 
 	storyKey := daemon.SessionKey(cwd, "feature", session.FocusKeyArgs(cfg))
@@ -108,6 +108,22 @@ func TestStorySessionKeyInvariant_PRArgs(t *testing.T) {
 	// And the args are the stable "pr:75" token.
 	if got := session.FocusKeyArgs(cfg); len(got) != 1 || got[0] != "pr:75" {
 		t.Fatalf("unexpected pr focus key args: %+v", got)
+	}
+}
+
+func TestStorySessionKeyInvariant_MRArgs(t *testing.T) {
+	setupStoryRepo(t)
+	cwd, _ := daemon.ResolvedCWD()
+	mrFocus := &session.Focus{Kind: session.FocusRange, Forge: "gitlab", ChangeNumber: 75, BaseSHA: "b", HeadSHA: "h"}
+	cfg := &session.CLIReviewConfig{Focus: mrFocus}
+
+	storyKey := daemon.SessionKey(cwd, "feature", session.FocusKeyArgs(cfg))
+	reviewKey := daemon.SessionKey(cwd, "feature", session.FocusKeyArgs(cfg))
+	if storyKey != reviewKey {
+		t.Fatalf("mr-mode normalization mismatch: %s vs %s", storyKey, reviewKey)
+	}
+	if got := session.FocusKeyArgs(cfg); len(got) != 1 || got[0] != "mr:75" {
+		t.Fatalf("unexpected mr focus key args: %+v", got)
 	}
 }
 
@@ -141,6 +157,19 @@ func TestStoryRejectsPositionalFileArgs(t *testing.T) {
 	}
 }
 
+func TestParseStoryFlagsForwardsGitLabMRScope(t *testing.T) {
+	f, err := parseStoryFlags([]string{"--mr", "17", "--skip-llm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.scopeArgs) != 2 || f.scopeArgs[0] != "--mr" || f.scopeArgs[1] != "17" {
+		t.Fatalf("scope args = %#v, want [--mr 17]", f.scopeArgs)
+	}
+	if !f.skipLLM {
+		t.Fatal("--skip-llm was not parsed")
+	}
+}
+
 func TestStoryHelpMentionsStoryCommands(t *testing.T) {
 	var stderr strings.Builder
 	old := os.Stderr
@@ -159,9 +188,19 @@ func TestStoryHelpMentionsStoryCommands(t *testing.T) {
 		t.Fatalf("story help returned error: %v", err)
 	}
 	out := stderr.String()
+	// This was the original core-help coverage; it intentionally samples the
+	// story-specific options rather than trying to duplicate every help line.
 	for _, want := range []string{"Usage: crit story", "--story-file", "--prep", "--guide", "--skip-llm", "--refresh", "--clear", "--no-spend"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("story help missing %q:\n%s", want, out)
+		}
+	}
+	// GitLab added a second forge scope. Keep this separate from the historical
+	// sample above so the contract is explicit: users must see both choices,
+	// never an MR-only or PR-only help surface.
+	for _, want := range []string{"--pr <num|url>", "--mr <iid|url>"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("story help missing paired forge scope %q:\n%s", want, out)
 		}
 	}
 }

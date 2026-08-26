@@ -11,12 +11,13 @@ judge the patch, or suggest fixes.
 
 ## When to use it
 
-Use story mode for branch, PR, or range reviews where the diff is large enough
-that a thematic overview helps:
+Use story mode for branch, PR, MR, or range reviews where the diff is large
+enough that a thematic overview helps:
 
 ```bash
 crit story
 crit story --pr 123
+crit story --mr 123
 crit story --range main..HEAD
 ```
 
@@ -225,6 +226,7 @@ Useful template variables:
 | `{{.diff_scope_kind}}` | `committed` or `workingTree` |
 | `{{.base_sha}}` / `{{.head_sha}}` / `{{.merge_base_sha}}` | Scope SHAs when available |
 | `{{.pr_number}}` / `{{.pr_url}}` / `{{.pr_title}}` / `{{.pr_body}}` | PR context when available |
+| `{{.mr_number}}` / `{{.mr_url}}` | MR context when available |
 | `{{.session_key}}` | Review session key |
 | `{{.review_path}}` | Path to the review JSON file |
 

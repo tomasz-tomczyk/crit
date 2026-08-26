@@ -16,6 +16,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const markdownit = require('../markdown-it.min.js');
 
 // We require the real route-utils so groupCommentsByRoute behaves exactly as
 // it does in the browser; only the DOM is stubbed.
@@ -290,6 +291,44 @@ test('renderCommentsPanel: filter hides cards without touching unaffected wrappe
     const cards2 = panelBody.firstChild.childNodes.find(n => n.classList.contains('comments-panel-file-cards'));
     assert.deepEqual(cards2.childNodes.map(n => n.dataset.id), ['1']);
     assert.strictEqual(cards2.childNodes[0], wrapper1Before, 'filter must not rebuild unaffected card');
+  } finally {
+    teardownDom(prev);
+  }
+});
+
+test('renderCommentsPanel: live comments use code-review markdown semantics', () => {
+  const prev = { document: global.document, window: global.window };
+  const { panelBody, win } = setupDom();
+  let commentMd;
+  win.markdownit = markdownit;
+  win.hljs = {
+    getLanguage(lang) { return lang === 'js'; },
+    highlight(str) { return { value: '<span class="hl">' + str + '</span>' }; },
+  };
+  win.crit.commentHtml = { sanitize(html) { return html; } };
+  win.crit.live.row = {
+    renderLivePinRow(_comment, deps) {
+      commentMd = deps.commentMd;
+      return makeNode('div');
+    },
+  };
+
+  try {
+    const { ctl, state } = makeCtl(panelBody);
+    state.comments = [{
+      id: '1',
+      body: 'body',
+      path: '/x',
+      dom_anchor: { pathname: '/x' },
+    }];
+    ctl.renderCommentsPanel();
+
+    assert.ok(commentMd, 'live comment card receives a markdown renderer');
+    assert.match(commentMd.render('"hello" (c)'), /“hello” \(c\)/);
+    assert.doesNotMatch(commentMd.render('"hello" (c)'), /©/);
+    assert.match(commentMd.render('first\nsecond'), /first\nsecond/);
+    assert.doesNotMatch(commentMd.render('first\nsecond'), /<br>/);
+    assert.match(commentMd.render('```js\nconst x = 1;\n```'), /<span class="hl">const x = 1;/);
   } finally {
     teardownDom(prev);
   }

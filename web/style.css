@@ -994,6 +994,9 @@ body.visual-mode .diff-split-row.focused .diff-split-side {
 .deletion-marker.change-flash {
   animation: change-flash 1s ease-out;
 }
+.native-table-annotation.change-flash .deletion-marker {
+  animation: change-flash 1s ease-out;
+}
 
 /* ===== Gutter ===== */
 .line-gutter {
@@ -1205,7 +1208,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 .line-content a:hover { border-bottom-color: var(--crit-brand); }
 
 .line-content code {
-  font-family: var(--crit-font-mono);
+  font-family: var(--crit-font-code);
   font-size: 0.88em;
   background: var(--crit-editor-code-bg);
   padding: 2px 6px;
@@ -1233,7 +1236,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 /* === Per-line code blocks === */
 .line-content.code-line {
   background: var(--crit-editor-code-bg);
-  font-family: var(--crit-font-mono);
+  font-family: var(--crit-font-code);
   font-size: 0.875rem;
   line-height: 1.5;
   padding-left: 16px;
@@ -1303,7 +1306,85 @@ body.dragging { user-select: none; cursor: grabbing; }
   margin: 4px 0;
 }
 
-/* === Per-row table blocks === */
+/* === Native rendered tables === */
+.native-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.native-table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  font-size: 0.925rem;
+  margin: 0;
+}
+.native-table .line-block {
+  display: table-row;
+}
+.native-table-gutter {
+  position: relative;
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  vertical-align: top;
+}
+.native-table-gutter > .line-gutter {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 44px;
+}
+.native-table th.line-content,
+.native-table td.line-content {
+  overflow-wrap: break-word;
+}
+.native-table th.line-content {
+  text-align: left;
+  font-weight: 600;
+  padding: 10px 14px;
+  color: var(--crit-editor-fg-secondary);
+  border-bottom: 2px solid var(--crit-border);
+}
+.native-table td.line-content {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--crit-border);
+}
+.native-table .line-content code {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.native-table tbody tr.table-even td.line-content {
+  background: var(--crit-table-stripe);
+}
+.native-table .line-block.has-comment > .line-content {
+  background: var(--crit-comment-range-bg);
+}
+.native-table .line-block:hover > .line-content,
+.native-table .line-block.selected > .line-content,
+.native-table .line-block.form-selected > .line-content {
+  background: var(--crit-brand-subtle);
+}
+.native-table .line-block.focused > .line-content {
+  background: var(--crit-line-focus-bg);
+}
+.native-table .line-block.change-flash > .line-content {
+  animation: change-flash 1s ease-out;
+}
+.native-table .table-last td {
+  border-bottom: none;
+}
+.native-table-separator {
+  display: none !important;
+}
+.native-table-annotation > td {
+  padding: 0 24px 0 56px;
+}
+
+/* Rendered round diffs cannot group rows across the two diff sides, so their
+   per-row fallback tables share renderer-generated column widths. */
 .line-content.table-row table.split-table {
   width: 100%;
   border-collapse: collapse;
@@ -1311,44 +1392,10 @@ body.dragging { user-select: none; cursor: grabbing; }
   font-size: 0.925rem;
   margin: 0;
 }
-.line-content.table-row th {
-  text-align: left;
-  font-weight: 600;
-  padding: 10px 14px;
-  color: var(--crit-editor-fg-secondary);
-  border-bottom: 2px solid var(--crit-border);
-}
-.line-content.table-row td {
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--crit-border);
-}
-.line-content.table-even td {
-  background: var(--crit-table-stripe);
-}
-.line-content.table-first {
-  border-top: 1px solid var(--crit-border);
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  overflow: hidden;
-}
-.line-content.table-last {
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  overflow: hidden;
-}
-.line-content.table-last td {
-  border-bottom: none;
-}
-.line-content.table-separator {
-  height: 0;
-  padding: 0;
-  overflow: hidden;
-}
-.line-block:has(.table-separator) {
-  height: 0;
-  overflow: hidden;
-  min-height: 0;
-}
+.line-content.table-even td { background: var(--crit-table-stripe); }
+.line-content.table-last td { border-bottom: none; }
+.line-content.table-separator { height: 0; padding: 0; overflow: hidden; }
+.line-block:has(.table-separator) { height: 0; overflow: hidden; min-height: 0; }
 
 .line-content blockquote {
   margin: 6px 0;
@@ -1603,6 +1650,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 .comment-body p { margin: 0 0 0.5em 0; }
 .comment-body p:last-child { margin-bottom: 0; }
 .comment-body code {
+  font-family: var(--crit-font-code);
   background: var(--crit-editor-bg-elevated);
   padding: 1px 5px;
   border-radius: 3px;
@@ -1631,7 +1679,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-radius: 6px;
   overflow: hidden;
   margin: 8px 0;
-  font-family: var(--crit-font-mono);
+  font-family: var(--crit-font-code);
   font-size: 12px;
   line-height: 20px;
 }
@@ -1689,6 +1737,35 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-editor-fg-secondary);
 }
 
+/* Sanitized comment markdown keeps no classes, so key off the elements.
+   A comment card is narrow: cells take a full border, not row rules alone. */
+.comment-body table,
+.reply-body table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.95em;
+}
+
+.comment-body th,
+.comment-body td,
+.reply-body th,
+.reply-body td {
+  border: 1px solid var(--crit-border);
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.comment-body th,
+.reply-body th {
+  font-weight: 600;
+  background: var(--crit-editor-bg-elevated);
+}
+
+.comment-body tbody tr:nth-child(even) td,
+.reply-body tbody tr:nth-child(even) td {
+  background: var(--crit-table-stripe);
+}
+
 .comment-time {
   font-size: 11px;
   color: var(--crit-editor-fg-muted);
@@ -1731,6 +1808,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 
 .reply-body {
+  font-family: var(--crit-font-body);
   font-size: 14px;
   line-height: 1.6;
   overflow: hidden;
@@ -2716,10 +2794,51 @@ textarea.drag-active {
 .settings-display-row:not(:last-child) {
   border-bottom: 1px solid var(--crit-border);
 }
+.settings-display-row[hidden] {
+  display: none;
+}
 .settings-display-label {
   font-size: 14px;
   font-weight: 500;
   color: var(--crit-editor-fg);
+}
+/* Secondary label for a row that qualifies the row above it (custom code font). */
+.settings-display-label--sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--crit-editor-fg-muted);
+}
+
+/* Dropdown + free-text controls in the Display section. */
+.settings-select,
+.settings-text-input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-card);
+  color: var(--crit-editor-fg);
+}
+.settings-select {
+  max-width: 60%;
+  cursor: pointer;
+}
+.settings-text-input {
+  width: 260px;
+  max-width: 60%;
+  font-family: var(--crit-font-mono);
+}
+.settings-text-input::placeholder {
+  color: var(--crit-editor-fg-muted);
+}
+.settings-select:focus-visible,
+.settings-text-input:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 1px;
+}
+.settings-text-input.is-invalid {
+  border-color: var(--crit-red);
 }
 
 /* Toggle switch (used in settings panel for hide-resolved). */
@@ -4405,7 +4524,7 @@ body.sidebar-resizing * {
 
 /* ===== Diff Shared Styles ===== */
 .diff-container {
-  font-family: var(--crit-font-mono);
+  font-family: var(--crit-font-code);
   font-size: 13px;
   line-height: 20px;
   border-bottom: 1px solid var(--crit-border);
@@ -4719,7 +4838,7 @@ body.sidebar-resizing * {
 /* GitHub-synced comment badge -- small pill with the GitHub mark, same
    sizing as .outdated-badge. Uses neutral pill tokens so it reads as
    informational ("synced from GitHub") rather than warning (#370). */
-.github-badge {
+.forge-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -4745,6 +4864,9 @@ body.sidebar-resizing * {
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+}
+.gitlab-badge {
+  padding-left: 7px;
 }
 /* Drifted anchor context — full-width disclosure bar + line-numbered panel */
 .drifted-context {
@@ -4814,7 +4936,7 @@ body.sidebar-resizing * {
   background: var(--crit-editor-code-bg);
 }
 .drifted-anchor-text {
-  font-family: var(--crit-font-mono);
+  font-family: var(--crit-font-code);
   font-size: 11px;
   line-height: 1.65;
   color: var(--crit-editor-fg-muted);
@@ -5851,7 +5973,9 @@ body.sidebar-resizing * {
 
   /* iOS Safari zooms any focused input below 16px. */
   .comment-form textarea,
-  .reply-input {
+  .reply-input,
+  .settings-select,
+  .settings-text-input {
     font-size: 16px;
   }
 

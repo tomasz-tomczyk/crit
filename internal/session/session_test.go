@@ -49,6 +49,10 @@ func newTestSession(t *testing.T) *Session {
 			},
 		},
 	}
+	// AddComment arms a 200ms debounced disk write. Quiesce before t.TempDir's
+	// cleanup so a delayed WriteFiles doesn't race with RemoveAll — on Windows
+	// that manifests as "directory is not empty".
+	t.Cleanup(func() { quiesceSession(t, s) })
 	return s
 }
 
@@ -156,8 +160,40 @@ func TestSession_DeleteComment_WithGitHubID_QueuesPendingDelete(t *testing.T) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if len(s.pendingGitHubDeletes) != 1 || s.pendingGitHubDeletes[0] != 12345 {
-		t.Errorf("pendingGitHubDeletes = %v, want [12345]", s.pendingGitHubDeletes)
+	if len(s.pendingRemoteDeletes) != 1 || s.pendingRemoteDeletes[0] != (RemoteRef{Forge: "github", CommentID: 12345}) {
+		t.Errorf("pendingRemoteDeletes = %v, want GitHub comment 12345", s.pendingRemoteDeletes)
+	}
+}
+
+// TestSession_DeleteComment_WithGitLabThread_QueuesPendingDelete mirrors the
+// live GitLab shape: the root note identifies a discussion containing replies.
+// One queued root ref represents deletion of that complete remote thread; the
+// GitLab adapter expands it to reply-first/root-last note deletions.
+func TestSession_DeleteComment_WithGitLabThread_QueuesPendingDelete(t *testing.T) {
+	s := newTestSession(t)
+	c, _ := s.AddComment("plan.md", 1, 1, "", "pushed root", "", "", "")
+	s.mu.Lock()
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			if f.Comments[i].ID == c.ID {
+				f.Comments[i].GitLabNoteID = 12345
+				f.Comments[i].GitLabDiscussionID = "discussion-1"
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if !s.DeleteComment("plan.md", c.ID) {
+		t.Fatal("DeleteComment failed")
+	}
+	if len(s.GetComments("plan.md")) != 0 {
+		t.Error("comment should be removed from in-memory list")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	want := RemoteRef{Forge: "gitlab", CommentID: 12345, ThreadID: "discussion-1"}
+	if len(s.pendingRemoteDeletes) != 1 || s.pendingRemoteDeletes[0] != want {
+		t.Errorf("pendingRemoteDeletes = %v, want GitLab thread root %+v", s.pendingRemoteDeletes, want)
 	}
 }
 
@@ -171,8 +207,8 @@ func TestSession_DeleteComment_WithoutGitHubID_NoPending(t *testing.T) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if len(s.pendingGitHubDeletes) != 0 {
-		t.Errorf("pendingGitHubDeletes leaked: %v", s.pendingGitHubDeletes)
+	if len(s.pendingRemoteDeletes) != 0 {
+		t.Errorf("pendingRemoteDeletes leaked: %v", s.pendingRemoteDeletes)
 	}
 }
 
@@ -182,13 +218,14 @@ func TestSession_DeleteComment_WithoutGitHubID_NoPending(t *testing.T) {
 func TestSession_DeleteComment_PendingDeleteIsIdempotent(t *testing.T) {
 	s := newTestSession(t)
 	s.mu.Lock()
-	s.appendPendingGHDelete(99)
-	s.appendPendingGHDelete(99)
-	s.appendPendingGHDelete(99)
-	got := append([]int64{}, s.pendingGitHubDeletes...)
+	ref := RemoteRef{Forge: "github", CommentID: 99}
+	s.appendPendingRemoteDelete(ref)
+	s.appendPendingRemoteDelete(ref)
+	s.appendPendingRemoteDelete(ref)
+	got := append([]RemoteRef{}, s.pendingRemoteDeletes...)
 	s.mu.Unlock()
-	if len(got) != 1 || got[0] != 99 {
-		t.Errorf("appendPendingGHDelete not idempotent: %v", got)
+	if len(got) != 1 || got[0] != ref {
+		t.Errorf("appendPendingRemoteDelete not idempotent: %v", got)
 	}
 }
 
@@ -218,8 +255,42 @@ func TestSession_DeleteReply_WithGitHubID_QueuesPendingDelete(t *testing.T) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if len(s.pendingGitHubDeletes) != 1 || s.pendingGitHubDeletes[0] != 7777 {
-		t.Errorf("pendingGitHubDeletes = %v, want [7777]", s.pendingGitHubDeletes)
+	if len(s.pendingRemoteDeletes) != 1 || s.pendingRemoteDeletes[0] != (RemoteRef{Forge: "github", CommentID: 7777}) {
+		t.Errorf("pendingRemoteDeletes = %v, want GitHub comment 7777", s.pendingRemoteDeletes)
+	}
+}
+
+// TestSession_DeleteReply_WithGitLabID_QueuesPendingDelete verifies that a
+// reply carries its own note ID plus the parent discussion ID, matching the
+// structure returned by GitLab's discussions API.
+func TestSession_DeleteReply_WithGitLabID_QueuesPendingDelete(t *testing.T) {
+	s := newTestSession(t)
+	c, _ := s.AddComment("plan.md", 1, 1, "", "parent", "", "", "")
+	r, _ := s.AddReply("plan.md", c.ID, "reply body", "", "")
+	s.mu.Lock()
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			if f.Comments[i].ID != c.ID {
+				continue
+			}
+			for j := range f.Comments[i].Replies {
+				if f.Comments[i].Replies[j].ID == r.ID {
+					f.Comments[i].Replies[j].GitLabNoteID = 7777
+					f.Comments[i].Replies[j].GitLabDiscussionID = "discussion-1"
+				}
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if !s.DeleteReply("plan.md", c.ID, r.ID) {
+		t.Fatal("DeleteReply failed")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	want := RemoteRef{Forge: "gitlab", CommentID: 7777, ThreadID: "discussion-1"}
+	if len(s.pendingRemoteDeletes) != 1 || s.pendingRemoteDeletes[0] != want {
+		t.Errorf("pendingRemoteDeletes = %v, want GitLab reply %+v", s.pendingRemoteDeletes, want)
 	}
 }
 
@@ -264,13 +335,13 @@ func TestSession_PendingGHDeletes_NotResurrectedAfterPushDrain(t *testing.T) {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		t.Fatal(err)
 	}
-	if len(cj.PendingGitHubDeletes) != 1 || cj.PendingGitHubDeletes[0] != 12345 {
-		t.Fatalf("setup: PendingGitHubDeletes = %v, want [12345]", cj.PendingGitHubDeletes)
+	if len(cj.PendingRemoteDeletes) != 1 || cj.PendingRemoteDeletes[0].CommentID != 12345 {
+		t.Fatalf("setup: PendingRemoteDeletes = %v, want GitHub comment 12345", cj.PendingRemoteDeletes)
 	}
 
 	// 3. Simulate `crit push` draining the queue: rewrite review.json with
 	//    PendingGitHubDeletes cleared. Other state is preserved.
-	cj.PendingGitHubDeletes = nil
+	ReplaceRemoteDeletes(&cj, "github", nil)
 	out, err := json.MarshalIndent(cj, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -294,15 +365,15 @@ func TestSession_PendingGHDeletes_NotResurrectedAfterPushDrain(t *testing.T) {
 	if err := json.Unmarshal(data, &after); err != nil {
 		t.Fatal(err)
 	}
-	if len(after.PendingGitHubDeletes) != 0 {
-		t.Errorf("PendingGitHubDeletes resurrected: %v; push had drained the queue", after.PendingGitHubDeletes)
+	if len(after.PendingRemoteDeletes) != 0 {
+		t.Errorf("PendingRemoteDeletes resurrected: %v; push had drained the queue", after.PendingRemoteDeletes)
 	}
 
 	// In-memory state must also be cleaned up so subsequent writes are stable.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if len(s.pendingGitHubDeletes) != 0 {
-		t.Errorf("in-memory pendingGitHubDeletes leaked: %v", s.pendingGitHubDeletes)
+	if len(s.pendingRemoteDeletes) != 0 {
+		t.Errorf("in-memory pendingRemoteDeletes leaked: %v", s.pendingRemoteDeletes)
 	}
 }
 
@@ -344,8 +415,8 @@ func TestSession_PendingGHDeletes_FreshlyAddedSurvivesConcurrentDrain(t *testing
 	if err := json.Unmarshal(data, &cj); err != nil {
 		t.Fatal(err)
 	}
-	if len(cj.PendingGitHubDeletes) != 1 || cj.PendingGitHubDeletes[0] != 999 {
-		t.Errorf("freshly-queued delete dropped: %v, want [999]", cj.PendingGitHubDeletes)
+	if len(cj.PendingRemoteDeletes) != 1 || cj.PendingRemoteDeletes[0].CommentID != 999 {
+		t.Errorf("freshly-queued delete dropped: %v, want GitHub comment 999", cj.PendingRemoteDeletes)
 	}
 }
 
@@ -3062,7 +3133,8 @@ func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 	// a stale branch name and accidentally include README.md in the change set.
 	vcs.ResetDefaultBranchOnceForTest()
 	dir := initTestRepo(t)
-	vcs.SetDefaultBranchOverride("")
+	// Keep the fixture independent of cached or ambient default-branch detection.
+	vcs.SetDefaultBranchOverride("main")
 	defer func() {
 		vcs.SetDefaultBranchOverride("")
 		vcs.ResetDefaultBranchOnceForTest()
@@ -3104,11 +3176,11 @@ func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 		}
 	}
 
-	if eagerCount != 100 {
-		t.Errorf("expected 100 eager files, got %d", eagerCount)
+	if eagerCount != lazyFileThreshold {
+		t.Errorf("expected %d eager files, got %d", lazyFileThreshold, eagerCount)
 	}
-	if lazyCount != 20 {
-		t.Errorf("expected 20 lazy files, got %d", lazyCount)
+	if lazyCount != 120-lazyFileThreshold {
+		t.Errorf("expected %d lazy files, got %d", 120-lazyFileThreshold, lazyCount)
 	}
 }
 

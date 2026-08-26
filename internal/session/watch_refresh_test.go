@@ -183,7 +183,7 @@ func TestRefreshFileList_LazyThresholdMarksOverflow(t *testing.T) {
 		defaultBranch: "main",
 		numstats:      map[string]vcs.NumstatEntry{},
 	}
-	// Build > lazyFileThreshold (100) changes.
+	// Build > lazyFileThreshold changes.
 	total := lazyFileThreshold + 5
 	for i := 0; i < total; i++ {
 		path := fmt.Sprintf("dir/f%d.go", i)

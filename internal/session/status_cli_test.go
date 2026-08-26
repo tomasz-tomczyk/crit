@@ -257,8 +257,21 @@ func TestRunStatusListsAllMatchingSessions(t *testing.T) {
 	if got[otherBranchKey] {
 		t.Fatalf("session IDs = %v, should not include other branch %s", got, otherBranchKey)
 	}
+	if result["review_file"] != nil {
+		t.Fatalf("review_file = %#v, want nil when multiple sessions match", result["review_file"])
+	}
+	if note, _ := result["note"].(string); !strings.Contains(note, "multiple active review sessions") {
+		t.Fatalf("note = %#v, want ambiguity note", result["note"])
+	}
+	daemonStatus, ok := result["daemon"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("daemon = %#v, want object", result["daemon"])
+	}
+	if daemonStatus["running"] != false {
+		t.Fatalf("daemon.running = %v, want false when ambiguous", daemonStatus["running"])
+	}
 	human := captureStatusHuman(t)
-	for _, want := range []string{"Active reviews: 2", firstKey, "one.md", secondKey, "two.md"} {
+	for _, want := range []string{"Active reviews: 2", firstKey, "one.md", secondKey, "two.md", "ambiguous"} {
 		if !strings.Contains(human, want) {
 			t.Fatalf("status output %q does not contain %q", human, want)
 		}
@@ -348,5 +361,176 @@ func TestRunStatusFindsRepoRootSessionFromNestedDirectory(t *testing.T) {
 	}
 	if daemonStatus["running"] != true {
 		t.Fatalf("daemon.running = %v, want true", daemonStatus["running"])
+	}
+}
+
+func TestSelectStatusSession(t *testing.T) {
+	if got := selectStatusSession(nil); got != nil {
+		t.Fatalf("empty = %#v, want nil", got)
+	}
+	if got := selectStatusSession([]daemon.SessionEntry{{}, {}}); got != nil {
+		t.Fatalf("ambiguous = %#v, want nil", got)
+	}
+	sole := []daemon.SessionEntry{{PID: 42, Port: 3000, ReviewPath: "/tmp/r"}}
+	got := selectStatusSession(sole)
+	if got == nil || got.PID != 42 || got.Port != 3000 {
+		t.Fatalf("sole = %#v, want first entry", got)
+	}
+}
+
+func TestLoadStatusSessionsAmbiguous(t *testing.T) {
+	projectDir := testutil.InitTestRepo(t)
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := vcs.DetectVCS("")
+	if backend == nil {
+		t.Fatal("expected git repository")
+	}
+	branch := backend.CurrentBranch()
+
+	const firstKey = "aaaaaaaaaaaa"
+	const secondKey = "bbbbbbbbbbbb"
+	for _, key := range []string{firstKey, secondKey} {
+		if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+			PID: os.Getpid(), Port: port, CWD: cwd, Branch: branch,
+			Args: []string{key + ".md"}, ReviewPath: filepath.Join(t.TempDir(), key),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		k := key
+		t.Cleanup(func() { daemon.RemoveSessionFile(k) })
+	}
+
+	sessions, keys, matched, err := loadStatusSessions(cwd, branch, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched != nil {
+		t.Fatalf("matched = %#v, want nil when ambiguous", matched)
+	}
+	if len(sessions) != 2 || len(keys) != 2 {
+		t.Fatalf("sessions=%v keys=%v, want two matches", sessions, keys)
+	}
+}
+
+func TestPrintStatusHumanSoleSession(t *testing.T) {
+	selected := &daemon.SessionEntry{PID: 99, Port: 4000, ReviewPath: "/tmp/r", Args: []string{"plan.md"}}
+	sessions := []daemon.SessionEntry{*selected}
+	keys := []string{"aaaaaaaaaaaa"}
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	printStatusHuman("git", "main", "/tmp/r", false, selected, sessions, keys, false)
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	got := string(out)
+	for _, want := range []string{"VCS:         git", "Branch:      main", "Daemon:      running (PID 99, port 4000)", "Active reviews: 1", "aaaaaaaaaaaa", "plan.md"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output %q missing %q", got, want)
+		}
+	}
+}
+
+func TestPrintStatusHumanNotRunning(t *testing.T) {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	printStatusHuman("", "", "/tmp/missing", false, nil, nil, nil, false)
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	got := string(out)
+	if !strings.Contains(got, "Daemon:      not running") {
+		t.Fatalf("output %q", got)
+	}
+	if strings.Contains(got, "Round:") {
+		t.Fatalf("should skip review stats when file missing: %q", got)
+	}
+}
+
+func TestPrintStatusJSONAmbiguousAndSole(t *testing.T) {
+	t.Run("ambiguous", func(t *testing.T) {
+		old := os.Stdout
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		printStatusJSON("git", "main", "", false, nil,
+			[]daemon.SessionEntry{{Args: []string{"a"}}, {Args: []string{"b"}}},
+			[]string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"}, true)
+		_ = w.Close()
+		os.Stdout = old
+		data, _ := io.ReadAll(r)
+		_ = r.Close()
+		var result map[string]interface{}
+		if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatal(err)
+		}
+		if result["review_file"] != nil {
+			t.Fatalf("review_file = %#v", result["review_file"])
+		}
+		note, _ := result["note"].(string)
+		if !strings.Contains(note, "multiple active review sessions") {
+			t.Fatalf("note = %#v", result["note"])
+		}
+	})
+}
+
+func TestStatusSessionsJSONTruncatesWhenKeysShort(t *testing.T) {
+	got := statusSessionsJSON(
+		[]daemon.SessionEntry{{Args: []string{"one"}}, {Args: []string{"two"}}},
+		[]string{"aaaaaaaaaaaa"},
+	)
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1 (keys shorter than sessions)", len(got))
+	}
+}
+
+func TestPrintActiveStatusSessionsUsesBranchLabel(t *testing.T) {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	printActiveStatusSessions(
+		[]daemon.SessionEntry{{Branch: "feature", ReviewPath: "/tmp/r"}},
+		[]string{"aaaaaaaaaaaa"},
+	)
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	if !strings.Contains(string(out), "feature") {
+		t.Fatalf("output %q should fall back to branch label", out)
 	}
 }

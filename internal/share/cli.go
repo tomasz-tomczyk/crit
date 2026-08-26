@@ -25,6 +25,7 @@ import (
 type shareFlags struct {
 	outputDir        string
 	configuredOutput string
+	sessionID        string
 	svcURL           string
 	showQR           bool
 	org              string
@@ -36,6 +37,7 @@ type shareFlags struct {
 type unpublishFlags struct {
 	outputDir        string
 	configuredOutput string
+	sessionID        string
 	svcURL           string
 	files            []string
 }
@@ -46,7 +48,7 @@ func postPreviewShare(htmlPath, svcURL, authToken string) (string, error) {
 		return "", fmt.Errorf("crawling preview assets: %w", err)
 	}
 
-	payload := BuildSharePayload(files, nil, 1, nil, "", "", "preview")
+	payload := BuildSharePayload(files, nil, 1, []string{"preview", htmlPath}, "", "", "preview")
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshaling preview payload: %w", err)
@@ -87,44 +89,41 @@ func parseShareFlags(args []string) (shareFlags, error) {
 	var sf shareFlags
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		switch {
-		case arg == "--output" || arg == "-o":
-			if i+1 >= len(args) {
-				return sf, clicmd.Usage(fmt.Sprintf("Error: %s requires a value", arg))
-			}
-			i++
-			sf.outputDir = args[i]
-		case arg == "--share-url":
-			if i+1 >= len(args) {
-				return sf, clicmd.Usage("Error: --share-url requires a value")
-			}
-			i++
-			sf.svcURL = args[i]
-		case arg == "--preview":
-			if i+1 >= len(args) {
-				return sf, clicmd.Usage("Error: --preview requires an HTML file path")
-			}
-			i++
-			sf.preview = args[i]
-		case arg == "--qr":
+		if arg == "--qr" {
 			sf.showQR = true
-		case arg == "--org":
-			if i+1 >= len(args) {
-				return sf, clicmd.Usage("Error: --org requires a value")
-			}
-			i++
-			sf.org = args[i]
-		case arg == "--visibility":
-			if i+1 >= len(args) {
-				return sf, clicmd.Usage("Error: --visibility requires a value")
-			}
-			i++
-			sf.visibility = args[i]
-		default:
-			sf.files = append(sf.files, arg)
+			continue
 		}
+		if dest, ok := shareFlagDest(&sf, arg); ok {
+			val, err := clicmd.RequireFlagValue(args, i, arg)
+			if err != nil {
+				return sf, err
+			}
+			*dest = val
+			i++
+			continue
+		}
+		sf.files = append(sf.files, arg)
 	}
 	return sf, nil
+}
+
+func shareFlagDest(sf *shareFlags, arg string) (*string, bool) {
+	switch arg {
+	case "--output", "-o":
+		return &sf.outputDir, true
+	case "--session":
+		return &sf.sessionID, true
+	case "--share-url":
+		return &sf.svcURL, true
+	case "--preview":
+		return &sf.preview, true
+	case "--org":
+		return &sf.org, true
+	case "--visibility":
+		return &sf.visibility, true
+	default:
+		return nil, false
+	}
 }
 
 func applyShareConfigDefaults(sf *shareFlags, cfg config.Config) {
@@ -147,7 +146,7 @@ func runSharePreview(sf shareFlags) error {
 }
 
 func shareUsageError() error {
-	fmt.Fprintln(os.Stderr, "Usage: crit share [--output <dir>] [--share-url <url>] [--org <slug>] [--visibility <level>] [--qr] <file> [file...]")
+	fmt.Fprintln(os.Stderr, "Usage: crit share [--session <id>] [--output <dir>] [--share-url <url>] [--org <slug>] [--visibility <level>] [--qr] <file> [file...]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Shares files to crit-web and prints the review URL.")
 	fmt.Fprintln(os.Stderr, "Comments from the review file are included automatically.")
@@ -334,7 +333,7 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 		return err
 	}
 
-	critPath, err := review.ResolveCommandReviewPath(sf.outputDir, sf.configuredOutput)
+	critPath, err := review.ResolveCommandReviewPathWithSession(sf.sessionID, sf.outputDir, sf.configuredOutput)
 	if err != nil {
 		return err
 	}
@@ -386,35 +385,40 @@ func runShareUnderLock(critPath string, files []ShareFile, sharePaths []string, 
 	return runShareNew(critPath, files, sharePaths, svcURL, authToken, author, org, visibility, showQR)
 }
 
-func parseFetchOutputDir(args []string) (string, error) {
-	outputDir := ""
+func parseFetchOutputDir(args []string) (outputDir, sessionID string, err error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "--output" || arg == "-o":
 			if i+1 >= len(args) {
-				return "", clicmd.Usage(fmt.Sprintf("Error: %s requires a value", arg))
+				return "", "", clicmd.Usage(fmt.Sprintf("Error: %s requires a value", arg))
 			}
 			i++
 			outputDir = args[i]
+		case arg == "--session":
+			if i+1 >= len(args) {
+				return "", "", clicmd.Usage("Error: --session requires a value")
+			}
+			i++
+			sessionID = args[i]
 		default:
-			fmt.Fprintln(os.Stderr, "Usage: crit fetch [--output <dir>]")
+			fmt.Fprintln(os.Stderr, "Usage: crit fetch [--session <id>] [--output <dir>]")
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "Fetches comments added on crit-web into the review file.")
 			fmt.Fprintln(os.Stderr, "Requires a prior `crit share` so a share URL is recorded.")
-			return "", clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+			return "", "", clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 	}
-	return outputDir, nil
+	return outputDir, sessionID, nil
 }
 
 func resolveFetchReviewPath(args []string) (string, error) {
-	outputDir, err := parseFetchOutputDir(args)
+	outputDir, sessionID, err := parseFetchOutputDir(args)
 	if err != nil {
 		return "", err
 	}
 	cfg := LoadShareConfig()
-	return review.ResolveCommandReviewPath(outputDir, cfg.Output)
+	return review.ResolveCommandReviewPathWithSession(sessionID, outputDir, cfg.Output)
 }
 
 func printFetchedComments(webComments []WebComment) {
@@ -507,6 +511,12 @@ func parseUnpublishFlags(args []string) (unpublishFlags, error) {
 			}
 			i++
 			f.outputDir = args[i]
+		case arg == "--session":
+			if i+1 >= len(args) {
+				return f, clicmd.Usage("Error: --session requires a value")
+			}
+			i++
+			f.sessionID = args[i]
 		case arg == "--share-url":
 			if i+1 >= len(args) {
 				return f, clicmd.Usage("Error: --share-url requires a value")
@@ -539,7 +549,7 @@ func RunUnpublish(args []string) error {
 	applyUnpublishConfigDefaults(&f, unpubCfg)
 	unpubAuthToken := ResolveAuthToken(unpubCfg)
 
-	critPath, err := review.ResolveCommandReviewPathWithArgs(f.outputDir, f.configuredOutput, f.files)
+	critPath, err := review.ResolveCommandReviewPathWithSessionArgs(f.sessionID, f.outputDir, f.configuredOutput, f.files)
 	if err != nil {
 		return err
 	}

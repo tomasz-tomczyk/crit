@@ -111,13 +111,13 @@ func resolvePlanSlug(name string, content []byte) string {
 }
 
 func RunPlan(args []string) error {
-	go backgroundCleanup()
-
 	pc := resolvePlanConfig(args)
 	content, err := readPlanContent(pc)
 	if err != nil {
 		return err
 	}
+
+	go backgroundCleanup()
 
 	slug := resolvePlanSlug(pc.name, content)
 	storageDir, err := PlanStorageDir(slug)
@@ -317,8 +317,16 @@ func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision
 	emitDecision(approved, prompt)
 }
 
+func automaticPlanReviewDisabled() bool {
+	return os.Getenv("CRIT_PLAN_REVIEW") == "off"
+}
+
 // RunPlanHook is the PermissionRequest hook handler for ExitPlanMode.
 func RunPlanHook() error {
+	if automaticPlanReviewDisabled() {
+		return nil
+	}
+
 	go backgroundCleanup()
 
 	var event planHookEvent
@@ -359,6 +367,10 @@ func RunPlanHook() error {
 
 // RunCodexPlanHook is the Stop hook handler for Codex proposed-plan review.
 func RunCodexPlanHook() error {
+	if automaticPlanReviewDisabled() {
+		return nil
+	}
+
 	var event codexStopHookEvent
 	if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook --mode codex: could not parse stdin: %v\n", err)

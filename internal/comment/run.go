@@ -121,7 +121,7 @@ func resolveSessionCommentReviewPath(f *commentFlags) error {
 		return fmt.Errorf("--session cannot be used with --plan or --output")
 	}
 	if !daemon.ValidSessionKey(f.sessionID) {
-		return fmt.Errorf("invalid session ID %q", f.sessionID)
+		return daemon.InvalidSessionIDError(f.sessionID)
 	}
 	entry, alive := daemon.FindAliveSession(f.sessionID)
 	if !alive {
@@ -158,12 +158,12 @@ func resolveUnqualifiedCommentReviewPath(f *commentFlags) error {
 	if backend != nil {
 		branch = backend.CurrentBranch()
 	}
-	sessions, keys, err := matchingCommentSessions(cwd, branch, backend)
+	sessions, keys, err := review.MatchingLiveSessions(cwd, branch, backend)
 	if err != nil {
 		return err
 	}
 	if len(sessions) > 1 {
-		return fmt.Errorf("multiple active review sessions match this directory and branch (%s); choose one with --session <id> (run `crit status` to list them)", strings.Join(keys, ", "))
+		return review.AmbiguousSessionsError(keys)
 	}
 	key := daemon.SessionKey(cwd, branch, nil)
 	if len(keys) == 1 {
@@ -187,24 +187,6 @@ func resolveUnqualifiedCommentReviewPath(f *commentFlags) error {
 	}
 	f.reviewPath, err = daemon.ReviewFilePath(key)
 	return err
-}
-
-func matchingCommentSessions(cwd, branch string, backend vcs.VCS) ([]daemon.SessionEntry, []string, error) {
-	sessions, keys, err := daemon.ListSessionsForCWDWithKeys(cwd)
-	if err != nil {
-		return nil, nil, err
-	}
-	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
-	if len(sessions) > 0 || backend == nil {
-		return sessions, keys, nil
-	}
-	repoRoot, rootErr := backend.RepoRoot()
-	if rootErr != nil {
-		return nil, nil, rootErr
-	}
-	sessions, keys = daemon.ListSessionsForRepoRoot(repoRoot)
-	sessions, keys = daemon.SessionsForBranch(sessions, keys, branch)
-	return sessions, keys, nil
 }
 
 func runCommentJSONScoped(f commentFlags, scope session.InheritedScope) error {
@@ -272,8 +254,8 @@ func runCommentClear(reviewPath string) error {
 
 func commentUsageError() error {
 	fmt.Fprintln(os.Stderr, "Usage: crit comment [--session <id>] [--output <dir>] [--author <name>] <body>     Review-level comment")
-	fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path> <body>             File-level comment")
-	fmt.Fprintln(os.Stderr, "       crit comment [--output <dir>] [--author <name>] <path>:<line[-end]> <body> Line-level comment")
+	fmt.Fprintln(os.Stderr, "       crit comment [--session <id>] [--output <dir>] [--author <name>] <path> <body>             File-level comment")
+	fmt.Fprintln(os.Stderr, "       crit comment [--session <id>] [--output <dir>] [--author <name>] <path>:<line[-end]> <body> Line-level comment")
 	fmt.Fprintln(os.Stderr, "       crit comment [--session <id>] --reply-to <id> [--resolve] [--author <name>] <body>")
 	fmt.Fprintln(os.Stderr, "       crit comment [--session <id>] --json [--file <path>] [--author <name>] [--output <dir>]")
 	fmt.Fprintln(os.Stderr, "                                                                  Bulk add comments from JSON (stdin by default; --file <path> or --file - for stdin)")

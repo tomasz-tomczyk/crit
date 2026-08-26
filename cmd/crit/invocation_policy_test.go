@@ -14,7 +14,8 @@ func readIntegrationForPolicyTest(t *testing.T, path string) string {
 	return string(data)
 }
 
-func TestInteractiveSkillsDisableModelInvocationWhereSupported(t *testing.T) {
+func TestInteractiveSkillsRequireExplicitCritWording(t *testing.T) {
+	const sharedDescription = "Review code changes, a plan, a live page (running dev server), or a local HTML file with Crit inline comments and structured human feedback. Use only when the user explicitly invokes /crit or directly asks to use Crit; a generic review request does not count."
 	paths := []string{
 		"integrations/claude-code/skills/crit/SKILL.md",
 		"integrations/cursor/skills/crit/SKILL.md",
@@ -23,39 +24,40 @@ func TestInteractiveSkillsDisableModelInvocationWhereSupported(t *testing.T) {
 		"integrations/ampcode/skills/crit/SKILL.md",
 		"integrations/pi/skills/crit/SKILL.md",
 		"integrations/qwen/skills/crit/SKILL.md",
+		"integrations/codex/skills/crit/SKILL.md",
+		"integrations/codex/plugin/crit/skills/crit/SKILL.md",
+		"integrations/hermes/skills/crit/SKILL.md",
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
 			content := readIntegrationForPolicyTest(t, path)
-			if !strings.Contains(content, "disable-model-invocation: true") {
-				t.Fatalf("%s does not disable model invocation", path)
+			if strings.Contains(content, "disable-model-invocation: true") {
+				t.Fatalf("%s still uses hard disable-model-invocation; prefer explicit-Crit wording", path)
+			}
+			if strings.Contains(content, "allow_implicit_invocation: false") {
+				t.Fatalf("%s still uses hard allow_implicit_invocation:false; prefer explicit-Crit wording", path)
+			}
+			if !strings.Contains(content, sharedDescription) {
+				t.Fatalf("%s lacks the shared explicit-Crit skill description", path)
 			}
 		})
 	}
+
+	// Aider uses conventions, not a skill frontmatter description.
+	aider := readIntegrationForPolicyTest(t, "integrations/aider/CONVENTIONS.md")
+	if !strings.Contains(aider, "explicitly") || !strings.Contains(aider, "generic") {
+		t.Fatal("integrations/aider/CONVENTIONS.md lacks an explicit-Crit-only wording gate")
+	}
 }
 
-func TestCodexInteractiveSkillsDisableImplicitInvocation(t *testing.T) {
+func TestCodexNoLongerShipsImplicitInvocationPolicyFile(t *testing.T) {
 	paths := []string{
 		"integrations/codex/skills/crit/agents/openai.yaml",
 		"integrations/codex/plugin/crit/skills/crit/agents/openai.yaml",
 	}
 	for _, path := range paths {
-		content := readIntegrationForPolicyTest(t, path)
-		if !strings.Contains(content, "allow_implicit_invocation: false") {
-			t.Fatalf("%s allows implicit invocation", path)
-		}
-	}
-}
-
-func TestTextGatedInteractiveIntegrationsRejectGenericReview(t *testing.T) {
-	paths := []string{
-		"integrations/aider/CONVENTIONS.md",
-		"integrations/hermes/skills/crit/SKILL.md",
-	}
-	for _, path := range paths {
-		content := readIntegrationForPolicyTest(t, path)
-		if !strings.Contains(content, "explicitly") || !strings.Contains(content, "generic") {
-			t.Fatalf("%s lacks an explicit-Crit-only fallback gate", path)
+		if _, err := integrationsFS.ReadFile(path); err == nil {
+			t.Fatalf("%s should have been removed; use skill wording instead of policy YAML", path)
 		}
 	}
 }

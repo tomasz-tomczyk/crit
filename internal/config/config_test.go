@@ -92,6 +92,14 @@ func TestLoadConfigFile_VCSJJ(t *testing.T) {
 	}
 }
 
+func TestForgeConfigMergesProjectOverride(t *testing.T) {
+	global := Config{Forge: "github"}
+	project := Config{Forge: "gitlab"}
+	if got := mergeConfigs(global, project, ConfigPresence{}).Forge; got != "gitlab" {
+		t.Fatalf("Forge = %q, want gitlab", got)
+	}
+}
+
 func TestMergeConfigs_AuthorFallback_JJ_PreservesExplicitAuthor(t *testing.T) {
 	global := Config{VCS: "jj", Author: "Explicit Author"}
 	project := Config{}
@@ -433,6 +441,12 @@ func TestLoadConfigRuntimeDefaults(t *testing.T) {
 	cfg := LoadConfig(projectDir)
 	if cfg.ShareURL != "https://crit.md" {
 		t.Errorf("ShareURL = %q, want runtime default https://crit.md", cfg.ShareURL)
+	}
+	if cfg.GitLabURL != "https://gitlab.com" {
+		t.Errorf("GitLabURL = %q, want runtime default https://gitlab.com", cfg.GitLabURL)
+	}
+	if cfg.Forge != "auto" {
+		t.Errorf("Forge = %q, want runtime default auto", cfg.Forge)
 	}
 	wantPatterns := []string{".crit/"}
 	if len(cfg.IgnorePatterns) != len(wantPatterns) || cfg.IgnorePatterns[0] != wantPatterns[0] {
@@ -867,6 +881,9 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.ShareURL != "https://crit.md" {
 		t.Errorf("ShareURL = %q, want https://crit.md", cfg.ShareURL)
+	}
+	if cfg.GitLabURL != "https://gitlab.com" {
+		t.Errorf("GitLabURL = %q, want https://gitlab.com", cfg.GitLabURL)
 	}
 	if !cfg.CleanupOnApprove {
 		t.Error("CleanupOnApprove should be true")

@@ -30,8 +30,8 @@ func TestResolveFocusFromPR_UsesMergeBaseNotBaseTip(t *testing.T) {
 	vcs.GitRun(t, dir, "checkout", "main")
 	baseTip := vcs.CommitAtForTest(t, dir, "drift.txt", "drift\n", "base branch drift")
 
-	FetchPRByNumberHook = func(int) (PRResolveInfo, error) {
-		return PRResolveInfo{
+	FetchPRByNumberHook = func(int) (ChangeResolveInfo, error) {
+		return ChangeResolveInfo{
 			Number:      7,
 			Title:       "drifted PR",
 			URL:         "https://github.com/o/r/pull/7",
@@ -41,11 +41,11 @@ func TestResolveFocusFromPR_UsesMergeBaseNotBaseTip(t *testing.T) {
 			HeadRefOid:  prHead,
 		}, nil
 	}
-	IsStackedPRHook = func(PRResolveInfo, vcs.VCS) bool { return false }
+	IsStackedPRHook = func(ChangeResolveInfo, vcs.VCS) bool { return false }
 
 	// remoteFiles=true skips EnsureSHAFetched; all objects already exist locally,
 	// so the merge-base is computed against the real repo.
-	f, err := ResolveFocus("7", "", "", true, &vcs.GitVCS{}, dir)
+	f, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "7"}, "", "", true, &vcs.GitVCS{}, dir)
 	if err != nil {
 		t.Fatalf("ResolveFocus: %v", err)
 	}

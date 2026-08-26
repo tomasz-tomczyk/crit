@@ -1,7 +1,19 @@
-# Trust mise.toml before the worktree's shell auto-loads mise — otherwise
-# the shell entry triggers a mise parse error and aborts subsequent hooks.
 # Array-of-tables form ([[pre-start]]) — the deprecated [pre-start] table form
 # changes behavior in future worktrunk versions.
+
+# Local main is often stale (checked out in the primary worktree, rarely
+# pulled). When creating from the default base, tip the new branch at
+# origin/main so plain `wt switch -c` matches an explicit `-b origin/main`.
+# Skipped for stacked creates (`-b @`, `-b other-feature`).
+[[pre-start]]
+sync-origin = """
+{% if base and base == default_branch %}
+git fetch origin {{ default_branch }} && git reset --hard origin/{{ default_branch }}
+{% endif %}
+"""
+
+# Trust mise.toml before the worktree's shell auto-loads mise — otherwise
+# the shell entry triggers a mise parse error and aborts subsequent hooks.
 [[pre-start]]
 mise-trust = "mise trust ."
 

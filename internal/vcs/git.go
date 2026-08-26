@@ -633,6 +633,50 @@ func ResolveDefaultBranchSHA(vcs VCS, repoRoot, defaultBranch string) (string, e
 	}
 }
 
+// ResolveCommitOID resolves ref (branch name, tag, abbreviated SHA, or full
+// OID) to a full commit object id. Used to canonicalize Focus.BaseSHA/HeadSHA
+// so comment focus_keys stay stable when stack navigation switches between
+// symbolic refs and resolved OIDs.
+func ResolveCommitOID(v VCS, ref, dir string) (string, error) {
+	if v == nil {
+		return "", fmt.Errorf("nil VCS")
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("empty ref")
+	}
+	switch v.Name() {
+	case "git":
+		out, err := RunGitInDir(dir, "rev-parse", "--verify", ref+"^{commit}")
+		if err != nil {
+			return "", fmt.Errorf("resolve %q: %w", ref, err)
+		}
+		return strings.TrimSpace(out), nil
+	case "jj":
+		sha, err := ResolveJJRevisionToCommitID(dir, ref)
+		if err != nil {
+			return "", fmt.Errorf("resolve %q: %w", ref, err)
+		}
+		sha = strings.TrimSpace(sha)
+		if sha == "" {
+			return "", fmt.Errorf("resolve %q: empty commit id", ref)
+		}
+		return sha, nil
+	case "sl":
+		out, err := SLCommandInDir(dir, "log", "-r", ref, "-T", "{node}", "-l", "1")
+		if err != nil {
+			return "", fmt.Errorf("resolve %q: %w", ref, err)
+		}
+		out = strings.TrimSpace(out)
+		if out == "" {
+			return "", fmt.Errorf("resolve %q: empty node", ref)
+		}
+		return out, nil
+	default:
+		return "", fmt.Errorf("resolve not supported for vcs=%q", v.Name())
+	}
+}
+
 // walkAncestors enumerates HEAD-first the recent ancestor SHAs that are
 // candidates for stack stops. Capped at maxDepth.
 func WalkAncestors(vcs VCS, repoRoot string, maxDepth int) ([]string, error) {
@@ -1201,7 +1245,21 @@ type NumstatEntry struct {
 // DiffNumstatDir runs git diff --numstat against the given base ref and returns per-file stats.
 // If dir is non-empty, git runs in that directory.
 func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
-	cmd := exec.Command("git", "-c", "diff.external=", "diff", "--no-ext-diff", "--numstat", baseRef)
+	return runDiffNumstat(dir, baseRef)
+}
+
+// DiffNumstatBetweenSHAs runs git diff --numstat baseSHA headSHA and returns
+// per-file stats for that fixed range (not vs the working tree).
+func DiffNumstatBetweenSHAs(baseSHA, headSHA, dir string) (map[string]NumstatEntry, error) {
+	if baseSHA == "" || headSHA == "" {
+		return nil, fmt.Errorf("diff numstat between SHAs requires both base and head")
+	}
+	return runDiffNumstat(dir, baseSHA, headSHA)
+}
+
+func runDiffNumstat(dir string, refs ...string) (map[string]NumstatEntry, error) {
+	args := append([]string{"-c", "diff.external=", "diff", "--no-ext-diff", "--numstat"}, refs...)
+	cmd := exec.Command("git", args...)
 	cmd.Env = stripExternalDiffEnv()
 	if dir != "" {
 		cmd.Dir = dir
@@ -1215,7 +1273,10 @@ func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 			return nil, fmt.Errorf("git diff --numstat failed: %w", err)
 		}
 	}
+	return parseNumstatOutput(out), nil
+}
 
+func parseNumstatOutput(out []byte) map[string]NumstatEntry {
 	stats := make(map[string]NumstatEntry)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
@@ -1238,7 +1299,7 @@ func DiffNumstatDir(baseRef, dir string) (map[string]NumstatEntry, error) {
 			stats[path[i+4:]] = entry
 		}
 	}
-	return stats, nil
+	return stats
 }
 
 var hunkHeaderRe = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$`)

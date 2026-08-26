@@ -614,13 +614,11 @@ func runCheck() {
 
 	stale := checkInstalledIntegrations(cwd, home)
 	missing := checkMissingIntegrations(cwd, home)
+	forgeCLIs := checkForgeCLIs()
 
 	if len(stale) == 0 && len(missing) == 0 {
 		fmt.Fprintln(os.Stderr, "All installed integrations are up to date.")
-		return
-	}
-
-	if len(stale) > 0 {
+	} else if len(stale) > 0 {
 		// Deduplicate by hint — show each unique update action only once
 		seenHints := make(map[string]bool)
 		for _, s := range stale {
@@ -640,5 +638,74 @@ func runCheck() {
 			fmt.Fprintln(os.Stderr)
 		}
 		printMissingHints(missing)
+	}
+
+	fmt.Fprintln(os.Stderr)
+	printForgeCLIHints(forgeCLIs)
+}
+
+type forgeCLIStatus struct {
+	name          string
+	binary        string
+	loginHint     string
+	authenticated bool
+	detail        string
+}
+
+var forgeCLIProbes = []struct {
+	name      string
+	binary    string
+	authArgs  []string
+	loginHint string
+}{
+	{name: "GitHub", binary: "gh", authArgs: []string{"auth", "status"}, loginHint: "gh auth login"},
+	{name: "GitLab", binary: "glab", authArgs: []string{"auth", "status"}, loginHint: "glab auth login"},
+}
+
+// checkForgeCLIs returns installed forge CLIs and their authentication state.
+// Rendering stays separate so detection can be reused without terminal output.
+func checkForgeCLIs() []forgeCLIStatus {
+	var present []forgeCLIStatus
+	for _, probe := range forgeCLIProbes {
+		if _, err := exec.LookPath(probe.binary); err != nil {
+			continue
+		}
+		status := forgeCLIStatus{name: probe.name, binary: probe.binary, loginHint: probe.loginHint}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, probe.binary, probe.authArgs...).CombinedOutput()
+		cancel()
+		status.authenticated = err == nil
+		if err != nil {
+			status.detail = strings.TrimSpace(string(out))
+			if status.detail != "" {
+				status.detail = strings.Split(status.detail, "\n")[0]
+			}
+		}
+		present = append(present, status)
+	}
+	return present
+}
+
+func printForgeCLIHints(present []forgeCLIStatus) {
+	fmt.Fprintln(os.Stderr, "Remote review providers:")
+	byBinary := make(map[string]forgeCLIStatus, len(present))
+	for _, status := range present {
+		byBinary[status.binary] = status
+	}
+	for _, probe := range forgeCLIProbes {
+		status, ok := byBinary[probe.binary]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "  unavailable: %s (%s is not installed)\n", probe.name, probe.binary)
+			continue
+		}
+		if !status.authenticated {
+			detail := ""
+			if status.detail != "" {
+				detail = ": " + status.detail
+			}
+			fmt.Fprintf(os.Stderr, "  needs login: %s (run %s)%s\n", status.name, status.loginHint, detail)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "  ready: %s (%s)\n", status.name, status.binary)
 	}
 }

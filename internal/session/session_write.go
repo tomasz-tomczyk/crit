@@ -66,16 +66,9 @@ type writeFilesSnapshot struct {
 	// CritJSON like the other daemon-managed fields above so `crit story`'s
 	// daemon-side mutators (set via s.SetStory) are actually persisted —
 	// buildCritJSON otherwise only preserves whatever was already on disk.
-	story *Story
-	// pendingGHDeletes is the snapshot of session.pendingGitHubDeletes; carried
-	// into CritJSON so the next push can drain DELETE intents that were never
-	// flushed (e.g. user deleted, then quit before pushing).
-	pendingGHDeletes []int64
-	// lastLoadedGHDeletes is the set of GitHub IDs the daemon has previously
-	// observed on disk in PendingGitHubDeletes. Used to distinguish "drained
-	// by a concurrent `crit push`" (in lastLoaded but not in disk now) from
-	// "freshly added since last load" (in snap but not in lastLoaded).
-	lastLoadedGHDeletes map[int64]struct{}
+	story                   *Story
+	pendingRemoteDeletes    []RemoteRef
+	lastLoadedRemoteDeletes map[RemoteRef]struct{}
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
 	files []writeFileSnapshot
@@ -165,8 +158,8 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.ReviewComments = snap.reviewComments
 	cj.CliArgs = snap.cliArgs
 	cj.Story = snap.story
-	cj.PendingGitHubDeletes = reconcilePendingGHDeletes(
-		snap.pendingGHDeletes, cj.PendingGitHubDeletes, snap.lastLoadedGHDeletes,
+	cj.PendingRemoteDeletes = reconcilePendingRemoteDeletes(
+		snap.pendingRemoteDeletes, cj.PendingRemoteDeletes, snap.lastLoadedRemoteDeletes,
 	)
 
 	for _, fs := range snap.files {
@@ -175,44 +168,27 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	return cj
 }
 
-// reconcilePendingGHDeletes merges the daemon's in-memory snapshot of pending
-// GitHub-delete IDs against what is currently on disk. The Session and
-// `crit push` are separate processes: push drains IDs by writing them out of
-// disk's PendingGitHubDeletes. If we naively wrote snap back, a concurrent
-// daemon write would resurrect drained IDs.
-//
-// Semantics:
-//   - Keep an ID if it is still on disk (push has not drained it).
-//   - Keep an ID if it is freshly added in-memory (not in lastLoaded), since
-//     it was queued after our last disk read.
-//   - Drop an ID that is in lastLoaded but no longer on disk — push drained
-//     it concurrently; we must not resurrect it.
-//
-// Order is preserved from snap so callers see a stable queue.
-func reconcilePendingGHDeletes(snap, disk []int64, lastLoaded map[int64]struct{}) []int64 {
+func reconcilePendingRemoteDeletes(snap, disk []RemoteRef, lastLoaded map[RemoteRef]struct{}) []RemoteRef {
 	if len(snap) == 0 {
 		return nil
 	}
-	diskSet := make(map[int64]struct{}, len(disk))
-	for _, id := range disk {
-		diskSet[id] = struct{}{}
+	diskSet := make(map[RemoteRef]struct{}, len(disk))
+	for _, ref := range disk {
+		diskSet[ref] = struct{}{}
 	}
-	out := make([]int64, 0, len(snap))
-	seen := make(map[int64]struct{}, len(snap))
-	for _, id := range snap {
-		if _, dup := seen[id]; dup {
+	out := make([]RemoteRef, 0, len(snap))
+	seen := make(map[RemoteRef]struct{}, len(snap))
+	for _, ref := range snap {
+		if _, duplicate := seen[ref]; duplicate {
 			continue
 		}
-		_, onDisk := diskSet[id]
-		_, wasLoaded := lastLoaded[id]
-		// Drop only when push has demonstrably drained it: previously seen
-		// on disk AND no longer there. Fresh entries (not in lastLoaded)
-		// are kept regardless of disk state.
+		_, onDisk := diskSet[ref]
+		_, wasLoaded := lastLoaded[ref]
 		if !onDisk && wasLoaded {
 			continue
 		}
-		out = append(out, id)
-		seen[id] = struct{}{}
+		out = append(out, ref)
+		seen[ref] = struct{}{}
 	}
 	if len(out) == 0 {
 		return nil
@@ -259,7 +235,7 @@ func mergeFileSnapshotIntoCritJSON(cj *CritJSON, fs writeFileSnapshot) {
 func critJSONIsEmpty(cj CritJSON) bool {
 	return len(cj.Files) == 0 && len(cj.ReviewComments) == 0 &&
 		cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" &&
-		cj.Story == nil
+		cj.Story == nil && len(cj.PendingRemoteDeletes) == 0
 }
 
 // WriteFiles writes the review file to disk.
@@ -324,8 +300,8 @@ func (s *Session) writeFilesErr() error {
 		s.lastCritJSONMtime = time.Time{}
 		s.pendingWrite = false
 		s.deletedCommentIDs = nil
-		s.pendingGitHubDeletes = nil
-		s.lastLoadedPendingGHDeletes = nil
+		s.pendingRemoteDeletes = nil
+		s.lastLoadedPendingDeletes = nil
 		s.mu.Unlock()
 		return nil
 	}
@@ -346,11 +322,11 @@ func (s *Session) writeFilesErr() error {
 		s.deletedCommentIDs = nil // written to disk, no longer needed
 		// Sync in-memory pending-delete state to what we just wrote, so the
 		// next snapshot does not re-include IDs that a concurrent
-		// `crit push` already drained. See reconcilePendingGHDeletes.
-		s.pendingGitHubDeletes = append(s.pendingGitHubDeletes[:0:0], cj.PendingGitHubDeletes...)
-		s.lastLoadedPendingGHDeletes = make(map[int64]struct{}, len(cj.PendingGitHubDeletes))
-		for _, id := range cj.PendingGitHubDeletes {
-			s.lastLoadedPendingGHDeletes[id] = struct{}{}
+		// `crit push` already drained. See reconcilePendingRemoteDeletes.
+		s.pendingRemoteDeletes = append(s.pendingRemoteDeletes[:0:0], cj.PendingRemoteDeletes...)
+		s.lastLoadedPendingDeletes = make(map[RemoteRef]struct{}, len(cj.PendingRemoteDeletes))
+		for _, ref := range cj.PendingRemoteDeletes {
+			s.lastLoadedPendingDeletes[ref] = struct{}{}
 		}
 		s.mu.Unlock()
 	}
@@ -366,30 +342,29 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 
 	rc := make([]Comment, len(s.reviewComments))
 	copy(rc, s.reviewComments)
-	pendDeletes := make([]int64, len(s.pendingGitHubDeletes))
-	copy(pendDeletes, s.pendingGitHubDeletes)
-	lastLoaded := make(map[int64]struct{}, len(s.lastLoadedPendingGHDeletes))
-	for id := range s.lastLoadedPendingGHDeletes {
-		lastLoaded[id] = struct{}{}
+	pendDeletes := append([]RemoteRef(nil), s.pendingRemoteDeletes...)
+	lastLoaded := make(map[RemoteRef]struct{}, len(s.lastLoadedPendingDeletes))
+	for ref := range s.lastLoadedPendingDeletes {
+		lastLoaded[ref] = struct{}{}
 	}
 	snap := writeFilesSnapshot{
-		critPath:            critPath,
-		lastMtime:           s.lastCritJSONMtime,
-		branch:              s.Branch,
-		baseRef:             s.BaseRef,
-		reviewRound:         s.ReviewRound,
-		sharedURL:           s.sharedURL,
-		deleteToken:         s.deleteToken,
-		shareScope:          s.shareScope,
-		shareOrg:            s.shareOrg,
-		shareOrgName:        s.shareOrgName,
-		shareVisibility:     s.shareVisibility,
-		reviewComments:      rc,
-		cliArgs:             s.CLIArgs,
-		story:               s.story,
-		pendingGHDeletes:    pendDeletes,
-		lastLoadedGHDeletes: lastLoaded,
-		files:               make([]writeFileSnapshot, len(s.Files)),
+		critPath:                critPath,
+		lastMtime:               s.lastCritJSONMtime,
+		branch:                  s.Branch,
+		baseRef:                 s.BaseRef,
+		reviewRound:             s.ReviewRound,
+		sharedURL:               s.sharedURL,
+		deleteToken:             s.deleteToken,
+		shareScope:              s.shareScope,
+		shareOrg:                s.shareOrg,
+		shareOrgName:            s.shareOrgName,
+		shareVisibility:         s.shareVisibility,
+		reviewComments:          rc,
+		cliArgs:                 s.CLIArgs,
+		story:                   s.story,
+		pendingRemoteDeletes:    pendDeletes,
+		lastLoadedRemoteDeletes: lastLoaded,
+		files:                   make([]writeFileSnapshot, len(s.Files)),
 	}
 	for i, f := range s.Files {
 		comments := make([]Comment, len(f.Comments))

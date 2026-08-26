@@ -3,12 +3,18 @@ package comment
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
@@ -407,5 +413,132 @@ func TestResolveExplicitReviewPath(t *testing.T) {
 	}
 	if got != critPath {
 		t.Errorf("review.json path: got %q, want %q", got, critPath)
+	}
+}
+
+func TestParseCommentsListFlagsSession(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantID  string
+		wantErr string
+	}{
+		{name: "session", args: []string{"--session", "aaaaaaaaaaaa"}, wantID: "aaaaaaaaaaaa"},
+		{name: "session with json", args: []string{"--session", "bbbbbbbbbbbb", "--json"}, wantID: "bbbbbbbbbbbb"},
+		{name: "missing value", args: []string{"--session"}, wantErr: "requires a value"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseCommentsListFlags(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.sessionID != tt.wantID {
+				t.Fatalf("sessionID = %q, want %q", got.sessionID, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestResolveCommentsListFlagsSession(t *testing.T) {
+	t.Run("rejects plan", func(t *testing.T) {
+		f := commentsListFlags{sessionID: "aaaaaaaaaaaa", plan: "x"}
+		err := resolveCommentsListFlags(&f)
+		if err == nil || !strings.Contains(err.Error(), "--session cannot be used") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("rejects output", func(t *testing.T) {
+		f := commentsListFlags{sessionID: "aaaaaaaaaaaa", outputDir: "/tmp"}
+		err := resolveCommentsListFlags(&f)
+		if err == nil || !strings.Contains(err.Error(), "--session cannot be used") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("rejects explicit path", func(t *testing.T) {
+		f := commentsListFlags{sessionID: "aaaaaaaaaaaa", explicitPath: "/tmp/r"}
+		err := resolveCommentsListFlags(&f)
+		if err == nil || !strings.Contains(err.Error(), "--session cannot be used") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("skips config load", func(t *testing.T) {
+		projectDir := t.TempDir()
+		testutil.SetHome(t, t.TempDir())
+		t.Chdir(projectDir)
+		if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), []byte(`{"output":"configured"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f := commentsListFlags{sessionID: "aaaaaaaaaaaa"}
+		if err := resolveCommentsListFlags(&f); err != nil {
+			t.Fatal(err)
+		}
+		if f.configuredOutput != "" {
+			t.Fatalf("configuredOutput = %q, want empty when --session set", f.configuredOutput)
+		}
+	})
+}
+
+func TestResolveCommentsCritPathSession(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(t.TempDir())
+	_, err := resolveCommentsCritPath(commentsListFlags{sessionID: "aaaaaaaaaaaa"})
+	if err == nil || !strings.Contains(err.Error(), "no active review session") {
+		t.Fatalf("error = %v, want inactive session", err)
+	}
+}
+
+func TestRunCommentsSession(t *testing.T) {
+	projectDir := t.TempDir()
+	testutil.SetHome(t, t.TempDir())
+	t.Chdir(projectDir)
+
+	reviewPath := writeTestReview(t, t.TempDir(), CritJSON{
+		ReviewComments: []Comment{{ID: "r_1", Body: "from session", Scope: "review"}},
+	})
+
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(health.Close)
+	parsed, err := url.Parse(health.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "dddddddddddd"
+	if err := daemon.WriteSessionFile(key, daemon.SessionEntry{
+		PID: os.Getpid(), Port: port, CWD: projectDir, ReviewPath: reviewPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { daemon.RemoveSessionFile(key) })
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	runErr := RunComments([]string{"--session", key, "--json"})
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if !strings.Contains(string(out), "from session") {
+		t.Fatalf("output = %q, want session comment body", out)
 	}
 }

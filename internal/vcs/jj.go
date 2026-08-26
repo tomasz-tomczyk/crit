@@ -326,6 +326,25 @@ func (j *JJVCS) DiffNumstat(baseRef, dir string) (map[string]NumstatEntry, error
 	return parseSaplingDiffStat(out), nil
 }
 
+func (j *JJVCS) DiffNumstatBetweenSHAs(baseSHA, headSHA, dir string) (map[string]NumstatEntry, error) {
+	if strings.TrimSpace(baseSHA) == "" || strings.TrimSpace(headSHA) == "" {
+		return nil, fmt.Errorf("diff numstat between SHAs requires both base and head")
+	}
+	base, err := ResolveJJRevisionToCommitID(dir, baseSHA)
+	if err != nil {
+		return nil, err
+	}
+	head, err := ResolveJJRevisionToCommitID(dir, headSHA)
+	if err != nil {
+		return nil, err
+	}
+	out, err := JJCommandInDir(dir, "diff", "--stat", "--from", jjCommitRevset(base), "--to", jjCommitRevset(head))
+	if err != nil {
+		return nil, err
+	}
+	return parseSaplingDiffStat(out), nil
+}
+
 func (j *JJVCS) UserName() string { return jjUserName() }
 
 func (j *JJVCS) FileContentAtRef(path, ref, dir string) (string, error) {

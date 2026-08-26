@@ -1,7 +1,12 @@
 package session
 
 import (
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -206,7 +211,7 @@ func TestSetFocus_RangeToWorkingTree_StashesLastRangeFocus(t *testing.T) {
 		VCS:       &vcs.GitVCS{},
 		Branch:    "main",
 	}
-	rangeFocus := Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, PRNumber: 42, DiffScope: DiffScopeLayer}
+	rangeFocus := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}
 	if err := s.SetFocus(rangeFocus); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +224,705 @@ func TestSetFocus_RangeToWorkingTree_StashesLastRangeFocus(t *testing.T) {
 	if s.LastRangeFocus == nil {
 		t.Fatal("LastRangeFocus should be set after range -> working_tree")
 	}
-	if s.LastRangeFocus.PRNumber != 42 || s.LastRangeFocus.HeadSHA != head {
+	if s.LastRangeFocus.Forge != "github" || s.LastRangeFocus.ChangeNumber != 42 || s.LastRangeFocus.HeadSHA != head {
 		t.Errorf("LastRangeFocus = %+v; want PR=42 head=%s", s.LastRangeFocus, head)
 	}
 }
+
+// Range focus with many files must apply lazyFileThreshold and populate
+// sidebar +/- stats (same contract as working-tree rebuild).
+func TestSetFocus_Range_AppliesLazyThreshold(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	total := lazyFileThreshold + 5
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# doc %d\n\nbody line\n", i))
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add many docs")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Files) != total {
+		t.Fatalf("files = %d, want %d", len(s.Files), total)
+	}
+
+	eager, lazy := 0, 0
+	for _, f := range s.Files {
+		if f.Lazy {
+			lazy++
+			if f.Content != "" {
+				t.Errorf("lazy file %s should not have content", f.Path)
+			}
+			if f.LazyAdditions == 0 && f.Status != "deleted" {
+				t.Errorf("lazy file %s should have LazyAdditions from between-SHA numstat", f.Path)
+			}
+		} else {
+			eager++
+		}
+	}
+	if eager != lazyFileThreshold {
+		t.Errorf("eager = %d, want %d", eager, lazyFileThreshold)
+	}
+	if lazy != total-lazyFileThreshold {
+		t.Errorf("lazy = %d, want %d", lazy, total-lazyFileThreshold)
+	}
+}
+
+// Lazy range files must load HeadSHA content, not a dirty working tree.
+func TestGetFileSnapshot_RangeLazy_UsesHeadSHANotWorkingTree(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	total := lazyFileThreshold + 1
+	var lazyPath string
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# committed %d\n", i))
+		if i == lazyFileThreshold {
+			lazyPath = name
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add docs")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	// Dirty the lazy file in the working tree — SHA-aware load must ignore this.
+	dirty := "# dirty working tree\nshould-not-appear\n"
+	if err := os.WriteFile(filepath.Join(dir, lazyPath), []byte(dirty), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lazyFile *FileEntry
+	for _, f := range s.Files {
+		if f.Path == lazyPath {
+			lazyFile = f
+			break
+		}
+	}
+	if lazyFile == nil || !lazyFile.Lazy {
+		t.Fatalf("expected %s to be lazy, got %+v", lazyPath, lazyFile)
+	}
+
+	snap, ok := s.GetFileSnapshot(lazyPath)
+	if !ok {
+		t.Fatal("GetFileSnapshot failed")
+	}
+	content, _ := snap["content"].(string)
+	want := fmt.Sprintf("# committed %d\n", lazyFileThreshold)
+	if content != want {
+		t.Fatalf("content = %q, want HeadSHA content %q (not dirty WT)", content, want)
+	}
+	if lazyFile.Lazy {
+		t.Fatal("file should no longer be lazy after GetFileSnapshot")
+	}
+}
+
+// Lazy range modified files must load between-SHA diffs, not working-tree diffs.
+func TestGetFileDiffSnapshot_RangeLazy_UsesBetweenSHADiff(t *testing.T) {
+	dir := initTestRepo(t)
+
+	total := lazyFileThreshold + 1
+	var lazyPath string
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# base %d\nline two\n", i))
+		if i == lazyFileThreshold {
+			lazyPath = name
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "base docs")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# head %d\nline two\n", i))
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "head docs")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	// Dirty WT content that would produce a different diff if read from disk.
+	if err := os.WriteFile(filepath.Join(dir, lazyPath), []byte("# dirty\nentirely different\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Session{
+		Mode:      "git",
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lazyFile *FileEntry
+	for _, f := range s.Files {
+		if f.Path == lazyPath {
+			lazyFile = f
+			break
+		}
+	}
+	if lazyFile == nil || !lazyFile.Lazy {
+		t.Fatalf("expected %s lazy, got %+v", lazyPath, lazyFile)
+	}
+	if lazyFile.LazyAdditions == 0 {
+		t.Fatalf("expected LazyAdditions from between-SHA numstat for %s", lazyPath)
+	}
+
+	result, ok := s.GetFileDiffSnapshot(lazyPath, false)
+	if !ok {
+		t.Fatal("GetFileDiffSnapshot failed")
+	}
+	hunks, _ := result["hunks"].([]vcs.DiffHunk)
+	if len(hunks) == 0 {
+		t.Fatal("expected between-SHA hunks for modified lazy file")
+	}
+	joined := ""
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			joined += l.Content + "\n"
+		}
+	}
+	if !strings.Contains(joined, "head "+fmt.Sprint(lazyFileThreshold)) {
+		t.Fatalf("hunks missing HeadSHA content; got %q", joined)
+	}
+	if strings.Contains(joined, "dirty") || strings.Contains(joined, "entirely different") {
+		t.Fatalf("hunks used dirty working tree; got %q", joined)
+	}
+	if lazyFile.Lazy {
+		t.Fatal("file should no longer be lazy after GetFileDiffSnapshot")
+	}
+}
+
+// Deleted lazy range files load without reading HeadSHA content.
+func TestGetFileSnapshot_RangeLazy_Deleted(t *testing.T) {
+	dir := initTestRepo(t)
+
+	total := lazyFileThreshold + 1
+	var lazyPath string
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("doc%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# doc %d\n", i))
+		if i == lazyFileThreshold {
+			lazyPath = name
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add docs")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	if err := os.Remove(filepath.Join(dir, lazyPath)); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-m", "delete lazy doc")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+	}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lazyFile *FileEntry
+	for _, f := range s.Files {
+		if f.Path == lazyPath {
+			lazyFile = f
+			break
+		}
+	}
+	if lazyFile == nil {
+		t.Fatalf("%s missing from file list", lazyPath)
+	}
+	if lazyFile.Status != "deleted" {
+		t.Fatalf("status = %q, want deleted", lazyFile.Status)
+	}
+	if !lazyFile.Lazy {
+		// Ordering is by ChangedFilesBetweenSHAs; if the deleted file landed
+		// in the eager prefix, skip — the load path still matters when lazy.
+		t.Skip("deleted file was eagerly loaded; threshold ordering put it under the cut")
+	}
+
+	snap, ok := s.GetFileSnapshot(lazyPath)
+	if !ok {
+		t.Fatal("GetFileSnapshot failed for deleted lazy file")
+	}
+	if content, _ := snap["content"].(string); content != "" {
+		t.Fatalf("deleted file content = %q, want empty", content)
+	}
+	if lazyFile.Lazy {
+		t.Fatal("deleted lazy file should be loaded after GetFileSnapshot")
+	}
+}
+
+func TestEnsureFileLoaded_NilAndNonLazy(t *testing.T) {
+	s := &Session{Focus: Focus{Kind: FocusWorkingTree}}
+	if err := s.ensureFileLoaded(nil); err != nil {
+		t.Fatalf("nil file: %v", err)
+	}
+	fe := &FileEntry{Path: "x.md", Lazy: false, Content: "already"}
+	if err := s.ensureFileLoaded(fe); err != nil {
+		t.Fatalf("non-lazy: %v", err)
+	}
+	if fe.Content != "already" {
+		t.Fatalf("non-lazy content mutated: %q", fe.Content)
+	}
+}
+
+func TestEnsureFileLoaded_WorkingTreeLazy(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	path := filepath.Join(dir, "lazy.md")
+	writeFile(t, path, "# from disk\n")
+	gitT(t, dir, "add", "lazy.md")
+	gitT(t, dir, "commit", "-m", "add lazy")
+
+	s := &Session{
+		Focus:    Focus{Kind: FocusWorkingTree, BaseRef: base},
+		RepoRoot: dir,
+		BaseRef:  base,
+		VCS:      &vcs.GitVCS{},
+	}
+	fe := &FileEntry{
+		Path:    "lazy.md",
+		AbsPath: path,
+		Status:  "added",
+		Lazy:    true,
+	}
+	if err := s.ensureFileLoaded(fe); err != nil {
+		t.Fatal(err)
+	}
+	if fe.Lazy {
+		t.Fatal("expected Lazy=false after working-tree load")
+	}
+	if fe.Content != "# from disk\n" {
+		t.Fatalf("content = %q", fe.Content)
+	}
+	if len(fe.DiffHunks) == 0 {
+		t.Fatal("expected unified new-file hunks for added lazy file")
+	}
+}
+
+func TestEnsureLoadedAtRange_RemoteErrorAndNilContent(t *testing.T) {
+	wantErr := errors.New("remote boom")
+	var calls int32
+	stubFetchFn(t, nil, wantErr, &calls)
+
+	s := &Session{
+		RemoteFiles: true,
+		Focus: Focus{
+			Kind:    FocusRange,
+			BaseSHA: "base",
+			HeadSHA: "head",
+			PRURL:   "https://github.com/foo/bar/pull/1",
+		},
+		VCS: &vcs.GitVCS{},
+	}
+	fe := &FileEntry{Path: "x.md", Status: "added", Lazy: true}
+	err := s.ensureFileLoaded(fe)
+	if err == nil || !strings.Contains(err.Error(), "remote boom") {
+		t.Fatalf("got %v, want remote boom", err)
+	}
+	if !fe.Lazy {
+		t.Fatal("failed load must leave Lazy=true")
+	}
+
+	// nil body, no error → "not found"
+	var calls2 int32
+	stubFetchFn(t, nil, nil, &calls2)
+	fe2 := &FileEntry{Path: "y.md", Status: "added", Lazy: true}
+	err = s.ensureFileLoaded(fe2)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("got %v, want not found", err)
+	}
+}
+
+func TestEnsureLoadedAtRange_ModifiedRequiresVCS(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "m.md"), "# base\n")
+	gitT(t, dir, "add", "m.md")
+	gitT(t, dir, "commit", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	writeFile(t, filepath.Join(dir, "m.md"), "# head\n")
+	gitT(t, dir, "add", "m.md")
+	gitT(t, dir, "commit", "-m", "head")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	// Session has VCS for content reads; pass nil v to hit the require-VCS branch.
+	s := &Session{
+		RepoRoot: dir,
+		VCS:      &vcs.GitVCS{},
+		Focus:    Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head},
+	}
+	fe := &FileEntry{Path: "m.md", Status: "modified", Lazy: true, AbsPath: filepath.Join(dir, "m.md")}
+	err := fe.ensureLoadedAtRange(s, s.Focus, dir, nil)
+	if err == nil || !strings.Contains(err.Error(), "requires VCS") {
+		t.Fatalf("got %v, want requires VCS", err)
+	}
+}
+
+func TestEnsureLoadedAtRange_AlreadyLoadedNoop(t *testing.T) {
+	s := &Session{Focus: Focus{Kind: FocusRange, BaseSHA: "a", HeadSHA: "b"}}
+	fe := &FileEntry{Path: "x.md", Status: "added", Lazy: false, Content: "kept"}
+	if err := fe.ensureLoadedAtRange(s, s.Focus, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if fe.Content != "kept" {
+		t.Fatalf("content changed: %q", fe.Content)
+	}
+}
+
+func TestPopulateLazyFile_DiskFallbackFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.md")
+	writeFile(t, path, "one\ntwo\nthree\n")
+	fe := &FileEntry{Path: "a.md", AbsPath: path, Status: "added"}
+	fc := vcs.FileChange{Path: "a.md", Status: "added"}
+
+	populateLazyFile(fe, fc, nil, false)
+	if !fe.Lazy || fe.LazyAdditions != 0 {
+		t.Fatalf("diskFallback=false: lazy=%v adds=%d", fe.Lazy, fe.LazyAdditions)
+	}
+
+	fe2 := &FileEntry{Path: "a.md", AbsPath: path, Status: "added"}
+	populateLazyFile(fe2, fc, nil, true)
+	if fe2.LazyAdditions != 3 {
+		t.Fatalf("diskFallback=true: adds=%d, want 3", fe2.LazyAdditions)
+	}
+
+	fe3 := &FileEntry{Path: "a.md", AbsPath: path, Status: "added"}
+	populateLazyFile(fe3, fc, map[string]vcs.NumstatEntry{"a.md": {Additions: 9, Deletions: 1}}, false)
+	if fe3.LazyAdditions != 9 || fe3.LazyDeletions != 1 {
+		t.Fatalf("numstat map: +%d/-%d", fe3.LazyAdditions, fe3.LazyDeletions)
+	}
+}
+
+func TestGetFileSnapshot_RangeLazy_RemoteErrorReturnsFalse(t *testing.T) {
+	wantErr := errors.New("fetch failed")
+	var calls int32
+	stubFetchFn(t, nil, wantErr, &calls)
+
+	fe := &FileEntry{Path: "x.md", Status: "added", Lazy: true}
+	s := &Session{
+		RemoteFiles: true,
+		Focus: Focus{
+			Kind:    FocusRange,
+			BaseSHA: "base",
+			HeadSHA: "head",
+			PRURL:   "https://github.com/foo/bar/pull/2",
+		},
+		VCS:   &vcs.GitVCS{},
+		Files: []*FileEntry{fe},
+	}
+	if _, ok := s.GetFileSnapshot("x.md"); ok {
+		t.Fatal("expected GetFileSnapshot false when remote lazy load fails")
+	}
+	_ = atomic.LoadInt32(&calls) // ensure stub was wired
+}
+
+// fakeNumstatFailVCS returns many changed files and fails DiffNumstatBetweenSHAs
+// so buildFilesForFocus exercises the numstat warning path.
+type fakeNumstatFailVCS struct {
+	vcs.VCS
+	changes []vcs.FileChange
+	failWT  bool
+}
+
+func (f *fakeNumstatFailVCS) ChangedFilesBetweenSHAs(_, _, _ string) ([]vcs.FileChange, error) {
+	out := make([]vcs.FileChange, len(f.changes))
+	copy(out, f.changes)
+	return out, nil
+}
+
+func (f *fakeNumstatFailVCS) DiffNumstatBetweenSHAs(_, _, _ string) (map[string]vcs.NumstatEntry, error) {
+	return nil, errors.New("numstat boom")
+}
+
+func (f *fakeNumstatFailVCS) DiffNumstat(_, _ string) (map[string]vcs.NumstatEntry, error) {
+	if f.failWT {
+		return nil, errors.New("wt numstat boom")
+	}
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) ChangedFilesOnDefaultInDir(_ string) ([]vcs.FileChange, error) {
+	out := make([]vcs.FileChange, len(f.changes))
+	copy(out, f.changes)
+	return out, nil
+}
+
+func (f *fakeNumstatFailVCS) ChangedFilesFromBaseInDir(_, _ string) ([]vcs.FileChange, error) {
+	out := make([]vcs.FileChange, len(f.changes))
+	copy(out, f.changes)
+	return out, nil
+}
+
+func (f *fakeNumstatFailVCS) ReadFileAtSHA(_, _, _ string) ([]byte, error) {
+	return []byte("content\n"), nil
+}
+
+func (f *fakeNumstatFailVCS) FileDiffBetweenSHAs(_, _, _, _, _ string, _ bool) ([]vcs.DiffHunk, error) {
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) FileDiffUnified(_, _, _ string, _ bool) ([]vcs.DiffHunk, error) {
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) FileDiffUnifiedNewFile(_ string) ([]vcs.DiffHunk, error) {
+	return nil, nil
+}
+
+func (f *fakeNumstatFailVCS) DefaultBranch() string  { return "main" }
+func (f *fakeNumstatFailVCS) DefaultBaseRef() string { return "main" }
+func (f *fakeNumstatFailVCS) CurrentBranch() string  { return "feature" }
+func (f *fakeNumstatFailVCS) MergeBase(_ string) (string, error) {
+	return "base", nil
+}
+
+func TestBuildFilesForFocus_NumstatWarn(t *testing.T) {
+	total := lazyFileThreshold + 3
+	changes := make([]vcs.FileChange, total)
+	for i := range changes {
+		changes[i] = vcs.FileChange{Path: fmt.Sprintf("f%03d.md", i), Status: "deleted"}
+	}
+	v := &fakeNumstatFailVCS{changes: changes}
+	s := &Session{RepoRoot: t.TempDir(), VCS: v}
+
+	stderr := captureStderr(t, func() {
+		files, _, err := s.buildFilesForFocus(Focus{
+			Kind: FocusRange, BaseSHA: "base", HeadSHA: "head", DiffScope: DiffScopeLayer,
+		}, v, s.RepoRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != total {
+			t.Fatalf("files = %d, want %d", len(files), total)
+		}
+	})
+	if !strings.Contains(stderr, "Warning: numstat failed") {
+		t.Fatalf("stderr = %q, want numstat warning", stderr)
+	}
+}
+
+func TestBuildFilesForWorkingTree_NumstatWarn(t *testing.T) {
+	total := lazyFileThreshold + 2
+	changes := make([]vcs.FileChange, total)
+	for i := range changes {
+		changes[i] = vcs.FileChange{Path: fmt.Sprintf("w%03d.md", i), Status: "deleted"}
+	}
+	v := &fakeNumstatFailVCS{changes: changes, failWT: true}
+	s := &Session{RepoRoot: t.TempDir(), VCS: v, BaseRef: "main", Branch: "feature"}
+
+	stderr := captureStderr(t, func() {
+		files, _, err := s.buildFilesForWorkingTree(v, s.RepoRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != total {
+			t.Fatalf("files = %d, want %d", len(files), total)
+		}
+	})
+	if !strings.Contains(stderr, "Warning: numstat failed") {
+		t.Fatalf("stderr = %q, want numstat warning", stderr)
+	}
+}
+
+// TestSetFocus_CanonicalizesBranchRefsToFullSHAs locks the going-forward fix for
+// stacked-PR comment visibility: range focus used to keep branch names in
+// BaseSHA/HeadSHA (from --range parent..feature or early stack payloads), so
+// focusKeyFor stamped comments as range:branch..branch. A later SetFocus with
+// resolved OIDs produced a different focus_key and hid those comments with no
+// hidden_unresolved signal. SetFocus must rewrite refs to full commit OIDs
+// before storing Focus so stamps stay stable across stack navigation.
+func TestSetFocus_CanonicalizesBranchRefsToFullSHAs(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "branch", "parent")
+	gitT(t, dir, "checkout", "-b", "feature")
+	commitAt(t, dir, "added.txt", "hello\n", "add file")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:  dir,
+		OutputDir: dir,
+		VCS:       &vcs.GitVCS{},
+		Branch:    "feature",
+	}
+	t.Cleanup(func() { quiesceSession(t, s) })
+
+	if err := s.SetFocus(Focus{
+		Kind:      FocusRange,
+		BaseSHA:   "parent",
+		HeadSHA:   "feature",
+		DiffScope: DiffScopeLayer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.Focus.BaseSHA != base {
+		t.Fatalf("BaseSHA = %q, want full OID %q", s.Focus.BaseSHA, base)
+	}
+	if s.Focus.HeadSHA != head {
+		t.Fatalf("HeadSHA = %q, want full OID %q", s.Focus.HeadSHA, head)
+	}
+
+	c, ok := s.AddComment("added.txt", 1, 1, "RIGHT", "keep me visible", "", "reviewer", "u1")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	wantKey := fmt.Sprintf("range:%s..%s", base, head)
+	if c.FocusKey != wantKey {
+		t.Fatalf("FocusKey = %q, want %q", c.FocusKey, wantKey)
+	}
+
+	// Simulate stack-popover re-entry with OID form of the same tips.
+	if err := s.SetFocus(Focus{
+		Kind:      FocusRange,
+		BaseSHA:   base,
+		HeadSHA:   head,
+		DiffScope: DiffScopeLayer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var got *FileEntry
+	for _, f := range s.Files {
+		if f.Path == "added.txt" {
+			got = f
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("added.txt missing after OID SetFocus")
+	}
+	visible := 0
+	for _, comment := range got.Comments {
+		if visibleInFocus(comment, s.Focus) {
+			visible++
+		}
+	}
+	if visible != 1 {
+		t.Fatalf("visible comments after OID re-focus = %d (comments=%+v); want 1", visible, got.Comments)
+	}
+}
+
+// TestSetFocus_ExpandsShortSHAsToFullOIDs ensures abbreviated SHAs also
+// canonicalize so focus keys never mix short and full forms.
+func TestSetFocus_ExpandsShortSHAsToFullOIDs(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "added.txt", "y\n", "add y")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}}
+	t.Cleanup(func() { quiesceSession(t, s) })
+
+	if err := s.SetFocus(Focus{
+		Kind:      FocusRange,
+		BaseSHA:   base[:7],
+		HeadSHA:   head[:7],
+		DiffScope: DiffScopeLayer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.Focus.BaseSHA != base || s.Focus.HeadSHA != head {
+		t.Fatalf("Focus SHAs = %s..%s, want %s..%s", s.Focus.BaseSHA, s.Focus.HeadSHA, base, head)
+	}
+}
+
+func TestCanonicalizeFocusSHAs_RemoteAndNilNoops(t *testing.T) {
+	f := Focus{Kind: FocusRange, BaseSHA: "parent", HeadSHA: "feature", DiffScope: DiffScopeLayer}
+	if err := canonicalizeFocusSHAs(&f, &vcs.GitVCS{}, t.TempDir(), true); err != nil {
+		t.Fatal(err)
+	}
+	if f.BaseSHA != "parent" || f.HeadSHA != "feature" {
+		t.Fatalf("remoteFiles should leave symbolic refs alone: %+v", f)
+	}
+	if err := canonicalizeFocusSHAs(nil, &vcs.GitVCS{}, t.TempDir(), false); err != nil {
+		t.Fatal(err)
+	}
+	wt := Focus{Kind: FocusWorkingTree}
+	if err := canonicalizeFocusSHAs(&wt, &vcs.GitVCS{}, t.TempDir(), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCanonicalizeFocusSHAs_DefaultSHAAndErrors(t *testing.T) {
+	dir := initTestRepo(t)
+	main := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-b", "feature")
+	commitAt(t, dir, "f.txt", "x\n", "add")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+	base := main
+
+	f := Focus{
+		Kind: FocusRange, BaseSHA: base, HeadSHA: head,
+		DefaultSHA: "main", DiffScope: DiffScopeFullStack,
+	}
+	if err := canonicalizeFocusSHAs(&f, &vcs.GitVCS{}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if f.DefaultSHA != main {
+		t.Fatalf("DefaultSHA = %q, want %q", f.DefaultSHA, main)
+	}
+
+	bad := Focus{Kind: FocusRange, BaseSHA: "missing-base", HeadSHA: head, DiffScope: DiffScopeLayer}
+	if err := canonicalizeFocusSHAs(&bad, &vcs.GitVCS{}, dir, false); err == nil {
+		t.Fatal("expected base resolve error")
+	}
+	badHead := Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: "missing-head", DiffScope: DiffScopeLayer}
+	if err := canonicalizeFocusSHAs(&badHead, &vcs.GitVCS{}, dir, false); err == nil {
+		t.Fatal("expected head resolve error")
+	}
+	badDef := Focus{
+		Kind: FocusRange, BaseSHA: base, HeadSHA: head,
+		DefaultSHA: "missing-default", DiffScope: DiffScopeFullStack,
+	}
+	if err := canonicalizeFocusSHAs(&badDef, &vcs.GitVCS{}, dir, false); err == nil {
+		t.Fatal("expected default resolve error")
+	}
+}
+
+func TestSetFocus_CanonicalizeErrorSurfaces(t *testing.T) {
+	dir := initTestRepo(t)
+	// HasObject says yes; ResolveCommitOID rejects Name "hg".
+	v := &canonicalizeFailVCS{}
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: v}
+	t.Cleanup(func() { quiesceSession(t, s) })
+	err := s.SetFocus(Focus{
+		Kind: FocusRange, BaseSHA: "a", HeadSHA: "b", DiffScope: DiffScopeLayer,
+	})
+	if err == nil || !strings.Contains(err.Error(), "canonicalizing") {
+		t.Fatalf("got %v, want canonicalizing error", err)
+	}
+}
+
+// canonicalizeFailVCS pretends objects exist so validateFocusSHAs passes, but
+// ResolveCommitOID rejects its Name ("hg").
+type canonicalizeFailVCS struct{ vcs.GitVCS }
+
+func (c *canonicalizeFailVCS) Name() string               { return "hg" }
+func (c *canonicalizeFailVCS) HasObject(_, _ string) bool { return true }

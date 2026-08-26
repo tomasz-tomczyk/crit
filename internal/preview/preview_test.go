@@ -215,6 +215,37 @@ func TestHandlePreviewContent_InjectsAgent(t *testing.T) {
 	}
 }
 
+// Fragment HTML (no </body>) must still get the agent bundle appended, otherwise
+// Pin stays stuck on "Loading…" forever — matching crit-web's raw_controller.
+func TestHandlePreviewContent_AppendsAgentWhenNoBodyTag(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<div>fragment with no body tag</div>"), 0644)
+	s, _ := newPreviewTestServer(t, dir)
+
+	req := httptest.NewRequest("GET", "/preview-content/", nil)
+	w := httptest.NewRecorder()
+	s.HandlePreviewContentForTest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "fragment with no body tag") {
+		t.Error("response missing original content")
+	}
+	if !strings.Contains(body, "crit-agent.js") {
+		t.Error("agent script not appended when </body> is absent")
+	}
+	if !strings.Contains(body, "agent-protocol.js") {
+		t.Error("agent-protocol.js not appended when </body> is absent")
+	}
+	fragIdx := strings.Index(body, "fragment with no body tag")
+	agentIdx := strings.Index(body, "crit-agent.js")
+	if fragIdx < 0 || agentIdx < 0 || agentIdx < fragIdx {
+		t.Error("expected agent scripts appended after fragment content")
+	}
+}
+
 func TestHandlePreviewContent_InjectsAgentOnSiblingHTML(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html><body>home</body></html>"), 0644)

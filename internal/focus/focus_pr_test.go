@@ -14,8 +14,8 @@ func TestResolveFocusFromPR(t *testing.T) {
 		IsStackedPRHook = prevStack
 	})
 
-	FetchPRByNumberHook = func(prNum int) (PRResolveInfo, error) {
-		return PRResolveInfo{
+	FetchPRByNumberHook = func(prNum int) (ChangeResolveInfo, error) {
+		return ChangeResolveInfo{
 			Number:      prNum,
 			Title:       "Test PR",
 			BaseRefOid:  "base1234567890",
@@ -24,7 +24,7 @@ func TestResolveFocusFromPR(t *testing.T) {
 			HeadRefName: "feature",
 		}, nil
 	}
-	IsStackedPRHook = func(PRResolveInfo, vcs.VCS) bool { return false }
+	IsStackedPRHook = func(ChangeResolveInfo, vcs.VCS) bool { return false }
 
 	dir := vcs.InitTestRepo(t)
 	v := &vcs.GitVCS{}
@@ -32,8 +32,8 @@ func TestResolveFocusFromPR(t *testing.T) {
 	base := vcs.GitRun(t, dir, "rev-parse", "HEAD")
 	head := vcs.CommitAtForTest(t, dir, "pr.txt", "x", "pr change")
 
-	FetchPRByNumberHook = func(prNum int) (PRResolveInfo, error) {
-		return PRResolveInfo{
+	FetchPRByNumberHook = func(prNum int) (ChangeResolveInfo, error) {
+		return ChangeResolveInfo{
 			Number:      prNum,
 			Title:       "Test PR",
 			BaseRefOid:  base,
@@ -44,19 +44,19 @@ func TestResolveFocusFromPR(t *testing.T) {
 	}
 
 	// remoteFiles skips EnsureSHAFetched; this test wires PR hooks, not git fetch.
-	f, err := ResolveFocus("42", "", "", true, v, dir)
+	f, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "42"}, "", "", true, v, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f == nil || f.PRNumber != 42 || f.HeadSHA != head {
+	if f == nil || f.Forge != "github" || f.ChangeNumber != 42 || f.HeadSHA != head {
 		t.Errorf("got %+v", f)
 	}
 }
 
 func TestSetPRResolveHooks(t *testing.T) {
 	SetPRResolveHooks(
-		func(int) (PRResolveInfo, error) { return PRResolveInfo{Number: 1}, nil },
-		func(PRResolveInfo, vcs.VCS) bool { return true },
+		func(int) (ChangeResolveInfo, error) { return ChangeResolveInfo{Number: 1}, nil },
+		func(ChangeResolveInfo, vcs.VCS) bool { return true },
 	)
 	if FetchPRByNumberHook == nil || IsStackedPRHook == nil {
 		t.Fatal("hooks not wired")

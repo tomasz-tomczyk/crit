@@ -14,6 +14,7 @@ import (
 type commentsListFlags struct {
 	outputDir        string
 	configuredOutput string
+	sessionID        string
 	plan             string
 	jsonOutput       bool
 	all              bool
@@ -39,6 +40,13 @@ func parseCommentsListFlags(args []string) (commentsListFlags, error) {
 			}
 			f.outputDir = val
 			i++
+		case "--session":
+			val, err := clicmd.RequireFlagValue(args, i, "--session")
+			if err != nil {
+				return f, err
+			}
+			f.sessionID = val
+			i++
 		case "--json":
 			f.jsonOutput = true
 		case "--all":
@@ -57,6 +65,11 @@ func parseCommentsListFlags(args []string) (commentsListFlags, error) {
 }
 
 func resolveCommentsListFlags(f *commentsListFlags) error {
+	if f.sessionID != "" {
+		if f.plan != "" || f.outputDir != "" || f.explicitPath != "" {
+			return fmt.Errorf("--session cannot be used with --plan, --output, or an explicit review path")
+		}
+	}
 	if f.plan != "" {
 		if f.outputDir != "" {
 			return fmt.Errorf("--plan and --output cannot be used together")
@@ -71,6 +84,9 @@ func resolveCommentsListFlags(f *commentsListFlags) error {
 		}
 	}
 	if f.explicitPath != "" {
+		return nil
+	}
+	if f.sessionID != "" {
 		return nil
 	}
 	cfg, err := config.LoadCurrentConfig()
@@ -88,7 +104,7 @@ func resolveCommentsCritPath(f commentsListFlags) (string, error) {
 	if f.plan != "" {
 		return filepath.Join(f.outputDir, ".crit"), nil
 	}
-	return review.ResolveCommandReviewPath(f.outputDir, f.configuredOutput)
+	return review.ResolveCommandReviewPathWithSession(f.sessionID, f.outputDir, f.configuredOutput)
 }
 
 func resolveExplicitReviewPath(path string) (string, error) {

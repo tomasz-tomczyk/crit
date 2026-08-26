@@ -76,6 +76,8 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 	}
 	agentScripts := sb.String()
 
+	// Insert before the last </body>, or append when the file is a fragment
+	// with no closing body tag (matches crit-web raw_controller).
 	idx := bytes.LastIndex(bytes.ToLower(body), []byte("</body>"))
 	if idx >= 0 {
 		var out []byte
@@ -83,6 +85,8 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 		out = append(out, []byte(agentScripts)...)
 		out = append(out, body[idx:]...)
 		body = out
+	} else {
+		body = append(body, []byte(agentScripts)...)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

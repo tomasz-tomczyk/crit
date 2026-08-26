@@ -1,6 +1,6 @@
 ---
 name: crit-cli
-description: Use when an agent needs to author or reply to crit inline comments programmatically (including multi-agent workflows commenting on shared code/plans/docs/proposals), publish or unpublish a crit review with crit share, sync a crit review to or from a GitHub PR, or read/interpret a crit review JSON file. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow. Not for invoking an interactive review loop — that's the `crit` skill.
+description: Use when an agent needs to author or reply to crit inline comments programmatically (including multi-agent workflows commenting on shared code/plans/docs/proposals), publish or unpublish a crit review with crit share, sync a crit review to or from a GitHub PR or GitLab MR, or read/interpret a crit review JSON file. Covers crit comment, crit share, crit unpublish, crit pull, crit push, review file format, and resolution workflow. Not for invoking an interactive review loop — that's the `crit` skill.
 user-invocable: false
 ---
 
@@ -34,11 +34,15 @@ Review-level comments are listed first — easy to miss in raw `review.json`. Us
 
 ## Multiple active sessions
 
-When more than one review session matches the current directory and branch, `crit comment` refuses to guess. Run `crit status` (or `crit status --json`) to list every active session, then target the intended review explicitly:
+When more than one review session matches the current directory and branch, headless commands (`crit comment`, `crit comments`, `crit share`, `crit push`, `crit pull`) refuse to guess. Run `crit status` (or `crit status --json`) to list every active session, then target the intended review with `--session <id>`:
 
 ```bash
 crit comment --session <id> --author <name> <path>:<line> <body>
 crit comment --session <id> --json --file comments.json --author <name>
+crit comments --session <id>
+crit share --session <id> <file>
+crit push --session <id>
+crit pull --session <id>
 ```
 
 The JSON status output exposes the candidates in `sessions`.
@@ -176,14 +180,15 @@ crit comment --plan my-plan-2026-05-14 --reply-to c_a1b2c3 --author 'Grok' 'Upda
 When you are in a Grok plan-mode session, the plan file itself lives at `~/.grok/sessions/<cwd>/<session-id>/plan.md`. The `--plan <slug>` flag tells `crit comment` which Crit-managed review file to write to.
 </important>
 
-<important if="you are syncing with a GitHub PR (pull or push)">
+<important if="you are syncing with a GitHub PR or GitLab MR (pull or push)">
 
 ```bash
-crit pull [pr-number]                                    # Fetch PR review comments into the review file
-crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review comments as a GitHub PR review
+crit pull [number|url]                                   # Fetch PR/MR review comments into the review file
+crit push [--dry-run] [--event <type>] [-m <msg>] [n]    # Post review comments to a PR/MR
+crit pull --forge gitlab 42                              # Force GitLab when auto-detect is ambiguous
 ```
 
-Requires the `gh` CLI installed and authenticated. PR number is auto-detected from the current branch (or you can pass it explicitly).
+Requires `gh` (GitHub) or `glab` (GitLab) installed and authenticated. Change number is auto-detected from the current branch when possible. Set `"forge"` / `"gitlab_url"` in config for self-managed hosts, or pass `--forge`.
 
 `--event` values: `comment` (default), `approve`, `request-changes`. `-m` adds a review-level body message.
 </important>

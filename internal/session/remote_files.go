@@ -14,11 +14,32 @@ import (
 // the network call without mocking exec.Command.
 var fetchPRFileContentFn = fetchPRFileContentReal
 
+// FetchMRFileContent is wired by cmd/crit to avoid a session→gitlab import
+// cycle while allowing --remote MR sessions to load source-project files.
+var FetchMRFileContent func(focus Focus, sha, path string) ([]byte, error)
+
+// RemoteDiffFile is an API-provided file change for --remote MR focus.
+type RemoteDiffFile struct {
+	FileChange
+	Hunks []DiffHunk
+}
+
+// FetchMRDiffs is wired by cmd/crit to load GitLab's MR diff without
+// requiring the base/head objects in the local checkout.
+var FetchMRDiffs func(focus Focus) ([]RemoteDiffFile, error)
+
 // fetchPRFileContent fetches one file's content at a specific SHA via
 // `gh api repos/<owner>/<repo>/contents/<path>?ref=<sha>`. The injection
 // point lets tests bypass the `gh` CLI.
 func fetchPRFileContent(repoOwner, repoName, sha, path string) ([]byte, error) {
 	return fetchPRFileContentFn(repoOwner, repoName, sha, path)
+}
+
+// FetchGitHubFileContent is the provider-facing wrapper for the existing
+// GitHub contents loader. Session keeps the cache and decoding implementation;
+// internal/github.Provider supplies repository identity.
+func FetchGitHubFileContent(repoOwner, repoName, sha, path string) ([]byte, error) {
+	return fetchPRFileContent(repoOwner, repoName, sha, path)
 }
 
 // fetchPRFileContentReal is the production implementation: shells out to

@@ -96,6 +96,10 @@ type VCS interface {
 	// DiffNumstat returns per-file addition/deletion counts.
 	DiffNumstat(baseRef, dir string) (map[string]NumstatEntry, error)
 
+	// DiffNumstatBetweenSHAs returns per-file addition/deletion counts for the
+	// fixed range baseSHA..headSHA (not vs the working tree).
+	DiffNumstatBetweenSHAs(baseSHA, headSHA, dir string) (map[string]NumstatEntry, error)
+
 	// UserName returns the VCS-configured user name.
 	UserName() string
 

@@ -91,6 +91,10 @@ func (g *GitVCS) DiffNumstat(baseRef, dir string) (map[string]NumstatEntry, erro
 	return DiffNumstatDir(baseRef, dir)
 }
 
+func (g *GitVCS) DiffNumstatBetweenSHAs(baseSHA, headSHA, dir string) (map[string]NumstatEntry, error) {
+	return DiffNumstatBetweenSHAs(baseSHA, headSHA, dir)
+}
+
 func (g *GitVCS) UserName() string {
 	out, err := exec.Command("git", "config", "user.name").Output()
 	if err != nil {

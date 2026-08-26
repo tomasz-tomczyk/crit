@@ -51,12 +51,15 @@ Check installed integrations for missing or stale configuration.`},
 	{name: "pr", handler: runPR, help: `Usage: crit pr <num|url>
 
 Open a GitHub pull request for review.`},
-	{name: "pull", handler: runPull, help: `Usage: crit pull [--output <dir>] [pr-number]
+	{name: "mr", handler: runMR, help: `Usage: crit mr <iid|url>
 
-Fetch GitHub pull-request comments into the local review file.`},
-	{name: "push", handler: runPush, help: `Usage: crit push [options] [pr-number]
+Open a GitLab merge request for review.`},
+	{name: "pull", handler: runPull, help: `Usage: crit pull [--output <dir>] [number|url]
 
-Post local comments as a GitHub pull-request review.
+Fetch PR/MR comments into the local review file.`},
+	{name: "push", handler: runPush, help: `Usage: crit push [options] [number|url]
+
+Post local comments as a PR/MR review.
 
 Options:
       --dry-run          Preview without posting
@@ -83,15 +86,16 @@ Options:
       --json           Read bulk comments as JSON
   -f, --file <path>    Read JSON from a file
       --scope <mode>   Override comment focus scope`},
-	{name: "comments", handler: runComments, help: `Usage: crit comments [--json] [--all] [review]
+	{name: "comments", handler: runComments, help: `Usage: crit comments [--session <id>] [--json] [--all] [review]
 
 List unresolved comments, with review-level comments first.`},
 	{name: "review", handler: runReview, help: `Usage: crit review [options] [file|dir...]
 
-Open an inline review for git changes, a commit range, a PR, or files.
+Open an inline review for git changes, a commit range, a PR/MR, or files.
 
 Options:
       --pr <num|url>          Review a GitHub pull request
+      --mr <iid|url>          Review a GitLab merge request
       --range <base>..<head>  Review a commit range
       --base-branch <branch>  Override the diff base
       --no-open               Do not open a browser
@@ -281,6 +285,7 @@ Review:
   crit live <url>                            Review a running web app in live mode
   crit preview <file.html>                   Review a local HTML file in preview mode
   crit --pr <num|url>                        Review a GitHub pull request
+  crit --mr <iid|url>                        Review a GitLab merge request
   crit --range <base>..<head>                Review a commit range
   crit plan --name <slug> <file>             Review a plan file
   crit story                                 Generate and review a story-mode diff
@@ -291,16 +296,16 @@ Comments:
   crit comment --reply-to <id> <body>        Reply to a comment
   crit comment --json                        Bulk add comments from JSON on stdin
   crit comment --clear                       Remove all comments
-  crit comments [--json] [--all] [review]    List unresolved comments (review-level first)
+  crit comments [--session <id>] [--json] [--all] [review]    List unresolved comments (review-level first)
 
 Sharing:
   crit share <file> [file...]                Share files to crit-web, print URL
   crit fetch [--output <dir>]                Fetch comments from crit-web
   crit unpublish [file...]                   Remove a shared review from crit-web
 
-GitHub PR sync:
-  crit pull [pr-number]                      Fetch PR comments into the review file
-  crit push [--dry-run] [pr-number]          Post review comments to a GitHub PR
+Remote review sync (provider auto-detected, or set "forge" in config):
+  crit pull [number|url]                     Fetch PR/MR comments into the review file
+  crit push [--dry-run] [number|url]         Post review comments to a PR/MR
 
 Setup & management:
   crit install <agent>                       Install integration for an AI coding tool
@@ -326,9 +331,10 @@ Options:
   -q, --quiet                 On success, suppress connect/start status, tips, and session summary
       --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
-      --scope <mode>          Diff scope for PR review: layer (default) or full-stack
+      --scope <mode>          Diff scope for PR/MR review: layer (default) or full-stack
       --session <id>          Reconnect to an existing review session (from stderr or next_command)
-      --remote                Read PR files via GitHub API instead of local git
+      --forge <provider>      Select pull/push provider: auto, github, or gitlab
+      --remote                Read --pr/--mr files via that change request's forge API
       --qr                    Print QR code of share URL (with crit share)
   -v, --version               Print version
 

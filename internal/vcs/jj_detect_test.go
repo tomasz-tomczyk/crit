@@ -143,6 +143,9 @@ func (*fakeJJVCSForFetch) RemoteBranches(string) ([]string, error)     { return 
 func (*fakeJJVCSForFetch) DiffNumstat(string, string) (map[string]NumstatEntry, error) {
 	return nil, nil
 }
+func (*fakeJJVCSForFetch) DiffNumstatBetweenSHAs(string, string, string) (map[string]NumstatEntry, error) {
+	return nil, nil
+}
 func (*fakeJJVCSForFetch) UserName() string { return "" }
 func (*fakeJJVCSForFetch) FileContentAtRef(string, string, string) (string, error) {
 	return "", nil

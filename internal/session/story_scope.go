@@ -52,6 +52,8 @@ type StoryScope struct {
 	PRURL          string           // populated only for --pr scopes
 	PRTitle        string           // populated when the branch/scope has a corresponding PR
 	PRBody         string           // populated when the branch/scope has a corresponding PR
+	MRNumber       int              // >0 only for --mr scopes
+	MRURL          string           // populated only for --mr scopes
 	Files          []StoryScopeFile // Ignored=false: indexed; Ignored=true: pre-placed
 }
 
@@ -66,13 +68,18 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 
 	scope := StoryScope{BaseSHA: s.BaseRef}
 
-	// HeadSHA is meaningful only for fixed-range scopes (--pr/--range). For a
+	// HeadSHA is meaningful only for fixed-range scopes (--pr/--mr/--range). For a
 	// working-tree scope it stays empty (the tree is the head).
 	if s.Focus.Kind == FocusRange {
 		scope.BaseSHA = s.Focus.BaseSHA
 		scope.HeadSHA = s.Focus.HeadSHA
-		scope.PRNumber = s.Focus.PRNumber
-		scope.PRURL = s.Focus.PRURL
+		if s.Focus.Forge == "gitlab" {
+			scope.MRNumber = s.Focus.ChangeNumber
+			scope.MRURL = s.Focus.MRURL
+		} else {
+			scope.PRNumber = s.Focus.ChangeNumber
+			scope.PRURL = s.Focus.PRURL
+		}
 	}
 
 	// CommitLog runs against the (possibly symbolic) base ref before we resolve
@@ -101,7 +108,7 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 	}
 
 	for _, fe := range s.Files {
-		_ = fe.ensureLoaded(s.RepoRoot, s.BaseRef, s.VCS)
+		_ = s.ensureFileLoaded(fe)
 		scope.Files = append(scope.Files, StoryScopeFile{
 			Path:   fe.Path,
 			Status: fe.Status,

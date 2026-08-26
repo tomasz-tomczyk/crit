@@ -220,3 +220,16 @@ test('GitHub badge omitted when comment.github_id is missing or zero', () => {
   );
   assert.equal(findByClass(zero.card, 'github-badge').length, 0, 'no badge when github_id is 0');
 });
+
+test('GitLab badge renders when comment.gitlab_note_id is set', () => {
+  const out = card.buildCommentCard(
+    { id: 'gl1', body: 'x', gitlab_note_id: 456,
+      created_at: '2024-01-01T00:00:00Z' },
+    '',
+    { deps: baseDeps() }
+  );
+  const badges = findByClass(out.card, 'gitlab-badge');
+  assert.equal(badges.length, 1);
+  assert.equal(badges[0].textContent, 'GitLab');
+  assert.equal(badges[0].attrs['aria-label'], 'Synced from GitLab');
+});

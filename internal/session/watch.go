@@ -345,12 +345,15 @@ func carryForwardComment(old Comment, newID string, now string) Comment {
 		// with Resolved); without it, the timeline visibility filter for
 		// resolved-on-round-N falls back to the legacy round-1 default and
 		// resolved comments appear at the wrong point in the timeline.
-		ResolvedRound:  old.ResolvedRound,
-		CarriedForward: true,
-		Live:           old.Live,
-		ReviewRound:    old.ReviewRound,
-		Replies:        old.Replies,
-		GitHubID:       old.GitHubID,
+		ResolvedRound:      old.ResolvedRound,
+		CarriedForward:     true,
+		Live:               old.Live,
+		ReviewRound:        old.ReviewRound,
+		Replies:            old.Replies,
+		GitHubID:           old.GitHubID,
+		GitLabNoteID:       old.GitLabNoteID,
+		GitLabDiscussionID: old.GitLabDiscussionID,
+		GitLabResolved:     old.GitLabResolved,
 		// LastPushedBodyHash is the digest of Body at the most recent
 		// successful GitHub push; `crit push` uses it to decide POST vs
 		// PATCH vs skip. Must round-trip with GitHubID, otherwise every

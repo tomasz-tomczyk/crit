@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -609,6 +610,38 @@ func TestRunCheck_NoStale(t *testing.T) {
 
 	// Should not panic
 	runCheck()
+}
+
+func TestPrintForgeCLIHintsRendersDetectionSeparately(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
+
+	printForgeCLIHints([]forgeCLIStatus{{
+		name: "GitHub", binary: "gh", loginHint: "gh auth login", detail: "not logged in",
+	}})
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = oldStderr
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"Remote review providers:",
+		"needs login: GitHub (run gh auth login): not logged in",
+		"unavailable: GitLab (glab is not installed)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("forge CLI hints missing %q:\n%s", want, text)
+		}
+	}
 }
 
 func TestDetectPresentAgents_BinaryOnPath(t *testing.T) {

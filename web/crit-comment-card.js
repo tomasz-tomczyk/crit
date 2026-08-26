@@ -132,18 +132,16 @@
       headerLeft.appendChild(badge);
     }
 
-    // GitHub-synced badge — surfaces comments imported from a GitHub PR
-    // so re-sharers and reviewers can tell them apart from native crit
-    // comments. The signal is GitHubID != 0 on the Comment struct, which
-    // serializes as `github_id` (omitempty) on the JSON the API returns.
-    // See issue #370.
-    if (comment.github_id) {
-      const ghBadge = document.createElement('span');
-      ghBadge.className = 'github-badge';
-      ghBadge.textContent = 'GitHub';
-      ghBadge.title = 'Synced from GitHub';
-      ghBadge.setAttribute('aria-label', 'Synced from GitHub');
-      headerLeft.appendChild(ghBadge);
+    // Remote-forge badge. GitLab notes carry both note and discussion IDs;
+    // the note ID alone is sufficient to identify a synced comment here.
+    var forgeName = comment.gitlab_note_id ? 'GitLab' : (comment.github_id ? 'GitHub' : '');
+    if (forgeName) {
+      var forgeBadge = document.createElement('span');
+      forgeBadge.className = 'forge-badge ' + forgeName.toLowerCase() + '-badge';
+      forgeBadge.textContent = forgeName;
+      forgeBadge.title = 'Synced from ' + forgeName;
+      forgeBadge.setAttribute('aria-label', 'Synced from ' + forgeName);
+      headerLeft.appendChild(forgeBadge);
     }
 
     // suppressDrift: live mode passes this so legacy comments carrying

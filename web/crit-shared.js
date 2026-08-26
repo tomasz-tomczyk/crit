@@ -100,6 +100,57 @@
     writeSettings(s);
   }
 
+  // ---- Code font ----
+  // The `codeFont` setting overrides --crit-font-code, which code lines,
+  // diff rows, and inline <code> resolve through. An empty value means "use
+  // theme.css's stack", so the override is removed rather than set to a
+  // hardcoded copy of the default — the default can then change in one place.
+  //
+  // The two built-ins are always available. Installed font families are
+  // discovered by the Go server and added by crit-settings-panes.js.
+  const CODE_FONT_PRESETS = [
+    { id: 'default', label: 'Default (JetBrains Mono)', stack: '' },
+    { id: 'system', label: 'System monospace', stack: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+  ];
+  const MAX_CODE_FONT_LENGTH = 256;
+
+  // Returns the sanitized stack, or '' when the value can't be trusted as a
+  // font-family list. setProperty already drops values containing a `;`, but
+  // rejecting the whole class of declaration-escaping characters up front lets
+  // the settings UI tell the user their input was ignored instead of silently
+  // falling back.
+  function sanitizeCodeFont(value) {
+    const v = String(value === null || value === undefined ? '' : value).trim();
+    if (!v) return '';
+    if (v.length > MAX_CODE_FONT_LENGTH) return '';
+    if (/[;{}<>@]/.test(v)) return '';
+    if (/url\s*\(/i.test(v) || /expression\s*\(/i.test(v)) return '';
+    if (typeof CSS !== 'undefined' && CSS && CSS.supports && !CSS.supports('font-family', v)) return '';
+    return v;
+  }
+
+  function applyCodeFont(stack) {
+    const root = document.documentElement;
+    if (!root || !root.style) return '';
+    const clean = sanitizeCodeFont(stack);
+    if (clean) root.style.setProperty('--crit-font-code', clean);
+    else root.style.removeProperty('--crit-font-code');
+    return clean;
+  }
+
+  function applyCodeFontFromCookie() {
+    return applyCodeFont(getSetting('codeFont', ''));
+  }
+
+  // Persists then applies. Returns the stack that was actually stored, so a
+  // caller can detect that an invalid custom value was rejected.
+  function setCodeFont(stack) {
+    const clean = sanitizeCodeFont(stack);
+    setSetting('codeFont', clean);
+    applyCodeFont(clean);
+    return clean;
+  }
+
   // Updates the navbar comment-count indicator. Both code-review (app.js)
   // and live-mode (live-mode.js) call this so the pill, classes, and
   // tooltip stay in lockstep — drift here is the navbar inconsistency the
@@ -176,6 +227,9 @@
 
     var t = document.createElement('div');
     t.className = 'mini-toast mini-toast--' + kind;
+    t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    t.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+    t.setAttribute('aria-atomic', 'true');
     t.textContent = (message == null) ? '' : String(message);
     host.appendChild(t);
 
@@ -1064,6 +1118,11 @@
     applyThemeFromCookie,
     getSetting,
     setSetting,
+    CODE_FONT_PRESETS,
+    sanitizeCodeFont,
+    applyCodeFont,
+    applyCodeFontFromCookie,
+    setCodeFont,
     updateCommentCountIndicator,
     showToast,
     runFinishReview,

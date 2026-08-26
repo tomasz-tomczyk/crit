@@ -150,6 +150,79 @@ test.describe('Change Navigation — File Mode', () => {
     expect(text).toMatch(/\d+\s*change/);
   });
 
+  test('a changed table stays one navigation group and keeps aligned round-diff columns', async ({ page, request }) => {
+    await loadPage(page);
+    const current = fs.readFileSync(path.join(fixtureDir, 'plan.md'), 'utf-8');
+    const marker = Date.now();
+    const modified = current +
+      `\n\n| Choice ${marker} | Result |\n` +
+      '| --- | --- |\n' +
+      '| short | available |\n' +
+      '| a much longer visible choice | waiting for review |\n';
+    await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
+
+    const section = mdSection(page);
+    const table = section.locator('table.native-table').last();
+    await expect(table).toBeVisible();
+    await expect(table.locator('.line-block-added')).toHaveCount(4);
+    const label = section.locator('.change-nav-label');
+    const totalGroups = Number((await label.textContent())?.match(/\/ (\d+) changes?/)?.[1]);
+    expect(totalGroups).toBeGreaterThan(0);
+    for (let index = 0; index < totalGroups; index++) {
+      await page.keyboard.press('n');
+      if (await table.locator('.line-block.change-flash').count()) break;
+    }
+    await expect(table.locator('.line-block.change-flash')).toHaveCount(4);
+    const flashedCell = table.locator('.line-block.change-flash > .line-content').first();
+    await expect(flashedCell).toBeVisible();
+    expect(await flashedCell.evaluate(cell => getComputedStyle(cell).animationName)).toContain('change-flash');
+
+    await page.locator('#diffToggle').click();
+    const diff = section.locator('.diff-view');
+    await expect(diff).toBeVisible();
+    const fallbackTables = diff.locator('table.split-table');
+    await expect(fallbackTables.first()).toBeVisible();
+    await expect(fallbackTables.locator('colgroup').first()).toBeAttached();
+    const changedTableId = await fallbackTables.filter({ hasText: `Choice ${marker}` }).first().getAttribute('data-table-id');
+    expect(changedTableId).toBeTruthy();
+    const sideWidthSets = await diff.evaluate((element, tableId) => {
+      const cells = Array.from(element.querySelectorAll(':scope > .diff-view-cell'));
+      return [0, 1].map(side => Array.from(new Set(cells
+        .filter((_, index) => index % 2 === side)
+        .map(cell => Array.from(cell.querySelectorAll(`table.split-table[data-table-id="${tableId}"] col`))
+          .map(col => (col as HTMLElement).style.width).join(','))
+        .filter(Boolean))));
+    }, changedTableId);
+    expect(sideWidthSets[0].length).toBeLessThanOrEqual(1);
+    expect(sideWidthSets[1]).toHaveLength(1);
+    expect(await fallbackTables.first().evaluate(element => getComputedStyle(element).marginTop)).toBe('0px');
+  });
+
+  test('navigating to a deleted table row flashes its deletion marker', async ({ page, request }) => {
+    await loadPage(page);
+    const current = fs.readFileSync(path.join(fixtureDir, 'plan.md'), 'utf-8');
+    const deletedRow = '| Key storage | Env var, database | Database | Supports rotation |\n';
+    expect(current).toContain(deletedRow);
+    await doRoundWithEdit(page, request, fixtureDir, 'plan.md', current.replace(deletedRow, ''));
+
+    const section = mdSection(page);
+    const annotation = section.locator('.native-table-annotation', {
+      has: page.locator('.deletion-marker'),
+    });
+    await expect(annotation).toBeVisible();
+    const label = section.locator('.change-nav-label');
+    const totalGroups = Number((await label.textContent())?.match(/\/ (\d+) changes?/)?.[1]);
+    expect(totalGroups).toBeGreaterThan(0);
+    for (let index = 0; index < totalGroups; index++) {
+      await page.keyboard.press('n');
+      if (await annotation.evaluate(element => element.classList.contains('change-flash'))) break;
+    }
+
+    await expect(annotation).toHaveClass(/change-flash/);
+    const marker = annotation.locator('.deletion-marker');
+    expect(await marker.evaluate(element => getComputedStyle(element).animationName)).toContain('change-flash');
+  });
+
   test('n key navigates to next change', async ({ page, request }) => {
     await loadPage(page);
 

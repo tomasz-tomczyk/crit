@@ -49,17 +49,54 @@ type Focus struct {
 	BaseBranchName string `json:"base_branch_name,omitempty"`
 
 	// FocusRange fields. All optional except BaseSHA + HeadSHA.
-	PRNumber    int       `json:"pr_number,omitempty"`
-	PRURL       string    `json:"pr_url,omitempty"`
-	Label       string    `json:"label,omitempty"`
-	BaseSHA     string    `json:"base_sha,omitempty"`
-	HeadSHA     string    `json:"head_sha,omitempty"`
-	DefaultSHA  string    `json:"default_sha,omitempty"`
-	ForkURL     string    `json:"fork_url,omitempty"`
-	BaseRefName string    `json:"base_ref_name,omitempty"`
-	HeadRefName string    `json:"head_ref_name,omitempty"`
-	DiffScope   DiffScope `json:"diff_scope,omitempty"`
-	IsStacked   bool      `json:"is_stacked,omitempty"`
+	Forge             string    `json:"forge,omitempty"`
+	ChangeNumber      int       `json:"change_number,omitempty"`
+	PRURL             string    `json:"pr_url,omitempty"`
+	MRURL             string    `json:"mr_url,omitempty"`
+	Label             string    `json:"label,omitempty"`
+	BaseSHA           string    `json:"base_sha,omitempty"`
+	HeadSHA           string    `json:"head_sha,omitempty"`
+	DefaultSHA        string    `json:"default_sha,omitempty"`
+	ForkURL           string    `json:"fork_url,omitempty"`
+	RemoteProject     string    `json:"remote_project,omitempty"`
+	RemoteBaseProject string    `json:"remote_base_project,omitempty"`
+	RemoteHost        string    `json:"remote_host,omitempty"`
+	BaseRefName       string    `json:"base_ref_name,omitempty"`
+	HeadRefName       string    `json:"head_ref_name,omitempty"`
+	DiffScope         DiffScope `json:"diff_scope,omitempty"`
+	IsStacked         bool      `json:"is_stacked,omitempty"`
+}
+
+// UnmarshalJSON is a backward-compatibility boundary. Canonical payloads use
+// Forge + ChangeNumber; older sessions and clients may still provide the
+// provider-specific pr_number/mr_number aliases.
+func (f *Focus) UnmarshalJSON(data []byte) error {
+	type plain Focus
+	var wire struct {
+		*plain
+		PRNumber int `json:"pr_number,omitempty"`
+		MRNumber int `json:"mr_number,omitempty"`
+	}
+	wire.plain = (*plain)(f)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if f.Forge == "" {
+		switch {
+		case wire.MRNumber > 0:
+			f.Forge = "gitlab"
+		case wire.PRNumber > 0:
+			f.Forge = "github"
+		}
+	}
+	if f.ChangeNumber == 0 {
+		if f.Forge == "gitlab" {
+			f.ChangeNumber = wire.MRNumber
+		} else if f.Forge == "github" {
+			f.ChangeNumber = wire.PRNumber
+		}
+	}
+	return nil
 }
 
 // ReadOnly reports whether comments may be added/edited in this focus.
@@ -96,14 +133,22 @@ func (f Focus) PickerVisible() bool {
 // focusKeyFor returns the per-view key used to scope comment visibility.
 //
 //	pr:<num>                       — range focus with PR number
-//	range:<baseSHA>..<headSHA>     — range focus without PR number (full 40-char SHAs)
+//	range:<baseSHA>..<headSHA>     — range focus without PR number
 //	""                             — working-tree (and unknown)
+//
+// Callers must pass Focus whose BaseSHA/HeadSHA are full OIDs (SetFocus
+// canonicalizeFocusSHAs enforces this). Symbolic refs in those fields would
+// stamp unstable keys and hide comments after stack navigation.
 func focusKeyFor(f Focus) string {
 	if f.Kind != FocusRange {
 		return ""
 	}
-	if f.PRNumber > 0 {
-		return fmt.Sprintf("pr:%d", f.PRNumber)
+	if f.ChangeNumber > 0 {
+		if f.Forge == "gitlab" {
+			return fmt.Sprintf("mr:%d", f.ChangeNumber)
+		}
+		// github or empty forge (legacy ChangeNumber without Forge) → pr:N
+		return fmt.Sprintf("pr:%d", f.ChangeNumber)
 	}
 	return fmt.Sprintf("range:%s..%s", f.BaseSHA, f.HeadSHA)
 }
@@ -128,11 +173,12 @@ func (s InheritedScope) AsFocus() Focus {
 		return Focus{Kind: FocusWorkingTree}
 	}
 	return Focus{
-		Kind:      FocusRange,
-		HeadSHA:   s.HeadSHA,
-		BaseSHA:   s.BaseSHA,
-		PRNumber:  s.PRNumber,
-		DiffScope: DiffScope(s.DiffScope),
+		Kind:         FocusRange,
+		HeadSHA:      s.HeadSHA,
+		BaseSHA:      s.BaseSHA,
+		Forge:        s.Forge,
+		ChangeNumber: s.ChangeNumber,
+		DiffScope:    DiffScope(s.DiffScope),
 	}
 }
 
@@ -166,7 +212,8 @@ func countVisibleComments(comments []Comment, f Focus) int {
 // so it's all-or-nothing — no torn ActiveDiffScope on disk).
 //
 // Caller is responsible for validating the request shape upstream;
-// SetFocus owns SHA validation (via ensureSHAFetched) and persistence.
+// SetFocus owns SHA validation (via ensureSHAFetched), OID canonicalization
+// of BaseSHA/HeadSHA/DefaultSHA, and persistence.
 func (s *Session) SetFocus(f Focus) error {
 	if f.Kind == FocusRange &&
 		f.DiffScope == DiffScopeFullStack &&
@@ -181,6 +228,9 @@ func (s *Session) SetFocus(f Focus) error {
 	s.mu.RUnlock()
 
 	if err := validateFocusSHAs(f, vc, repoRoot, remoteFiles); err != nil {
+		return err
+	}
+	if err := canonicalizeFocusSHAs(&f, vc, repoRoot, remoteFiles); err != nil {
 		return err
 	}
 
@@ -310,19 +360,48 @@ func validateFocusSHAs(f Focus, v vcs.VCS, repoRoot string, remoteFiles bool) er
 	return nil
 }
 
+// canonicalizeFocusSHAs rewrites BaseSHA/HeadSHA/DefaultSHA to full commit
+// OIDs. Branch names and abbreviated SHAs are accepted by validateFocusSHAs
+// (HasObject resolves them), but leaving them in Focus makes focusKeyFor
+// unstable across stack navigation that re-enters with resolved OIDs.
+// No-op for working-tree focus, remote mode, or missing VCS/repo.
+func canonicalizeFocusSHAs(f *Focus, v vcs.VCS, repoRoot string, remoteFiles bool) error {
+	if f == nil || f.Kind != FocusRange || remoteFiles || v == nil || repoRoot == "" {
+		return nil
+	}
+	base, err := vcs.ResolveCommitOID(v, f.BaseSHA, repoRoot)
+	if err != nil {
+		return fmt.Errorf("canonicalizing base %q: %w", f.BaseSHA, err)
+	}
+	head, err := vcs.ResolveCommitOID(v, f.HeadSHA, repoRoot)
+	if err != nil {
+		return fmt.Errorf("canonicalizing head %q: %w", f.HeadSHA, err)
+	}
+	f.BaseSHA = base
+	f.HeadSHA = head
+	if f.DefaultSHA != "" {
+		def, err := vcs.ResolveCommitOID(v, f.DefaultSHA, repoRoot)
+		if err != nil {
+			return fmt.Errorf("canonicalizing default %q: %w", f.DefaultSHA, err)
+		}
+		f.DefaultSHA = def
+	}
+	return nil
+}
+
 // dropStaleCacheOnPRSwitch invalidates the previous PR's cached metadata
 // whenever SetFocus moves between two distinct, non-zero PR numbers. The next
-// time the user comes back to oldFocus.PRNumber we want fresh state in case
+// time the user comes back to the old GitHub change we want fresh state in case
 // the PR was retitled, force-pushed, or the description changed.
 func dropStaleCacheOnPRSwitch(oldFocus, newFocus Focus) {
-	if oldFocus.PRNumber == 0 || newFocus.PRNumber == 0 {
+	if oldFocus.Forge != "github" || newFocus.Forge != "github" || oldFocus.ChangeNumber == 0 || newFocus.ChangeNumber == 0 {
 		return
 	}
-	if oldFocus.PRNumber == newFocus.PRNumber {
+	if oldFocus.ChangeNumber == newFocus.ChangeNumber {
 		return
 	}
 	if InvalidatePRCache != nil {
-		InvalidatePRCache(oldFocus.PRNumber)
+		InvalidatePRCache(oldFocus.ChangeNumber)
 	}
 }
 
@@ -346,9 +425,13 @@ func (s *Session) persistActiveDiffScope(scope string) error {
 // the GitHub API (gh api repos/.../contents/?ref=<sha>); otherwise it falls
 // through to local git. Result is memoized in s.remoteFileCache for the
 // remote path; the local path is fast enough already.
-func (s *Session) readFileAtSHA(sha, path string) ([]byte, error) {
-	if s.RemoteFiles && s.Focus.Kind == FocusRange && s.Focus.PRURL != "" {
-		return s.readFileAtSHARemote(sha, path)
+func (s *Session) readFileAtSHA(sha, path string) ([]byte, error) { //nolint:unparam // production callers use readFileAtSHAForFocus; retained as the current-focus convenience and test seam
+	return s.readFileAtSHAForFocus(s.Focus, sha, path)
+}
+
+func (s *Session) readFileAtSHAForFocus(focus Focus, sha, path string) ([]byte, error) {
+	if s.RemoteFiles && focus.Kind == FocusRange && (focus.PRURL != "" || focus.MRURL != "") {
+		return s.readFileAtSHARemote(focus, sha, path)
 	}
 	return s.VCS.ReadFileAtSHA(sha, path, s.RepoRoot)
 }
@@ -356,13 +439,21 @@ func (s *Session) readFileAtSHA(sha, path string) ([]byte, error) {
 // readFileAtSHARemote fetches file content via `gh api`. Falls back to the
 // local VCS read when the PR URL is unparseable — the caller still gets a
 // best-effort result rather than a hard failure.
-func (s *Session) readFileAtSHARemote(sha, path string) ([]byte, error) {
+func (s *Session) readFileAtSHARemote(focus Focus, sha, path string) ([]byte, error) {
 	cacheKey := sha + "\x00" + path
 	cache := s.ensureRemoteFileCache()
 	if v, ok := cache.Get(cacheKey); ok {
 		return v, nil
 	}
-	owner, name, ok := parseRepoFromPRURL(s.Focus.PRURL)
+	if focus.MRURL != "" && FetchMRFileContent != nil {
+		data, err := FetchMRFileContent(focus, sha, path)
+		if err != nil {
+			return nil, err
+		}
+		cache.Put(cacheKey, data)
+		return data, nil
+	}
+	owner, name, ok := parseRepoFromPRURL(focus.PRURL)
 	if !ok {
 		// Unparseable PRURL is rare (we built the Focus from a gh API call)
 		// but keep going — local git is still a valid path.
@@ -398,25 +489,47 @@ func (s *Session) ensureRemoteFileCache() *bytesLRU {
 // buildFilesForFocus returns a fresh []*FileEntry and BaseRef value for the
 // given focus. Working-tree focus rebuilds from the VCS so toggling between
 // modes shows the right file list. Range focus reads files via
-// s.readFileAtSHA (which routes to gh api when --remote is set) and computes
-// diffs via vc.FileDiffBetweenSHAs.
-//
-// Note: when s.RemoteFiles is true, only file content reads are remote.
-// FileDiffBetweenSHAs and ChangedFilesBetweenSHAs still go through local git
-// — the GitHub API has no clean equivalent for those operations.
-func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*FileEntry, string, error) {
+// s.readFileAtSHAForFocus. GitLab layer reviews can also load file lists and
+// hunks from the MR Diffs API, allowing cross-project reviews without fetching
+// either side into the local checkout.
+func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*FileEntry, string, error) { //nolint:gocyclo // remote/local change sources converge in one file-entry construction loop
 	if f.Kind != FocusRange {
 		return s.buildFilesForWorkingTree(v, repoRoot)
 	}
 	if v == nil {
 		return nil, "", fmt.Errorf("range focus requires a VCS")
 	}
-	changes, err := v.ChangedFilesBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot)
-	if err != nil {
-		return nil, "", err
+	var changes []vcs.FileChange
+	remoteHunks := make(map[string][]vcs.DiffHunk)
+	if s.RemoteFiles && f.MRURL != "" && f.DiffScope == DiffScopeLayer && FetchMRDiffs != nil {
+		remoteChanges, err := FetchMRDiffs(f)
+		if err != nil {
+			return nil, "", err
+		}
+		changes = make([]vcs.FileChange, 0, len(remoteChanges))
+		for _, change := range remoteChanges {
+			changes = append(changes, change.FileChange)
+			remoteHunks[change.Path] = change.Hunks
+		}
+	} else {
+		var err error
+		changes, err = v.ChangedFilesBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	var numstats map[string]vcs.NumstatEntry
+	if len(changes) > lazyFileThreshold {
+		// Between-SHA only — never fall back to working-tree numstat, which
+		// contaminates sidebar +/- when the tree is dirty or --remote.
+		var nsErr error
+		numstats, nsErr = v.DiffNumstatBetweenSHAs(f.DiffBaseSHA(), f.HeadSHA, repoRoot)
+		if nsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: numstat failed: %v\n", nsErr)
+		}
 	}
 	out := make([]*FileEntry, 0, len(changes))
-	for _, fc := range changes {
+	for i, fc := range changes {
 		fe := &FileEntry{
 			Path:     fc.Path,
 			OldPath:  fc.OldPath,
@@ -425,15 +538,24 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 			FileType: detectFileType(fc.Path),
 			Comments: []Comment{},
 		}
+		// Same eager/lazy split as NewGitSession: range focus is how --pr
+		// rebuilds the file list, so large doc PRs must not load every file.
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			populateLazyFile(fe, fc, numstats, false)
+			out = append(out, fe)
+			continue
+		}
 		if fc.Status != "deleted" {
-			data, readErr := s.readFileAtSHA(f.HeadSHA, fc.Path)
+			data, readErr := s.readFileAtSHAForFocus(f, f.HeadSHA, fc.Path)
 			if readErr != nil {
 				return nil, "", fmt.Errorf("read %s at %s: %w", fc.Path, f.HeadSHA, readErr)
 			}
 			fe.Content = string(data)
 			fe.FileHash = fileHash(data)
 		}
-		if fc.Status != "added" && fc.Status != "untracked" {
+		if hunks, ok := remoteHunks[fc.Path]; ok {
+			fe.DiffHunks = hunks
+		} else if fc.Status != "added" && fc.Status != "untracked" {
 			hunks, _ := v.FileDiffBetweenSHAs(fc.Path, fc.OldPath, f.DiffBaseSHA(), f.HeadSHA, repoRoot, false)
 			fe.DiffHunks = hunks
 		} else {
@@ -469,8 +591,16 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 	}
 	changes = config.FilterIgnored(changes, ignorePatterns)
 	changes = filterBinary(changes)
+	var numstats map[string]vcs.NumstatEntry
+	if len(changes) > lazyFileThreshold && baseRef != "" {
+		var nsErr error
+		numstats, nsErr = v.DiffNumstat(baseRef, repoRoot)
+		if nsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: numstat failed: %v\n", nsErr)
+		}
+	}
 	out := make([]*FileEntry, 0, len(changes))
-	for _, fc := range changes {
+	for i, fc := range changes {
 		fe := &FileEntry{
 			Path:     fc.Path,
 			OldPath:  fc.OldPath,
@@ -478,6 +608,11 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 			Status:   fc.Status,
 			FileType: detectFileType(fc.Path),
 			Comments: []Comment{},
+		}
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			populateLazyFile(fe, fc, numstats, true)
+			out = append(out, fe)
+			continue
 		}
 		if !populateEagerFile(fe, fc, baseRef, repoRoot, v) {
 			continue
@@ -852,7 +987,7 @@ func (s *Session) loadScopedFileState(path, scope, commit string) (status, conte
 	s.mu.RUnlock()
 
 	if f != nil {
-		if err := f.ensureLoaded(repoRoot, baseRef, vc); err == nil {
+		if err := s.ensureFileLoaded(f); err == nil {
 			s.mu.RLock()
 			content = f.Content
 			s.mu.RUnlock()

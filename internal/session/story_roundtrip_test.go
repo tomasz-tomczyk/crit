@@ -29,6 +29,42 @@ func TestStoryScopeRangeIncludesIgnoredHunks(t *testing.T) {
 	t.Fatalf("range story scope omitted ignored hunks: %+v", scope.Files)
 }
 
+func TestStoryScopeCarriesChangeRequestMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		focus    Focus
+		prNumber int
+		prURL    string
+		mrNumber int
+		mrURL    string
+	}{
+		{
+			name:     "github pull request",
+			focus:    Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, PRURL: "https://github.com/acme/widget/pull/42"},
+			prNumber: 42,
+			prURL:    "https://github.com/acme/widget/pull/42",
+		},
+		{
+			name:     "gitlab merge request",
+			focus:    Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 17, MRURL: "https://gitlab.com/acme/widget/-/merge_requests/17"},
+			mrNumber: 17,
+			mrURL:    "https://gitlab.com/acme/widget/-/merge_requests/17",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scope := (&Session{Focus: tt.focus}).StoryScope(nil)
+			if scope.PRNumber != tt.prNumber || scope.PRURL != tt.prURL {
+				t.Fatalf("PR metadata = (%d, %q), want (%d, %q)", scope.PRNumber, scope.PRURL, tt.prNumber, tt.prURL)
+			}
+			if scope.MRNumber != tt.mrNumber || scope.MRURL != tt.mrURL {
+				t.Fatalf("MR metadata = (%d, %q), want (%d, %q)", scope.MRNumber, scope.MRURL, tt.mrNumber, tt.mrURL)
+			}
+		})
+	}
+}
+
 // TestBuildCritJSONPreservesStory verifies that an externally-set story on
 // review.json survives the daemon's read-merge-modify write cycle, because
 // Story is a field on CritJSON and buildCritJSON only overwrites known

@@ -1,9 +1,36 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 )
+
+func TestFocusUnmarshalNormalizesChangeIdentity(t *testing.T) {
+	tests := []struct {
+		name       string
+		payload    string
+		wantForge  string
+		wantNumber int
+	}{
+		{"canonical gitlab", `{"kind":"range","forge":"gitlab","change_number":17}`, "gitlab", 17},
+		{"canonical github", `{"kind":"range","forge":"github","change_number":42}`, "github", 42},
+		{"legacy gitlab", `{"kind":"range","mr_number":17}`, "gitlab", 17},
+		{"legacy github", `{"kind":"range","pr_number":42}`, "github", 42},
+		{"unknown forge is preserved", `{"kind":"range","forge":"other","change_number":9}`, "other", 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var focus Focus
+			if err := json.Unmarshal([]byte(tt.payload), &focus); err != nil {
+				t.Fatal(err)
+			}
+			if focus.Forge != tt.wantForge || focus.ChangeNumber != tt.wantNumber {
+				t.Fatalf("focus = %+v", focus)
+			}
+		})
+	}
+}
 
 func TestFocus_DiffBaseSHA(t *testing.T) {
 	cases := []struct {
@@ -64,9 +91,9 @@ func TestFocus_ReadOnly(t *testing.T) {
 }
 
 func TestVisibleInFocus(t *testing.T) {
-	prFocus := Focus{Kind: FocusRange, DiffScope: DiffScopeLayer, PRNumber: 9}
-	prFocusFS := Focus{Kind: FocusRange, DiffScope: DiffScopeFullStack, PRNumber: 9}
-	otherPR := Focus{Kind: FocusRange, DiffScope: DiffScopeLayer, PRNumber: 10}
+	prFocus := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 9, DiffScope: DiffScopeLayer}
+	prFocusFS := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 9, DiffScope: DiffScopeFullStack}
+	otherPR := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 10, DiffScope: DiffScopeLayer}
 
 	layer := Comment{DiffScope: "layer", FocusKey: "pr:9"}
 	fs := Comment{DiffScope: "full_stack", FocusKey: "pr:9"}
@@ -99,7 +126,7 @@ func TestVisibleInFocus(t *testing.T) {
 
 func TestStampWithFocus(t *testing.T) {
 	wt := Focus{Kind: FocusWorkingTree, BaseRef: "abc"}
-	rng := Focus{Kind: FocusRange, HeadSHA: "deadbeef", DiffScope: DiffScopeLayer, PRNumber: 7}
+	rng := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 7, HeadSHA: "deadbeef", DiffScope: DiffScopeLayer}
 
 	got := stampWithFocus(Comment{Body: "x"}, wt)
 	if got.HeadSHA != "" || got.DiffScope != "" || got.FocusKey != "" {
@@ -123,7 +150,10 @@ func TestFocusKeyFor(t *testing.T) {
 	}{
 		{"working tree", Focus{Kind: FocusWorkingTree}, ""},
 		{"empty kind", Focus{}, ""},
-		{"range with PR", Focus{Kind: FocusRange, PRNumber: 42, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:42"},
+		{"range with GitHub change", Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:42"},
+		{"range with GitLab change", Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 17, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "mr:17"},
+		{"range with empty forge + change", Focus{Kind: FocusRange, ChangeNumber: 9, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:9"},
+		{"range with unknown forge", Focus{Kind: FocusRange, Forge: "other", ChangeNumber: 9, BaseSHA: "aaaaaaa", HeadSHA: "bbbbbbb"}, "pr:9"},
 		{"range without PR", Focus{Kind: FocusRange, BaseSHA: "aaaaaaa1234", HeadSHA: "bbbbbbb1234"}, "range:aaaaaaa1234..bbbbbbb1234"},
 	}
 	for _, c := range cases {
@@ -149,14 +179,26 @@ func TestFocusKeyFor_WireFormat(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "pr_number",
+			name: "github_change",
 			f: Focus{
-				Kind:     FocusRange,
-				PRNumber: 295,
-				BaseSHA:  "abc1234deadbeef",
-				HeadSHA:  "def5678cafef00d",
+				Kind:         FocusRange,
+				Forge:        "github",
+				ChangeNumber: 295,
+				BaseSHA:      "abc1234deadbeef",
+				HeadSHA:      "def5678cafef00d",
 			},
 			want: "pr:295",
+		},
+		{
+			name: "gitlab_change",
+			f: Focus{
+				Kind:         FocusRange,
+				Forge:        "gitlab",
+				ChangeNumber: 17,
+				BaseSHA:      "abc1234deadbeef",
+				HeadSHA:      "def5678cafef00d",
+			},
+			want: "mr:17",
 		},
 		{
 			name: "range_no_pr",
@@ -250,7 +292,7 @@ func TestCarryForwardComment_PreservesScope(t *testing.T) {
 func BenchmarkVisibleInFocus(b *testing.B) {
 	for _, n := range []int{10, 100, 500, 1000} {
 		comments := makeBenchComments(n)
-		f := Focus{Kind: FocusRange, PRNumber: 295, DiffScope: DiffScopeLayer}
+		f := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 295, DiffScope: DiffScopeLayer}
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {

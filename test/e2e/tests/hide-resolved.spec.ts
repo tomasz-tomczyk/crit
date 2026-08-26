@@ -84,6 +84,31 @@ test.describe('Hide Resolved', () => {
     await expect(resolvedBlock.first()).toBeVisible();
   });
 
+  // Cards hide via CSS; line highlights must update without a full file rebuild.
+  test('toggling hide-resolved drops has-comment on resolved ranges without rebuilding', async ({ page, request }) => {
+    await setupResolvedComment(request, 1);
+    await loadPage(page);
+    await page.locator('.file-section').filter({ hasText: 'plan.md' }).locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+    await expect(page.locator('.document-wrapper')).toBeVisible();
+
+    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
+
+    await section.evaluate(el => { (el as HTMLElement).dataset.critPreserveProbe = '1'; });
+
+    await page.keyboard.press('h');
+    await expect(section.locator('.comment-block:not(.panel-comment-block)').filter({
+      has: page.locator('.resolved-card'),
+    }).first()).toBeHidden();
+    await expect(section.locator('.line-block.has-comment')).toHaveCount(0);
+
+    const sameNode = await section.evaluate(el => (el as HTMLElement).dataset.critPreserveProbe === '1');
+    expect(sameNode).toBe(true);
+
+    await page.keyboard.press('h');
+    await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
+  });
+
   test('comment arrows skip hidden resolved comments in both directions', async ({ page, request }) => {
     await setupResolvedComment(request, 3);
     const mdPath = await getMdPath(request);

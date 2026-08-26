@@ -4,7 +4,10 @@ import { execSync } from "child_process";
 const dest = "web";
 
 // markdown-it
-cpSync("node_modules/markdown-it/dist/markdown-it.min.js", `${dest}/markdown-it.min.js`);
+cpSync("node_modules/markdown-it/dist/browser/markdown-it.umd.min.js", `${dest}/markdown-it.min.js`);
+
+// DOMPurify — used to sanitize HTML enabled in comment Markdown.
+cpSync("node_modules/dompurify/dist/purify.min.js", `${dest}/dompurify.min.js`);
 
 // highlight.js — bundle core + all languages + local patches into a single file.
 // Order: core (defines hljs) → languages (registers 'markdown') → patches

@@ -12,6 +12,7 @@ After the user explicitly asks to use Crit, launch it:
 crit $PLAN_FILE                       # Review a specific file
 crit                                  # Review all changed files in the repo
 crit --pr <num|url>                   # Review a GitHub PR (range mode)
+crit --mr <iid|url>                   # Review a GitLab MR (range mode)
 crit --range <baseSHA>..<headSHA>     # Review a commit range (range mode)
 ```
 
@@ -132,10 +133,10 @@ crit unpublish [file...]                              # Remove shared review
 Always relay the full output (URL, QR) directly in your response — don't make the user dig through tool output.
 - **`--org <slug>`** shares under an organization. Visibility defaults to `organization` (members only). Override with `--visibility` (`organization`, `unlisted`, `public`).
 
-### GitHub PR sync
+### GitHub PR / GitLab MR sync
 
 ```bash
-crit pull [pr-number]                                    # Fetch PR comments
+crit pull [number|url]                                   # Fetch PR/MR comments
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review as PR review
 ```
 

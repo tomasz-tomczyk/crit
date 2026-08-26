@@ -157,7 +157,7 @@ crit comment --output .crit src/auth.go:42 'comment'    # in-repo: .crit/reviews
 crit comment --clear   # remove the review file
 ```
 
-Comments are appended to the review file (stored in `~/.crit/reviews/`) and created automatically if it doesn't exist. Run `crit status` to see active review session IDs and paths. If multiple sessions match the same directory and branch, select one with `crit comment --session <id>`; an unqualified command fails instead of guessing.
+Comments are appended to the review file (stored in `~/.crit/reviews/`) and created automatically if it doesn't exist. Run `crit status` to see active review session IDs and paths. If multiple sessions match the same directory and branch, select one with `--session <id>` on `crit comment`, `crit comments`, `crit share`, `crit push`, or `crit pull`; an unqualified command fails instead of guessing.
 
 ### Share for Async Review
 
@@ -191,25 +191,41 @@ crit auth logout                   # log out and revoke token
 
 `crit auth login` uses the OAuth Device Flow - it opens your browser, you confirm, and the CLI receives a token automatically. The token is stored in your global config (`~/.crit.config.json`).
 
-### GitHub PR Sync
+### GitHub PR and GitLab MR Sync
 
-Crit can sync review comments bidirectionally with GitHub PRs. Requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
+Crit can review and sync comments bidirectionally with GitHub pull requests and GitLab merge requests. Install and authenticate the CLI for your forge: [GitHub CLI](https://cli.github.com) (`gh auth login`) or [GitLab CLI](https://gitlab.com/gitlab-org/cli) (`glab auth login`). GitLab.com, self-managed GitLab hosts, nested groups, and cross-project merge requests are supported.
 
-#### Pull comments from a PR
+Crit auto-detects GitHub or GitLab from the repository remote. Set `"forge": "github"` or `"forge": "gitlab"` in config to override ambiguous/self-managed remotes, or pass `--forge` to `crit pull` and `crit push`. GitLab's base URL is configured once with `gitlab_url` and defaults to `https://gitlab.com`; set it to your self-managed instance in `.crit.config.json`. MR URLs remain valid change identifiers, but their host must match the configured `gitlab_url`.
 
-```bash
-crit pull              # auto-detects PR from current branch
-crit pull 42           # explicit PR number
-```
-
-#### Push comments to a PR
+#### Open a remote change for review
 
 ```bash
-crit push                          # auto-detects PR from current branch
-crit push --dry-run                # preview without posting
-crit push --message "Round 2"      # add a top-level review comment
-crit push 42                       # explicit PR number
+crit pr 42                                  # GitHub pull request
+crit mr 42                                  # GitLab MR in the current project
+crit mr https://gitlab.com/group/sub/project/-/merge_requests/42
+crit review --mr 42 --remote                # read MR files via GitLab instead of local git
 ```
+
+#### Pull comments
+
+```bash
+crit pull                                  # auto-detect from current branch and remote
+crit pull 42                               # explicit PR number or MR IID
+crit pull --forge gitlab 42                # explicit provider
+crit pull https://gitlab.com/group/project/-/merge_requests/42
+```
+
+#### Push comments and review outcomes
+
+```bash
+crit push                                      # auto-detect PR/MR from current branch
+crit push --dry-run                            # preview without posting
+crit push --message "Round 2"                  # add a review summary
+crit push --event approve 42                   # approve
+crit push --event request-changes --forge gitlab 42
+```
+
+GitLab inline comments are published as a single review using Draft Notes. `request-changes` requires GitLab support for the `reviewer_state=requested_changes` bulk-publish option; Crit reports an error instead of silently downgrading the outcome. Pulling again imports replies, edits, deletes, and discussion resolution without duplicating local comments.
 
 ### Send to agent (experimental)
 
@@ -276,6 +292,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
 - **Live file watching.** The browser reloads automatically when the source file changes.
 - **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
+- **Configurable code font.** Code-review Settings → Display → Code font lists coding/monospace fonts detected by the local Crit daemon, plus Default, System monospace, and a custom `font-family` fallback. Applies to code and diffs, and persists across sessions.
 - **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share. Non-loopback listen hosts and `public_url` require `--allow-unauthenticated-network` (or `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`) because Crit has no network authentication — prefer SSH forwarding, Tailscale Serve to loopback, or Docker `-p 127.0.0.1:…`.
 - **Collapsing generated files.** Honors `linguist-generated` in `.gitattributes` — matching files appear collapsed by default.
 - **No analytics or tracking.** Crit collects zero telemetry. No usage stats, no crash reports, no phone-home. If we ever add anonymous usage statistics in the future, they will be explicitly opt-in.
@@ -309,6 +326,8 @@ All keys are optional — omit any you don't need.
 | `quiet`                | bool     | `false`                    | On success, suppress daemon connect/start lines, integration tips, and the session summary. Errors, `approved:`, and the finish prompt are unchanged. |
 | `output`               | string   | `~/.crit`                  | Crit data root for reviews. Reviews live in `<root>/reviews/<key>/` (same layout as the default). A leftover `<root>/.crit` from when `output` named a single review folder is still used (with a warning) until you move or remove it. |
 | `author`               | string   | VCS user name              | Author name shown on comments. Falls back to your configured VCS user name.                                                                                                            |
+| `forge`                | string   | `"auto"`                   | Remote review provider: `"auto"`, `"github"`, or `"gitlab"`. Auto-detection uses the repository remote; set this for ambiguous self-managed hosts. |
+| `gitlab_url`           | string   | `"https://gitlab.com"`     | GitLab base URL used for every MR operation. Set once for a self-managed instance; MR URL arguments must use the same host. |
 | `base_branch`          | string   | auto-detected              | Base branch to diff against (e.g. `"main"`, `"develop"`). Overrides auto-detection.                                                                                                     |
 | `ignore_patterns`      | string[] | `[".crit/"]` | File patterns to exclude from git-mode file lists. Global and project patterns are merged.                                                                                              |
 | `auto_viewed_patterns` | string[] | `[]`                       | File patterns auto-marked as viewed (collapsed) once when a review opens — e.g. `["*.lock", "generated/", "PLAN.md"]`. Manually un-marking a file keeps it open. Global and project patterns are merged. |

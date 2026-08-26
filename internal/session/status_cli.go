@@ -33,49 +33,60 @@ func RunStatus(args []string) error {
 		branch = backend.CurrentBranch()
 	}
 
-	sessions, sessionKeys, err := daemon.ListSessionsForCWDWithKeys(cwd)
+	sessions, sessionKeys, matchedSession, err := loadStatusSessions(cwd, branch, backend)
 	if err != nil {
 		return err
 	}
+
+	ambiguous := len(sessions) > 1
+	var revPath string
+	revExists := false
+	if !ambiguous {
+		revPath, err = resolveStatusReviewPath(cwd, branch, matchedSession)
+		if err != nil {
+			return err
+		}
+		if _, statErr := os.Stat(ReviewPathsFor(revPath).Review); statErr == nil {
+			revExists = true
+		}
+	}
+
+	if jsonOutput {
+		printStatusJSON(vcsName, branch, revPath, revExists, matchedSession, sessions, sessionKeys, ambiguous)
+		return nil
+	}
+
+	printStatusHuman(vcsName, branch, revPath, revExists, matchedSession, sessions, sessionKeys, ambiguous)
+	return nil
+}
+
+func loadStatusSessions(cwd, branch string, backend vcs.VCS) ([]daemon.SessionEntry, []string, *daemon.SessionEntry, error) {
+	sessions, sessionKeys, err := daemon.ListSessionsForCWDWithKeys(cwd)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	sessions, sessionKeys = daemon.SessionsForBranch(sessions, sessionKeys, branch)
-	matchedSession := selectStatusSession(sessions, branch)
-	if matchedSession == nil && backend != nil {
+	matchedSession := selectStatusSession(sessions)
+	if matchedSession == nil && len(sessions) == 0 && backend != nil {
 		if repoRoot, rootErr := backend.RepoRoot(); rootErr == nil {
 			repoSessions, repoKeys := daemon.ListSessionsForRepoRoot(repoRoot)
 			repoSessions, repoKeys = daemon.SessionsForBranch(repoSessions, repoKeys, branch)
-			matchedSession = selectStatusSession(repoSessions, branch)
-			if matchedSession != nil {
+			matchedSession = selectStatusSession(repoSessions)
+			if matchedSession != nil || len(repoSessions) > 0 {
 				sessions, sessionKeys = repoSessions, repoKeys
 			}
 		}
 	}
-
-	revPath, err := resolveStatusReviewPath(cwd, branch, matchedSession)
-	if err != nil {
-		return err
-	}
-
-	revExists := false
-	if _, statErr := os.Stat(ReviewPathsFor(revPath).Review); statErr == nil {
-		revExists = true
-	}
-
-	if jsonOutput {
-		printStatusJSON(vcsName, branch, revPath, revExists, matchedSession, sessions, sessionKeys)
-		return nil
-	}
-
-	printStatusHuman(vcsName, branch, revPath, revExists, matchedSession, sessions, sessionKeys)
-	return nil
+	return sessions, sessionKeys, matchedSession, nil
 }
 
-func selectStatusSession(sessions []daemon.SessionEntry, branch string) *daemon.SessionEntry {
-	for i, s := range sessions {
-		if s.Branch == branch || (branch == "" && len(sessions) == 1) {
-			return &sessions[i]
-		}
+// selectStatusSession returns the sole matching session, or nil when zero or
+// multiple sessions match (callers must not invent an arbitrary primary).
+func selectStatusSession(sessions []daemon.SessionEntry) *daemon.SessionEntry {
+	if len(sessions) != 1 {
+		return nil
 	}
-	return nil
+	return &sessions[0]
 }
 
 func resolveStatusReviewPath(cwd, branch string, matchedSession *daemon.SessionEntry) (string, error) {
@@ -93,23 +104,29 @@ func resolveStatusReviewPath(cwd, branch string, matchedSession *daemon.SessionE
 	return daemon.ReviewFilePath(key)
 }
 
-func printStatusJSON(vcsName, branch, revPath string, revExists bool, selected *daemon.SessionEntry, sessions []daemon.SessionEntry, sessionKeys []string) {
+func printStatusJSON(vcsName, branch, revPath string, revExists bool, selected *daemon.SessionEntry, sessions []daemon.SessionEntry, sessionKeys []string, ambiguous bool) {
 	result := map[string]interface{}{
-		"vcs":                vcsName,
-		"branch":             branch,
-		"review_file":        ReviewPathsFor(revPath).Review,
-		"review_file_exists": revExists,
+		"vcs":    vcsName,
+		"branch": branch,
 	}
-	daemon := map[string]interface{}{"running": false}
+	if ambiguous {
+		result["review_file"] = nil
+		result["review_file_exists"] = false
+		result["note"] = "multiple active review sessions match; choose one with --session <id> (see sessions)"
+	} else {
+		result["review_file"] = ReviewPathsFor(revPath).Review
+		result["review_file_exists"] = revExists
+	}
+	daemonInfo := map[string]interface{}{"running": false}
 	if selected != nil {
-		daemon["running"] = true
-		daemon["pid"] = selected.PID
-		daemon["port"] = selected.Port
+		daemonInfo["running"] = true
+		daemonInfo["pid"] = selected.PID
+		daemonInfo["port"] = selected.Port
 	}
-	result["daemon"] = daemon
+	result["daemon"] = daemonInfo
 	result["sessions"] = statusSessionsJSON(sessions, sessionKeys)
 
-	if revExists {
+	if !ambiguous && revExists {
 		addReviewStats(result, revPath)
 	}
 
@@ -158,21 +175,26 @@ func addReviewStats(result map[string]interface{}, revPath string) {
 	}
 }
 
-func printStatusHuman(vcsName, branch, revPath string, revExists bool, selected *daemon.SessionEntry, sessions []daemon.SessionEntry, sessionKeys []string) {
+func printStatusHuman(vcsName, branch, revPath string, revExists bool, selected *daemon.SessionEntry, sessions []daemon.SessionEntry, sessionKeys []string, ambiguous bool) {
 	if vcsName != "" {
 		fmt.Printf("VCS:         %s\n", vcsName)
 	}
 	if branch != "" {
 		fmt.Printf("Branch:      %s\n", branch)
 	}
-	fmt.Printf("Review file: %s\n", ReviewPathsFor(revPath).Review)
-	if selected != nil {
-		fmt.Printf("Daemon:      running (PID %d, port %d)\n", selected.PID, selected.Port)
+	if ambiguous {
+		fmt.Println("Review file: (ambiguous — multiple active sessions; use --session <id>)")
+		fmt.Println("Daemon:      ambiguous (see Active reviews)")
 	} else {
-		fmt.Println("Daemon:      not running")
+		fmt.Printf("Review file: %s\n", ReviewPathsFor(revPath).Review)
+		if selected != nil {
+			fmt.Printf("Daemon:      running (PID %d, port %d)\n", selected.PID, selected.Port)
+		} else {
+			fmt.Println("Daemon:      not running")
+		}
 	}
 	printActiveStatusSessions(sessions, sessionKeys)
-	if !revExists {
+	if ambiguous || !revExists {
 		return
 	}
 	data, err := os.ReadFile(ReviewPathsFor(revPath).Review)

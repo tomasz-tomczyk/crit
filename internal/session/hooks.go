@@ -31,8 +31,11 @@ func FocusKeyArgs(sc *CLIReviewConfig) []string {
 		}
 		return sc.Files
 	}
-	if sc.Focus.PRNumber > 0 {
-		return []string{fmt.Sprintf("pr:%d", sc.Focus.PRNumber)}
+	if sc.Focus.ChangeNumber > 0 {
+		if sc.Focus.Forge == "gitlab" {
+			return []string{fmt.Sprintf("mr:%d", sc.Focus.ChangeNumber)}
+		}
+		return []string{fmt.Sprintf("pr:%d", sc.Focus.ChangeNumber)}
 	}
 	return []string{fmt.Sprintf("range:%s..%s", sc.Focus.BaseSHA, sc.Focus.HeadSHA)}
 }
