@@ -38,9 +38,11 @@ func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (h
 	if err != nil {
 		return nil, fmt.Errorf("parsing upstream origin %q: %w", upstreamOrigin, err)
 	}
-	// Drop the path so SetURL doesn't join it onto every proxied request
+	// Keep only scheme+host so SetURL doesn't join path/query onto every request
 	target.Path = ""
 	target.RawPath = ""
+	target.RawQuery = ""
+	target.Fragment = ""
 
 	// Use a transport with DisableCompression=true so http.Transport does
 	// not silently re-add Accept-Encoding: gzip after our Rewrite strips
@@ -294,12 +296,21 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 		return nil // relative — already proxy-relative
 	}
 	if locURL.Host == upstream.Host || locURL.Host == resp.Request.Header.Get("X-Forwarded-Host") {
-		locURL.Scheme = ""
-		locURL.Host = ""
-		if locURL.Path == "" {
-			locURL.Path = "/"
+		// Build a path-absolute Location. Clearing Scheme/Host and calling
+		// String() is unsafe: a path starting with "//" (or leftover User)
+		// becomes protocol-relative and leaves the proxy origin.
+		path := locURL.EscapedPath()
+		if path == "" {
+			path = "/"
 		}
-		resp.Header.Set("Location", locURL.String())
+		for strings.HasPrefix(path, "//") {
+			path = "/" + strings.TrimLeft(path, "/")
+		}
+		loc := path
+		if locURL.RawQuery != "" {
+			loc += "?" + locURL.RawQuery
+		}
+		resp.Header.Set("Location", loc)
 		return nil
 	}
 	// Cross-origin: replace with 200 postMessage stub.
