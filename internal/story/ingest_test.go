@@ -186,8 +186,7 @@ func TestIngest_AutoRepairAtFloor(t *testing.T) {
 	}
 	if repaired == nil {
 		t.Fatal("expected an auto-repaired support entry")
-	}
-	if len(repaired.HunkRefs) != 2 {
+	} else if len(repaired.HunkRefs) != 2 {
 		t.Fatalf("expected 2 back-filled hunks, got %d", len(repaired.HunkRefs))
 	}
 }
