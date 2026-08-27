@@ -379,6 +379,34 @@ func TestProxyRewrite_RefererDropsUserinfoAndFragment(t *testing.T) {
 	}
 }
 
+func TestRewriteReferer(t *testing.T) {
+	upstream, err := url.Parse("http://app.test:3000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := "http://app.test:3000"
+	cases := []struct {
+		name string
+		ref  string
+		want string
+	}{
+		{name: "keeps path and query", ref: "http://127.0.0.1:9/claims/create?step=2", want: origin + "/claims/create?step=2"},
+		{name: "drops userinfo and fragment", ref: "http://user:pass@127.0.0.1:9/claims/create#x", want: origin + "/claims/create"},
+		{name: "collapses double-slash path", ref: "http://127.0.0.1:9//evil.com/x", want: origin + "/evil.com/x"},
+		{name: "relative without slash", ref: "claims/create", want: origin + "/claims/create"},
+		{name: "empty path becomes slash", ref: "http://127.0.0.1:9", want: origin + "/"},
+		{name: "unparseable falls back to origin", ref: "://bad", want: origin},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rewriteReferer(tc.ref, upstream)
+			if got != tc.want {
+				t.Errorf("rewriteReferer(%q) = %q, want %q", tc.ref, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestProxyRewrite_SendsForwardedHeaders(t *testing.T) {
 	var gotHost, gotProto, gotPort, gotFor string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

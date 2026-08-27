@@ -404,14 +404,26 @@ func BindProxyServer(upstreamOrigin string, apiPort int, upstreamCookies string)
 }
 
 // rewriteReferer swaps in the upstream origin but keeps the referring page's own path
-// and query, which frameworks read to work out where "redirect back" should land
+// and query, which frameworks read to work out where "redirect back" should land.
+// Path is built the same way as rewriteRedirect: never via url.URL.String(), and
+// leading "//" is collapsed so a forged Referer cannot become protocol-relative
+// when an app turns it into a Location.
 func rewriteReferer(ref string, upstream *url.URL) string {
 	origin := upstream.Scheme + "://" + upstream.Host
 	refURL, err := url.Parse(ref)
 	if err != nil {
 		return origin
 	}
-	out := origin + refURL.EscapedPath()
+	path := refURL.EscapedPath()
+	if path == "" {
+		path = "/"
+	} else if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	for strings.HasPrefix(path, "//") {
+		path = "/" + strings.TrimLeft(path, "/")
+	}
+	out := origin + path
 	if refURL.RawQuery != "" {
 		out += "?" + refURL.RawQuery
 	}
