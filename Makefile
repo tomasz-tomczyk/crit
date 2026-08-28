@@ -30,7 +30,7 @@ test:
 	go test ./...
 
 test-frontend:
-	bun run test:frontend
+	npm run test:frontend
 
 setup-hooks:
 	git config core.hooksPath .githooks
