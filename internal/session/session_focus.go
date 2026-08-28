@@ -361,9 +361,10 @@ func validateFocusSHAs(f Focus, v vcs.VCS, repoRoot string, remoteFiles bool) er
 }
 
 // canonicalizeFocusSHAs rewrites BaseSHA/HeadSHA/DefaultSHA to full commit
-// OIDs. Branch names and abbreviated SHAs are accepted by validateFocusSHAs
-// (HasObject resolves them), but leaving them in Focus makes focusKeyFor
-// unstable across stack navigation that re-enters with resolved OIDs.
+// OIDs. Branch names and abbreviated SHAs pass validateFocusSHAs
+// (EnsureSHAFetched checks presence via HasObject); this function then
+// resolves them to full OIDs so focusKeyFor stays stable across stack
+// navigation that re-enters with resolved OIDs.
 // No-op for working-tree focus, remote mode, or missing VCS/repo.
 func canonicalizeFocusSHAs(f *Focus, v vcs.VCS, repoRoot string, remoteFiles bool) error {
 	if f == nil || f.Kind != FocusRange || remoteFiles || v == nil || repoRoot == "" {

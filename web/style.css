@@ -1646,6 +1646,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
+  overflow-x: auto;
 }
 .comment-body p { margin: 0 0 0.5em 0; }
 .comment-body p:last-child { margin-bottom: 0; }
@@ -1811,7 +1812,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   font-family: var(--crit-font-body);
   font-size: 14px;
   line-height: 1.6;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .reply-body ul, .reply-body ol {

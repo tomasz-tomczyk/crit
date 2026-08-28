@@ -18,6 +18,14 @@ async function expectCellBorder(cell: Locator) {
   }
 }
 
+async function expectAllCellBorders(table: Locator) {
+  const cells = table.locator('th, td');
+  await expect(cells).not.toHaveCount(0);
+  for (const cell of await cells.all()) {
+    await expectCellBorder(cell);
+  }
+}
+
 test.describe('Comment tables', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
@@ -41,8 +49,7 @@ test.describe('Comment tables', () => {
     await expect(table.locator('th')).toHaveCount(3);
     await expect(table.locator('tbody tr')).toHaveCount(2);
 
-    await expectCellBorder(table.locator('th').first());
-    await expectCellBorder(table.locator('td').first());
+    await expectAllCellBorders(table);
   });
 
   test('a table in a reply draws a border on every cell', async ({ page, request }) => {
@@ -60,7 +67,6 @@ test.describe('Comment tables', () => {
     await expect(table).toBeVisible();
     await expect(table.locator('th')).toHaveCount(3);
 
-    await expectCellBorder(table.locator('th').first());
-    await expectCellBorder(table.locator('td').first());
+    await expectAllCellBorders(table);
   });
 });

@@ -283,6 +283,44 @@ const routeAnnouncerScript = `<script data-crit-route-announcer>
 })();
 </script>`
 
+// sameOriginRedirectHost reports whether locHost names the same origin as the
+// upstream or forwarded proxy host. Loopback aliases (localhost, 127.0.0.1,
+// ::1) normalize together so framework redirects that hardcode a different
+// loopback literal still rewrite to a proxy-relative Location.
+func sameOriginRedirectHost(locHost, upstreamHost, forwardedHost string) bool {
+	if locHost == upstreamHost || (forwardedHost != "" && locHost == forwardedHost) {
+		return true
+	}
+	locKey := redirectHostKey(locHost)
+	if locKey == "" {
+		return false
+	}
+	if locKey == redirectHostKey(upstreamHost) {
+		return true
+	}
+	return forwardedHost != "" && locKey == redirectHostKey(forwardedHost)
+}
+
+func redirectHostKey(host string) string {
+	if host == "" {
+		return ""
+	}
+	h, port, err := net.SplitHostPort(host)
+	if err != nil {
+		h = host
+		port = ""
+	}
+	h = strings.ToLower(h)
+	switch h {
+	case "localhost", "127.0.0.1", "::1":
+		h = "loopback"
+	}
+	if port == "" {
+		return h
+	}
+	return net.JoinHostPort(h, port)
+}
+
 func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	loc := resp.Header.Get("Location")
 	if loc == "" {
@@ -295,7 +333,7 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	if locURL.Host == "" {
 		return nil // relative — already proxy-relative
 	}
-	if locURL.Host == upstream.Host || locURL.Host == resp.Request.Header.Get("X-Forwarded-Host") {
+	if sameOriginRedirectHost(locURL.Host, upstream.Host, resp.Request.Header.Get("X-Forwarded-Host")) {
 		// Build a path-absolute Location. Clearing Scheme/Host and calling
 		// String() is unsafe: a path starting with "//" (or leftover User)
 		// becomes protocol-relative and leaves the proxy origin.

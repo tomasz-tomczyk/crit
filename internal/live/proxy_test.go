@@ -507,6 +507,37 @@ func TestProxyModifyResponse_AbsoluteSameOriginRedirectRewritten(t *testing.T) {
 	}
 }
 
+func TestProxyModifyResponse_LoopbackAliasRedirectRewritten(t *testing.T) {
+	var redirectPort string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://127.0.0.1:"+redirectPort+"/dashboard")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	upURL, _ := url.Parse(upstream.URL)
+	redirectPort = upURL.Port()
+	proxy, _ := newLiveProxy("http://localhost:"+redirectPort, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if strings.Contains(string(body), "cross-origin-redirect") {
+		t.Fatal("loopback alias redirect was treated as cross-origin")
+	}
+	if loc := resp.Header.Get("Location"); loc != "/dashboard" {
+		t.Errorf("Location = %q, want %q", loc, "/dashboard")
+	}
+}
+
 func TestProxyModifyResponse_SameOriginRedirectStripsUserinfo(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", "http://user:pass@"+r.Host+"/admin")

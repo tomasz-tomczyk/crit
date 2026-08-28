@@ -28,9 +28,12 @@ test('style.css: .reply-body declares body font', () => {
   assertReplyBodyUsesBodyFont(css, 'crit/web/style.css');
 });
 
-test('crit-web app.css parity: .reply-body declares body font', () => {
+test('crit-web app.css parity: .reply-body declares body font', (t) => {
   const webCss = path.resolve(__dirname, '../../../crit-web/assets/css/app.css');
-  assert.ok(fs.existsSync(webCss), 'expected crit-web CSS at ' + webCss);
+  if (!fs.existsSync(webCss)) {
+    t.skip('crit-web checkout not present');
+    return;
+  }
   const css = fs.readFileSync(webCss, 'utf8');
   assertReplyBodyUsesBodyFont(css, 'crit-web/assets/css/app.css');
 });

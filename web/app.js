@@ -5061,7 +5061,7 @@
 
     if (candidates.length === 0) return null;
 
-    // Prefer the side where the user started dragging (anchorNode). Range
+    // Prefer the side where the user started selecting (anchorNode). Range
     // startContainer is document-order and wrong for reverse selections.
     // Split multi-line / unified del+add often intersect both sides.
     let preferredSide = preferredSideFromNode(selection.anchorNode);
@@ -9752,7 +9752,7 @@
         // Prefer text clipped to side-filtered contentEls so unified del+add
         // selections don't pollute the quote with the opposite side.
         const clipped = selectedTextWithinElements(selection, contentEls);
-        if (clipped) selectedText = clipped;
+        if (contentEls.length > 0) selectedText = clipped;
 
         const normalizedSelected = selectedText.replace(/\s+/g, ' ');
         const normalizedFull = fullText.trim().replace(/\s+/g, ' ');

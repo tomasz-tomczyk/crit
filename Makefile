@@ -30,8 +30,7 @@ test:
 	go test ./...
 
 test-frontend:
-	node web/__tests__/markdown-patch.test.mjs
-	node web/test-diff-render.mjs
+	bun run test:frontend
 
 setup-hooks:
 	git config core.hooksPath .githooks

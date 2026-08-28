@@ -32,6 +32,17 @@ func TestJJVCS_RepoRoot(t *testing.T) {
 	}
 }
 
+func TestResolveCommitOID_JJBookmark(t *testing.T) {
+	dir := initTestJJRepoWithLocalMain(t)
+	oid, err := ResolveCommitOID(&JJVCS{}, "main", dir)
+	if err != nil {
+		t.Fatalf("ResolveCommitOID(main): %v", err)
+	}
+	if len(oid) < 12 {
+		t.Fatalf("ResolveCommitOID(main) = %q, want full commit id", oid)
+	}
+}
+
 func TestJJVCS_CurrentBranch_BookmarkAndChangeIDFallback(t *testing.T) {
 	dir := initTestJJRepoWithLocalMain(t)
 	withCwd(t, dir)
