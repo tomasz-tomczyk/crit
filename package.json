@@ -6,7 +6,7 @@
     "dompurify": "3.4.13",
     "highlightjs-heex": "^1.0.1",
     "markdown-it": "^15.0.0",
-    "mermaid": "^11.16.1"
+    "mermaid": "^11.17.2"
   },
   "scripts": {
     "update-deps": "node copy-deps.js",
