@@ -9,7 +9,7 @@
     "mermaid": "^11.16.1"
   },
   "scripts": {
-    "update-deps": "bun run copy-deps.js",
+    "update-deps": "node copy-deps.js",
     "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node web/test-diff-render.mjs"
   },
   "devDependencies": {

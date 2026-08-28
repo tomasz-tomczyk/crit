@@ -23,8 +23,8 @@ build-all:
 	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-arm64.exe ./cmd/crit
 
 update-deps:
-	bun install
-	bun run update-deps
+	npm install
+	npm run update-deps
 
 test:
 	go test ./...
