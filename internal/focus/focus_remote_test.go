@@ -34,14 +34,21 @@ func (f *fakeStackVCS) HasObject(_, _ string) bool {
 	return false
 }
 
-func TestResolveFocus_RangeRemoteSkipsHasObject(t *testing.T) {
-	v := &fakeStackVCS{name: "git", hasSeq: nil}
+func TestResolveFocus_RangeRemoteSkipsLocalValidation(t *testing.T) {
+	v := &fakeStackVCS{name: "git", hasSeq: []bool{true, true}}
 	f, err := ResolveFocus(ChangeSpec{}, "abc..def", "", true, v, t.TempDir())
 	if err != nil {
-		t.Fatalf("expected --remote to skip HasObject, got err: %v", err)
+		t.Fatalf("expected --remote to skip local validation, got err: %v", err)
 	}
-	if f == nil || f.HeadSHA != "def" {
-		t.Errorf("got %+v", f)
+	if f == nil {
+		t.Fatal("expected focus")
+	}
+	// Remote mode keeps symbolic refs — no HasObject and no OID canonicalization.
+	if f.BaseSHA != "abc" || f.HeadSHA != "def" {
+		t.Errorf("remote range should keep symbolic refs, got BaseSHA=%q HeadSHA=%q", f.BaseSHA, f.HeadSHA)
+	}
+	if v.hasCalls != 0 {
+		t.Errorf("HasObject called %d times in remote mode, want 0", v.hasCalls)
 	}
 }
 

@@ -200,7 +200,7 @@ func (j *JJVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir strin
 		}
 		args = append(args, "--from", jjCommitRevset(base), "--to", "@")
 	}
-	args = append(args, "--", path)
+	args = append(args, "--", jjFileset(path))
 	out, err := jjCommandInDirCtx(ctx, dir, args...)
 	if err != nil {
 		return nil, err
@@ -220,7 +220,7 @@ func (j *JJVCS) FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) 
 	if err != nil {
 		return nil, err
 	}
-	args := append(jjDiffArgs(ignoreWhitespace), "-r", jjCommitRevset(rev), "--", path)
+	args := append(jjDiffArgs(ignoreWhitespace), "-r", jjCommitRevset(rev), "--", jjFileset(path))
 	out, err := JJCommandInDir(dir, args...)
 	if err != nil {
 		return nil, err
@@ -380,7 +380,7 @@ func (j *JJVCS) FileDiffBetweenSHAs(path, _ string, baseSHA, headSHA, dir string
 	if err != nil {
 		return nil, err
 	}
-	args := append(jjDiffArgs(ignoreWhitespace), "--from", jjCommitRevset(base), "--to", jjCommitRevset(head), "--", path)
+	args := append(jjDiffArgs(ignoreWhitespace), "--from", jjCommitRevset(base), "--to", jjCommitRevset(head), "--", jjFileset(path))
 	out, err := JJCommandInDir(dir, args...)
 	if err != nil {
 		return nil, err
@@ -393,7 +393,7 @@ func (j *JJVCS) ReadFileAtSHA(sha, path, dir string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := jjCommandBytesInDir(dir, "file", "show", "-r", jjCommitRevset(rev), "--", path)
+	out, err := jjCommandBytesInDir(dir, "file", "show", "-r", jjCommitRevset(rev), "--", jjFileset(path))
 	if err != nil {
 		return nil, nil //nolint:nilerr // a missing path at a valid commit is not an error for callers
 	}
@@ -567,6 +567,16 @@ func JJCommitSubject(dir, sha string) string {
 
 func jjCommitRevset(sha string) string {
 	return fmt.Sprintf("commit_id(%q)", strings.TrimSpace(sha))
+}
+
+// jjFileset wraps a path in jj's file: pattern. jj parses path arguments as
+// fileset expressions even after "--", so a bare path containing an operator
+// character either fails to parse ("(") or silently matches nothing ("["),
+// and the file renders as unchanged (issue #858). Next.js route groups and
+// dynamic segments hit this on every path. file: keeps the cwd-relative
+// resolution a bare path already had.
+func jjFileset(path string) string {
+	return fmt.Sprintf("file:%q", path)
 }
 
 func isJJRootCommitID(sha string) bool {

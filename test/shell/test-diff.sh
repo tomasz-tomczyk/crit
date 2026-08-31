@@ -583,8 +583,15 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/comments" \
     "author": "reviewer"
   }' > /dev/null
 
-# Finish the review to write the review file
-REVIEW_FILE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" | python3 -c "import json, sys; print(json.load(sys.stdin)['review_file'])")
+# Finish the review to write the review file. /api/finish reports the review
+# itself and not where it landed, so read the path from /api/config: review_path
+# names the identity folder that holds review.json.
+curl -sf -X POST "http://127.0.0.1:$PORT/api/finish" > /dev/null
+REVIEW_FILE=$(curl -sf "http://127.0.0.1:$PORT/api/config" | python3 -c "
+import json, os, sys
+path = json.load(sys.stdin)['review_path']
+print(path if path.endswith('review.json') else os.path.join(path, 'review.json'))
+")
 
 # --- Seed GitHub-synced comments (issue #370) ---
 # The POST API has no `github_id` field (synced comments normally arrive via
@@ -788,6 +795,34 @@ curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/comment/$FOLDED_C/replies
     "author": "agent"
   }' > /dev/null
 
+# --- Markdown table in a diff comment and in a reply ---
+# A table is how an agent lists the call sites it checked. Both bodies must
+# render with a border on every cell; without one the columns run together.
+# The rows sit one per line so the table reads as a table in this file too.
+TABLE_C=$(curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/file/comments?path=main.go" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_line": 10, "end_line": 10,
+    "body": "The handler answers three probes. Here is what each one gets today:\n\n'\
+'| Probe | Path | Body |\n'\
+'| --- | --- | --- |\n'\
+'| kubelet | `/health` | `{\"status\":\"ok\"}` |\n'\
+'| load balancer | `/ready` | 404 |\n'\
+'| operator | `/version` | 404 |\n\n'\
+'The last two need a route."
+  }' | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/comment/$TABLE_C/replies?path=main.go" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "body": "| Route | Handler | Status |\n'\
+'| --- | --- | --- |\n'\
+'| `/health` | healthHandler | done |\n'\
+'| `/ready` | readyHandler | open |\n'\
+'| `/version` | versionHandler | open |",
+    "author": "agent"
+  }' > /dev/null
+
 # --- Instance 5: seed two layer-scope comments on b.txt + verify stamping ---
 curl -sf -X DELETE "http://127.0.0.1:$RANGE_PORT/api/comments" > /dev/null
 
@@ -913,6 +948,11 @@ echo "  spacer gap between the /health and startup-code hunks. The spacer should
 echo "  auto-expand so the comment + agent reply are visible inline."
 echo "  The first spacer (respondJSON/logRequest) stays folded — no comments there."
 echo "  Open the All Comments panel (Shift+C) and click the comment to scroll to it."
+echo ""
+echo "Instance 2 — table in a comment and in a reply:"
+echo "  main.go line 10 carries a comment whose body is a markdown table, and a"
+echo "  reply that is a table as well. Every cell draws a border, the header row"
+echo "  sits on a raised background, and the columns stay apart in both themes."
 echo ""
 echo "Carry-forward comments placed on v1 content (instances 3 & 4):"
 echo "  C1 (lines 31-32): sessions table description"

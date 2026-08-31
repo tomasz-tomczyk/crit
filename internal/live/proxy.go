@@ -30,17 +30,22 @@ var agentScriptFiles = []string{
 }
 
 // newLiveProxy builds a reverse proxy for a live-mode session.
-// upstreamOrigin is the target URL, optionally including a path prefix
-// (e.g. "http://localhost:3000" or "http://localhost:3333/live.html").
+// upstreamOrigin is the target URL. Any path on it is the iframe's initial
+// route, loaded by the frontend.
 // apiPort is the API server's port, used to construct the agent script URL.
 func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (http.Handler, error) {
 	target, err := url.Parse(upstreamOrigin)
 	if err != nil {
 		return nil, fmt.Errorf("parsing upstream origin %q: %w", upstreamOrigin, err)
 	}
+	// Keep only scheme+host so SetURL doesn't join path/query onto every request
+	target.Path = ""
+	target.RawPath = ""
+	target.RawQuery = ""
+	target.Fragment = ""
 
 	// Use a transport with DisableCompression=true so http.Transport does
-	// not silently re-add Accept-Encoding: gzip after our Director strips
+	// not silently re-add Accept-Encoding: gzip after our Rewrite strips
 	// it. Stripping matters because we need the upstream body uncompressed
 	// in order to inject scripts.
 	transport := &http.Transport{
@@ -53,21 +58,25 @@ func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (h
 	}
 
 	rp := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Scheme = target.Scheme
-			req.URL.Host = target.Host
-			req.Host = target.Host
-			req.Header.Del("Accept-Encoding")
-			req.Header.Del("If-None-Match")
-			req.Header.Del("If-Modified-Since")
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			// SetURL sends the upstream's own Host, so tell the app where the
+			// proxy is and let it generate URLs pointing back at us
+			pr.SetXForwarded()
+			if _, port, err := net.SplitHostPort(pr.In.Host); err == nil {
+				pr.Out.Header.Set("X-Forwarded-Port", port)
+			}
+			pr.Out.Header.Del("Accept-Encoding")
+			pr.Out.Header.Del("If-None-Match")
+			pr.Out.Header.Del("If-Modified-Since")
 			if upstreamCookies != "" {
-				req.Header.Set("Cookie", upstreamCookies)
+				pr.Out.Header.Set("Cookie", upstreamCookies)
 			}
-			if req.Header.Get("Origin") != "" {
-				req.Header.Set("Origin", target.Scheme+"://"+target.Host)
+			if pr.Out.Header.Get("Origin") != "" {
+				pr.Out.Header.Set("Origin", target.Scheme+"://"+target.Host)
 			}
-			if req.Header.Get("Referer") != "" {
-				req.Header.Set("Referer", target.Scheme+"://"+target.Host+req.URL.Path)
+			if ref := pr.Out.Header.Get("Referer"); ref != "" {
+				pr.Out.Header.Set("Referer", rewriteReferer(ref, target))
 			}
 		},
 		Transport:      transport,
@@ -274,6 +283,44 @@ const routeAnnouncerScript = `<script data-crit-route-announcer>
 })();
 </script>`
 
+// sameOriginRedirectHost reports whether locHost names the same origin as the
+// upstream or forwarded proxy host. Loopback aliases (localhost, 127.0.0.1,
+// ::1) normalize together so framework redirects that hardcode a different
+// loopback literal still rewrite to a proxy-relative Location.
+func sameOriginRedirectHost(locHost, upstreamHost, forwardedHost string) bool {
+	if locHost == upstreamHost || (forwardedHost != "" && locHost == forwardedHost) {
+		return true
+	}
+	locKey := redirectHostKey(locHost)
+	if locKey == "" {
+		return false
+	}
+	if locKey == redirectHostKey(upstreamHost) {
+		return true
+	}
+	return forwardedHost != "" && locKey == redirectHostKey(forwardedHost)
+}
+
+func redirectHostKey(host string) string {
+	if host == "" {
+		return ""
+	}
+	h, port, err := net.SplitHostPort(host)
+	if err != nil {
+		h = host
+		port = ""
+	}
+	h = strings.ToLower(h)
+	switch h {
+	case "localhost", "127.0.0.1", "::1":
+		h = "loopback"
+	}
+	if port == "" {
+		return h
+	}
+	return net.JoinHostPort(h, port)
+}
+
 func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	loc := resp.Header.Get("Location")
 	if loc == "" {
@@ -286,10 +333,22 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	if locURL.Host == "" {
 		return nil // relative — already proxy-relative
 	}
-	if locURL.Host == upstream.Host {
-		locURL.Scheme = resp.Request.URL.Scheme
-		locURL.Host = resp.Request.URL.Host
-		resp.Header.Set("Location", locURL.String())
+	if sameOriginRedirectHost(locURL.Host, upstream.Host, resp.Request.Header.Get("X-Forwarded-Host")) {
+		// Build a path-absolute Location. Clearing Scheme/Host and calling
+		// String() is unsafe: a path starting with "//" (or leftover User)
+		// becomes protocol-relative and leaves the proxy origin.
+		path := locURL.EscapedPath()
+		if path == "" {
+			path = "/"
+		}
+		for strings.HasPrefix(path, "//") {
+			path = "/" + strings.TrimLeft(path, "/")
+		}
+		loc := path
+		if locURL.RawQuery != "" {
+			loc += "?" + locURL.RawQuery
+		}
+		resp.Header.Set("Location", loc)
 		return nil
 	}
 	// Cross-origin: replace with 200 postMessage stub.
@@ -380,4 +439,31 @@ func BindProxyServer(upstreamOrigin string, apiPort int, upstreamCookies string)
 		IdleTimeout: 60 * time.Second,
 	}
 	return ln, srv, nil
+}
+
+// rewriteReferer swaps in the upstream origin but keeps the referring page's own path
+// and query, which frameworks read to work out where "redirect back" should land.
+// Path is built the same way as rewriteRedirect: never via url.URL.String(), and
+// leading "//" is collapsed so a forged Referer cannot become protocol-relative
+// when an app turns it into a Location.
+func rewriteReferer(ref string, upstream *url.URL) string {
+	origin := upstream.Scheme + "://" + upstream.Host
+	refURL, err := url.Parse(ref)
+	if err != nil {
+		return origin
+	}
+	path := refURL.EscapedPath()
+	if path == "" {
+		path = "/"
+	} else if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	for strings.HasPrefix(path, "//") {
+		path = "/" + strings.TrimLeft(path, "/")
+	}
+	out := origin + path
+	if refURL.RawQuery != "" {
+		out += "?" + refURL.RawQuery
+	}
+	return out
 }

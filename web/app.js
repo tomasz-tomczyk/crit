@@ -2645,14 +2645,23 @@
       }
       // Expanding: let native <details> handle it
     });
-    // open is set before this listener is attached, so the create-time open
-    // does not fire toggle here. Do not gate the first event — that would
-    // swallow the user's first collapse/expand.
+    // Setting .open above queues a toggle event rather than firing one, so it
+    // arrives here after this listener is attached. Loading a lazy file for
+    // that synthetic event pulls in the whole review at once. Track the last
+    // state, not the first event — a real toggle always flips it.
+    let lastOpen = section.open;
     section.addEventListener('toggle', function() {
+      const readerToggled = section.open !== lastOpen;
+      lastOpen = section.open;
       file.collapsed = !section.open;
       if (section.open) {
-        if (file.lazy) loadLazyFile(section, file);
-        else ensureFileBodyMounted(section, file);
+        // Eager files mount either way — under the threshold the whole
+        // review is meant to render.
+        if (file.lazy) {
+          if (readerToggled) loadLazyFile(section, file);
+        } else {
+          ensureFileBodyMounted(section, file);
+        }
       } else if (!fileHasOpenLineForms(file.path)) {
         deferFileBody(section);
       }
@@ -3541,6 +3550,10 @@
   const applyWordDiffPair = window.crit.diffRenderer.applyWordDiffPair;
   const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
   const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
+  const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
+  const resolveTextSelectionLineRange = window.crit.diffRenderer.resolveTextSelectionLineRange;
+  const preferredSideFromNode = window.crit.diffRenderer.preferredSideFromNode;
+  const selectedTextWithinElements = window.crit.diffRenderer.selectedTextWithinElements;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
@@ -3716,11 +3729,47 @@
     document.body.classList.remove('dragging');
 
     if (!diffDragState) return;
-    const rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
-    const rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
 
+    let rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
+    let rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
+    let side = diffDragState.side;
     const fp = diffDragState.filePath;
-    const side = diffDragState.side;
+
+    // Unified mode may drag across old/new number spaces. Resolve to a
+    // single-side range from the visual selection so the form attaches under
+    // the selected change (see resolveUnifiedDragFormRange).
+    if (diffMode !== 'split' &&
+        typeof diffDragState.anchorVisualIdx === 'number' && !isNaN(diffDragState.anchorVisualIdx) &&
+        typeof diffDragState.currentVisualIdx === 'number' && !isNaN(diffDragState.currentVisualIdx)) {
+      const vLo = Math.min(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
+      const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
+      const releaseVisualIdx = diffDragState.currentVisualIdx;
+      const selected = [];
+      const section = currentRenderedFileSection(fp);
+      if (section) {
+        const els = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
+        for (let i = 0; i < els.length; i++) {
+          const vi = parseInt(els[i].dataset.diffVisualIdx, 10);
+          if (isNaN(vi) || vi < vLo || vi > vHi) continue;
+          const ln = parseInt(els[i].dataset.diffLineNum, 10);
+          if (!ln) continue;
+          selected.push({
+            visualIdx: vi,
+            lineNum: ln,
+            side: els[i].dataset.diffSide || '',
+          });
+        }
+      }
+      const resolved = resolveUnifiedDragFormRange(selected, releaseVisualIdx, {
+        startLine: rangeStart,
+        endLine: rangeEnd,
+        side: side,
+      });
+      rangeStart = resolved.startLine;
+      rangeEnd = resolved.endLine;
+      side = resolved.side;
+    }
+
     diffDragState = null;
     unifiedVisualStart = null;
     unifiedVisualEnd = null;
@@ -5005,33 +5054,21 @@
         startLine: ln,
         endLine: ln,
         blockIndex: null,
-        side: el.dataset.diffSide || undefined,
+        // Keep '' for new-side so mixed-side resolution can filter ('' vs 'old').
+        side: el.dataset.diffSide || '',
       });
     });
 
     if (candidates.length === 0) return null;
 
-    // All candidates must share filePath and side. If the selection straddles
-    // multiple files or diff sides, bail out rather than guess.
-    const filePath = candidates[0].filePath;
-    const side = candidates[0].side;
-    for (let i = 1; i < candidates.length; i++) {
-      if (candidates[i].filePath !== filePath) return null;
-      if (candidates[i].side !== side) return null;
+    // Prefer the side where the user started selecting (anchorNode). Range
+    // startContainer is document-order and wrong for reverse selections.
+    // Split multi-line / unified del+add often intersect both sides.
+    let preferredSide = preferredSideFromNode(selection.anchorNode);
+    if (preferredSide === undefined) {
+      preferredSide = preferredSideFromNode(range.startContainer);
     }
-
-    let startLine = Infinity;
-    let endLine = -Infinity;
-    let afterBlockIndex = null;
-    for (const c of candidates) {
-      if (c.startLine < startLine) startLine = c.startLine;
-      if (c.endLine > endLine) endLine = c.endLine;
-      if (c.blockIndex !== null && (afterBlockIndex === null || c.blockIndex > afterBlockIndex)) {
-        afterBlockIndex = c.blockIndex;
-      }
-    }
-
-    return { filePath, startLine, endLine, afterBlockIndex, side };
+    return resolveTextSelectionLineRange(candidates, preferredSide);
   }
 
   function closeEmptyReviewForm() {
@@ -9712,6 +9749,11 @@
             }
           });
         }
+        // Prefer text clipped to side-filtered contentEls so unified del+add
+        // selections don't pollute the quote with the opposite side.
+        const clipped = selectedTextWithinElements(selection, contentEls);
+        if (contentEls.length > 0) selectedText = clipped;
+
         const normalizedSelected = selectedText.replace(/\s+/g, ' ');
         const normalizedFull = fullText.trim().replace(/\s+/g, ' ');
         if (normalizedSelected !== normalizedFull && selectedText.length <= 300) {

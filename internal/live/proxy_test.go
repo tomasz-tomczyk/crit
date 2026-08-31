@@ -292,6 +292,301 @@ func TestProxyModifyResponse_SameOriginRedirectRewritten(t *testing.T) {
 	}
 }
 
+func TestProxyRewrite_TargetPathIsNotPrefixedOntoRequests(t *testing.T) {
+	var gotPaths, gotQueries []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		gotQueries = append(gotQueries, r.URL.RawQuery)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	// A live URL with a path+query: the frontend requests that path as the
+	// initial route, so the proxy must not prefix path or query a second time
+	proxy, _ := newLiveProxy(upstream.URL+"/some/page?tab=2", 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	for _, p := range []string{"/some/page", "/assets/app.css?v=1"} {
+		resp, err := http.Get(ps.URL + p)
+		if err != nil {
+			t.Fatalf("request %s: %v", p, err)
+		}
+		resp.Body.Close()
+	}
+	want := []string{"/some/page", "/assets/app.css"}
+	wantQ := []string{"", "v=1"}
+	if len(gotPaths) != len(want) {
+		t.Fatalf("upstream saw %v, want %v", gotPaths, want)
+	}
+	for i := range want {
+		if gotPaths[i] != want[i] {
+			t.Errorf("upstream path[%d] = %q, want %q", i, gotPaths[i], want[i])
+		}
+		if gotQueries[i] != wantQ[i] {
+			t.Errorf("upstream query[%d] = %q, want %q", i, gotQueries[i], wantQ[i])
+		}
+	}
+}
+
+func TestProxyRewrite_RefererKeepsReferringPagePath(t *testing.T) {
+	var gotReferer string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotReferer = r.Header.Get("Referer")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	// A form on /claims/create posting to /claims: "redirect back" reads the
+	// referer, so it has to point at the create page
+	req, _ := http.NewRequest(http.MethodPost, ps.URL+"/claims", nil)
+	req.Header.Set("Referer", ps.URL+"/claims/create?step=2")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	want := upstream.URL + "/claims/create?step=2"
+	if gotReferer != want {
+		t.Errorf("Referer = %q, want %q", gotReferer, want)
+	}
+}
+
+func TestProxyRewrite_RefererDropsUserinfoAndFragment(t *testing.T) {
+	var gotReferer string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotReferer = r.Header.Get("Referer")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	psURL, _ := url.Parse(ps.URL)
+	req, _ := http.NewRequest(http.MethodPost, ps.URL+"/claims", nil)
+	req.Header.Set("Referer", "http://user:pass@"+psURL.Host+"/claims/create#section")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	want := upstream.URL + "/claims/create"
+	if gotReferer != want {
+		t.Errorf("Referer = %q, want %q (userinfo and fragment must not reach the upstream)", gotReferer, want)
+	}
+}
+
+func TestRewriteReferer(t *testing.T) {
+	upstream, err := url.Parse("http://app.test:3000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := "http://app.test:3000"
+	cases := []struct {
+		name string
+		ref  string
+		want string
+	}{
+		{name: "keeps path and query", ref: "http://127.0.0.1:9/claims/create?step=2", want: origin + "/claims/create?step=2"},
+		{name: "drops userinfo and fragment", ref: "http://user:pass@127.0.0.1:9/claims/create#x", want: origin + "/claims/create"},
+		{name: "collapses double-slash path", ref: "http://127.0.0.1:9//evil.com/x", want: origin + "/evil.com/x"},
+		{name: "relative without slash", ref: "claims/create", want: origin + "/claims/create"},
+		{name: "empty path becomes slash", ref: "http://127.0.0.1:9", want: origin + "/"},
+		{name: "unparseable falls back to origin", ref: "://bad", want: origin},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rewriteReferer(tc.ref, upstream)
+			if got != tc.want {
+				t.Errorf("rewriteReferer(%q) = %q, want %q", tc.ref, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProxyRewrite_SendsForwardedHeaders(t *testing.T) {
+	var gotHost, gotProto, gotPort, gotFor string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Header.Get("X-Forwarded-Host")
+		gotProto = r.Header.Get("X-Forwarded-Proto")
+		gotPort = r.Header.Get("X-Forwarded-Port")
+		gotFor = r.Header.Get("X-Forwarded-For")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>ok</body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	psURL, _ := url.Parse(ps.URL)
+	resp, err := http.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	if gotHost != psURL.Host {
+		t.Errorf("X-Forwarded-Host = %q, want the proxy host %q", gotHost, psURL.Host)
+	}
+	if gotProto != "http" {
+		t.Errorf("X-Forwarded-Proto = %q, want %q", gotProto, "http")
+	}
+	if gotPort != psURL.Port() {
+		t.Errorf("X-Forwarded-Port = %q, want the proxy port %q", gotPort, psURL.Port())
+	}
+	if gotFor == "" {
+		t.Error("X-Forwarded-For is empty, want the client IP")
+	}
+}
+
+func TestProxyModifyResponse_ProxyOriginRedirectIsNotCrossOrigin(t *testing.T) {
+	var proxyHost string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// What an app generates once it trusts the forwarded headers
+		proxyHost = r.Header.Get("X-Forwarded-Host")
+		w.Header().Set("Location", "http://"+proxyHost+"/login")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status = %d, want 302 passed through", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "cross-origin-redirect") {
+		t.Error("a redirect to the proxy's own origin was treated as cross-origin")
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want %q", loc, "/login")
+	}
+}
+
+func TestProxyModifyResponse_AbsoluteSameOriginRedirectRewritten(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			// Absolute Location on the target's own origin, as Laravel's
+			// redirect()->route() emits
+			w.Header().Set("Location", "http://"+r.Host+"/admin")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body>admin</body></html>")
+	}))
+	defer upstream.Close()
+	upURL, _ := url.Parse(upstream.URL)
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	if strings.Contains(loc, upURL.Host) {
+		t.Errorf("Location still points to upstream, iframe would leave the proxy origin: %s", loc)
+	}
+	if loc != "/admin" {
+		t.Errorf("Location = %q, want %q", loc, "/admin")
+	}
+}
+
+func TestProxyModifyResponse_LoopbackAliasRedirectRewritten(t *testing.T) {
+	var redirectPort string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://127.0.0.1:"+redirectPort+"/dashboard")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	upURL, _ := url.Parse(upstream.URL)
+	redirectPort = upURL.Port()
+	proxy, _ := newLiveProxy("http://localhost:"+redirectPort, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if strings.Contains(string(body), "cross-origin-redirect") {
+		t.Fatal("loopback alias redirect was treated as cross-origin")
+	}
+	if loc := resp.Header.Get("Location"); loc != "/dashboard" {
+		t.Errorf("Location = %q, want %q", loc, "/dashboard")
+	}
+}
+
+func TestProxyModifyResponse_SameOriginRedirectStripsUserinfo(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://user:pass@"+r.Host+"/admin")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	if loc := resp.Header.Get("Location"); loc != "/admin" {
+		t.Errorf("Location = %q, want %q (userinfo must not leave a protocol-relative URL)", loc, "/admin")
+	}
+}
+
+func TestProxyModifyResponse_SameOriginRedirectCollapsesLeadingDoubleSlash(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path "//evil.com/x" after origin-strip would be protocol-relative
+		w.Header().Set("Location", "http://"+r.Host+"//evil.com/x")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 9001, "")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	ps := httptest.NewServer(proxy)
+	defer ps.Close()
+	resp, err := client.Get(ps.URL + "/")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	if strings.HasPrefix(loc, "//") {
+		t.Errorf("Location = %q is protocol-relative; iframe would leave the proxy origin", loc)
+	}
+	if loc != "/evil.com/x" {
+		t.Errorf("Location = %q, want %q", loc, "/evil.com/x")
+	}
+}
+
 func TestProxyModifyResponse_CrossOriginRedirect200Stub(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://accounts.google.com/oauth", http.StatusFound)

@@ -133,8 +133,12 @@ func (f Focus) PickerVisible() bool {
 // focusKeyFor returns the per-view key used to scope comment visibility.
 //
 //	pr:<num>                       — range focus with PR number
-//	range:<baseSHA>..<headSHA>     — range focus without PR number (full 40-char SHAs)
+//	range:<baseSHA>..<headSHA>     — range focus without PR number
 //	""                             — working-tree (and unknown)
+//
+// Callers must pass Focus whose BaseSHA/HeadSHA are full OIDs (SetFocus
+// canonicalizeFocusSHAs enforces this). Symbolic refs in those fields would
+// stamp unstable keys and hide comments after stack navigation.
 func focusKeyFor(f Focus) string {
 	if f.Kind != FocusRange {
 		return ""
@@ -208,7 +212,8 @@ func countVisibleComments(comments []Comment, f Focus) int {
 // so it's all-or-nothing — no torn ActiveDiffScope on disk).
 //
 // Caller is responsible for validating the request shape upstream;
-// SetFocus owns SHA validation (via ensureSHAFetched) and persistence.
+// SetFocus owns SHA validation (via ensureSHAFetched), OID canonicalization
+// of BaseSHA/HeadSHA/DefaultSHA, and persistence.
 func (s *Session) SetFocus(f Focus) error {
 	if f.Kind == FocusRange &&
 		f.DiffScope == DiffScopeFullStack &&
@@ -223,6 +228,9 @@ func (s *Session) SetFocus(f Focus) error {
 	s.mu.RUnlock()
 
 	if err := validateFocusSHAs(f, vc, repoRoot, remoteFiles); err != nil {
+		return err
+	}
+	if err := canonicalizeFocusSHAs(&f, vc, repoRoot, remoteFiles); err != nil {
 		return err
 	}
 
@@ -348,6 +356,36 @@ func validateFocusSHAs(f Focus, v vcs.VCS, repoRoot string, remoteFiles bool) er
 		if err := vcs.EnsureSHAFetched(v, f.DefaultSHA, repoRoot, ""); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// canonicalizeFocusSHAs rewrites BaseSHA/HeadSHA/DefaultSHA to full commit
+// OIDs. Branch names and abbreviated SHAs pass validateFocusSHAs
+// (EnsureSHAFetched checks presence via HasObject); this function then
+// resolves them to full OIDs so focusKeyFor stays stable across stack
+// navigation that re-enters with resolved OIDs.
+// No-op for working-tree focus, remote mode, or missing VCS/repo.
+func canonicalizeFocusSHAs(f *Focus, v vcs.VCS, repoRoot string, remoteFiles bool) error {
+	if f == nil || f.Kind != FocusRange || remoteFiles || v == nil || repoRoot == "" {
+		return nil
+	}
+	base, err := vcs.ResolveCommitOID(v, f.BaseSHA, repoRoot)
+	if err != nil {
+		return fmt.Errorf("canonicalizing base %q: %w", f.BaseSHA, err)
+	}
+	head, err := vcs.ResolveCommitOID(v, f.HeadSHA, repoRoot)
+	if err != nil {
+		return fmt.Errorf("canonicalizing head %q: %w", f.HeadSHA, err)
+	}
+	f.BaseSHA = base
+	f.HeadSHA = head
+	if f.DefaultSHA != "" {
+		def, err := vcs.ResolveCommitOID(v, f.DefaultSHA, repoRoot)
+		if err != nil {
+			return fmt.Errorf("canonicalizing default %q: %w", f.DefaultSHA, err)
+		}
+		f.DefaultSHA = def
 	}
 	return nil
 }

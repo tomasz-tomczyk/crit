@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -269,5 +270,50 @@ func TestGitVCS_WorkingTreeFingerprint(t *testing.T) {
 	}
 	if (&GitVCS{}).WorkingTreeFingerprint() == "" {
 		t.Error("WorkingTreeFingerprint empty for dirty tree")
+	}
+}
+
+func TestResolveCommitOID_BranchAndShortSHA(t *testing.T) {
+	dir := InitTestRepo(t)
+	full := GitRun(t, dir, "rev-parse", "HEAD")
+	v := &GitVCS{}
+
+	got, err := ResolveCommitOID(v, "main", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != full {
+		t.Fatalf("branch resolve = %q, want %q", got, full)
+	}
+	got, err = ResolveCommitOID(v, full[:7], dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != full {
+		t.Fatalf("short SHA resolve = %q, want %q", got, full)
+	}
+}
+
+func TestResolveCommitOID_ErrorPaths(t *testing.T) {
+	if _, err := ResolveCommitOID(nil, "HEAD", ""); err == nil {
+		t.Fatal("expected nil VCS error")
+	}
+	dir := InitTestRepo(t)
+	if _, err := ResolveCommitOID(&GitVCS{}, "   ", dir); err == nil {
+		t.Fatal("expected empty ref error")
+	}
+	if _, err := ResolveCommitOID(&GitVCS{}, "definitely-missing-ref-xyz", dir); err == nil {
+		t.Fatal("expected missing git ref error")
+	}
+	unknown := &fakeFetchVCS{name: "hg"}
+	if _, err := ResolveCommitOID(unknown, "tip", dir); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("got %v, want not supported", err)
+	}
+	// jj/sl error branches (no real bookmark / rev in empty-ish dir).
+	if _, err := ResolveCommitOID(&fakeFetchVCS{name: "jj"}, "no-such-bookmark", dir); err == nil {
+		t.Fatal("expected jj resolve error")
+	}
+	if _, err := ResolveCommitOID(&fakeFetchVCS{name: "sl"}, "no-such-rev", dir); err == nil {
+		t.Fatal("expected sl resolve error")
 	}
 }
