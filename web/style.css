@@ -1732,10 +1732,16 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-bottom-color: var(--crit-brand-hover);
 }
 .comment-body blockquote {
-  border-left: 3px solid var(--crit-border);
-  margin: 0.5em 0;
-  padding-left: 10px;
+  margin: 6px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--crit-blockquote-border);
+  background: var(--crit-blockquote-bg);
+  border-radius: 0 6px 6px 0;
   color: var(--crit-editor-fg-secondary);
+}
+
+.comment-body blockquote p {
+  margin: 2px 0;
 }
 
 .comment-body hr,
@@ -1829,10 +1835,16 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 
 .reply-body blockquote {
-  margin: 0.3em 0;
-  padding-left: 0.8em;
-  border-left: 3px solid var(--crit-border);
+  margin: 6px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--crit-blockquote-border);
+  background: var(--crit-blockquote-bg);
+  border-radius: 0 6px 6px 0;
   color: var(--crit-editor-fg-secondary);
+}
+
+.reply-body blockquote p {
+  margin: 2px 0;
 }
 
 .reply-body p {

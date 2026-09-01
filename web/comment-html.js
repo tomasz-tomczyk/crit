@@ -97,5 +97,14 @@
     });
   }
 
-  return { sanitize: sanitize };
+  // Agents often quote review questions as **> text** instead of markdown
+  // blockquotes. Normalize those lines before markdown-it runs.
+  var BOLD_BLOCKQUOTE_LINE = /^\*\*\s*>\s*(.+?)\s*\*\*$/gm;
+
+  function normalizeCommentMarkdown(src) {
+    if (!src) return src;
+    return String(src).replace(BOLD_BLOCKQUOTE_LINE, '> $1');
+  }
+
+  return { sanitize: sanitize, normalizeCommentMarkdown: normalizeCommentMarkdown };
 });

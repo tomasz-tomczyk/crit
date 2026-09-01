@@ -247,10 +247,12 @@
   })();
   const renderCommentMarkdown = commentMd.render.bind(commentMd);
   commentMd.render = function(src, env) {
+    src = window.crit.commentHtml.normalizeCommentMarkdown(src);
     return window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env));
   };
   const renderInlineCommentMarkdown = commentMd.renderInline.bind(commentMd);
   commentMd.renderInline = function(src, env) {
+    src = window.crit.commentHtml.normalizeCommentMarkdown(src);
     return window.crit.commentHtml.sanitize(renderInlineCommentMarkdown(src, env));
   };
 
