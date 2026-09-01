@@ -1738,6 +1738,14 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-editor-fg-secondary);
 }
 
+.comment-body hr,
+.reply-body hr {
+  border: none;
+  height: 1px;
+  background: var(--crit-border);
+  margin: 24px 0;
+}
+
 /* Sanitized comment markdown keeps no classes, so key off the elements.
    A comment card is narrow: cells take a full border, not row rules alone. */
 .comment-body table,
