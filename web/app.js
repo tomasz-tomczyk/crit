@@ -1146,6 +1146,8 @@
     md: 'markdown',    // normalize: callers compare lang against 'markdown'
     heex: 'heex',
     leex: 'heex',
+    vue: 'vue',        // third-party grammar (highlightjs-vue)
+    astro: 'astro',    // third-party grammar (highlightjs-astro-js)
     rake: 'ruby',      // hljs has no .rake alias (Rakefiles are Ruby)
   };
   // Files identified by basename rather than extension.

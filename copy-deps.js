@@ -19,7 +19,25 @@ const langs = langFiles.map(f => readFileSync(`${langDir}/${f}`, "utf8")).join("
 const patch = readFileSync(`${dest}/highlight-markdown-patch.js`, "utf8");
 const heex = readFileSync("node_modules/highlightjs-heex/dist/heex.min.js", "utf8");
 const heexReg = heex + "\nhljs.registerLanguage('heex', hljsDefineHeex);";
-writeFileSync(`${dest}/highlight.min.js`, core + "\n" + langs + "\n" + patch + "\n" + heexReg);
+
+// highlightjs-vue@1.0.0 ships broken CJS/ESM (module$1.exports / CommonJS-in-.esm.js)
+// and a UMD build that never assigns window.hljsDefineVue. Extract the language
+// function and register it the same way we register HEEx.
+const vueSrc = readFileSync("node_modules/highlightjs-vue/dist/highlightjs-vue.esm.js", "utf8");
+const vueBody = vueSrc
+  .replace(/^[\s\S]*?(function hljsDefineVue)/, "$1")
+  .replace(/module\.exports[\s\S]*$/, "");
+const vueReg =
+  `var hljsDefineVue=(function(){\n${vueBody}\nreturn hljsDefineVue;\n})();\n` +
+  `hljs.registerLanguage('vue', hljsDefineVue);`;
+
+// highlightjs-astro-js dist/astro.js is a CDN build that self-registers on load.
+const astro = readFileSync("node_modules/highlightjs-astro-js/dist/astro.js", "utf8");
+
+writeFileSync(
+  `${dest}/highlight.min.js`,
+  core + "\n" + langs + "\n" + patch + "\n" + heexReg + "\n" + vueReg + "\n" + astro
+);
 
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);

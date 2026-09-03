@@ -4,13 +4,15 @@
     "@highlightjs/cdn-assets": "^11.12.0",
     "@sanity/diff-match-patch": "^3.2.0",
     "dompurify": "3.4.14",
+    "highlightjs-astro-js": "^1.0.0",
     "highlightjs-heex": "^1.0.1",
+    "highlightjs-vue": "^1.0.0",
     "markdown-it": "^15.0.0",
     "mermaid": "^11.17.2"
   },
   "scripts": {
     "update-deps": "node copy-deps.js",
-    "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node web/test-diff-render.mjs"
+    "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/vue-astro-highlight.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node web/test-diff-render.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
