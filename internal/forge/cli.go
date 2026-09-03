@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
 // SelectProviderFn and ReviewFn are wired by cmd/crit, where concrete
@@ -142,14 +144,22 @@ func parsePullRequest(args []string) (PullRequest, error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--output", "-o":
-			if i+1 >= len(args) {
-				return request, fmt.Errorf("%s requires a value", args[i])
+			val, next, err := requireFlagValue(args, i)
+			if err != nil {
+				return request, err
 			}
-			i++
-			request.OutputDir = args[i]
+			i = next
+			request.OutputDir = val
+		case "--session":
+			id, next, err := parseSessionFlag(args, i)
+			if err != nil {
+				return request, err
+			}
+			i = next
+			request.SessionID = id
 		default:
 			if request.ChangeSpec != "" {
-				return request, fmt.Errorf("usage: crit pull [--forge <provider>] [--output <dir>] [number|url]")
+				return request, fmt.Errorf("usage: crit pull [--forge <provider>] [--session <id>] [--output <dir>] [number|url]")
 			}
 			request.ChangeSpec = args[i]
 		}
@@ -164,26 +174,36 @@ func parsePushRequest(args []string) (PushRequest, error) {
 		case "--dry-run":
 			request.DryRun = true
 		case "--message", "-m":
-			if i+1 >= len(args) {
-				return request, fmt.Errorf("%s requires a value", args[i])
+			val, next, err := requireFlagValue(args, i)
+			if err != nil {
+				return request, err
 			}
-			i++
-			request.Message = args[i]
+			i = next
+			request.Message = val
 		case "--output", "-o":
-			if i+1 >= len(args) {
-				return request, fmt.Errorf("%s requires a value", args[i])
+			val, next, err := requireFlagValue(args, i)
+			if err != nil {
+				return request, err
 			}
-			i++
-			request.OutputDir = args[i]
+			i = next
+			request.OutputDir = val
+		case "--session":
+			id, next, err := parseSessionFlag(args, i)
+			if err != nil {
+				return request, err
+			}
+			i = next
+			request.SessionID = id
 		case "--event", "-e":
-			if i+1 >= len(args) {
-				return request, fmt.Errorf("%s requires a value", args[i])
+			val, next, err := requireFlagValue(args, i)
+			if err != nil {
+				return request, err
 			}
-			i++
-			request.Event = strings.ToLower(args[i])
+			i = next
+			request.Event = strings.ToLower(val)
 		default:
 			if request.ChangeSpec != "" {
-				return request, fmt.Errorf("usage: crit push [--forge <provider>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]")
+				return request, fmt.Errorf("usage: crit push [--forge <provider>] [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]")
 			}
 			request.ChangeSpec = args[i]
 		}
@@ -197,4 +217,22 @@ func parsePushRequest(args []string) (PushRequest, error) {
 		return request, fmt.Errorf("--event request-changes requires --message")
 	}
 	return request, nil
+}
+
+func requireFlagValue(args []string, i int) (string, int, error) {
+	if i+1 >= len(args) {
+		return "", i, fmt.Errorf("%s requires a value", args[i])
+	}
+	return args[i+1], i + 1, nil
+}
+
+func parseSessionFlag(args []string, i int) (string, int, error) {
+	id, next, err := requireFlagValue(args, i)
+	if err != nil {
+		return "", i, err
+	}
+	if !daemon.ValidSessionKey(id) {
+		return "", i, daemon.InvalidSessionIDError(id)
+	}
+	return id, next, nil
 }

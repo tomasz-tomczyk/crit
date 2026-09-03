@@ -90,6 +90,7 @@ type PullRequest struct {
 	Repo       RepoContext
 	ChangeSpec string
 	OutputDir  string
+	SessionID  string
 	Args       []string // compatibility path for direct provider callers
 }
 
@@ -97,6 +98,7 @@ type PushRequest struct {
 	Repo       RepoContext
 	ChangeSpec string
 	OutputDir  string
+	SessionID  string
 	DryRun     bool
 	Message    string
 	Event      string

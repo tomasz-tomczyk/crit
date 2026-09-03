@@ -110,6 +110,13 @@ func TestGitHubProviderArgumentTranslation(t *testing.T) {
 	if !reflect.DeepEqual(pull, []string{"--output", "reviews", "12"}) {
 		t.Fatalf("pull args = %v", pull)
 	}
+	pull, err = githubPullArgs(forge.PullRequest{ChangeSpec: "12", SessionID: "aaaaaaaaaaaa"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pull, []string{"--session", "aaaaaaaaaaaa", "12"}) {
+		t.Fatalf("session pull args = %v", pull)
+	}
 	compat := []string{"--output", "legacy", "3"}
 	pull, err = githubPullArgs(forge.PullRequest{Args: compat})
 	if err != nil || !reflect.DeepEqual(pull, compat) {
@@ -122,6 +129,14 @@ func TestGitHubProviderArgumentTranslation(t *testing.T) {
 	wantPush := []string{"--dry-run", "--event", "approve", "--message", "ship", "--output", "reviews", "12"}
 	if !reflect.DeepEqual(push, wantPush) {
 		t.Fatalf("push args = %v, want %v", push, wantPush)
+	}
+	push, err = githubPushArgs(forge.PushRequest{ChangeSpec: "12", SessionID: "bbbbbbbbbbbb", DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSessionPush := []string{"--dry-run", "--session", "bbbbbbbbbbbb", "12"}
+	if !reflect.DeepEqual(push, wantSessionPush) {
+		t.Fatalf("session push args = %v, want %v", push, wantSessionPush)
 	}
 	if _, err := githubPullArgs(forge.PullRequest{ChangeSpec: "bad"}); err == nil {
 		t.Fatal("invalid pull spec unexpectedly accepted")

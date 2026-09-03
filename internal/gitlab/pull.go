@@ -23,6 +23,7 @@ import (
 type pullFlags struct {
 	spec      string
 	outputDir string
+	sessionID string
 }
 
 func parsePullFlags(args []string) (pullFlags, error) {
@@ -35,6 +36,12 @@ func parsePullFlags(args []string) (pullFlags, error) {
 			}
 			i++
 			flags.outputDir = args[i]
+		case "--session":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--session requires a value")
+			}
+			i++
+			flags.sessionID = args[i]
 		default:
 			if flags.spec != "" {
 				return flags, usagePullError()
@@ -46,7 +53,7 @@ func parsePullFlags(args []string) (pullFlags, error) {
 }
 
 func usagePullError() error {
-	fmt.Fprintln(os.Stderr, "Usage: crit pull [--output <dir>] [mr-iid|url]")
+	fmt.Fprintln(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [mr-iid|url]")
 	return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 }
 
@@ -92,7 +99,7 @@ type gitlabDiscussion struct {
 }
 
 func runPull(ctx context.Context, request forge.PullRequest) (forge.PullResult, error) {
-	flags := pullFlags{spec: request.ChangeSpec, outputDir: request.OutputDir}
+	flags := pullFlags{spec: request.ChangeSpec, outputDir: request.OutputDir, sessionID: request.SessionID}
 	if request.Args != nil {
 		var err error
 		flags, err = parsePullFlags(request.Args)
@@ -115,7 +122,7 @@ func runPull(ctx context.Context, request forge.PullRequest) (forge.PullResult, 
 		return forge.PullResult{}, err
 	}
 
-	critPath, err := review.ResolveReviewPath(flags.outputDir)
+	critPath, err := resolvePushPullReviewPath(flags.sessionID, flags.outputDir)
 	if err != nil {
 		return forge.PullResult{}, err
 	}

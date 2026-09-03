@@ -38,13 +38,34 @@ func TestParseGitLabPullFlags(t *testing.T) {
 	if flags.outputDir != "reviews" || flags.spec == "" {
 		t.Fatalf("flags = %+v", flags)
 	}
+	flags, err = parsePullFlags([]string{"--session", "aaaaaaaaaaaa", "7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.sessionID != "aaaaaaaaaaaa" || flags.spec != "7" {
+		t.Fatalf("session flags = %+v", flags)
+	}
 	if _, err := parsePullFlags([]string{"--output"}); err == nil {
 		t.Fatal("missing output value unexpectedly accepted")
+	}
+	if _, err := parsePullFlags([]string{"--session"}); err == nil {
+		t.Fatal("missing session value unexpectedly accepted")
 	}
 	_, err = parsePullFlags([]string{"1", "2"})
 	var exitErr clicmd.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 1 {
 		t.Fatalf("duplicate specs error = %v", err)
+	}
+}
+
+func TestResolvePushPullReviewPathSession(t *testing.T) {
+	_, err := resolvePushPullReviewPath("abc", "")
+	if err == nil || !strings.Contains(err.Error(), "invalid session ID") {
+		t.Fatalf("invalid session error = %v", err)
+	}
+	_, err = resolvePushPullReviewPath("aaaaaaaaaaaa", "/tmp/out")
+	if err == nil || !strings.Contains(err.Error(), "--session cannot be used with --output") {
+		t.Fatalf("session+output error = %v", err)
 	}
 }
 

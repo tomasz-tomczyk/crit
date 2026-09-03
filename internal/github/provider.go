@@ -81,6 +81,9 @@ func githubPullArgs(request forge.PullRequest) ([]string, error) {
 		return request.Args, nil
 	}
 	args := []string{}
+	if request.SessionID != "" {
+		args = append(args, "--session", request.SessionID)
+	}
 	if request.OutputDir != "" {
 		args = append(args, "--output", request.OutputDir)
 	}
@@ -98,7 +101,11 @@ func githubPushArgs(request forge.PushRequest) ([]string, error) {
 	if request.Args != nil {
 		return request.Args, nil
 	}
-	args, err := githubPullArgs(forge.PullRequest{ChangeSpec: request.ChangeSpec, OutputDir: request.OutputDir})
+	args, err := githubPullArgs(forge.PullRequest{
+		ChangeSpec: request.ChangeSpec,
+		OutputDir:  request.OutputDir,
+		SessionID:  request.SessionID,
+	})
 	if err != nil {
 		return nil, err
 	}

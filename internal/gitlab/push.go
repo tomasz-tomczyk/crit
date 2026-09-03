@@ -23,6 +23,7 @@ type pushFlags struct {
 	dryRun    bool
 	message   string
 	outputDir string
+	sessionID string
 	event     string
 }
 
@@ -44,6 +45,12 @@ func parsePushFlags(args []string) (pushFlags, error) {
 			}
 			i++
 			flags.outputDir = args[i]
+		case "--session":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--session requires a value")
+			}
+			i++
+			flags.sessionID = args[i]
 		case "--event", "-e":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("%s requires a value", args[i])
@@ -69,7 +76,7 @@ func parsePushFlags(args []string) (pushFlags, error) {
 }
 
 func usagePushError() error {
-	fmt.Fprintln(os.Stderr, "Usage: crit push [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [mr-iid|url]")
+	fmt.Fprintln(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [mr-iid|url]")
 	return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 }
 
@@ -115,7 +122,7 @@ func splitLocalMarker(body string) (string, string) {
 }
 
 func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, error) { //nolint:gocyclo
-	flags := pushFlags{spec: request.ChangeSpec, dryRun: request.DryRun, message: request.Message, outputDir: request.OutputDir, event: request.Event}
+	flags := pushFlags{spec: request.ChangeSpec, dryRun: request.DryRun, message: request.Message, outputDir: request.OutputDir, sessionID: request.SessionID, event: request.Event}
 	if flags.event == "" {
 		flags.event = "comment"
 	}
@@ -135,7 +142,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	if err := requireGLab(ctx, repo); err != nil {
 		return forge.PushResult{}, err
 	}
-	critPath, cj, err := loadPushReview(flags.outputDir)
+	critPath, cj, err := loadPushReview(flags.sessionID, flags.outputDir)
 	if err != nil {
 		return forge.PushResult{}, err
 	}
@@ -266,8 +273,8 @@ func savePartialGitLabPush(path string, cj session.CritJSON, operationErr error)
 	return operationErr
 }
 
-func loadPushReview(outputDir string) (string, session.CritJSON, error) {
-	critPath, err := review.ResolveReviewPath(outputDir)
+func loadPushReview(sessionID, outputDir string) (string, session.CritJSON, error) {
+	critPath, err := resolvePushPullReviewPath(sessionID, outputDir)
 	if err != nil {
 		return "", session.CritJSON{}, err
 	}
@@ -283,6 +290,13 @@ func loadPushReview(outputDir string) (string, session.CritJSON, error) {
 		return "", cj, fmt.Errorf("invalid review file: %w", err)
 	}
 	return critPath, cj, nil
+}
+
+func resolvePushPullReviewPath(sessionID, outputDir string) (string, error) {
+	if sessionID != "" {
+		return review.ResolveCommandReviewPathWithSession(sessionID, outputDir, "")
+	}
+	return review.ResolveReviewPath(outputDir)
 }
 
 func fetchMRRaw(ctx context.Context, repo forge.RepoContext, id forge.ChangeID) (mrRaw, error) {

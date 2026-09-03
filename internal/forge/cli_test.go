@@ -72,6 +72,23 @@ func TestParsePullRequest(t *testing.T) {
 	}
 }
 
+func TestParsePullRequestSession(t *testing.T) {
+	request, err := parsePullRequest([]string{"--session", "aaaaaaaaaaaa", "42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.SessionID != "aaaaaaaaaaaa" || request.ChangeSpec != "42" {
+		t.Fatalf("request = %+v", request)
+	}
+	_, err = parsePullRequest([]string{"--session", "abc"})
+	if err == nil || !strings.Contains(err.Error(), "invalid session ID") {
+		t.Fatalf("invalid session error = %v", err)
+	}
+	if _, err := parsePullRequest([]string{"--session"}); err == nil || !strings.Contains(err.Error(), "--session requires a value") {
+		t.Fatalf("missing session value error = %v", err)
+	}
+}
+
 func TestParsePushRequest(t *testing.T) {
 	request, err := parsePushRequest([]string{"--dry-run", "--event", "request-changes", "-m", "please fix", "42"})
 	if err != nil {
@@ -79,6 +96,23 @@ func TestParsePushRequest(t *testing.T) {
 	}
 	if !request.DryRun || request.Event != "request-changes" || request.Message != "please fix" || request.ChangeSpec != "42" {
 		t.Fatalf("request = %+v", request)
+	}
+}
+
+func TestParsePushRequestSession(t *testing.T) {
+	request, err := parsePushRequest([]string{"--session", "bbbbbbbbbbbb", "--dry-run", "7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.SessionID != "bbbbbbbbbbbb" || !request.DryRun || request.ChangeSpec != "7" {
+		t.Fatalf("request = %+v", request)
+	}
+	_, err = parsePushRequest([]string{"--session", "not-hex"})
+	if err == nil || !strings.Contains(err.Error(), "invalid session ID") {
+		t.Fatalf("invalid session error = %v", err)
+	}
+	if _, err := parsePushRequest([]string{"--session"}); err == nil || !strings.Contains(err.Error(), "--session requires a value") {
+		t.Fatalf("missing session value error = %v", err)
 	}
 }
 
@@ -228,14 +262,34 @@ func TestCLIParsingRejectsMissingAndDuplicateValues(t *testing.T) {
 			t.Errorf("extractKindFlag(%v) unexpectedly succeeded", args)
 		}
 	}
-	for _, args := range [][]string{{"--output"}, {"1", "2"}} {
+	for _, args := range [][]string{{"--output"}, {"1", "2"}, {"--session"}} {
 		if _, err := parsePullRequest(args); err == nil {
 			t.Errorf("parsePullRequest(%v) unexpectedly succeeded", args)
 		}
 	}
-	for _, args := range [][]string{{"--message"}, {"--output"}, {"--event"}, {"1", "2"}, {"--event", "bogus"}} {
+	for _, args := range [][]string{{"--message"}, {"--output"}, {"--event"}, {"1", "2"}, {"--event", "bogus"}, {"--session"}} {
 		if _, err := parsePushRequest(args); err == nil {
 			t.Errorf("parsePushRequest(%v) unexpectedly succeeded", args)
 		}
+	}
+}
+
+func TestRunPullAndPushForwardSession(t *testing.T) {
+	provider := &cliTestProvider{kind: GitHub}
+	withCLIProvider(t, provider)
+
+	if err := RunPull([]string{"--session", "cccccccccccc", "9"}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.pullRequest.SessionID != "cccccccccccc" || provider.pullRequest.ChangeSpec != "9" {
+		t.Fatalf("pull request = %+v", provider.pullRequest)
+	}
+
+	if err := RunPush([]string{"--session", "dddddddddddd", "--dry-run", "11"}); err != nil {
+		t.Fatal(err)
+	}
+	want := PushRequest{ChangeSpec: "11", SessionID: "dddddddddddd", DryRun: true, Event: "comment"}
+	if !reflect.DeepEqual(provider.pushRequest, want) {
+		t.Fatalf("push request = %+v, want %+v", provider.pushRequest, want)
 	}
 }

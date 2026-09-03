@@ -54,7 +54,7 @@ Open a GitHub pull request for review.`},
 	{name: "mr", handler: runMR, help: `Usage: crit mr <iid|url>
 
 Open a GitLab merge request for review.`},
-	{name: "pull", handler: runPull, help: `Usage: crit pull [--output <dir>] [number|url]
+	{name: "pull", handler: runPull, help: `Usage: crit pull [--session <id>] [--output <dir>] [number|url]
 
 Fetch PR/MR comments into the local review file.`},
 	{name: "push", handler: runPush, help: `Usage: crit push [options] [number|url]
@@ -62,6 +62,7 @@ Fetch PR/MR comments into the local review file.`},
 Post local comments as a PR/MR review.
 
 Options:
+      --session <id>     Target an active review session
       --dry-run          Preview without posting
   -e, --event <type>     comment, approve, or request-changes
   -m, --message <text>   Review-level message
@@ -304,8 +305,8 @@ Sharing:
   crit unpublish [file...]                   Remove a shared review from crit-web
 
 Remote review sync (provider auto-detected, or set "forge" in config):
-  crit pull [number|url]                     Fetch PR/MR comments into the review file
-  crit push [--dry-run] [number|url]         Post review comments to a PR/MR
+  crit pull [--session <id>] [number|url]    Fetch PR/MR comments into the review file
+  crit push [--session <id>] [--dry-run] [number|url]  Post review comments to a PR/MR
 
 Setup & management:
   crit install <agent>                       Install integration for an AI coding tool

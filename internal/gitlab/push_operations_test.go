@@ -36,7 +36,14 @@ func TestParseGitLabPushFlags(t *testing.T) {
 	if !flags.dryRun || flags.event != "request-changes" || flags.message != "fix it" || flags.outputDir != "reviews" || flags.spec != "7" {
 		t.Fatalf("flags = %+v", flags)
 	}
-	for _, args := range [][]string{{"--message"}, {"--output"}, {"--event"}, {"--event", "bad"}, {"--event", "request-changes", "7"}} {
+	flags, err = parsePushFlags([]string{"--session", "bbbbbbbbbbbb", "--dry-run", "9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.sessionID != "bbbbbbbbbbbb" || !flags.dryRun || flags.spec != "9" {
+		t.Fatalf("session flags = %+v", flags)
+	}
+	for _, args := range [][]string{{"--message"}, {"--output"}, {"--event"}, {"--event", "bad"}, {"--event", "request-changes", "7"}, {"--session"}} {
 		if _, err := parsePushFlags(args); err == nil {
 			t.Errorf("parsePushFlags(%v) unexpectedly succeeded", args)
 		}
@@ -289,7 +296,7 @@ func TestPushHelpers(t *testing.T) {
 
 func TestLoadPushReviewErrors(t *testing.T) {
 	outputDir := isolatedReviewOutput(t)
-	if _, _, err := loadPushReview(outputDir); err == nil || !strings.Contains(err.Error(), "no review file found") {
+	if _, _, err := loadPushReview("", outputDir); err == nil || !strings.Contains(err.Error(), "no review file found") {
 		t.Fatalf("missing review error = %v", err)
 	}
 	identity, err := review.ResolveReviewPath(outputDir)
@@ -303,7 +310,7 @@ func TestLoadPushReviewErrors(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := loadPushReview(outputDir); err == nil || !strings.Contains(err.Error(), "invalid review file") {
+	if _, _, err := loadPushReview("", outputDir); err == nil || !strings.Contains(err.Error(), "invalid review file") {
 		t.Fatalf("invalid review error = %v", err)
 	}
 }
