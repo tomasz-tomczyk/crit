@@ -2281,6 +2281,16 @@ func TestHealthEndpoint(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("GET /api/health: got %d, want 200", w.Code)
 	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode health response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %v, want ok", resp["status"])
+	}
+	if resp["api_version"] != float64(APIVersion) {
+		t.Errorf("api_version = %v, want %d", resp["api_version"], APIVersion)
+	}
 }
 
 // Regression: /api/review-cycle is POST-only. The frontend used to GET it
@@ -4020,6 +4030,9 @@ func TestHandleHealth_WithBrowserClients(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["browser_clients"] != true {
 		t.Errorf("browser_clients = %v, want true", resp["browser_clients"])
+	}
+	if resp["api_version"] != float64(APIVersion) {
+		t.Errorf("api_version = %v, want %d", resp["api_version"], APIVersion)
 	}
 }
 

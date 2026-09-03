@@ -2441,6 +2441,12 @@ func buildCommentsListCommand(sess *Session) string {
 	return fmt.Sprintf("crit comments --json %s", shellQuoteArg(sess.CritJSONPath()))
 }
 
+// APIVersion is the HTTP API protocol version returned by GET /api/health as
+// api_version. Bump only for breaking changes (removed/renamed fields or
+// endpoints, changed field meaning, or changed request shape). Additive
+// changes do not require a bump. Clients treat a missing field as version 0.
+const APIVersion = 1
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -2453,6 +2459,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"status":          "ok",
 		"browser_clients": browserClients,
+		"api_version":     APIVersion,
 	})
 }
 
