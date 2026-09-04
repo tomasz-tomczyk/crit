@@ -280,6 +280,19 @@
   </div>
 </div>
 
+<div class="mermaid-overlay" id="mermaidOverlay" role="dialog" aria-modal="true" aria-label="Diagram fullscreen view">
+  <div class="mermaid-overlay-toolbar" role="toolbar" aria-label="Diagram view controls">
+    <button class="btn btn-sm" id="mermaidZoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button>
+    <span class="mermaid-overlay-zoom" id="mermaidZoomLabel" aria-live="polite">100%</span>
+    <button class="btn btn-sm" id="mermaidZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+    <button class="btn btn-sm" id="mermaidZoomReset" aria-label="Reset view" title="Reset view">Reset</button>
+    <button class="btn btn-sm" id="mermaidOverlayClose" aria-label="Close fullscreen view" title="Close (Esc)">&times;</button>
+  </div>
+  <div class="mermaid-overlay-viewport" id="mermaidOverlayViewport">
+    <div class="mermaid-overlay-canvas" id="mermaidOverlayCanvas"></div>
+  </div>
+</div>
+
 <script>
   (function () {
     // Path-based fork. The server serves this same index.html raw at /live,

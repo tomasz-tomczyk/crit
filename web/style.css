@@ -1292,10 +1292,115 @@ body.dragging { user-select: none; cursor: grabbing; }
   margin: 6px 0;
   text-align: center;
   min-height: 60px;
+  position: relative;
 }
 .mermaid svg {
   max-width: 100%;
   height: auto;
+}
+
+/* Expand affordance on rendered diagrams. Always rendered (so keyboard
+   users can Tab to it) but transparent and non-interactive until the
+   diagram is hovered or the button itself takes focus; touch gets an
+   always-visible 44px target. Absolute positioning keeps it out of the
+   document flow, so showing it never shifts diagram layout. */
+.mermaid-expand {
+  display: flex;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--crit-editor-fg-secondary);
+  background: var(--crit-editor-bg-elevated);
+  border: 1px solid var(--crit-border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--crit-dur-fast) var(--crit-ease);
+}
+.mermaid-expand:hover {
+  color: var(--crit-editor-fg);
+  background: var(--crit-editor-bg-hover);
+}
+.mermaid-expand:focus-visible { box-shadow: var(--crit-focus); }
+.line-content.mermaid-block:hover .mermaid-expand,
+.mermaid-expand:focus,
+.mermaid-expand:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (pointer: coarse) {
+  .mermaid-expand {
+    opacity: 1;
+    pointer-events: auto;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* ===== Mermaid fullscreen overlay (GitHub-style pan/zoom) ===== */
+.mermaid-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--crit-overlay-bg);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 16px;
+}
+.mermaid-overlay.active { display: flex; }
+.mermaid-overlay-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--crit-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  box-shadow: var(--crit-shadow);
+}
+.mermaid-overlay-zoom {
+  min-width: 52px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--crit-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.mermaid-overlay-viewport {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  background: var(--crit-editor-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+  cursor: grab;
+  touch-action: none;
+}
+.mermaid-overlay-viewport.panning { cursor: grabbing; }
+.mermaid-overlay-canvas {
+  transform-origin: 0 0;
+  will-change: transform;
+  width: max-content;
+}
+.mermaid-overlay-canvas svg {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+@media (max-width: 768px) {
+  .mermaid-overlay { padding: 8px; }
+  .mermaid-overlay-toolbar { flex-wrap: wrap; justify-content: center; }
 }
 
 /* ===== Images ===== */
