@@ -196,6 +196,24 @@ func TestPRMetadataCache_ConcurrentGetSinglePopulation(t *testing.T) {
 	}
 }
 
+func TestInvalidatePR_DropsProjectQualifiedKey(t *testing.T) {
+	prev := prMetaCache
+	prMetaCache = newPRMetadataCache()
+	t.Cleanup(func() { prMetaCache = prev })
+
+	id := forge.ChangeID{Number: 1, Project: "org/repo-b"}
+	prMetaCache.entries[prCacheKey(id)] = &prCacheEntry{data: &PRInfo{Number: 1}, access: time.Now()}
+	prMetaCache.entries["1"] = &prCacheEntry{data: &PRInfo{Number: 1, Title: "bare"}, access: time.Now()}
+
+	InvalidatePR(id)
+	if _, ok := prMetaCache.entries[prCacheKey(id)]; ok {
+		t.Error("InvalidatePR failed to drop project-qualified entry")
+	}
+	if _, ok := prMetaCache.entries["1"]; !ok {
+		t.Error("InvalidatePR wrongly dropped bare-number entry")
+	}
+}
+
 func TestInvalidatePRCache_IgnoresNonPositive(t *testing.T) {
 	prev := prMetaCache
 	prMetaCache = newPRMetadataCache()

@@ -119,7 +119,9 @@ func listOpenGitLabChanges(ctx context.Context) ([]forge.ChangeSummary, error) {
 func init() {
 	forge.SelectProviderFn = selectProvider
 	forge.ReviewFn = session.RunReview
-	session.InvalidatePRCache = github.InvalidatePRCache
+	session.InvalidatePRCache = func(number int, project string) {
+		github.InvalidatePR(forge.ChangeID{Number: number, Project: project})
+	}
 	session.FetchMRFileContent = func(f session.Focus, sha, path string) ([]byte, error) {
 		project := f.RemoteProject
 		if sha == f.BaseSHA && f.RemoteBaseProject != "" {

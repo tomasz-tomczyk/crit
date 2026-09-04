@@ -20,8 +20,13 @@ func TestPRViewArgs(t *testing.T) {
 		},
 		{
 			name: "URL-derived project pins -R owner/repo",
-			id:   forge.ChangeID{Number: 1, Project: "myorg/repo-b"},
+			id:   forge.ChangeID{Number: 1, Project: "myorg/repo-b", Host: "github.com"},
 			want: []string{"pr", "view", "1", "-R", "myorg/repo-b", "--json", prJSONFields},
+		},
+		{
+			name: "enterprise host is included in -R",
+			id:   forge.ChangeID{Number: 9, Project: "acme/app", Host: "github.example.com"},
+			want: []string{"pr", "view", "9", "-R", "github.example.com/acme/app", "--json", prJSONFields},
 		},
 	}
 	for _, c := range cases {

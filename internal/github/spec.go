@@ -43,11 +43,16 @@ func invalidPRSpec(spec string) error {
 
 // prViewArgs builds the `gh pr view` argument list for id. When Project is
 // set (from a full PR URL), pin the lookup with -R so the current checkout's
-// remote cannot shadow a different owner/repo (#870).
+// remote cannot shadow a different owner/repo (#870). Non-github.com hosts
+// are included as HOST/OWNER/REPO so GitHub Enterprise URLs resolve correctly.
 func prViewArgs(id forge.ChangeID) []string {
 	args := []string{"pr", "view", strconv.Itoa(id.Number)}
 	if id.Project != "" {
-		args = append(args, "-R", id.Project)
+		repo := id.Project
+		if id.Host != "" && !strings.EqualFold(id.Host, "github.com") {
+			repo = id.Host + "/" + id.Project
+		}
+		args = append(args, "-R", repo)
 	}
 	return append(args, "--json", prJSONFields)
 }

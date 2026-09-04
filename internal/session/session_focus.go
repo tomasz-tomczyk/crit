@@ -370,7 +370,7 @@ func dropStaleCacheOnPRSwitch(oldFocus, newFocus Focus) {
 		return
 	}
 	if InvalidatePRCache != nil {
-		InvalidatePRCache(oldFocus.ChangeNumber)
+		InvalidatePRCache(oldFocus.ChangeNumber, oldFocus.RemoteBaseProject)
 	}
 }
 
