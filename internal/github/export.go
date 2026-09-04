@@ -1,6 +1,9 @@
 package github
 
-import "github.com/tomasz-tomczyk/crit/internal/session"
+import (
+	"github.com/tomasz-tomczyk/crit/internal/forge"
+	"github.com/tomasz-tomczyk/crit/internal/session"
+)
 
 type (
 	GhReplyForPush = ghReplyForPush
@@ -107,12 +110,16 @@ func RenderOrphanMarkdown(prNum int, b PushBuckets) string {
 }
 
 // SwapFetchPRByNumberForTest replaces the PR fetch function for the duration of a test.
+// The stub receives the PR number only; Project from ChangeID is ignored (tests that
+// need project-aware stubs should assign fetchPRFn directly).
 func SwapFetchPRByNumberForTest(fn func(int) (*PRInfo, error)) func() {
-	prev := fetchPRByNumberFn
-	fetchPRByNumberFn = fn
+	prev := fetchPRFn
+	fetchPRFn = func(id forge.ChangeID) (*PRInfo, error) {
+		return fn(id.Number)
+	}
 	prMetaCache.reset()
 	return func() {
-		fetchPRByNumberFn = prev
+		fetchPRFn = prev
 		prMetaCache.reset()
 	}
 }

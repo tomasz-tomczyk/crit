@@ -26,18 +26,23 @@ func (Provider) Detect(_ context.Context, _ forge.RepoContext) (forge.ChangeID, 
 }
 
 func (Provider) Get(_ context.Context, _ forge.RepoContext, id forge.ChangeID) (forge.ChangeRequest, error) {
-	info, err := FetchPRByNumber(id.Number)
+	info, err := FetchPR(id)
 	if err != nil {
 		return forge.ChangeRequest{}, err
 	}
 	if info == nil {
 		return forge.ChangeRequest{}, fmt.Errorf("PR #%d not found", id.Number)
 	}
+	baseProject := id.Project
+	if baseProject == "" {
+		baseProject = githubProject(info.URL)
+	}
 	return forge.ChangeRequest{
 		ID: id, URL: info.URL, Title: info.Title, Body: info.Body, State: info.State,
 		Draft: info.IsDraft, BaseRefName: info.BaseRefName, HeadRefName: info.HeadRefName,
 		BaseSHA: info.BaseRefOid, HeadSHA: info.HeadRefOid,
-		HeadRepo:        forge.RepoRef{Project: githubProject(info.HeadRepoURL)},
+		BaseRepo:        forge.RepoRef{Project: baseProject, Host: id.Host},
+		HeadRepo:        forge.RepoRef{Project: githubProject(info.HeadRepoURL), CloneURL: info.HeadRepoURL},
 		CrossRepository: info.IsCrossRepository, Additions: info.Additions,
 		Deletions: info.Deletions, ChangedFiles: info.ChangedFiles,
 		Author: info.AuthorLogin, CreatedAt: info.CreatedAt,
@@ -150,7 +155,7 @@ func (Provider) FetchFile(_ context.Context, _ forge.RepoContext, source forge.R
 	return session.FetchGitHubFileContent(parts[len(parts)-2], parts[len(parts)-1], sha, path)
 }
 
-func (Provider) Invalidate(id forge.ChangeID) { InvalidatePRCache(id.Number) }
+func (Provider) Invalidate(id forge.ChangeID) { InvalidatePR(id) }
 
 var _ forge.Provider = Provider{}
 
@@ -160,3 +165,6 @@ func githubProject(raw string) string {
 	}
 	return strings.TrimSuffix(strings.Trim(raw, "/"), ".git")
 }
+
+// ProjectFromRemoteURL extracts "owner/repo" from a GitHub remote or PR URL.
+func ProjectFromRemoteURL(raw string) string { return githubProject(raw) }

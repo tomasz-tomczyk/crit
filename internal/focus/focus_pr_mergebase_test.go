@@ -13,10 +13,10 @@ import (
 func TestResolveFocusFromPR_UsesMergeBaseNotBaseTip(t *testing.T) {
 	vcs.ClearGitEnvForTest(t) // robust under git hooks that export GIT_DIR
 
-	prevFetch := FetchPRByNumberHook
+	prevFetch := FetchPRHook
 	prevStack := IsStackedPRHook
 	t.Cleanup(func() {
-		FetchPRByNumberHook = prevFetch
+		FetchPRHook = prevFetch
 		IsStackedPRHook = prevStack
 	})
 
@@ -30,7 +30,7 @@ func TestResolveFocusFromPR_UsesMergeBaseNotBaseTip(t *testing.T) {
 	vcs.GitRun(t, dir, "checkout", "main")
 	baseTip := vcs.CommitAtForTest(t, dir, "drift.txt", "drift\n", "base branch drift")
 
-	FetchPRByNumberHook = func(int) (ChangeResolveInfo, error) {
+	FetchPRHook = func(string) (ChangeResolveInfo, error) {
 		return ChangeResolveInfo{
 			Number:      7,
 			Title:       "drifted PR",

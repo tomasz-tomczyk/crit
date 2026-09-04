@@ -169,10 +169,10 @@ func resolveFocusFromPR(prSpec string, scope DiffScope, remoteFiles bool, v vcs.
 	if err != nil {
 		return nil, err
 	}
-	if FetchPRByNumberHook == nil {
+	if FetchPRHook == nil {
 		return nil, fmt.Errorf("resolving PR #%d: PR fetch not wired", prNum)
 	}
-	info, err := FetchPRByNumberHook(prNum)
+	info, err := FetchPRHook(prSpec)
 	if err != nil {
 		return nil, fmt.Errorf("resolving PR #%d: %w", prNum, err)
 	}

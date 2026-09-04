@@ -300,30 +300,40 @@ func parsePRViewJSON(b []byte) (*PRInfo, error) {
 	}, nil
 }
 
-// fetchPRByNumberFn is the live function that hits `gh`. Indirected through a
+// fetchPRFn is the live function that hits `gh`. Indirected through a
 // package var so tests can stub it without a real gh dependency. Tests that
 // swap this should also reset prMetaCache (see withFetchPRByNumber) or the
 // new stub will be shadowed by a previous test's cached PRInfo.
-var fetchPRByNumberFn = fetchPRByNumberReal
+var fetchPRFn = fetchPRReal
 
-// fetchPRByNumber resolves a PR by explicit number using `gh pr view <num>`,
-// memoized for the daemon's lifetime via prMetaCache so repeated focus
-// switches return instantly. Unlike detectPRInfo, this does not filter
-// MERGED/CLOSED — a user explicitly asking to review --pr <num> can review a
-// merged PR (the comment-anchoring rules still apply because the head SHA is
-// fixed). The cache is invalidated by invalidatePRCache after force-push
-// detection (Session.SetFocus) and `crit pull`.
-func FetchPRByNumber(num int) (*PRInfo, error) {
-	return prMetaCache.get(num)
+// FetchPR resolves a PR by ChangeID using `gh pr view`, memoized for the
+// daemon's lifetime via prMetaCache. When id.Project is set, the lookup is
+// pinned with `gh -R` so a full PR URL cannot resolve against the wrong
+// checkout (#870). Unlike detectPRInfo, this does not filter MERGED/CLOSED —
+// a user explicitly asking to review --pr <num> can review a merged PR.
+func FetchPR(id forge.ChangeID) (*PRInfo, error) {
+	if id.Number <= 0 {
+		return nil, fmt.Errorf("invalid PR number %d", id.Number)
+	}
+	return prMetaCache.get(id)
 }
 
-func fetchPRByNumberReal(num int) (*PRInfo, error) {
+// FetchPRByNumber resolves a PR by number against the current checkout.
+// Prefer FetchPR when a URL-derived Project is known.
+func FetchPRByNumber(num int) (*PRInfo, error) {
+	return FetchPR(forge.ChangeID{Number: num})
+}
+
+func fetchPRReal(id forge.ChangeID) (*PRInfo, error) {
 	if err := requireGH(); err != nil {
 		return nil, err
 	}
-	out, err := exec.Command("gh", "pr", "view", strconv.Itoa(num), "--json", prJSONFields).Output()
+	out, err := exec.Command("gh", prViewArgs(id)...).Output()
 	if err != nil {
-		return nil, fmt.Errorf("gh pr view %d: %w", num, err)
+		if id.Project != "" {
+			return nil, fmt.Errorf("gh pr view %d -R %s: %w", id.Number, id.Project, err)
+		}
+		return nil, fmt.Errorf("gh pr view %d: %w", id.Number, err)
 	}
 	return parsePRViewJSON(out)
 }

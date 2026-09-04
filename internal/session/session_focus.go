@@ -366,7 +366,7 @@ func dropStaleCacheOnPRSwitch(oldFocus, newFocus Focus) {
 	if oldFocus.Forge != "github" || newFocus.Forge != "github" || oldFocus.ChangeNumber == 0 || newFocus.ChangeNumber == 0 {
 		return
 	}
-	if oldFocus.ChangeNumber == newFocus.ChangeNumber {
+	if oldFocus.ChangeNumber == newFocus.ChangeNumber && oldFocus.RemoteBaseProject == newFocus.RemoteBaseProject {
 		return
 	}
 	if InvalidatePRCache != nil {

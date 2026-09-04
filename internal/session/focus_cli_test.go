@@ -16,6 +16,17 @@ func TestFocusKeyArgs_PR(t *testing.T) {
 	}
 }
 
+func TestFocusKeyArgs_PRWithRemoteBaseProject(t *testing.T) {
+	sc := &CLIReviewConfig{Focus: &Focus{
+		Kind: FocusRange, Forge: "github", ChangeNumber: 1,
+		RemoteBaseProject: "myorg/repo-b",
+	}}
+	got := FocusKeyArgs(sc)
+	if len(got) != 1 || got[0] != "pr:myorg/repo-b#1" {
+		t.Errorf("got %v want [pr:myorg/repo-b#1]", got)
+	}
+}
+
 func TestFocusKeyArgs_Range(t *testing.T) {
 	sc := &CLIReviewConfig{Focus: &Focus{Kind: FocusRange, BaseSHA: "abc", HeadSHA: "def"}}
 	got := FocusKeyArgs(sc)

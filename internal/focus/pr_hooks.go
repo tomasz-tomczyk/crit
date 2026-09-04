@@ -20,18 +20,20 @@ type ChangeResolveInfo struct {
 }
 
 var (
-	FetchPRByNumberHook func(prNum int) (ChangeResolveInfo, error)
-	IsStackedPRHook     func(info ChangeResolveInfo, v vcs.VCS) bool
-	FetchMRHook         func(spec string) (ChangeResolveInfo, error)
-	IsStackedMRHook     func(info ChangeResolveInfo, v vcs.VCS) bool
+	// FetchPRHook resolves a --pr <num|url> spec. The raw CLI value is passed
+	// through so URL-derived owner/repo survives (mirrors FetchMRHook).
+	FetchPRHook     func(spec string) (ChangeResolveInfo, error)
+	IsStackedPRHook func(info ChangeResolveInfo, v vcs.VCS) bool
+	FetchMRHook     func(spec string) (ChangeResolveInfo, error)
+	IsStackedMRHook func(info ChangeResolveInfo, v vcs.VCS) bool
 )
 
 // SetPRResolveHooks wires PR resolution from cmd/crit to break focus↔github cycles.
 func SetPRResolveHooks(
-	fetch func(prNum int) (ChangeResolveInfo, error),
+	fetch func(spec string) (ChangeResolveInfo, error),
 	stacked func(info ChangeResolveInfo, v vcs.VCS) bool,
 ) {
-	FetchPRByNumberHook = fetch
+	FetchPRHook = fetch
 	IsStackedPRHook = stacked
 }
 
