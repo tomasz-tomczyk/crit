@@ -86,3 +86,27 @@ func prCacheKey(id forge.ChangeID) string {
 	}
 	return strconv.Itoa(id.Number)
 }
+
+// ghAPIArgs builds a `gh api` argument list. When id.Project is set, pins with
+// -R so {owner}/{repo} placeholders (and GraphQL via explicit owner/name) resolve
+// against the URL-qualified repo rather than the current checkout (#870 class).
+func ghAPIArgs(id forge.ChangeID, endpointAndFlags ...string) []string {
+	args := []string{"api"}
+	if repo := prRepoRef(id); repo != "" {
+		args = append(args, "-R", repo)
+	}
+	return append(args, endpointAndFlags...)
+}
+
+// resolveRepoOwnerName returns owner/name for GraphQL. URL-qualified ChangeIDs
+// use id.Project; bare numbers fall back to the current checkout.
+func resolveRepoOwnerName(id forge.ChangeID) (string, string, error) {
+	if id.Project != "" {
+		parts := strings.SplitN(id.Project, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return "", "", fmt.Errorf("invalid GitHub project %q", id.Project)
+		}
+		return parts[0], parts[1], nil
+	}
+	return fetchCurrentRepoOwnerName()
+}

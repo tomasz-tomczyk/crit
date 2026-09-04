@@ -102,6 +102,9 @@ func (f Focus) PickerVisible() bool {
 // focusKeyFor returns the per-view key used to scope comment visibility.
 //
 //	pr:<num>                       — range focus with PR number
+//	pr:<project>#<num>             — URL-qualified GitHub PR
+//	mr:<num>                       — range focus with MR IID (checkout-scoped)
+//	mr:<project>#<num>             — URL-qualified GitLab MR
 //	range:<baseSHA>..<headSHA>     — range focus without PR number
 //	""                             — working-tree (and unknown)
 //
@@ -114,7 +117,7 @@ func focusKeyFor(f Focus) string {
 	}
 	if f.ChangeNumber > 0 {
 		if f.Forge == "gitlab" {
-			return fmt.Sprintf("mr:%d", f.ChangeNumber)
+			return MRFocusKey(f.ChangeNumber, f.RemoteBaseProject, f.RemoteHost)
 		}
 		// github or empty forge (legacy ChangeNumber without Forge) → pr:…
 		return PRFocusKey(f.ChangeNumber, f.RemoteBaseProject, f.RemoteHost)
@@ -125,6 +128,8 @@ func focusKeyFor(f Focus) string {
 // PRFocusKey is the GitHub PR identity used for daemon session keys and
 // comment FocusKey stamping. URL-qualified reviews include owner/repo (and
 // non-github.com host) so same-number PRs do not collide (#870).
+// Bare numbers (empty project) keep the legacy "pr:N" form so existing
+// checkout-scoped sessions continue to match.
 func PRFocusKey(number int, project, host string) string {
 	if project == "" {
 		return fmt.Sprintf("pr:%d", number)
@@ -133,6 +138,19 @@ func PRFocusKey(number int, project, host string) string {
 		return fmt.Sprintf("pr:%s/%s#%d", host, project, number)
 	}
 	return fmt.Sprintf("pr:%s#%d", project, number)
+}
+
+// MRFocusKey is the GitLab MR identity used for daemon session keys and
+// comment FocusKey stamping. Mirrors PRFocusKey: bare IIDs stay "mr:N";
+// URL-qualified reviews include project (and non-gitlab.com host).
+func MRFocusKey(number int, project, host string) string {
+	if project == "" {
+		return fmt.Sprintf("mr:%d", number)
+	}
+	if host != "" && !strings.EqualFold(host, "gitlab.com") {
+		return fmt.Sprintf("mr:%s/%s#%d", host, project, number)
+	}
+	return fmt.Sprintf("mr:%s#%d", project, number)
 }
 
 // visibleInFocus reports whether c should be shown in the given focus.

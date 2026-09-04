@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/forge"
@@ -37,11 +36,17 @@ func (Provider) Get(_ context.Context, _ forge.RepoContext, id forge.ChangeID) (
 	if baseProject == "" {
 		baseProject = githubProject(info.URL)
 	}
+	baseHost := id.Host
+	if baseHost == "" {
+		if u, err := url.Parse(info.URL); err == nil {
+			baseHost = normalizeGitHubHost(u.Host)
+		}
+	}
 	return forge.ChangeRequest{
 		ID: id, URL: info.URL, Title: info.Title, Body: info.Body, State: info.State,
 		Draft: info.IsDraft, BaseRefName: info.BaseRefName, HeadRefName: info.HeadRefName,
 		BaseSHA: info.BaseRefOid, HeadSHA: info.HeadRefOid,
-		BaseRepo:        forge.RepoRef{Project: baseProject, Host: id.Host},
+		BaseRepo:        forge.RepoRef{Project: baseProject, Host: baseHost},
 		HeadRepo:        forge.RepoRef{Project: githubProject(info.HeadRepoURL), CloneURL: info.HeadRepoURL},
 		CrossRepository: info.IsCrossRepository, Additions: info.Additions,
 		Deletions: info.Deletions, ChangedFiles: info.ChangedFiles,
@@ -93,11 +98,12 @@ func githubPullArgs(request forge.PullRequest) ([]string, error) {
 		args = append(args, "--output", request.OutputDir)
 	}
 	if request.ChangeSpec != "" {
-		n, err := githubChangeNumber(request.ChangeSpec)
-		if err != nil {
-			return nil, err
+		// Validate and preserve the original spec (number or URL) so RunPull can
+		// pin -R from ParsePRSpec — do not collapse URLs to bare numbers.
+		if _, err := ParsePRSpec(request.ChangeSpec); err != nil {
+			return nil, fmt.Errorf("invalid GitHub pull request %q (expected number or URL)", request.ChangeSpec)
 		}
-		args = append(args, fmt.Sprint(n))
+		args = append(args, request.ChangeSpec)
 	}
 	return args, nil
 }
@@ -127,25 +133,6 @@ func githubPushArgs(request forge.PushRequest) ([]string, error) {
 	return append(prefix, args...), nil
 }
 
-func githubChangeNumber(spec string) (int, error) {
-	if n, err := strconv.Atoi(spec); err == nil && n > 0 {
-		return n, nil
-	}
-	u, err := url.Parse(spec)
-	if err == nil {
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		for i := 0; i+1 < len(parts); i++ {
-			if parts[i] != "pull" {
-				continue
-			}
-			if n, parseErr := strconv.Atoi(parts[i+1]); parseErr == nil && n > 0 {
-				return n, nil
-			}
-		}
-	}
-	return 0, fmt.Errorf("invalid GitHub pull request %q (expected number or URL)", spec)
-}
-
 func (Provider) FetchFile(_ context.Context, _ forge.RepoContext, source forge.RepoRef, sha, path string) ([]byte, error) {
 	project := strings.Trim(source.Project, "/")
 	parts := strings.Split(project, "/")
@@ -155,13 +142,28 @@ func (Provider) FetchFile(_ context.Context, _ forge.RepoContext, source forge.R
 	return session.FetchGitHubFileContent(parts[len(parts)-2], parts[len(parts)-1], sha, path)
 }
 
-func (Provider) Invalidate(id forge.ChangeID) { InvalidatePR(id) }
+func (Provider) Invalidate(id forge.ChangeID) {
+	// Drop bare and project-qualified sibling keys (same as crit pull).
+	InvalidatePRCache(id.Number)
+}
 
 var _ forge.Provider = Provider{}
 
 func githubProject(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	// HTML PR URLs must yield owner/repo, not owner/repo/pull/N.
+	if id, err := ParsePRSpec(raw); err == nil && id.Project != "" {
+		return id.Project
+	}
 	if u, err := url.Parse(raw); err == nil && u.Host != "" {
-		return strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git")
+		path := strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git")
+		parts := strings.Split(path, "/")
+		if len(parts) >= 2 {
+			return parts[0] + "/" + parts[1]
+		}
+		return path
 	}
 	return strings.TrimSuffix(strings.Trim(raw, "/"), ".git")
 }

@@ -34,11 +34,15 @@ esac
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func TestGitHubChangeNumber(t *testing.T) {
+func TestGitHubPullArgsPreservesPRURL(t *testing.T) {
 	for _, input := range []string{"42", "https://github.com/acme/widget/pull/42", "https://github.example/acme/widget/pull/42/files"} {
-		got, err := githubChangeNumber(input)
-		if err != nil || got != 42 {
-			t.Errorf("githubChangeNumber(%q) = (%d, %v)", input, got, err)
+		got, err := githubPullArgs(forge.PullRequest{ChangeSpec: input})
+		if err != nil {
+			t.Errorf("githubPullArgs(%q) err = %v", input, err)
+			continue
+		}
+		if len(got) != 1 || got[0] != input {
+			t.Errorf("githubPullArgs(%q) = %v, want [%q]", input, got, input)
 		}
 	}
 }
@@ -103,11 +107,12 @@ func TestGitHubProviderGetTranslatesMetadata(t *testing.T) {
 }
 
 func TestGitHubProviderArgumentTranslation(t *testing.T) {
-	pull, err := githubPullArgs(forge.PullRequest{ChangeSpec: "https://github.com/acme/widget/pull/12/files", OutputDir: "reviews"})
+	url := "https://github.com/acme/widget/pull/12/files"
+	pull, err := githubPullArgs(forge.PullRequest{ChangeSpec: url, OutputDir: "reviews"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(pull, []string{"--output", "reviews", "12"}) {
+	if !reflect.DeepEqual(pull, []string{"--output", "reviews", url}) {
 		t.Fatalf("pull args = %v", pull)
 	}
 	pull, err = githubPullArgs(forge.PullRequest{ChangeSpec: "12", SessionID: "aaaaaaaaaaaa"})
@@ -161,10 +166,12 @@ func TestGitHubProviderMethodsRejectInvalidSpecsBeforeCLI(t *testing.T) {
 
 func TestGitHubProjectNormalization(t *testing.T) {
 	tests := map[string]string{
-		"https://github.com/acme/widget.git": "acme/widget",
-		"git@github.com:acme/widget.git":     "git@github.com:acme/widget",
-		"/acme/widget/":                      "acme/widget",
-		"":                                   "",
+		"https://github.com/acme/widget.git":          "acme/widget",
+		"https://github.com/acme/widget/pull/7":       "acme/widget",
+		"https://github.com/acme/widget/pull/7/files": "acme/widget",
+		"git@github.com:acme/widget.git":              "git@github.com:acme/widget",
+		"/acme/widget/":                               "acme/widget",
+		"":                                            "",
 	}
 	for input, want := range tests {
 		if got := githubProject(input); got != want {
@@ -173,10 +180,28 @@ func TestGitHubProjectNormalization(t *testing.T) {
 	}
 }
 
+func TestGitHubProviderGet_BaseRepoFromPRURL(t *testing.T) {
+	withFetchPRByNumber(t, func(number int) (*PRInfo, error) {
+		return &PRInfo{
+			URL: "https://github.com/acme/widget/pull/7", Title: "Feature",
+			BaseRefName: "main", HeadRefName: "feature", BaseRefOid: "base", HeadRefOid: "head",
+			HeadRepoURL: "https://github.com/alice/widget.git",
+		}, nil
+	})
+	change, err := Provider{}.Get(context.Background(), forge.RepoContext{}, forge.ChangeID{Number: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.BaseRepo.Project != "acme/widget" {
+		t.Fatalf("BaseRepo.Project = %q, want acme/widget", change.BaseRepo.Project)
+	}
+}
+
 func TestProjectFromRemoteURL(t *testing.T) {
 	tests := map[string]string{
 		"https://github.com/myorg/repo-b.git": "myorg/repo-b",
 		"https://github.com/o/r":              "o/r",
+		"https://github.com/o/r/pull/3":       "o/r",
 		"acme/widget":                         "acme/widget",
 		"":                                    "",
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
@@ -31,11 +32,11 @@ func TestParsePushFlags(t *testing.T) {
 		{name: "message short", args: []string{"-m", "hi"}, want: pushFlags{message: "hi"}},
 		{name: "output", args: []string{"-o", "/tmp/x"}, want: pushFlags{outputDir: "/tmp/x"}},
 		{name: "event", args: []string{"-e", "approve"}, want: pushFlags{eventFlag: "approve"}},
-		{name: "pr number", args: []string{"99"}, want: pushFlags{prFlag: 99}},
+		{name: "pr number", args: []string{"99"}, want: pushFlags{spec: "99"}},
 		{
 			name: "all flags",
 			args: []string{"--dry-run", "--event", "request-changes", "-m", "msg", "-o", "/d", "12"},
-			want: pushFlags{prFlag: 12, dryRun: true, message: "msg", outputDir: "/d", eventFlag: "request-changes"},
+			want: pushFlags{spec: "12", dryRun: true, message: "msg", outputDir: "/d", eventFlag: "request-changes"},
 		},
 		{name: "message missing value", args: []string{"--message"}, wantErr: true},
 		{name: "output missing value", args: []string{"--output"}, wantErr: true},
@@ -97,7 +98,7 @@ func TestParseResolvedPushFlags(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !f.dryRun || f.prFlag != 42 {
+		if !f.dryRun || f.spec != "42" {
 			t.Fatalf("flags = %+v, want dry-run PR 42", f)
 		}
 		if f.configuredOutput != configuredOutput {
@@ -124,7 +125,7 @@ func TestParsePushFlags_NonNumericExitCode(t *testing.T) {
 }
 
 func TestResolveCurrentPRHead_NotInRange(t *testing.T) {
-	sha, err := resolveCurrentPRHead(5, false, false)
+	sha, err := resolveCurrentPRHead(forge.ChangeID{Number: 5}, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,7 +140,7 @@ func TestResolveCurrentPRHead_InRange(t *testing.T) {
 	})
 	defer restore()
 
-	sha, err := resolveCurrentPRHead(5, true, false)
+	sha, err := resolveCurrentPRHead(forge.ChangeID{Number: 5}, true, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestResolveCurrentPRHead_FetchError(t *testing.T) {
 	defer restore()
 
 	// Live mode: a fetch failure is fatal because the stale-head check must run.
-	if _, err := resolveCurrentPRHead(5, true, false); err == nil {
+	if _, err := resolveCurrentPRHead(forge.ChangeID{Number: 5}, true, false); err == nil {
 		t.Error("resolveCurrentPRHead live mode = nil error, want error on fetch failure")
 	}
 
@@ -163,7 +164,7 @@ func TestResolveCurrentPRHead_FetchError(t *testing.T) {
 	var sha string
 	stderr := captureStderr(t, func() {
 		var err error
-		sha, err = resolveCurrentPRHead(5, true, true)
+		sha, err = resolveCurrentPRHead(forge.ChangeID{Number: 5}, true, true)
 		if err != nil {
 			t.Errorf("dry-run should tolerate fetch error, got %v", err)
 		}
@@ -211,7 +212,7 @@ func TestParsePushFlagsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := pushFlags{sessionID: "aaaaaaaaaaaa", dryRun: true, prFlag: 12}
+	want := pushFlags{sessionID: "aaaaaaaaaaaa", dryRun: true, spec: "12"}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -222,14 +223,14 @@ func TestParsePushFlagsSession(t *testing.T) {
 
 func TestLoadPushReview(t *testing.T) {
 	t.Run("session and output conflict", func(t *testing.T) {
-		_, _, err := loadPushReview(pushFlags{sessionID: "aaaaaaaaaaaa", outputDir: "/tmp/out"}, 1)
+		_, _, err := loadPushReview(pushFlags{sessionID: "aaaaaaaaaaaa", outputDir: "/tmp/out"}, forge.ChangeID{Number: 1})
 		if err == nil || !strings.Contains(err.Error(), "--session cannot be used with --output") {
 			t.Fatalf("error = %v, want session/output conflict", err)
 		}
 	})
 
 	t.Run("invalid session id", func(t *testing.T) {
-		_, _, err := loadPushReview(pushFlags{sessionID: "bad"}, 1)
+		_, _, err := loadPushReview(pushFlags{sessionID: "bad"}, forge.ChangeID{Number: 1})
 		if err == nil || !strings.Contains(err.Error(), "expected 12-character hex") {
 			t.Fatalf("error = %v, want invalid session id", err)
 		}
@@ -239,7 +240,7 @@ func TestLoadPushReview(t *testing.T) {
 		projectDir := t.TempDir()
 		testutil.SetHome(t, t.TempDir())
 		t.Chdir(projectDir)
-		_, _, err := loadPushReview(pushFlags{}, 1)
+		_, _, err := loadPushReview(pushFlags{}, forge.ChangeID{Number: 1})
 		if err == nil || !strings.Contains(err.Error(), "no review file found") {
 			t.Fatalf("error = %v, want missing review file", err)
 		}
@@ -266,7 +267,7 @@ func TestLoadPushReview(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		gotPath, cj, err := loadPushReview(pushFlags{}, 0)
+		gotPath, cj, err := loadPushReview(pushFlags{}, forge.ChangeID{Number: 0})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -296,7 +297,7 @@ func TestLoadPushReview(t *testing.T) {
 		if err := os.WriteFile(session.ReviewPathsFor(identity).Review, []byte("{"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		_, _, err = loadPushReview(pushFlags{}, 0)
+		_, _, err = loadPushReview(pushFlags{}, forge.ChangeID{Number: 0})
 		if err == nil || !strings.Contains(err.Error(), "invalid review file") {
 			t.Fatalf("error = %v, want invalid review file", err)
 		}
@@ -337,7 +338,7 @@ func TestLoadPushReview(t *testing.T) {
 		}
 		t.Cleanup(func() { daemon.RemoveSessionFile(key) })
 
-		gotPath, cj, err := loadPushReview(pushFlags{sessionID: key}, 99)
+		gotPath, cj, err := loadPushReview(pushFlags{sessionID: key}, forge.ChangeID{Number: 99})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -35,11 +35,12 @@ func TestParsePullFlags(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "empty", args: nil, want: pullFlags{}},
-		{name: "pr number", args: []string{"42"}, want: pullFlags{prFlag: 42}},
+		{name: "pr number", args: []string{"42"}, want: pullFlags{spec: "42"}},
 		{name: "output long", args: []string{"--output", "/tmp/out"}, want: pullFlags{outputDir: "/tmp/out"}},
 		{name: "output short", args: []string{"-o", "/tmp/out"}, want: pullFlags{outputDir: "/tmp/out"}},
-		{name: "output and pr", args: []string{"-o", "/tmp/out", "7"}, want: pullFlags{prFlag: 7, outputDir: "/tmp/out"}},
+		{name: "output and pr", args: []string{"-o", "/tmp/out", "7"}, want: pullFlags{spec: "7", outputDir: "/tmp/out"}},
 		{name: "output missing value", args: []string{"--output"}, wantErr: true},
+		{name: "pr url", args: []string{"https://github.com/acme/widget/pull/12"}, want: pullFlags{spec: "https://github.com/acme/widget/pull/12"}},
 		{name: "non-numeric positional", args: []string{"notanumber"}, wantErr: true},
 	}
 	for _, tt := range tests {
@@ -97,7 +98,7 @@ func TestParseResolvedPullFlags(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if f.prFlag != 42 || f.configuredOutput != configuredOutput {
+		if f.spec != "42" || f.configuredOutput != configuredOutput {
 			t.Fatalf("flags = %+v, want PR 42 and configured output %q", f, configuredOutput)
 		}
 	})
@@ -112,18 +113,18 @@ func TestParseResolvedPullFlags(t *testing.T) {
 func TestShouldRedirectReviewForPR(t *testing.T) {
 	tests := []struct {
 		name         string
-		prFlag       int
+		explicitSpec bool
 		pinnedOutput bool
 		want         bool
 	}{
-		{name: "explicit PR without pinned output redirects", prFlag: 42, want: true},
+		{name: "explicit PR without pinned output redirects", explicitSpec: true, want: true},
 		{name: "auto-detected PR does not redirect", want: false},
-		{name: "explicit PR with CLI or configured output stays pinned", prFlag: 42, pinnedOutput: true, want: false},
+		{name: "explicit PR with CLI or configured output stays pinned", explicitSpec: true, pinnedOutput: true, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldRedirectReviewForPR(tt.prFlag, tt.pinnedOutput); got != tt.want {
-				t.Fatalf("shouldRedirectReviewForPR(%d, %v) = %v, want %v", tt.prFlag, tt.pinnedOutput, got, tt.want)
+			if got := shouldRedirectReviewForPR(tt.explicitSpec, tt.pinnedOutput); got != tt.want {
+				t.Fatalf("shouldRedirectReviewForPR(%v, %v) = %v, want %v", tt.explicitSpec, tt.pinnedOutput, got, tt.want)
 			}
 		})
 	}
@@ -175,7 +176,7 @@ func TestParsePullFlagsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := pullFlags{sessionID: "aaaaaaaaaaaa", prFlag: 42}
+	want := pullFlags{sessionID: "aaaaaaaaaaaa", spec: "42"}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -190,7 +191,7 @@ func TestParsePullFlagsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.sessionID != "bbbbbbbbbbbb" || got.outputDir != "/tmp/out" || got.prFlag != 7 {
+	if got.sessionID != "bbbbbbbbbbbb" || got.outputDir != "/tmp/out" || got.spec != "7" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -201,7 +202,7 @@ func TestParseResolvedPullFlagsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.sessionID != "cccccccccccc" || f.prFlag != 9 {
+	if f.sessionID != "cccccccccccc" || f.spec != "9" {
 		t.Fatalf("flags = %+v", f)
 	}
 	if f.configuredOutput != configuredOutput {
@@ -211,7 +212,7 @@ func TestParseResolvedPullFlagsSession(t *testing.T) {
 
 func TestShouldRedirectReviewForPRWithSession(t *testing.T) {
 	// --session pins the review identity the same way --output does.
-	if shouldRedirectReviewForPR(42, true) {
+	if shouldRedirectReviewForPR(true, true) {
 		t.Fatal("pinned session should not redirect")
 	}
 }

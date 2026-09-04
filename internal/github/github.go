@@ -459,13 +459,13 @@ func EnsureSHAFetchedSapling(vcsInst vcs.VCS, sha, repoRoot, forkURL string) err
 }
 
 // fetchPRComments fetches all review comments for a PR.
-func fetchPRComments(prNumber int) ([]ghComment, error) {
+func fetchPRComments(id forge.ChangeID) ([]ghComment, error) {
 	if ghSupportsAPISlurp() {
-		return fetchPRCommentsWithSlurp(prNumber)
+		return fetchPRCommentsWithSlurp(id)
 	}
 	// TODO: Remove this compatibility path once Crit requires gh v2.48.0+,
 	// which added `gh api --slurp`.
-	return fetchPRCommentsWithoutSlurp(prNumber)
+	return fetchPRCommentsWithoutSlurp(id)
 }
 
 func ghSupportsAPISlurp() bool {
@@ -511,12 +511,12 @@ func versionAtLeast(version string, wantMajor, wantMinor, wantPatch int) bool {
 	return patch >= wantPatch
 }
 
-func fetchPRCommentsWithSlurp(prNumber int) ([]ghComment, error) {
-	out, err := exec.Command("gh", "api",
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+func fetchPRCommentsWithSlurp(id forge.ChangeID) ([]ghComment, error) {
+	out, err := exec.Command("gh", ghAPIArgs(id,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", id.Number),
 		"--paginate",
 		"--slurp",
-	).Output()
+	)...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("fetching PR comments: %w", err)
 	}
@@ -533,13 +533,13 @@ func fetchPRCommentsWithSlurp(prNumber int) ([]ghComment, error) {
 	return comments, nil
 }
 
-func fetchPRCommentsWithoutSlurp(prNumber int) ([]ghComment, error) {
-	out, err := exec.Command("gh", "api",
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+func fetchPRCommentsWithoutSlurp(id forge.ChangeID) ([]ghComment, error) {
+	out, err := exec.Command("gh", ghAPIArgs(id,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", id.Number),
 		"--paginate",
 		"--jq",
 		".[]",
-	).Output()
+	)...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("fetching PR comments: %w", err)
 	}
@@ -594,15 +594,15 @@ func fetchCurrentRepoOwnerName() (string, string, error) {
 // crit's scale that the inner cap is acceptable. If we ever hit it, the
 // merge logic degrades gracefully — only the unseen replies miss the
 // resolved bit, the root still gets it.
-func fetchPRThreadResolved(prNumber int) (map[int64]bool, error) {
-	owner, name, err := fetchCurrentRepoOwnerName()
+func fetchPRThreadResolved(id forge.ChangeID) (map[int64]bool, error) {
+	owner, name, err := resolveRepoOwnerName(id)
 	if err != nil {
 		return nil, err
 	}
 	resolved := make(map[int64]bool)
 	cursor := ""
 	for {
-		page, nextCursor, err := fetchPRThreadResolvedPage(owner, name, prNumber, cursor)
+		page, nextCursor, err := fetchPRThreadResolvedPage(owner, name, id.Number, cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -1136,7 +1136,7 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 
 // postGHReply posts a reply to an existing GitHub PR review comment.
 // Returns the GitHub ID of the newly created reply.
-func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
+func postGHReply(id forge.ChangeID, parentGHID int64, body string) (int64, error) {
 	payload, err := json.Marshal(map[string]any{
 		"body":        body,
 		"in_reply_to": parentGHID,
@@ -1144,11 +1144,11 @@ func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("marshal reply: %w", err)
 	}
-	cmd := exec.Command("gh", "api",
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", prNumber),
+	cmd := exec.Command("gh", ghAPIArgs(id,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", id.Number),
 		"--method", "POST",
 		"--input", "-",
-	)
+	)...)
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1168,12 +1168,12 @@ func postGHReply(prNumber int, parentGHID int64, body string) (int64, error) {
 
 // postPushReplies posts each reply via gh api. On the first auth-rotation
 // failure (HTTP 401) it aborts the rest of the batch.
-func postPushReplies(prNumber int, allReplies []ghReplyForPush) (map[replyKey]int64, int, bool) {
+func postPushReplies(id forge.ChangeID, allReplies []ghReplyForPush) (map[replyKey]int64, int, bool) {
 	replyCount := 0
 	replyIDs := make(map[replyKey]int64)
 	authFailed := false
 	for _, reply := range allReplies {
-		replyID, err := postGHReply(prNumber, reply.ParentGHID, reply.Body)
+		replyID, err := postGHReply(id, reply.ParentGHID, reply.Body)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to post reply: %v\n", err)
 			if errors.Is(err, errGHAuthFailed) {
@@ -1261,18 +1261,18 @@ func buildReviewPayload(comments []map[string]any, message string, event string)
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
 // Returns a map of "path:endLine" -> GitHubID for each created comment.
-func createGHReview(prNumber int, comments []map[string]any, message string, event string) (map[string]int64, error) {
+func createGHReview(id forge.ChangeID, comments []map[string]any, message string, event string) (map[string]int64, error) {
 	data, err := buildReviewPayload(comments, message, event)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling review: %w", err)
 	}
 
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command("gh", "api",
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", prNumber),
+	cmd := exec.Command("gh", ghAPIArgs(id,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews", id.Number),
 		"--method", "POST",
 		"--input", "-",
-	)
+	)...)
 	cmd.Stdin = bytes.NewReader(data)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -1299,9 +1299,9 @@ func createGHReview(prNumber int, comments []map[string]any, message string, eve
 
 	// Fetch this review's comments and zip with our input to map IDs by position.
 	// We use the review-scoped endpoint (only returns this review's comments, in order).
-	commentOut, err := exec.Command("gh", "api",
-		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews/%d/comments", prNumber, reviewResp.ID),
-	).Output()
+	commentOut, err := exec.Command("gh", ghAPIArgs(id,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews/%d/comments", id.Number, reviewResp.ID),
+	)...).Output()
 	if err != nil {
 		return idMap, nil //nolint:nilerr // non-fatal: review was created, comment ID mapping is best-effort
 	}

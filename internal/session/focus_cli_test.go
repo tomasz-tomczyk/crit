@@ -63,6 +63,28 @@ func TestFocusKeyArgs_MR(t *testing.T) {
 	}
 }
 
+func TestFocusKeyArgs_MRWithRemoteBaseProject(t *testing.T) {
+	sc := &CLIReviewConfig{Focus: &Focus{
+		Kind: FocusRange, Forge: "gitlab", ChangeNumber: 7,
+		RemoteBaseProject: "acme/widget",
+	}}
+	got := FocusKeyArgs(sc)
+	if len(got) != 1 || got[0] != "mr:acme/widget#7" {
+		t.Errorf("got %v want [mr:acme/widget#7]", got)
+	}
+}
+
+func TestFocusKeyArgs_MRWithSelfManagedHost(t *testing.T) {
+	sc := &CLIReviewConfig{Focus: &Focus{
+		Kind: FocusRange, Forge: "gitlab", ChangeNumber: 9,
+		RemoteBaseProject: "group/app", RemoteHost: "gitlab.example.com",
+	}}
+	got := FocusKeyArgs(sc)
+	if len(got) != 1 || got[0] != "mr:gitlab.example.com/group/app#9" {
+		t.Errorf("got %v want [mr:gitlab.example.com/group/app#9]", got)
+	}
+}
+
 func TestPRFocusKey_MatchesFocusKeyFor(t *testing.T) {
 	f := Focus{
 		Kind: FocusRange, Forge: "github", ChangeNumber: 3,
@@ -70,6 +92,16 @@ func TestPRFocusKey_MatchesFocusKeyFor(t *testing.T) {
 	}
 	if got, want := focusKeyFor(f), PRFocusKey(3, "o/r", "github.example.com"); got != want {
 		t.Fatalf("focusKeyFor=%q PRFocusKey=%q", got, want)
+	}
+}
+
+func TestMRFocusKey_MatchesFocusKeyFor(t *testing.T) {
+	f := Focus{
+		Kind: FocusRange, Forge: "gitlab", ChangeNumber: 3,
+		RemoteBaseProject: "g/p", RemoteHost: "gitlab.example.com",
+	}
+	if got, want := focusKeyFor(f), MRFocusKey(3, "g/p", "gitlab.example.com"); got != want {
+		t.Fatalf("focusKeyFor=%q MRFocusKey=%q", got, want)
 	}
 }
 

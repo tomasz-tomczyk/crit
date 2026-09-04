@@ -104,10 +104,6 @@ func glabOwnsHost(host string) bool {
 	return exec.CommandContext(ctx, "glab", "auth", "status", "--hostname", host).Run() == nil
 }
 
-func fetchChange(provider forge.Provider, number int) (forge.ChangeRequest, error) {
-	return provider.Get(context.Background(), forge.RepoContext{}, forge.ChangeID{Number: number})
-}
-
 func listOpenGitLabChanges(ctx context.Context) ([]forge.ChangeSummary, error) {
 	provider, err := gitlab.NewProvider(config.LoadConfig("").GitLabURL)
 	if err != nil {
@@ -119,8 +115,10 @@ func listOpenGitLabChanges(ctx context.Context) ([]forge.ChangeSummary, error) {
 func init() {
 	forge.SelectProviderFn = selectProvider
 	forge.ReviewFn = session.RunReview
-	session.InvalidatePRCache = func(number int, project, host string) {
-		github.InvalidatePR(forge.ChangeID{Number: number, Project: project, Host: host})
+	session.InvalidatePRCache = func(number int, _, _ string) {
+		// Drop bare and project-qualified sibling keys for this number —
+		// matching crit pull — so a focus switch cannot leave a stale twin.
+		github.InvalidatePRCache(number)
 	}
 	session.FetchMRFileContent = func(f session.Focus, sha, path string) ([]byte, error) {
 		project := f.RemoteProject

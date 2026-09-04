@@ -5,18 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
 )
 
 type pushFlags struct {
-	prFlag           int
+	spec             string // positional number or URL (empty = detect from branch)
 	dryRun           bool
 	message          string
 	outputDir        string
@@ -65,14 +65,24 @@ func parsePushFlags(args []string) (pushFlags, error) {
 			f.eventFlag = args[i]
 			continue
 		}
-		n, err := strconv.Atoi(arg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [pr-number]\n")
-			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+		if err := setPushSpec(&f, arg); err != nil {
+			return f, err
 		}
-		f.prFlag = n
 	}
 	return f, nil
+}
+
+func setPushSpec(f *pushFlags, arg string) error {
+	if f.spec != "" {
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+	}
+	if _, err := ParsePRSpec(arg); err != nil {
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+	}
+	f.spec = arg
+	return nil
 }
 
 func resolvePushFlags(f *pushFlags) error {
@@ -108,19 +118,19 @@ func parseResolvedPushFlags(args []string) (pushFlags, error) {
 // On dry-run with a fetch error, surfaces a stderr note so the user knows the
 // stale-head check was skipped — silent skipping makes the dry-run plan
 // misleading.
-func resolveCurrentPRHead(prNumber int, inRange, dryRun bool) (string, error) {
+func resolveCurrentPRHead(id forge.ChangeID, inRange, dryRun bool) (string, error) {
 	if !inRange {
 		return "", nil
 	}
-	info, err := FetchPRByNumber(prNumber)
+	info, err := FetchPR(id)
 	if err != nil {
 		if dryRun {
 			fmt.Fprintf(os.Stderr,
 				"Note: could not resolve current PR #%d head; stale-head check not enforced in this dry-run: %v\n",
-				prNumber, err)
+				id.Number, err)
 			return "", nil
 		}
-		return "", fmt.Errorf("fetching PR #%d for stale-head check: %w", prNumber, err)
+		return "", fmt.Errorf("fetching PR #%d for stale-head check: %w", id.Number, err)
 	}
 	if info == nil {
 		return "", nil
@@ -134,12 +144,13 @@ func resolveCurrentPRHead(prNumber int, inRange, dryRun bool) (string, error) {
 type pushContext struct {
 	flags    pushFlags
 	event    string
-	prNumber int
+	id       forge.ChangeID
+	prNumber int // id.Number; kept for call sites that only need the number
 	critPath string
 	cj       session.CritJSON
 }
 
-// loadPushContext parses flags, validates them, resolves the PR number, and
+// loadPushContext parses flags, validates them, resolves the PR, and
 // reads + parses the review file.
 func loadPushContext(args []string) (pushContext, error) {
 	if err := RequireGH(); err != nil {
@@ -160,27 +171,27 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, clicmd.ExitError{Code: 1, Err: errors.New("--event request-changes requires --message")}
 	}
 
-	prNumber, err := DetectPR(f.prFlag)
+	id, err := resolvePullChangeID(f.spec)
 	if err != nil {
 		return pushContext{}, err
 	}
 
-	critPath, cj, err := loadPushReview(f, prNumber)
+	critPath, cj, err := loadPushReview(f, id)
 	if err != nil {
 		return pushContext{}, err
 	}
 
-	return pushContext{flags: f, event: event, prNumber: prNumber, critPath: critPath, cj: cj}, nil
+	return pushContext{flags: f, event: event, id: id, prNumber: id.Number, critPath: critPath, cj: cj}, nil
 }
 
-func loadPushReview(f pushFlags, prNumber int) (string, session.CritJSON, error) {
+func loadPushReview(f pushFlags, id forge.ChangeID) (string, session.CritJSON, error) {
 	critPath, err := review.ResolveCommandReviewPathWithSession(f.sessionID, f.outputDir, f.configuredOutput)
 	if err != nil {
 		return "", session.CritJSON{}, err
 	}
 
 	// Read the cwd-resolved file first (best-effort) so we know its branch.
-	// We tolerate "not found" here so an explicit `--pr N` from a clean
+	// We tolerate "not found" here so an explicit PR number/URL from a clean
 	// checkout can still find the right file by branch via the redirect.
 	var cj session.CritJSON
 	cwdFileExists := true
@@ -194,13 +205,13 @@ func loadPushReview(f pushFlags, prNumber int) (string, session.CritJSON, error)
 		return "", session.CritJSON{}, fmt.Errorf("invalid review file: %w", err)
 	}
 
-	// Redirect when the user passed an explicit PR number and the cwd-resolved
+	// Redirect when the user passed an explicit PR number/URL and the cwd-resolved
 	// review file is for a different branch (or is missing) — pushing the wrong
 	// comments to a PR is destructive, so honor the explicit intent first. Same
 	// pattern as PR #424's findReviewFileByCommentID fallback for `crit comment`.
 	pinned := f.sessionID != "" || f.outputDir != "" || f.configuredOutput != ""
-	if shouldRedirectReviewForPR(f.prFlag, pinned) {
-		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
+	if shouldRedirectReviewForPR(f.spec != "", pinned) {
+		if altPath, altCJ, ok := review.RedirectReviewPathForPR(id.Number, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ
 			cwdFileExists = true
@@ -245,7 +256,7 @@ func RunPushLive(ctx pushContext, b PushBuckets) int { //nolint:gocyclo // CLI p
 			allReplies = append(allReplies, CollectNewRepliesForPush(cf, rewrite)...)
 		}
 		var replyIDs map[ReplyKey]int64
-		replyIDs, postedReplies, replyAuthFailed = PostPushReplies(ctx.prNumber, allReplies)
+		replyIDs, postedReplies, replyAuthFailed = postPushReplies(ctx.id, allReplies)
 		if len(commentIDs) > 0 || len(replyIDs) > 0 {
 			if uerr := UpdateCritJSONWithGitHubIDs(ctx.critPath, commentIDs, replyIDs); uerr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to update review file with GitHub IDs: %v\n", uerr)
@@ -317,7 +328,7 @@ func runPushPostReview(ctx pushContext, b PushBuckets, rewrite BodyRewriter) (in
 		return 0, false, false, nil
 	}
 	ghComments := BucketsToGHComments(b.Postable, rewrite)
-	ids, err := CreateGHReview(ctx.prNumber, ghComments, ctx.flags.message, ctx.event)
+	ids, err := createGHReview(ctx.id, ghComments, ctx.flags.message, ctx.event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
 		return 0, true, errors.Is(err, ErrGHAuthFailed), nil
@@ -472,7 +483,7 @@ func RunPush(args []string) error {
 	}
 
 	inRange := ctx.cj.ActiveDiffScope != ""
-	currentHead, err := resolveCurrentPRHead(ctx.prNumber, inRange, ctx.flags.dryRun)
+	currentHead, err := resolveCurrentPRHead(ctx.id, inRange, ctx.flags.dryRun)
 	if err != nil {
 		return err
 	}

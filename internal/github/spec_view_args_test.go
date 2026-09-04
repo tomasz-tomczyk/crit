@@ -49,3 +49,14 @@ func TestPRCacheKey_IncludesEnterpriseHost(t *testing.T) {
 		t.Fatalf("github.com key = %q", dotcom)
 	}
 }
+
+func TestGHAPIArgs(t *testing.T) {
+	bare := ghAPIArgs(forge.ChangeID{Number: 5}, "repos/{owner}/{repo}/pulls/5/comments")
+	if !reflect.DeepEqual(bare, []string{"api", "repos/{owner}/{repo}/pulls/5/comments"}) {
+		t.Fatalf("bare = %#v", bare)
+	}
+	pinned := ghAPIArgs(forge.ChangeID{Number: 5, Project: "acme/widget"}, "repos/{owner}/{repo}/pulls/5/comments")
+	if !reflect.DeepEqual(pinned, []string{"api", "-R", "acme/widget", "repos/{owner}/{repo}/pulls/5/comments"}) {
+		t.Fatalf("pinned = %#v", pinned)
+	}
+}

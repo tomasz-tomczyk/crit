@@ -33,7 +33,7 @@ func FocusKeyArgs(sc *CLIReviewConfig) []string {
 	}
 	if sc.Focus.ChangeNumber > 0 {
 		if sc.Focus.Forge == "gitlab" {
-			return []string{fmt.Sprintf("mr:%d", sc.Focus.ChangeNumber)}
+			return []string{MRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
 		}
 		return []string{PRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
 	}

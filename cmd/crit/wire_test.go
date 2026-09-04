@@ -201,9 +201,9 @@ func TestGlabOwnsHost(t *testing.T) {
 func TestFetchChangeUsesNormalizedChangeID(t *testing.T) {
 	wantErr := errors.New("provider failure")
 	provider := &wireTestProvider{get: forge.ChangeRequest{Title: "Feature"}, err: wantErr}
-	change, err := fetchChange(provider, 27)
+	change, err := provider.Get(context.Background(), forge.RepoContext{}, forge.ChangeID{Number: 27})
 	if change.Title != "Feature" || !errors.Is(err, wantErr) {
-		t.Fatalf("fetchChange = (%+v, %v)", change, err)
+		t.Fatalf("Get = (%+v, %v)", change, err)
 	}
 	if provider.getID != (forge.ChangeID{Number: 27}) {
 		t.Fatalf("change ID = %+v", provider.getID)

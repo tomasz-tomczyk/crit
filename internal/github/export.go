@@ -24,11 +24,11 @@ func RequireGH() error {
 }
 
 func FetchPRComments(prNumber int) ([]GhComment, error) {
-	return fetchPRComments(prNumber)
+	return fetchPRComments(forge.ChangeID{Number: prNumber})
 }
 
 func FetchPRThreadResolved(prNumber int) (map[int64]bool, error) {
-	return fetchPRThreadResolved(prNumber)
+	return fetchPRThreadResolved(forge.ChangeID{Number: prNumber})
 }
 
 func MergeGHComments(cj *session.CritJSON, ghComments []GhComment) int {
@@ -44,7 +44,7 @@ func BucketsToGHComments(postable []scopedComment, rewrite bodyRewriter) []map[s
 }
 
 func CreateGHReview(prNumber int, comments []map[string]any, message, event string) (map[string]int64, error) {
-	return createGHReview(prNumber, comments, message, event)
+	return createGHReview(forge.ChangeID{Number: prNumber}, comments, message, event)
 }
 
 func CollectNewRepliesForPush(cf CritJSONFile, rewrite bodyRewriter) []GhReplyForPush {
@@ -52,7 +52,7 @@ func CollectNewRepliesForPush(cf CritJSONFile, rewrite bodyRewriter) []GhReplyFo
 }
 
 func PostPushReplies(prNumber int, allReplies []GhReplyForPush) (map[ReplyKey]int64, int, bool) {
-	return postPushReplies(prNumber, allReplies)
+	return postPushReplies(forge.ChangeID{Number: prNumber}, allReplies)
 }
 
 func ParsePushEvent(flag string) (string, error) {

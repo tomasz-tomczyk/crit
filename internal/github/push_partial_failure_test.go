@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/forge"
+
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
@@ -66,7 +68,7 @@ esac
 		{ParentGHID: 300, Body: "third reply"},
 	}
 
-	got, _, _ := postPushReplies(42, replies)
+	got, _, _ := postPushReplies(forge.ChangeID{Number: 42}, replies)
 
 	// First reply: parent 100 → id 1001.
 	k1 := replyKey{ParentGHID: 100, BodyPrefix: truncateStr("first reply", 60)}

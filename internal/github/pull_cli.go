@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
@@ -16,7 +16,7 @@ import (
 )
 
 type pullFlags struct {
-	prFlag           int
+	spec             string // positional number or URL (empty = detect from branch)
 	outputDir        string
 	configuredOutput string
 	sessionID        string
@@ -44,12 +44,15 @@ func parsePullFlags(args []string) (pullFlags, error) {
 			f.sessionID = args[i]
 			continue
 		}
-		n, err := strconv.Atoi(arg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [pr-number]\n")
+		if f.spec != "" {
+			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [number|url]\n")
 			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
-		f.prFlag = n
+		if _, err := ParsePRSpec(arg); err != nil {
+			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [number|url]\n")
+			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+		}
+		f.spec = arg
 	}
 	return f, nil
 }
@@ -74,8 +77,19 @@ func parseResolvedPullFlags(args []string) (pullFlags, error) {
 	return f, nil
 }
 
-func shouldRedirectReviewForPR(prFlag int, pinnedOutput bool) bool {
-	return prFlag != 0 && !pinnedOutput
+func shouldRedirectReviewForPR(explicitSpec bool, pinnedOutput bool) bool {
+	return explicitSpec && !pinnedOutput
+}
+
+func resolvePullChangeID(spec string) (forge.ChangeID, error) {
+	if spec != "" {
+		return ParsePRSpec(spec)
+	}
+	n, err := DetectPR(0)
+	if err != nil {
+		return forge.ChangeID{}, err
+	}
+	return forge.ChangeID{Number: n}, nil
 }
 
 func RunPull(args []string) error { //nolint:gocyclo
@@ -88,19 +102,19 @@ func RunPull(args []string) error { //nolint:gocyclo
 		return err
 	}
 
-	prNumber, err := DetectPR(f.prFlag)
+	id, err := resolvePullChangeID(f.spec)
 	if err != nil {
 		return err
 	}
 
-	InvalidatePRCache(prNumber)
+	InvalidatePRCache(id.Number)
 
-	ghComments, err := FetchPRComments(prNumber)
+	ghComments, err := fetchPRComments(id)
 	if err != nil {
 		return err
 	}
 
-	threadResolved, threadErr := FetchPRThreadResolved(prNumber)
+	threadResolved, threadErr := fetchPRThreadResolved(id)
 	if threadErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not fetch review-thread resolution state: %v\n", threadErr)
 		threadResolved = nil
@@ -117,8 +131,8 @@ func RunPull(args []string) error { //nolint:gocyclo
 		}
 	}
 
-	if shouldRedirectReviewForPR(f.prFlag, f.sessionID != "" || f.outputDir != "" || f.configuredOutput != "") {
-		if altPath, altCJ, ok := review.RedirectReviewPathForPR(prNumber, cj.Branch, critPath); ok {
+	if shouldRedirectReviewForPR(f.spec != "", f.sessionID != "" || f.outputDir != "" || f.configuredOutput != "") {
+		if altPath, altCJ, ok := review.RedirectReviewPathForPR(id.Number, cj.Branch, critPath); ok {
 			critPath = altPath
 			cj = altCJ
 		}
@@ -144,7 +158,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 	added := MergeGHCommentsScoped(&cj, ghComments, scope, threadResolved)
 
 	if added == 0 {
-		fmt.Printf("No new inline comments found on PR #%d\n", prNumber)
+		fmt.Printf("No new inline comments found on PR #%d\n", id.Number)
 		return nil
 	}
 
@@ -152,7 +166,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 		return err
 	}
 
-	fmt.Printf("Pulled %d comments from PR #%d into %s\n", added, prNumber, critPath)
+	fmt.Printf("Pulled %d comments from PR #%d into %s\n", added, id.Number, critPath)
 	fmt.Println("Run 'crit' to view them in the browser.")
 	return nil
 }
