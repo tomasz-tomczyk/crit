@@ -3,6 +3,7 @@ package github
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -279,6 +280,15 @@ func TestFetchPRByNumber_RoutesThroughCache(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&calls); got != 2 {
 		t.Errorf("after invalidate, calls=%d want 2", got)
+	}
+}
+
+func TestFetchPR_RejectsNonPositiveNumber(t *testing.T) {
+	if _, err := FetchPR(forge.ChangeID{}); err == nil || !strings.Contains(err.Error(), "invalid PR number") {
+		t.Fatalf("FetchPR(0) err = %v", err)
+	}
+	if _, err := FetchPR(forge.ChangeID{Number: -1}); err == nil {
+		t.Fatal("FetchPR(-1) unexpectedly succeeded")
 	}
 }
 

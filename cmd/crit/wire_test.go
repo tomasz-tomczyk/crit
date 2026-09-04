@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/focus"
 	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/gitlab"
@@ -236,5 +237,79 @@ func TestWiredForgeDetectionFallsBackToGitHubOnConfigError(t *testing.T) {
 	writeWireConfig(t, homeDir, `{"forge":"invalid"}`)
 	if got := server.DetectForgeKindFn(); got != forge.GitHub {
 		t.Fatalf("detected forge = %q, want github fallback", got)
+	}
+}
+
+func TestWirePRResolveHooks_PreservesURLProject(t *testing.T) {
+	prevFetch, prevStacked := focus.FetchPRHook, focus.IsStackedPRHook
+	t.Cleanup(func() { focus.SetPRResolveHooks(prevFetch, prevStacked) })
+
+	restore := github.SwapFetchPRByNumberForTest(func(n int) (*github.PRInfo, error) {
+		if n == 99 {
+			return nil, errors.New("fetch boom")
+		}
+		return &github.PRInfo{
+			URL:               "https://github.com/myorg/repo-b/pull/1",
+			Number:            n,
+			Title:             "Cross-repo",
+			BaseRefOid:        "base",
+			HeadRefOid:        "head",
+			BaseRefName:       "main",
+			HeadRefName:       "feat",
+			HeadRepoURL:       "https://github.com/fork/repo-b.git",
+			IsCrossRepository: true,
+		}, nil
+	})
+	t.Cleanup(restore)
+
+	wirePRResolveHooks()
+
+	info, err := focus.FetchPRHook("https://github.com/myorg/repo-b/pull/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.BaseRepoProject != "myorg/repo-b" {
+		t.Errorf("BaseRepoProject = %q", info.BaseRepoProject)
+	}
+	if info.HeadRepoProject != "fork/repo-b" {
+		t.Errorf("HeadRepoProject = %q", info.HeadRepoProject)
+	}
+	if info.HeadRepoHost != "github.com" {
+		t.Errorf("HeadRepoHost = %q", info.HeadRepoHost)
+	}
+
+	bare, err := focus.FetchPRHook("7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bare.BaseRepoProject != "" {
+		t.Errorf("bare --pr BaseRepoProject = %q want empty", bare.BaseRepoProject)
+	}
+
+	if _, err := focus.FetchPRHook("not-a-pr"); err == nil {
+		t.Fatal("expected parse error")
+	}
+	if _, err := focus.FetchPRHook("99"); err == nil || !strings.Contains(err.Error(), "fetch boom") {
+		t.Fatalf("fetch error = %v", err)
+	}
+	if focus.IsStackedPRHook == nil || focus.IsStackedPRHook(info, nil) {
+		t.Fatal("IsStackedPRHook(nil vcs) should be false")
+	}
+}
+
+func TestWireMRResolveHooks_InvalidSpecAndStackedGuard(t *testing.T) {
+	prevFetch, prevStacked := focus.FetchMRHook, focus.IsStackedMRHook
+	t.Cleanup(func() { focus.SetMRResolveHooks(prevFetch, prevStacked) })
+
+	wireMRResolveHooks()
+
+	if _, err := focus.FetchMRHook("not-an-mr"); err == nil {
+		t.Fatal("expected parse error")
+	}
+	if focus.IsStackedMRHook == nil {
+		t.Fatal("IsStackedMRHook not wired")
+	}
+	if focus.IsStackedMRHook(focus.ChangeResolveInfo{BaseRefName: "feature"}, nil) {
+		t.Fatal("nil vcs should not be stacked")
 	}
 }

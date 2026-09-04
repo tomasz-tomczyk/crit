@@ -56,6 +56,23 @@ func TestFocusKeyArgs_PRWithEnterpriseHost(t *testing.T) {
 	}
 }
 
+func TestFocusKeyArgs_PRWithGitHubDotComHostOmitsHost(t *testing.T) {
+	sc := &server.DaemonCLIConfig{Focus: &server.Focus{
+		Kind: server.FocusRange, Forge: "github", ChangeNumber: 4,
+		RemoteBaseProject: "o/r", RemoteHost: "github.com",
+	}}
+	got := server.FocusKeyArgs(sc)
+	if len(got) != 1 || got[0] != "pr:o/r#4" {
+		t.Errorf("got %v want [pr:o/r#4]", got)
+	}
+}
+
+func TestFocusKeyArgs_NilConfig(t *testing.T) {
+	if got := server.FocusKeyArgs(nil); got != nil {
+		t.Errorf("got %v want nil", got)
+	}
+}
+
 func TestFocusKeyArgs_MR(t *testing.T) {
 	sc := &server.DaemonCLIConfig{Focus: &server.Focus{Kind: server.FocusRange, Forge: "gitlab", ChangeNumber: 42}}
 	got := server.FocusKeyArgs(sc)

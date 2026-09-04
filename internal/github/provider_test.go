@@ -172,3 +172,17 @@ func TestGitHubProjectNormalization(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectFromRemoteURL(t *testing.T) {
+	tests := map[string]string{
+		"https://github.com/myorg/repo-b.git": "myorg/repo-b",
+		"https://github.com/o/r":              "o/r",
+		"acme/widget":                         "acme/widget",
+		"":                                    "",
+	}
+	for input, want := range tests {
+		if got := ProjectFromRemoteURL(input); got != want {
+			t.Errorf("ProjectFromRemoteURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

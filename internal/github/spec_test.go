@@ -39,11 +39,23 @@ func TestParsePRSpec(t *testing.T) {
 			false,
 		},
 		{"http://github.com/o/r/pull/7", forge.ChangeID{Number: 7, Project: "o/r", Host: "github.com"}, false},
+		{
+			"https://github.com:443/o/r/pull/8",
+			forge.ChangeID{Number: 8, Project: "o/r", Host: "github.com"},
+			false,
+		},
+		{
+			"https://GITHUB.COM/O/R/pull/3",
+			forge.ChangeID{Number: 3, Project: "O/R", Host: "github.com"},
+			false,
+		},
 		{"abc", forge.ChangeID{}, true},
 		{"-5", forge.ChangeID{}, true},
 		{"0", forge.ChangeID{}, true},
 		{"", forge.ChangeID{}, true},
 		{"https://github.com/a/b/issues/295", forge.ChangeID{}, true},
+		{"https://github.com/a/b/pull/0", forge.ChangeID{}, true},
+		{"https://github.com/only-one/pull/1", forge.ChangeID{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
