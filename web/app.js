@@ -8307,6 +8307,9 @@
   }
 
   function renderMermaidBlocks() {
+    // Any document rebuild invalidates the detached overlay clone (and its
+    // theme) — close the overlay rather than show a stale diagram.
+    closeMermaidOverlay();
     if (typeof mermaid === 'undefined') return;
     mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
     const codes = document.querySelectorAll('code.language-mermaid');
@@ -8424,17 +8427,25 @@
     // Mermaid emits width="100%" + a max-width cap. Inside the overlay the
     // canvas sizes to content (width: max-content), which makes a percentage
     // width resolve circularly and the diagram collapse. Pin the clone to its
-    // natural viewBox size so fit/center math holds.
+    // natural size so fit/center math holds. Prefer the viewBox; fall back to
+    // the live source rect (the clone itself may already be collapsed).
+    let natW = 0;
+    let natH = 0;
     const vb = clone.getAttribute('viewBox');
     if (vb) {
       const parts = vb.trim().split(/[\s,]+/);
-      const w = parseFloat(parts[2]);
-      const h = parseFloat(parts[3]);
-      if (w > 0 && h > 0) {
-        clone.setAttribute('width', String(w));
-        clone.setAttribute('height', String(h));
-        if (clone.style) clone.style.removeProperty('max-width');
-      }
+      natW = parseFloat(parts[2]);
+      natH = parseFloat(parts[3]);
+    }
+    if (!(natW > 0) || !(natH > 0)) {
+      const srcRect = sourceSvg.getBoundingClientRect();
+      natW = srcRect.width;
+      natH = srcRect.height;
+    }
+    if (natW > 0 && natH > 0) {
+      clone.setAttribute('width', String(natW));
+      clone.setAttribute('height', String(natH));
+      if (clone.style) clone.style.removeProperty('max-width');
     }
     nodes.canvas.appendChild(clone);
     mermaidOverlayState.open = true;
@@ -8490,6 +8501,15 @@
     let pinchStart = 0;
     let pinchScale = 1;
 
+    // Re-anchor the pinch baseline on every pointer-count change so adding
+    // or lifting a finger mid-gesture never causes a zoom jump.
+    function capturePinchBaseline() {
+      const pts = Array.from(activePointers.values());
+      if (pts.length < 2) return;
+      pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pinchScale = mermaidOverlayState.scale;
+    }
+
     if (nodes.zoomIn) nodes.zoomIn.addEventListener('click', function () { mermaidOverlayZoomCenter(1.25); });
     if (nodes.zoomOut) nodes.zoomOut.addEventListener('click', function () { mermaidOverlayZoomCenter(1 / 1.25); });
     if (nodes.zoomReset) nodes.zoomReset.addEventListener('click', function () { mermaidOverlayFit(); });
@@ -8499,7 +8519,12 @@
     });
     nodes.overlay.addEventListener('keydown', mermaidOverlayTrapTab);
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && mermaidOverlayState.open) {
+      // Note: no defaultPrevented check — the app-wide keymap (below)
+      // unconditionally preventDefaults Escape, so honoring it would break
+      // Esc-to-close entirely. Esc dismissing both the overlay and any
+      // background form matches the existing "cancel whatever" convention.
+      if (e.key !== 'Escape') return;
+      if (mermaidOverlayState.open) {
         e.preventDefault();
         closeMermaidOverlay();
       }
@@ -8518,11 +8543,9 @@
       if (activePointers.size === 1) {
         panAnchor = { x: e.clientX - mermaidOverlayState.x, y: e.clientY - mermaidOverlayState.y };
         nodes.viewport.classList.add('panning');
-      } else if (activePointers.size === 2) {
-        const pts = Array.from(activePointers.values());
-        pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        pinchScale = mermaidOverlayState.scale;
+      } else {
         panAnchor = null;
+        capturePinchBaseline();
       }
     });
     nodes.viewport.addEventListener('pointermove', function (e) {
@@ -8552,7 +8575,9 @@
       if (activePointers.size === 1) {
         const remaining = Array.from(activePointers.values())[0];
         panAnchor = { x: remaining.x - mermaidOverlayState.x, y: remaining.y - mermaidOverlayState.y };
-      } else if (activePointers.size === 0) {
+      } else if (activePointers.size >= 2) {
+        capturePinchBaseline();
+      } else {
         panAnchor = null;
         nodes.viewport.classList.remove('panning');
       }
