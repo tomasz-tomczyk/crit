@@ -3,7 +3,7 @@ module github.com/tomasz-tomczyk/crit
 go 1.26.0
 
 require (
-	github.com/go-text/typesetting v0.3.4
+	github.com/go-text/typesetting v0.3.5-0.20260729084153-ddb7ff96ad4d
 	github.com/mdp/qrterminal/v3 v3.2.1
 	golang.org/x/sys v0.45.0
 	golang.org/x/term v0.43.0
