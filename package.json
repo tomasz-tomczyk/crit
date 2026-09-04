@@ -7,7 +7,7 @@
     "highlightjs-astro-js": "^1.0.0",
     "highlightjs-heex": "^1.0.1",
     "highlightjs-vue": "^1.0.0",
-    "markdown-it": "^15.0.0",
+    "markdown-it": "^15.0.1",
     "mermaid": "^11.17.2"
   },
   "scripts": {
