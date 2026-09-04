@@ -1,0 +1,18 @@
+{
+  "$comment": "Perf budgets for embedded frontend assets and the Go binary (which embeds web/ via embed.FS). Sizes are gzip bytes for JS, raw bytes for the binary. Caps sit ~15-20% above 2026-09 main so legitimate growth has room but accidental bloat (unminified vendor, new heavy dep, committed fixture) fails CI. Recalibrate quarterly or after intentional vendor bumps: run scripts/check-asset-budget.sh, verify the growth is intended, then update caps here.",
+  "files": [
+    { "path": "web/mermaid.min.js", "gzipBytes": 1180000, "note": "largest vendor dep (~70% of shipped JS); any mermaid bump shows here" },
+    { "path": "web/highlight.min.js", "gzipBytes": 430000, "note": "highlight.js vendor bundle" },
+    { "path": "web/app.js", "gzipBytes": 155000, "note": "main review UI; catches unbounded app.js growth" },
+    { "path": "web/markdown-it.min.js", "gzipBytes": 60000 },
+    { "path": "web/dompurify.min.js", "gzipBytes": 15000 },
+    { "path": "web/diff-match-patch.min.js", "gzipBytes": 6000 },
+    { "path": "web/live-mode.js", "gzipBytes": 31000 },
+    { "path": "web/style.css", "gzipBytes": 41000, "note": "review page styles; homepage/legal pages use Tailwind, not this file" }
+  ],
+  "globs": [
+    { "pattern": "web/crit-*.js", "gzipBytes": 85000, "note": "shared renderer/comment/diff modules; catches module sprawl" }
+  ],
+  "totalJsGzipBytes": 1950000,
+  "binaryBytes": 25165824
+}

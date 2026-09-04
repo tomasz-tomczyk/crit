@@ -37,7 +37,7 @@ const lazyFileThreshold = 25
 // computeFileHash returns the hex-encoded SHA256 hash of data.
 func computeFileHash(data []byte) string {
 	h := sha256.Sum256(data)
-	return fmt.Sprintf("%x", h)
+	return hex.EncodeToString(h[:])
 }
 
 // fileHash returns a stable, prefixed hash string for file content tracking.
@@ -1363,8 +1363,9 @@ func (s *Session) GetReviewComments() []Comment {
 	defer s.mu.RUnlock()
 	out := make([]Comment, 0, len(s.reviewComments))
 	seen := make(map[string]struct{}, len(s.reviewComments))
+	focusKey := focusKeyFor(s.Focus)
 	for _, c := range s.reviewComments {
-		if !visibleInFocus(c, s.Focus) {
+		if !visibleInFocusKey(c, focusKey, s.Focus) {
 			continue
 		}
 		if c.ID != "" {
@@ -1803,8 +1804,9 @@ func (s *Session) GetComments(filePath string) []Comment {
 		return []Comment{}
 	}
 	result := make([]Comment, 0, len(f.Comments))
+	focusKey := focusKeyFor(s.Focus)
 	for _, c := range f.Comments {
-		if !visibleInFocus(c, s.Focus) {
+		if !visibleInFocusKey(c, focusKey, s.Focus) {
 			continue
 		}
 		if len(c.Replies) > 0 {
@@ -2861,8 +2863,9 @@ func (s *Session) GetSessionInfo() SessionInfo {
 	defer s.mu.RUnlock()
 
 	reviewComments := make([]Comment, 0, len(s.reviewComments))
+	focusKey := focusKeyFor(s.Focus)
 	for _, c := range s.reviewComments {
-		if !visibleInFocus(c, s.Focus) {
+		if !visibleInFocusKey(c, focusKey, s.Focus) {
 			continue
 		}
 		reviewComments = append(reviewComments, c)

@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Regression tests for bench-compare.py (the CI bench gate).
+
+The gate cannot detect its own parser regressions, so checked-in benchstat
+samples lock the parsing contract: significant time slowdowns fail, noise
+(~) and sub-threshold deltas pass, ANY allocs increase (including 0 -> N
+rendered as +Inf%) fails, B/op only warns, and malformed input exits 2.
+
+Run: python3 scripts/bench-compare_test.py
+"""
+
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).with_name("bench-compare.py")
+
+
+def run_gate(content: str, *args: str) -> subprocess.CompletedProcess:
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write(content)
+        path = f.name
+    try:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), path, *args],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        Path(path).unlink()
+
+
+TIME_TABLE = """\
+name                  old time/op    new time/op    delta
+ComputeLineDiff-8     1.00µs ± 2%    {new}           {delta}
+"""
+
+ALLOC_TABLE = """\
+name                  old allocs/op  new allocs/op  delta
+VisibleInFocus-8      {old}          {new}           {delta}
+"""
+
+
+class GateTest(unittest.TestCase):
+    def test_significant_time_regression_fails(self):
+        r = run_gate(TIME_TABLE.format(new="1.26µs ± 2%", delta="+26.00%  (p=0.008 n=6+6)"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("time/op regression", r.stdout)
+
+    def test_subthreshold_time_passes(self):
+        r = run_gate(TIME_TABLE.format(new="1.05µs ± 2%", delta="+5.00%  (p=0.010 n=6+6)"))
+        self.assertEqual(r.returncode, 0)
+
+    def test_insignificant_row_passes(self):
+        r = run_gate(TIME_TABLE.format(new="1.30µs ±20%", delta="~     (p=0.300 n=6+6)"))
+        self.assertEqual(r.returncode, 0)
+
+    def test_alloc_increase_fails(self):
+        r = run_gate(ALLOC_TABLE.format(old="100 ± 0%", new="130 ± 0%", delta="+30.00%  (p=0.008 n=6+6)"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("allocs/op regression", r.stdout)
+
+    def test_alloc_zero_to_n_fails(self):
+        # benchstat renders 0 -> N as +Inf% — the heap-escape case that must fail.
+        r = run_gate(ALLOC_TABLE.format(old="0.00 ± 0%", new="2.00 ± 0%", delta="+Inf%  (p=0.008 n=6+6)"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("allocs/op regression", r.stdout)
+
+    def test_alloc_stable_passes(self):
+        r = run_gate(ALLOC_TABLE.format(old="100 ± 0%", new="100 ± 0%", delta="~     (all equal)"))
+        self.assertEqual(r.returncode, 0)
+
+    def test_bop_only_warns(self):
+        content = (
+            TIME_TABLE.format(new="1.01µs ± 2%", delta="~     (p=0.300 n=6+6)")
+            + "\nname                  old B/op       new B/op      delta\n"
+            + "VisibleInFocus-8        0.00 ± 0%     16.00 ± 0%   +Inf%  (p=0.008 n=6+6)\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("B/op increase", r.stdout)
+
+    def test_missing_file_exits_2(self):
+        r = subprocess.run(
+            [sys.executable, str(SCRIPT), "/nonexistent/benchstat.txt"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 2)
+
+    def test_empty_input_exits_2(self):
+        r = run_gate("")
+        self.assertEqual(r.returncode, 2)
+
+    def test_no_tables_exits_2(self):
+        r = run_gate("some log output without any benchstat tables\n")
+        self.assertEqual(r.returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

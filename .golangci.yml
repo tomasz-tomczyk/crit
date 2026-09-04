@@ -12,6 +12,7 @@ linters:
     - gocritic
     - errorlint
     - unparam
+    - perfsprint
   settings:
     gocyclo:
       min-complexity: 15
@@ -19,6 +20,11 @@ linters:
     rules:
       - linters: [staticcheck]
         text: "QF"
+      # perfsprint's error-format (fmt.Errorf → errors.New on static strings)
+      # is style churn with zero perf value; the format/integer/hex/concat
+      # checks it also runs are the ones that buy real ns/op and allocs.
+      - linters: [perfsprint]
+        text: "error-format"
       - linters: [gocyclo]
         text: "runComment|mergeExternalCritJSON|bulkAddCommentsToCritJSONScoped|runPush|runServe|runDesign|handleFileComments"
       - linters: [gocyclo]

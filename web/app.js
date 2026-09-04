@@ -3070,6 +3070,7 @@
 
     // Two-pointer merge for horizontal alignment
     const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const fileForms = getFormsForFile(file.path);
     let oldIdx = 0, newIdx = 0;
 
     while (oldIdx < prevBlocks.length || newIdx < currBlocks.length) {
@@ -3080,30 +3081,30 @@
 
       if (oldIdx >= prevBlocks.length) {
         // Old exhausted — remaining new blocks are additions
-        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         newIdx++;
       } else if (newIdx >= currBlocks.length) {
         // New exhausted — remaining old blocks are deletions
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
         oldIdx++;
       } else if (prevBlocks[oldIdx].isDiff && currBlocks[newIdx].isDiff) {
         // Both changed — paired change
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
-        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         oldIdx++;
         newIdx++;
       } else if (prevBlocks[oldIdx].isDiff) {
         // Old removed only — spacer on right
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
         oldIdx++;
       } else if (currBlocks[newIdx].isDiff) {
         // New added only — spacer on left
-        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         newIdx++;
       } else {
         // Both unchanged — render both, advance both
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], null, file, false, oldIdx, null, null));
-        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet));
+        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], null, file, false, oldIdx, null, null, fileForms));
+        rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         oldIdx++;
         newIdx++;
       }
@@ -3112,6 +3113,7 @@
       container.appendChild(rightCell);
     }
 
+    attachDocGutterMouseHandler(container);
     return container;
   }
 
@@ -3124,7 +3126,9 @@
 
   // Render a single block for the unified diff view.
   // When commentable=true, includes gutter, keyboard nav, comments. Otherwise read-only.
-  function renderUnifiedBlock(block, diffClass, file, commentable, blockIndex, commentsMap, commentRangeSet) {
+  // fileForms is threaded down from the top-level render (one filtered array
+  // per file render instead of one per block); callers must pass it.
+  function renderUnifiedBlock(block, diffClass, file, commentable, blockIndex, commentsMap, commentRangeSet, fileForms) {
     const frag = document.createDocumentFragment();
 
     const lineBlockEl = document.createElement('div');
@@ -3158,7 +3162,8 @@
       lineAdd.className = 'line-add';
       lineAdd.textContent = '+';
       commentGutter.appendChild(lineAdd);
-      commentGutter.addEventListener('mousedown', handleGutterMouseDown);
+      // Mousedown is delegated once per container (attachDocGutterMouseHandler),
+      // not per gutter — see #657 for the diff-button equivalent.
       lineBlockEl.appendChild(commentGutter);
     } else {
       // Non-commentable block: still add gutter but mark as read-only
@@ -3195,10 +3200,10 @@
           frag.appendChild(createCommentElement(blockComments[ci], file.path));
         }
       }
-      const fileForms = getFormsForFile(file.path);
-      for (let fi = 0; fi < fileForms.length; fi++) {
-        if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === blockIndex) {
-          frag.appendChild(createCommentForm(fileForms[fi]));
+      const forms = fileForms || getFormsForFile(file.path);
+      for (let fi = 0; fi < forms.length; fi++) {
+        if (!forms[fi].editingId && forms[fi].afterBlockIndex === blockIndex) {
+          frag.appendChild(createCommentForm(forms[fi]));
         }
       }
     }
@@ -3215,6 +3220,7 @@
     const newBlocks = file.lineBlocks;
 
     const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const fileForms = getFormsForFile(file.path);
 
     // Two-pointer merge: walk both block lists simultaneously
     let oldIdx = 0;
@@ -3223,11 +3229,11 @@
     while (oldIdx < oldBlocks.length || newIdx < newBlocks.length) {
       if (oldIdx >= oldBlocks.length) {
         // Old exhausted — remaining new blocks are additions
-        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         newIdx++;
       } else if (newIdx >= newBlocks.length) {
         // New exhausted — remaining old blocks are deletions
-        container.appendChild(renderUnifiedBlock(oldBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null));
+        container.appendChild(renderUnifiedBlock(oldBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
         oldIdx++;
       } else if (classifyBlock(oldBlocks[oldIdx], lineSets.removed)) {
         // Collect consecutive removed blocks
@@ -3251,23 +3257,24 @@
         }
         // Emit all removed then all added
         for (let ri = 0; ri < removedRun.length; ri++) {
-          container.appendChild(renderUnifiedBlock(oldBlocks[removedRun[ri]], 'diff-removed', file, false, removedRun[ri], null, null));
+          container.appendChild(renderUnifiedBlock(oldBlocks[removedRun[ri]], 'diff-removed', file, false, removedRun[ri], null, null, fileForms));
         }
         for (let ai = 0; ai < addedRun.length; ai++) {
-          container.appendChild(renderUnifiedBlock(newBlocks[addedRun[ai]], 'diff-added', file, true, addedRun[ai], commentsMap, commentRangeSet));
+          container.appendChild(renderUnifiedBlock(newBlocks[addedRun[ai]], 'diff-added', file, true, addedRun[ai], commentsMap, commentRangeSet, fileForms));
         }
       } else if (classifyBlock(newBlocks[newIdx], lineSets.added)) {
         // New block is added (no preceding removal) — emit with green highlight + comments
-        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet));
+        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         newIdx++;
       } else {
         // Both unchanged — emit new block once (with comments), advance both
-        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet));
+        container.appendChild(renderUnifiedBlock(newBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         newIdx++;
         oldIdx++;
       }
     }
 
+    attachDocGutterMouseHandler(container);
     return container;
   }
 
@@ -3360,10 +3367,13 @@
       section.appendChild(row);
     }
 
+    // Hoisted: one filtered array per render instead of one per block
+    // (activeForms is stable within a synchronous render pass).
+    const docFileForms = getFormsForFile(file.path);
+
     for (let bi = 0; bi < file.lineBlocks.length; bi++) {
       const block = file.lineBlocks[bi];
       const isTableBlock = !!block.tableId;
-
       if (isTableBlock && block.tableId !== activeTableId) {
         const wrapper = document.createElement('div');
         wrapper.className = 'native-table-wrapper';
@@ -3450,7 +3460,7 @@
       lineAdd.className = 'line-add';
       lineAdd.textContent = '+';
       commentGutter.appendChild(lineAdd);
-      commentGutter.addEventListener('mousedown', handleGutterMouseDown);
+      // Mousedown is delegated once per container (attachDocGutterMouseHandler).
 
       gutter.appendChild(commentGutter);
       if (isTableBlock) {
@@ -3526,16 +3536,16 @@
       }
 
       // Comment form
-      const fileForms = getFormsForFile(file.path);
-      for (let fi = 0; fi < fileForms.length; fi++) {
-        if (!fileForms[fi].editingId && fileForms[fi].afterBlockIndex === bi) {
-          const formEl = createCommentForm(fileForms[fi]);
+      for (let fi = 0; fi < docFileForms.length; fi++) {
+        if (!docFileForms[fi].editingId && docFileForms[fi].afterBlockIndex === bi) {
+          const formEl = createCommentForm(docFileForms[fi]);
           if (isTableBlock) appendTableAnnotation(tableSection, formEl);
           else container.appendChild(formEl);
         }
       }
     }
 
+    attachDocGutterMouseHandler(container);
     return container;
   }
 
@@ -4106,11 +4116,13 @@
     }
   }
 
-  // Helper: append comment form if it targets this line and side
-  function appendDiffForm(container, filePath, lineNum, side) {
-    const fileForms = getFormsForFile(filePath);
-    for (let fi = 0; fi < fileForms.length; fi++) {
-      const form = fileForms[fi];
+  // Helper: append comment form if it targets this line and side.
+  // fileForms is threaded down from the top-level diff renders
+  // (renderDiffUnified/renderDiffSplit) — one filtered array per render.
+  function appendDiffForm(container, filePath, lineNum, side, fileForms) {
+    const forms = fileForms || getFormsForFile(filePath);
+    for (let fi = 0; fi < forms.length; fi++) {
+      const form = forms[fi];
       const formSide = form.side || '';
       if (!form.editingId && form.endLine === lineNum && formSide === (side || '')) {
         const el = createCommentForm(form);
@@ -4261,6 +4273,8 @@
 
     const { diffCommentsMap: commentsMap } = buildCommentIndices(file.comments);
     const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
+    // Hoisted: one filtered array per render instead of one per diff line.
+    const fileForms = getFormsForFile(file.path);
     let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
 
     // Leading spacer before first hunk (includes hunk header text)
@@ -4315,7 +4329,7 @@
             const inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
                 relevantNum > 0 && relevantNum >= selectionStart && relevantNum <= selectionEnd;
             const inCurrentSelUnified = inCurrentDrag || inCurrentForm;
-            const hasFormUnified = getFormsForFile(file.path).some(function(f) {
+            const hasFormUnified = fileForms.some(function(f) {
               const fSide = f.side || '';
               const fNum = fSide === 'old' ? line.OldNum : line.NewNum;
               return !f.editingId && fNum > 0 && fNum >= f.startLine && fNum <= f.endLine;
@@ -4358,7 +4372,7 @@
         container.appendChild(lineEl);
 
         appendDiffComments(container, file.path, commentLineNum, lineSide, commentsMap);
-        appendDiffForm(container, file.path, commentLineNum, lineSide);
+        appendDiffForm(container, file.path, commentLineNum, lineSide, fileForms);
         visualIdx++;
       }
     }
@@ -4390,6 +4404,8 @@
     autoExpandSmallGaps(file);
 
     const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    // Hoisted: one filtered array per render instead of one per diff line.
+    const fileForms = getFormsForFile(file.path);
 
     // Leading spacer before first hunk (includes hunk header text)
     const leadingSpacerSplit = renderLeadingSpacer(hunks[0], file);
@@ -4456,8 +4472,8 @@
             el.classList.add('diff-comment-right');
             container.appendChild(el);
           }
-          appendDiffForm(container, file.path, line.OldNum, 'old');
-          appendDiffForm(container, file.path, line.NewNum, '');
+          appendDiffForm(container, file.path, line.OldNum, 'old', fileForms);
+          appendDiffForm(container, file.path, line.NewNum, '', fileForms);
         } else {
           // Positional alignment (GitHub-style): del[i] beside add[i], surplus single-sided.
           const splitRows = buildSplitChangeRows(seg.dels, seg.adds, wordDiff);
@@ -4477,8 +4493,8 @@
             if (del) appendDiffComments(container, file.path, del.OldNum, 'old', commentsMap);
             if (add) appendDiffComments(container, file.path, add.NewNum, '', commentsMap);
             // Form: render for whichever side was clicked
-            if (del) appendDiffForm(container, file.path, del.OldNum, 'old');
-            if (add) appendDiffForm(container, file.path, add.NewNum, '');
+            if (del) appendDiffForm(container, file.path, del.OldNum, 'old', fileForms);
+            if (add) appendDiffForm(container, file.path, add.NewNum, '', fileForms);
           }
         }
       }
@@ -4516,7 +4532,7 @@
       const selSide = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
       const inCurrentSelLeft = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old';
-      const hasFormLeft = getFormsForFile(file.path).some(function(f) {
+      const hasFormLeft = fileForms.some(function(f) {
         return !f.editingId && left.num >= f.startLine && left.num <= f.endLine && (f.side || '') === 'old';
       });
       if (inCurrentSelLeft) { leftEl.classList.add('selected'); }
@@ -4558,7 +4574,7 @@
       const selSideR = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
       const inCurrentSelRight = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
           right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '';
-      const hasFormRight = getFormsForFile(file.path).some(function(f) {
+      const hasFormRight = fileForms.some(function(f) {
         return !f.editingId && right.num >= f.startLine && right.num <= f.endLine && (f.side || '') === '';
       });
       if (inCurrentSelRight) { rightEl.classList.add('selected'); }
@@ -4829,9 +4845,24 @@
   // ===== Gutter Drag Selection =====
   let dragState = null;
 
-  function handleGutterMouseDown(e) {
-    e.preventDefault();
-    const gutter = e.currentTarget;
+  // Desktop mouse path for document/markdown gutters, delegated: a single
+  // mousedown on the file container instead of one listener per
+  // .line-comment-gutter. A 10k-line markdown file renders ~10k gutters and
+  // the per-gutter approach stalled the main thread on mount — the same bug
+  // class as #657 (fixed for diff buttons via attachDiffMouseHandler).
+  // One delegated handler is O(1) regardless of file size.
+  function attachDocGutterMouseHandler(container) {
+    container.addEventListener('mousedown', function(e) {
+      const gutter = e.target.closest('.line-comment-gutter');
+      if (!gutter || !container.contains(gutter)) return;
+      // Read-only gutters never had a listener; they carry no line dataset.
+      if (gutter.classList.contains('diff-no-comment')) return;
+      e.preventDefault();
+      beginDocGutterDrag(gutter, e.shiftKey);
+    });
+  }
+
+  function beginDocGutterDrag(gutter, shiftKey) {
     const startLine = parseInt(gutter.dataset.startLine);
     const endLine = parseInt(gutter.dataset.endLine);
     const filePath = gutter.dataset.filePath;
@@ -4839,7 +4870,7 @@
     const blockIndex = parseInt(blockEl.dataset.blockIndex);
 
     // Shift+click: extend selection
-    if (e.shiftKey && selectionStart !== null && activeFilePath === filePath) {
+    if (shiftKey && selectionStart !== null && activeFilePath === filePath) {
       const rangeStart = Math.min(selectionStart, startLine);
       const rangeEnd = Math.max(selectionEnd, endLine);
       const file = getFileByPath(filePath);
@@ -4878,6 +4909,10 @@
     const section = currentRenderedFileSection(filePath);
     if (!section) return;
 
+    // Hoisted: one filtered array per pass instead of one per line per
+    // mousemove frame (activeForms is stable within a synchronous pass).
+    const fileForms = getFormsForFile(filePath);
+
     // Markdown line blocks: toggle .selected on line-block, update comment gutter drag classes
     const lineBlocks = section.querySelectorAll('.line-block[data-file-path="' + filePath + '"]');
     for (let i = 0; i < lineBlocks.length; i++) {
@@ -4910,7 +4945,7 @@
                         uVisualIdx >= unifiedVisualStart && uVisualIdx <= unifiedVisualEnd;
         const uLineNum = parseInt(uLine.dataset.diffLineNum);
         const uSide = uLine.dataset.diffSide || '';
-        const uHasForm = getFormsForFile(filePath).some(function(f) {
+        const uHasForm = fileForms.some(function(f) {
           return !f.editingId && uLineNum >= f.startLine && uLineNum <= f.endLine && (f.side || '') === uSide;
         });
         uLine.classList.toggle('selected', uSelected);
@@ -4926,7 +4961,7 @@
         const sSideMatch = diffDragState.side === sSideVal;
         const sSelected = sSideMatch && selectionStart !== null && selectionEnd !== null &&
                         sLineNum >= selectionStart && sLineNum <= selectionEnd;
-        const sHasForm = getFormsForFile(filePath).some(function(f) {
+        const sHasForm = fileForms.some(function(f) {
           return !f.editingId && sLineNum >= f.startLine && sLineNum <= f.endLine && (f.side || '') === sSideVal;
         });
         sSide.classList.toggle('selected', sSelected);
@@ -6191,31 +6226,70 @@
     const allQuoted = quotedComments.concat(formQuotes);
     if (allQuoted.length === 0) return;
 
+    // Index content elements once per mount. The old code ran two
+    // full-section querySelectorAll scans per quoted line (O(Q × L) DOM
+    // queries), which dominated mount time on large files with quoted
+    // comments. One pass here, O(1) map lookups per quoted line below.
+    const pathEsc = CSS.escape(file.path);
+    const docLineMap = new Map(); // source line -> .line-content elements
+    sectionEl.querySelectorAll('.line-block[data-file-path="' + pathEsc + '"]').forEach(function(el) {
+      const s = parseInt(el.dataset.startLine);
+      const e = parseInt(el.dataset.endLine);
+      // Native table rows have one content element per cell. Other
+      // blocks have one content div.
+      const contents = [];
+      el.querySelectorAll('.line-content').forEach(function(content) {
+        contents.push(content);
+      });
+      if (contents.length === 0) return;
+      for (let ln = s; ln <= e; ln++) {
+        let arr = docLineMap.get(ln);
+        if (!arr) {
+          arr = [];
+          docLineMap.set(ln, arr);
+        }
+        for (let ci = 0; ci < contents.length; ci++) {
+          if (arr.indexOf(contents[ci]) === -1) arr.push(contents[ci]);
+        }
+      }
+    });
+    const diffLineMap = new Map(); // lineNum + side -> .diff-content elements
+    sectionEl.querySelectorAll('[data-diff-file-path="' + pathEsc + '"]').forEach(function(el) {
+      // Elements without data-diff-side never matched (undefined !== any
+      // comment side string), so they are left out of the index entirely.
+      if (el.dataset.diffSide === undefined) return;
+      const key = el.dataset.diffLineNum + '' + el.dataset.diffSide;
+      const content = el.querySelector('.diff-content');
+      if (!content) return;
+      let arr = diffLineMap.get(key);
+      if (!arr) {
+        arr = [];
+        diffLineMap.set(key, arr);
+      }
+      if (arr.indexOf(content) === -1) arr.push(content);
+    });
+
     allQuoted.forEach(function(comment) {
       // Find the content elements in this comment's line range
       const contentEls = [];
+      // Filter by side to avoid matching the wrong line in unified diff
+      // (deleted and added lines can share the same line number)
+      const commentSide = comment.side || '';
       for (let ln = comment.start_line; ln <= comment.end_line; ln++) {
         // Document view: line-blocks with data-file-path
-        sectionEl.querySelectorAll('.line-block[data-file-path="' + CSS.escape(file.path) + '"]').forEach(function(el) {
-          const s = parseInt(el.dataset.startLine);
-          const e = parseInt(el.dataset.endLine);
-          if (s <= ln && e >= ln) {
-            // Native table rows have one content element per cell. Other
-            // blocks have one content div.
-            el.querySelectorAll('.line-content').forEach(function(content) {
-              if (contentEls.indexOf(content) === -1) contentEls.push(content);
-            });
+        const docEls = docLineMap.get(ln);
+        if (docEls) {
+          for (let di = 0; di < docEls.length; di++) {
+            if (contentEls.indexOf(docEls[di]) === -1) contentEls.push(docEls[di]);
           }
-        });
+        }
         // Diff view: diff lines with data-diff-line-num
-        // Filter by side to avoid matching the wrong line in unified diff
-        // (deleted and added lines can share the same line number)
-        const commentSide = comment.side || '';
-        sectionEl.querySelectorAll('[data-diff-file-path="' + CSS.escape(file.path) + '"][data-diff-line-num="' + ln + '"]').forEach(function(el) {
-          if (el.dataset.diffSide !== commentSide) return;
-          const content = el.querySelector('.diff-content');
-          if (content && contentEls.indexOf(content) === -1) contentEls.push(content);
-        });
+        const diffEls = diffLineMap.get(ln + '' + commentSide);
+        if (diffEls) {
+          for (let fi = 0; fi < diffEls.length; fi++) {
+            if (contentEls.indexOf(diffEls[fi]) === -1) contentEls.push(diffEls[fi]);
+          }
+        }
       }
 
       if (contentEls.length === 0) return;

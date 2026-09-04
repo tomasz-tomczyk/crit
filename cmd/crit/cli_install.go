@@ -463,7 +463,7 @@ func installIntegration(name string, force bool) error {
 		if err := installCodexPluginActivation(global, home, codexMarketplaceName); err != nil {
 			return err
 		}
-		hints = append(hints, fmt.Sprintf("The Crit Codex plugin is enabled as crit@%s", codexMarketplaceName))
+		hints = append(hints, "The Crit Codex plugin is enabled as crit@"+codexMarketplaceName)
 	}
 	if name == "hermes" && !global {
 		fmt.Println()
@@ -1030,7 +1030,7 @@ func installCodexPluginActivation(global bool, home, marketplaceName string) err
 	fmt.Printf("  Installed: %s\n", cacheRoot)
 
 	configPath := filepath.Join(codexRoot, "config.toml")
-	if err := installCodexPluginConfig(configPath, fmt.Sprintf("crit@%s", marketplaceName)); err != nil {
+	if err := installCodexPluginConfig(configPath, "crit@"+marketplaceName); err != nil {
 		return err
 	}
 	return nil

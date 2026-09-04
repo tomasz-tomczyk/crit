@@ -12,7 +12,8 @@
   },
   "scripts": {
     "update-deps": "node copy-deps.js",
-    "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/vue-astro-highlight.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node web/test-diff-render.mjs"
+    "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/vue-astro-highlight.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node web/test-diff-render.mjs",
+    "test:perf": "node --test web/__tests__/perf/*.perf.test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -398,13 +399,15 @@ func TestGetFileDiffSnapshot_RangeLazy_UsesBetweenSHADiff(t *testing.T) {
 	if len(hunks) == 0 {
 		t.Fatal("expected between-SHA hunks for modified lazy file")
 	}
-	joined := ""
+	var sb strings.Builder
 	for _, h := range hunks {
 		for _, l := range h.Lines {
-			joined += l.Content + "\n"
+			sb.WriteString(l.Content)
+			sb.WriteByte('\n')
 		}
 	}
-	if !strings.Contains(joined, "head "+fmt.Sprint(lazyFileThreshold)) {
+	joined := sb.String()
+	if !strings.Contains(joined, "head "+strconv.Itoa(lazyFileThreshold)) {
 		t.Fatalf("hunks missing HeadSHA content; got %q", joined)
 	}
 	if strings.Contains(joined, "dirty") || strings.Contains(joined, "entirely different") {

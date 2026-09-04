@@ -253,6 +253,9 @@ func BenchmarkComputeLineDiff(b *testing.B) {
 		{"100_lines", 100},
 		{"1000_lines", 1000},
 		{"5000_lines", 5000},
+		// 10000 lines is the stated worst case for AI-generated plans;
+		// keep it so regressions on large markdown show up here first.
+		{"10000_lines", 10000},
 	}
 
 	for _, sz := range sizes {
@@ -263,11 +266,44 @@ func BenchmarkComputeLineDiff(b *testing.B) {
 
 		b.Run(sz.name, func(b *testing.B) {
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				ComputeLineDiff(oldContent, newContent)
 			}
 		})
+	}
+}
+
+// BenchmarkDiffEntriesToHunks measures hunk grouping over a synthetic entry
+// list with many small changes spread across a large file. It isolates the
+// grouping pass from the Myers diff itself, so a regression in either stage
+// points at the right function.
+//
+// Run: go test -run='^$' -bench=. -benchmem ./internal/diff/
+func BenchmarkDiffEntriesToHunks(b *testing.B) {
+	// 10k entries with a change every ~20 lines (~500 hunks): the shape of
+	// a large review where grouping cost matters more than diff cost.
+	const n = 10000
+	entries := make([]DiffEntry, 0, n)
+	oldNum, newNum := 1, 1
+	for i := 1; i <= n; i++ {
+		if i%20 == 0 {
+			entries = append(entries, DiffEntry{Type: "removed", OldLine: oldNum, Text: "old line"})
+			oldNum++
+			entries = append(entries, DiffEntry{Type: "added", NewLine: newNum, Text: "new line"})
+			newNum++
+			continue
+		}
+		entries = append(entries, DiffEntry{Type: "unchanged", OldLine: oldNum, NewLine: newNum, Text: "same"})
+		oldNum++
+		newNum++
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		hunks := DiffEntriesToHunks(entries)
+		if len(hunks) == 0 {
+			b.Fatal("expected non-empty hunks")
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -228,7 +229,7 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 			s.IncrementEdits()
 			s.notify(SSEEvent{
 				Type:    "edit-detected",
-				Content: fmt.Sprintf("%d", s.GetPendingEdits()),
+				Content: strconv.Itoa(s.GetPendingEdits()),
 			})
 		case <-s.roundComplete:
 			s.handleRoundCompleteGit()
@@ -300,7 +301,7 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 				s.IncrementEdits()
 				s.notify(SSEEvent{
 					Type:    "edit-detected",
-					Content: fmt.Sprintf("%d", s.GetPendingEdits()),
+					Content: strconv.Itoa(s.GetPendingEdits()),
 				})
 			}
 		case <-s.roundComplete:

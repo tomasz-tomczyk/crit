@@ -32,6 +32,18 @@ test:
 test-frontend:
 	npm run test:frontend
 
+# Run Go benchmarks locally. Compare against a base with:
+#   git worktree add /tmp/crit-base origin/main
+#   go test -run='^$' -bench=. -benchmem -count=6 ./internal/diff/ ./internal/session/ > old.txt  (in /tmp/crit-base)
+#   go test -run='^$' -bench=. -benchmem -count=6 ./internal/diff/ ./internal/session/ > new.txt  (here)
+#   benchstat old.txt new.txt   (go install golang.org/x/perf/cmd/benchstat@latest)
+bench:
+	go test -run='^$' -bench=. -benchmem -count=6 ./internal/diff/ ./internal/session/
+
+bench-compare:
+	benchstat bench-old.txt bench-new.txt | tee benchstat.txt
+	python3 scripts/bench-compare.py benchstat.txt
+
 setup-hooks:
 	git config core.hooksPath .githooks
 

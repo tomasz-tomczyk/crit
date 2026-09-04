@@ -92,6 +92,81 @@ jobs:
         run: npm ci
       - name: Run frontend smoke tests
         run: make test-frontend
+      - name: Run frontend perf microbenchmarks
+        run: npm run test:perf
+
+  asset-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Check embedded asset + binary size budgets
+        run: bash scripts/check-asset-budget.sh
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Cache Go build cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: go-build-${{ runner.os }}-
+
+      - name: Install benchstat
+        # x/perf ships no versioned releases, so @latest tracks the Go
+        # toolchain; benchstat's comparison output format is stable.
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks (PR head)
+        run: go test -run='^$' -bench=. -benchmem -count=6 ./internal/diff/ ./internal/session/ | tee bench-new.txt
+
+      - name: Run benchmarks (base)
+        id: base
+        # Resolve the base commit directly: on fork PRs origin/$BASE_REF may
+        # not exist, but the base SHA is always present in a full clone.
+        # A missing baseline fails the job — a silently-skipped gate is worse
+        # than a noisy one, and this step only fails on real infra problems.
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE_SHA" ] || ! git rev-parse --verify "$BASE_SHA^{commit}" >/dev/null 2>&1; then
+            BASE_REF="${{ github.base_ref }}"
+            [ -z "$BASE_REF" ] && BASE_REF="main"
+            git fetch origin "$BASE_REF" 2>/dev/null || true
+            BASE_SHA="origin/$BASE_REF"
+          fi
+          git worktree add /tmp/crit-base "$BASE_SHA"
+          cd /tmp/crit-base
+          go test -run='^$' -bench=. -benchmem -count=6 ./internal/diff/ ./internal/session/ > "$GITHUB_WORKSPACE/bench-old.txt"
+
+      - name: Remove base worktree
+        if: always()
+        run: git worktree remove --force /tmp/crit-base || true
+
+      - name: Self-test the bench gate
+        # The gate can't detect its own parser regressions — lock the contract.
+        run: python3 scripts/bench-compare_test.py
+
+      - name: Compare with benchstat
+        run: |
+          benchstat bench-old.txt bench-new.txt | tee benchstat.txt
+          python3 scripts/bench-compare.py benchstat.txt
 
   nix:
     runs-on: ubuntu-latest

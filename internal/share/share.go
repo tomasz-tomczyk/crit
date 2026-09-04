@@ -574,7 +574,7 @@ func buildLocalFingerprintIndex(cj session.CritJSON) (map[string]bool, map[strin
 		}
 	}
 	for _, c := range cj.ReviewComments {
-		key := fmt.Sprintf("%s||0|0", c.Body)
+		key := c.Body + "||0|0"
 		fps[key] = true
 		if c.ID != "" {
 			ids[key] = c.ID

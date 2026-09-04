@@ -2438,7 +2438,7 @@ func listComments(sess *Session, unresolvedOnly bool) []comment.ListedComment {
 }
 
 func buildCommentsListCommand(sess *Session) string {
-	return fmt.Sprintf("crit comments --json %s", shellQuoteArg(sess.CritJSONPath()))
+	return "crit comments --json " + shellQuoteArg(sess.CritJSONPath())
 }
 
 // APIVersion is the HTTP API protocol version returned by GET /api/health as
@@ -3006,7 +3006,7 @@ func buildAgentPrompt(c Comment, filePath string) string {
 	if filePath == "" {
 		b.WriteString("A reviewer left a general comment on this review")
 	} else {
-		b.WriteString(fmt.Sprintf("A reviewer left a comment on %s", filePath))
+		b.WriteString("A reviewer left a comment on " + filePath)
 		if c.StartLine > 0 {
 			if c.EndLine > c.StartLine {
 				b.WriteString(fmt.Sprintf(" (lines %d-%d)", c.StartLine, c.EndLine))

@@ -283,8 +283,10 @@ func TestCarryForwardComment_PreservesScope(t *testing.T) {
 }
 
 // BenchmarkVisibleInFocus measures the cost of the linear filter scan that
-// every GetComments call runs. visibleInFocus is a pure pointer comparison +
-// two string compares, so we expect single-digit ns per call. Locking in this
+// every GetComments call runs, via countVisibleComments (the real path,
+// with the focus key hoisted out of the loop). visibleInFocus itself is a
+// pure pointer comparison + two string compares once the key is hoisted, so
+// we expect single-digit ns per comment and zero allocs. Locking in this
 // assumption makes "should we add an index?" decisions evidence-based.
 //
 // Run: go test -bench=BenchmarkVisibleInFocus -benchmem
@@ -294,14 +296,8 @@ func BenchmarkVisibleInFocus(b *testing.B) {
 		f := Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 295, DiffScope: DiffScopeLayer}
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				count := 0
-				for _, c := range comments {
-					if visibleInFocus(c, f) {
-						count++
-					}
-				}
-				if count == 0 {
+			for b.Loop() {
+				if count := countVisibleComments(comments, f); count == 0 {
 					b.Fatal("expected non-zero matches")
 				}
 			}

@@ -13,6 +13,8 @@ const SHARE_PORT = process.env.CRIT_TEST_SHARE_PORT || '3132';
 // Stub crit-web backing the share-transport project. The spec talks to it
 // directly for seeding and assertions, so it needs the port too.
 const STUB_PORT = process.env.CRIT_TEST_STUB_PORT || '3133';
+// Large-review perf fixture (300 files / ~9k changed lines + big markdown).
+const PERF_PORT = process.env.CRIT_TEST_PERF_PORT || '3134';
 // Mobile project re-uses the git-mode fixture — no separate server needed.
 const MOBILE_PORT = GIT_PORT;
 const debug = !!process.env.E2E_DEBUG;
@@ -46,7 +48,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode|sharetransport)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode|sharetransport|perf)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -131,6 +133,17 @@ export default defineConfig({
         baseURL: `http://localhost:${SHARE_PORT}`,
       },
     },
+    {
+      // Perf guardrails against a 300-file / ~9k-line review. Asserts
+      // structural budgets (mounted bodies, DOM nodes, longtask TBT), not
+      // wall-clock time, so it stays green on slow runners.
+      name: 'perf',
+      testMatch: /\.perf\.spec\.ts$/,
+      use: {
+        browserName: 'chromium',
+        baseURL: `http://localhost:${PERF_PORT}`,
+      },
+    },
   ],
 
   webServer: [
@@ -188,6 +201,15 @@ export default defineConfig({
       url: `http://localhost:${SHARE_PORT}/api/session`,
       reuseExistingServer: true,
       timeout: 60_000,
+      stdout: 'pipe',
+    },
+    {
+      command: `bash setup-fixtures-perf.sh ${PERF_PORT}`,
+      url: `http://localhost:${PERF_PORT}/api/session`,
+      reuseExistingServer: true,
+      // Fixture generates 300 files (+ optional go build when CRIT_BIN is
+      // unset, e.g. cold local runs outside run.sh which prebuilds).
+      timeout: 120_000,
       stdout: 'pipe',
     },
   ],

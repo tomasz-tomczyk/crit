@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1210,7 +1211,7 @@ func TestLiveSessionKey_MatchesSpec(t *testing.T) {
 	h.Write([]byte(cwd))
 	h.Write([]byte("\x00live\x00"))
 	h.Write([]byte(origin))
-	want := fmt.Sprintf("%x", h.Sum(nil))[:12]
+	want := hex.EncodeToString(h.Sum(nil))[:12]
 	if got != want {
 		t.Errorf("key = %q, want %q", got, want)
 	}

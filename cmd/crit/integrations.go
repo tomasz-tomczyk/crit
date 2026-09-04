@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,7 +19,7 @@ import (
 // computeFileHash returns the hex-encoded SHA256 hash of data.
 func computeFileHash(data []byte) string {
 	h := sha256.Sum256(data)
-	return fmt.Sprintf("%x", h)
+	return hex.EncodeToString(h[:])
 }
 
 // latestCacheDir returns the lexicographically last subdirectory name
@@ -351,7 +352,7 @@ func checkCodexPluginInstallCompleteness(projectDir, homeDir string) []staleFile
 			marketplaceName = "local"
 		}
 
-		pluginKey := fmt.Sprintf("crit@%s", marketplaceName)
+		pluginKey := "crit@" + marketplaceName
 		configPath := filepath.Join(codexHome(homeDir), "config.toml")
 		if !codexPluginConfigReady(configPath, pluginKey) {
 			results = append(results, staleFile{

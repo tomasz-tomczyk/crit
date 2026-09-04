@@ -158,7 +158,15 @@ func MRFocusKey(number int, project, host string) string {
 // FocusKey. Within a range focus, the layer/full-stack DiffScope filter
 // also applies. Pure function — no I/O, no locks.
 func visibleInFocus(c Comment, f Focus) bool {
-	if c.FocusKey != focusKeyFor(f) {
+	return visibleInFocusKey(c, focusKeyFor(f), f)
+}
+
+// visibleInFocusKey is visibleInFocus with a precomputed focus key. Use it in
+// per-comment loops: focusKeyFor allocates (Sprintf) on every call, so
+// calling visibleInFocus per comment pays one allocation per comment.
+// Hoisting the key out of the loop makes the scan allocation-free.
+func visibleInFocusKey(c Comment, key string, f Focus) bool {
+	if c.FocusKey != key {
 		return false
 	}
 	if f.Kind == FocusRange {
@@ -195,9 +203,10 @@ func StampWithFocus(c Comment, f Focus) Comment {
 
 // countVisibleComments returns the count of comments visible in the given focus.
 func countVisibleComments(comments []Comment, f Focus) int {
+	key := focusKeyFor(f)
 	n := 0
 	for _, c := range comments {
-		if visibleInFocus(c, f) {
+		if visibleInFocusKey(c, key, f) {
 			n++
 		}
 	}
@@ -768,11 +777,12 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 		}
 	}
 	rc := make([]Comment, 0, len(s.reviewComments))
+	focusKey := focusKeyFor(s.Focus)
 	for _, c := range s.reviewComments {
 		if !c.Resolved {
 			totalUnresolved++
 		}
-		if !visibleInFocus(c, s.Focus) {
+		if !visibleInFocusKey(c, focusKey, s.Focus) {
 			continue
 		}
 		rc = append(rc, c)

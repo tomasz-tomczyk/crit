@@ -2,6 +2,7 @@ package preview
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -21,7 +22,7 @@ func PreviewSessionKey(cwd, absPath string) string {
 	h.Write([]byte(cwd))
 	h.Write([]byte("\x00preview\x00"))
 	h.Write([]byte(absPath))
-	return fmt.Sprintf("%x", h.Sum(nil))[:12]
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // LooksLikePreviewArgs returns true when args is a single .html/.htm file path.

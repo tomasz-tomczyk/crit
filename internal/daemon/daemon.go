@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -163,7 +164,7 @@ func SessionKey(cwd string, branch string, args []string) string {
 		h.Write([]byte{0})
 		h.Write([]byte(a))
 	}
-	return fmt.Sprintf("%x", h.Sum(nil))[:12]
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // LiveSessionKey returns the session/review key for a live-mode session.
@@ -175,7 +176,7 @@ func LiveSessionKey(cwd, origin string) string {
 	h.Write([]byte(cwd))
 	h.Write([]byte("\x00live\x00"))
 	h.Write([]byte(origin))
-	return fmt.Sprintf("%x", h.Sum(nil))[:12]
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // ValidSessionKey reports whether key looks like a crit session ID (12 lowercase hex chars).

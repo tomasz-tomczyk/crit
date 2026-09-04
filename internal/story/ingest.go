@@ -6,6 +6,7 @@ package story
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -104,7 +105,7 @@ func Fingerprint(hunks []HunkID) string {
 		sum.Write([]byte(id))
 		sum.Write([]byte{0})
 	}
-	return fmt.Sprintf("%x", sum.Sum(nil))
+	return hex.EncodeToString(sum.Sum(nil))
 }
 
 // Run validates and (per §8 policy) repairs a story against the live diff.

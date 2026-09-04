@@ -2,12 +2,14 @@ package session
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +34,7 @@ func PlanSessionKey(cwd, slug string) string {
 	h.Write([]byte(cwd))
 	h.Write([]byte{0})
 	h.Write([]byte("__plan:" + slug))
-	return fmt.Sprintf("%x", h.Sum(nil))[:12]
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 var nonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)
@@ -115,7 +117,7 @@ func BuildPlanDaemonArgs(currentPath, storageDir, slug string, flags PlanDaemonF
 
 func appendPlanDaemonFlags(args []string, f PlanDaemonFlags) []string {
 	if f.Port != 0 {
-		args = append(args, "--port", fmt.Sprintf("%d", f.Port))
+		args = append(args, "--port", strconv.Itoa(f.Port))
 	}
 	if f.Host != "" && f.Host != "127.0.0.1" {
 		args = append(args, "--host", f.Host)
