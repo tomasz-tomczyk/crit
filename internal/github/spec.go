@@ -2,6 +2,7 @@ package github
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -33,12 +34,36 @@ func ParsePRSpec(spec string) (forge.ChangeID, error) {
 	return forge.ChangeID{
 		Number:  n,
 		Project: parts[0] + "/" + parts[1],
-		Host:    u.Host,
+		Host:    normalizeGitHubHost(u.Host),
 	}, nil
 }
 
 func invalidPRSpec(spec string) error {
 	return fmt.Errorf("invalid --pr value %q (expected number or https://host/owner/repo/pull/N URL)", spec)
+}
+
+// normalizeGitHubHost collapses github.com aliases so cache/session keys and
+// -R flags stay consistent (www., ports, case).
+func normalizeGitHubHost(host string) string {
+	host = strings.TrimSpace(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if strings.EqualFold(host, "github.com") || strings.EqualFold(host, "www.github.com") {
+		return "github.com"
+	}
+	return strings.ToLower(host)
+}
+
+// prRepoRef is the -R / cache-key repository identity for id.
+func prRepoRef(id forge.ChangeID) string {
+	if id.Project == "" {
+		return ""
+	}
+	if id.Host != "" && !strings.EqualFold(id.Host, "github.com") {
+		return id.Host + "/" + id.Project
+	}
+	return id.Project
 }
 
 // prViewArgs builds the `gh pr view` argument list for id. When Project is
@@ -47,21 +72,17 @@ func invalidPRSpec(spec string) error {
 // are included as HOST/OWNER/REPO so GitHub Enterprise URLs resolve correctly.
 func prViewArgs(id forge.ChangeID) []string {
 	args := []string{"pr", "view", strconv.Itoa(id.Number)}
-	if id.Project != "" {
-		repo := id.Project
-		if id.Host != "" && !strings.EqualFold(id.Host, "github.com") {
-			repo = id.Host + "/" + id.Project
-		}
+	if repo := prRepoRef(id); repo != "" {
 		args = append(args, "-R", repo)
 	}
 	return append(args, "--json", prJSONFields)
 }
 
-// prCacheKey namespaces PR metadata by owner/repo when known so same-number
-// PRs in different repos do not collide in the daemon cache.
+// prCacheKey namespaces PR metadata by host/owner/repo when known so same-number
+// PRs in different repos (or hosts) do not collide in the daemon cache.
 func prCacheKey(id forge.ChangeID) string {
-	if id.Project == "" {
-		return strconv.Itoa(id.Number)
+	if repo := prRepoRef(id); repo != "" {
+		return repo + "#" + strconv.Itoa(id.Number)
 	}
-	return id.Project + "#" + strconv.Itoa(id.Number)
+	return strconv.Itoa(id.Number)
 }

@@ -38,3 +38,14 @@ func TestPRViewArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestPRCacheKey_IncludesEnterpriseHost(t *testing.T) {
+	got := prCacheKey(forge.ChangeID{Number: 9, Project: "acme/app", Host: "github.example.com"})
+	if got != "github.example.com/acme/app#9" {
+		t.Fatalf("got %q", got)
+	}
+	dotcom := prCacheKey(forge.ChangeID{Number: 9, Project: "acme/app", Host: "github.com"})
+	if dotcom != "acme/app#9" {
+		t.Fatalf("github.com key = %q", dotcom)
+	}
+}

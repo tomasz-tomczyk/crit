@@ -1,6 +1,8 @@
 package github
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -110,6 +112,20 @@ func (c *prMetadataCache) invalidate(id forge.ChangeID) {
 	c.mu.Unlock()
 }
 
+// invalidateNumber drops the bare-number entry and every project-qualified
+// entry for num. Used when only the PR number is known (e.g. crit pull).
+func (c *prMetadataCache) invalidateNumber(num int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, strconv.Itoa(num))
+	suffix := "#" + strconv.Itoa(num)
+	for key := range c.entries {
+		if strings.HasSuffix(key, suffix) {
+			delete(c.entries, key)
+		}
+	}
+}
+
 // reset clears the entire cache. Used by tests to isolate one fixture's
 // fetchFn from the next; production code should prefer invalidate.
 func (c *prMetadataCache) reset() {
@@ -124,13 +140,14 @@ func (c *prMetadataCache) reset() {
 // (including the CLI `crit pull` path) don't always have a Server in hand.
 var prMetaCache = newPRMetadataCache()
 
-// InvalidatePRCache drops the cached PRInfo for a bare PR number (current
-// checkout). Prefer InvalidatePR when the owning project is known.
+// InvalidatePRCache drops every cached PRInfo for num — both the bare-number
+// key (checkout-scoped --pr) and any project-qualified keys (URL-scoped).
+// Used by `crit pull`, which only knows the PR number.
 func InvalidatePRCache(num int) {
 	if num <= 0 {
 		return
 	}
-	prMetaCache.invalidate(forge.ChangeID{Number: num})
+	prMetaCache.invalidateNumber(num)
 }
 
 // InvalidatePR drops the cached PRInfo for id (project-qualified when set).

@@ -351,10 +351,7 @@ func FocusKeyArgs(sc *DaemonCLIConfig) []string {
 		if sc.Focus.Forge == "gitlab" {
 			return []string{fmt.Sprintf("mr:%d", sc.Focus.ChangeNumber)}
 		}
-		if sc.Focus.RemoteBaseProject != "" {
-			return []string{fmt.Sprintf("pr:%s#%d", sc.Focus.RemoteBaseProject, sc.Focus.ChangeNumber)}
-		}
-		return []string{fmt.Sprintf("pr:%d", sc.Focus.ChangeNumber)}
+		return []string{session.PRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
 	}
 	return []string{fmt.Sprintf("range:%s..%s", sc.Focus.BaseSHA, sc.Focus.HeadSHA)}
 }

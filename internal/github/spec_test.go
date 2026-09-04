@@ -28,6 +28,16 @@ func TestParsePRSpec(t *testing.T) {
 			forge.ChangeID{Number: 1, Project: "myorg/repo-b", Host: "github.com"},
 			false,
 		},
+		{
+			"https://www.github.com/o/r/pull/2",
+			forge.ChangeID{Number: 2, Project: "o/r", Host: "github.com"},
+			false,
+		},
+		{
+			"https://github.example.com/acme/app/pull/9",
+			forge.ChangeID{Number: 9, Project: "acme/app", Host: "github.example.com"},
+			false,
+		},
 		{"http://github.com/o/r/pull/7", forge.ChangeID{Number: 7, Project: "o/r", Host: "github.com"}, false},
 		{"abc", forge.ChangeID{}, true},
 		{"-5", forge.ChangeID{}, true},

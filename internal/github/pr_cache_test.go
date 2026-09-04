@@ -214,6 +214,28 @@ func TestInvalidatePR_DropsProjectQualifiedKey(t *testing.T) {
 	}
 }
 
+func TestInvalidatePRCache_DropsBareAndQualified(t *testing.T) {
+	prev := prMetaCache
+	prMetaCache = newPRMetadataCache()
+	t.Cleanup(func() { prMetaCache = prev })
+
+	id := forge.ChangeID{Number: 7, Project: "org/repo-b", Host: "github.example.com"}
+	prMetaCache.entries[prCacheKey(id)] = &prCacheEntry{data: &PRInfo{Number: 7}, access: time.Now()}
+	prMetaCache.entries["7"] = &prCacheEntry{data: &PRInfo{Number: 7}, access: time.Now()}
+	prMetaCache.entries["8"] = &prCacheEntry{data: &PRInfo{Number: 8}, access: time.Now()}
+
+	InvalidatePRCache(7)
+	if _, ok := prMetaCache.entries[prCacheKey(id)]; ok {
+		t.Error("InvalidatePRCache left project-qualified entry")
+	}
+	if _, ok := prMetaCache.entries["7"]; ok {
+		t.Error("InvalidatePRCache left bare entry")
+	}
+	if _, ok := prMetaCache.entries["8"]; !ok {
+		t.Error("InvalidatePRCache wrongly dropped unrelated PR")
+	}
+}
+
 func TestInvalidatePRCache_IgnoresNonPositive(t *testing.T) {
 	prev := prMetaCache
 	prMetaCache = newPRMetadataCache()

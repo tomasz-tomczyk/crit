@@ -45,6 +45,17 @@ func TestFocusKeyArgs_PRWithRemoteBaseProject(t *testing.T) {
 	}
 }
 
+func TestFocusKeyArgs_PRWithEnterpriseHost(t *testing.T) {
+	sc := &server.DaemonCLIConfig{Focus: &server.Focus{
+		Kind: server.FocusRange, Forge: "github", ChangeNumber: 9,
+		RemoteBaseProject: "acme/app", RemoteHost: "github.example.com",
+	}}
+	got := server.FocusKeyArgs(sc)
+	if len(got) != 1 || got[0] != "pr:github.example.com/acme/app#9" {
+		t.Errorf("got %v want [pr:github.example.com/acme/app#9]", got)
+	}
+}
+
 func TestFocusKeyArgs_MR(t *testing.T) {
 	sc := &server.DaemonCLIConfig{Focus: &server.Focus{Kind: server.FocusRange, Forge: "gitlab", ChangeNumber: 42}}
 	got := server.FocusKeyArgs(sc)

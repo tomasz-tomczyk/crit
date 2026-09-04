@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,10 +116,23 @@ func focusKeyFor(f Focus) string {
 		if f.Forge == "gitlab" {
 			return fmt.Sprintf("mr:%d", f.ChangeNumber)
 		}
-		// github or empty forge (legacy ChangeNumber without Forge) → pr:N
-		return fmt.Sprintf("pr:%d", f.ChangeNumber)
+		// github or empty forge (legacy ChangeNumber without Forge) → pr:…
+		return PRFocusKey(f.ChangeNumber, f.RemoteBaseProject, f.RemoteHost)
 	}
 	return fmt.Sprintf("range:%s..%s", f.BaseSHA, f.HeadSHA)
+}
+
+// PRFocusKey is the GitHub PR identity used for daemon session keys and
+// comment FocusKey stamping. URL-qualified reviews include owner/repo (and
+// non-github.com host) so same-number PRs do not collide (#870).
+func PRFocusKey(number int, project, host string) string {
+	if project == "" {
+		return fmt.Sprintf("pr:%d", number)
+	}
+	if host != "" && !strings.EqualFold(host, "github.com") {
+		return fmt.Sprintf("pr:%s/%s#%d", host, project, number)
+	}
+	return fmt.Sprintf("pr:%s#%d", project, number)
 }
 
 // visibleInFocus reports whether c should be shown in the given focus.
@@ -366,11 +380,13 @@ func dropStaleCacheOnPRSwitch(oldFocus, newFocus Focus) {
 	if oldFocus.Forge != "github" || newFocus.Forge != "github" || oldFocus.ChangeNumber == 0 || newFocus.ChangeNumber == 0 {
 		return
 	}
-	if oldFocus.ChangeNumber == newFocus.ChangeNumber && oldFocus.RemoteBaseProject == newFocus.RemoteBaseProject {
+	if oldFocus.ChangeNumber == newFocus.ChangeNumber &&
+		oldFocus.RemoteBaseProject == newFocus.RemoteBaseProject &&
+		oldFocus.RemoteHost == newFocus.RemoteHost {
 		return
 	}
 	if InvalidatePRCache != nil {
-		InvalidatePRCache(oldFocus.ChangeNumber, oldFocus.RemoteBaseProject)
+		InvalidatePRCache(oldFocus.ChangeNumber, oldFocus.RemoteBaseProject, oldFocus.RemoteHost)
 	}
 }
 
