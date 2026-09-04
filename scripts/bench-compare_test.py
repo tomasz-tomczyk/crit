@@ -82,6 +82,26 @@ class GateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("B/op increase", r.stdout)
 
+    def test_new_benchstat_format_time_regression_fails(self):
+        # Newer benchstat versions omit the "old/new" prefix and "name" row.
+        content = (
+            "                               │ bench-old.txt │           bench-new.txt           │\n"
+            "                               │    sec/op     │   sec/op     vs base              │\n"
+            "ComputeLineDiff/100_lines-4      102.25µ ± 1%   130.00µ ± 1%  +27.13% (p=0.002 n=6)\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("time/op regression", r.stdout)
+
+    def test_new_benchstat_format_alloc_regression_fails(self):
+        content = (
+            "                               │   allocs/op   │  allocs/op   vs base                │\n"
+            "ComputeLineDiff/100_lines-4        597.0 ± 0%    600.0 ± 0%   +0.50%  (p=0.002 n=6)\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("allocs/op regression", r.stdout)
+
     def test_missing_file_exits_2(self):
         r = subprocess.run(
             [sys.executable, str(SCRIPT), "/nonexistent/benchstat.txt"],

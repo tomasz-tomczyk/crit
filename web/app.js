@@ -4456,7 +4456,7 @@
           const row = makeSplitRow(
             { num: line.OldNum, content: line.Content, type: 'context' },
             { num: line.NewNum, content: line.Content, type: 'context' },
-            file, commentRangeSet
+            file, commentRangeSet, fileForms
           );
           container.appendChild(row.el);
           // Context lines: form appears where clicked (left or right),
@@ -4486,7 +4486,7 @@
             const row = makeSplitRow(
               del ? { num: del.OldNum, content: del.Content, type: 'del', wordRanges: wd ? wd.oldRanges : null } : null,
               add ? { num: add.NewNum, content: add.Content, type: 'add', wordRanges: wd ? wd.newRanges : null } : null,
-              file, commentRangeSet
+              file, commentRangeSet, fileForms
             );
             container.appendChild(row.el);
             // Comments for both sides (different keys)
@@ -4511,7 +4511,7 @@
 
   // Build one split row: left (old) side + right (new) side
   // left/right: { num, content, type } or null for empty
-  function makeSplitRow(left, right, file, commentRangeSet) {
+  function makeSplitRow(left, right, file, commentRangeSet, fileForms) {
     const row = document.createElement('div');
     row.className = 'diff-split-row';
 

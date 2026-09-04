@@ -76,15 +76,18 @@ def main() -> int:
 
     for line in lines:
         low = line.lower()
-        if "old time/op" in low or "old ns/op" in low:
+        # Benchstat output format varies by version: older versions emit
+        # "old time/op" / "old allocs/op" / "old b/op" headers, newer
+        # versions emit just the unit ("sec/op", "allocs/op", "b/op").
+        if "time/op" in low or "sec/op" in low or "ns/op" in low:
             table = "time"
             saw_table = True
             continue
-        if "old allocs/op" in low or "old alloc/op" in low:
+        if "allocs/op" in low or "alloc/op" in low:
             table = "alloc"
             saw_table = True
             continue
-        if "old b/op" in low:
+        if "b/op" in low:
             table = "mem"
             saw_table = True
             continue
