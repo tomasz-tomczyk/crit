@@ -90,6 +90,9 @@ func TestCollectCodeFontFamiliesFiltersDeduplicatesAndSorts(t *testing.T) {
 }
 
 func TestDiscoverCodeFontFamiliesScansTheCurrentSystem(t *testing.T) {
+	if os.Getenv("CRIT_SCAN_SYSTEM_FONTS") != "1" {
+		t.Skip("Skipping system font scan; set CRIT_SCAN_SYSTEM_FONTS=1 to opt in")
+	}
 	families, err := discoverCodeFontFamilies()
 	if err != nil {
 		t.Fatalf("discoverCodeFontFamilies() error = %v", err)
@@ -148,5 +151,37 @@ func TestLoadCodeFontRejectsInvalidFileAndFaceIndex(t *testing.T) {
 	}
 	if _, err := loadCodeFont(fontscan.Location{File: monoPath, Index: 1}); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("out-of-range face error = %v, want os.ErrNotExist", err)
+	}
+}
+
+func TestLoadCodeFontRejectsTrueTypeCollectionFaceIndexGreaterThanZero(t *testing.T) {
+	ttcPath := filepath.Join(t.TempDir(), "collection.ttc")
+	if err := os.WriteFile(ttcPath, []byte("not a real collection"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loadCodeFont(fontscan.Location{File: ttcPath, Index: 1}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ttc face index 1 error = %v, want os.ErrNotExist", err)
+	}
+	if _, err := loadCodeFont(fontscan.Location{File: ttcPath, Index: 99}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ttc face index 99 error = %v, want os.ErrNotExist", err)
+	}
+
+	// Index 0 is allowed through to parsing; a fake file will fail there, not
+	// by the face-index guard.
+	if _, err := loadCodeFont(fontscan.Location{File: ttcPath, Index: 0}); err == nil {
+		t.Fatal("fake ttc index 0 was loaded")
+	}
+}
+
+func TestLoadCodeFontRejectsAppleSFTrueTypeCollections(t *testing.T) {
+	for _, name := range []string{"SFIndia.ttc", "sfindia.ttc", "SFIndia.TTC"} {
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, []byte("not a real font"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadCodeFont(fontscan.Location{File: path}); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s error = %v, want os.ErrNotExist", name, err)
+		}
 	}
 }

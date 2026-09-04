@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -91,6 +92,13 @@ func inspectCodeFont(location fontscan.Location) (string, bool, error) {
 }
 
 func loadCodeFont(location fontscan.Location) (*font.Font, error) {
+	if isDeniedFontFile(location.File) {
+		return nil, os.ErrNotExist
+	}
+	if isTrueTypeCollection(location.File) && location.Index != 0 {
+		return nil, os.ErrNotExist
+	}
+
 	f, err := os.Open(location.File)
 	if err != nil {
 		return nil, err
@@ -105,6 +113,19 @@ func loadCodeFont(location fontscan.Location) (*font.Font, error) {
 		return nil, os.ErrNotExist
 	}
 	return font.NewFont(loaders[location.Index])
+}
+
+// isTrueTypeCollection reports whether file is a TrueType Collection.
+func isTrueTypeCollection(file string) bool {
+	return strings.EqualFold(filepath.Ext(file), ".ttc")
+}
+
+// isDeniedFontFile reports whether file is a known-bad system font that should
+// not be parsed. The SF*.ttc fonts on macOS trigger an unbounded allocation
+// bug in github.com/go-text/typesetting v0.3.4.
+func isDeniedFontFile(file string) bool {
+	base := strings.ToLower(filepath.Base(file))
+	return strings.HasPrefix(base, "sf") && strings.HasSuffix(base, ".ttc")
 }
 
 func isCodeMonospace(ft *font.Font) bool {
