@@ -66,6 +66,9 @@ func TestHandleAgentRequest_Success(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
+	if ct := w.Result().Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("committed Content-Type = %q, want application/json", ct)
+	}
 	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)

@@ -1767,8 +1767,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			// WriteFiles), so cross-tab sync would otherwise stall until an
 			// external mutation. Emitting here closes that gap for live pins.
 			sess.Notify(SSEEvent{Type: "comments-changed"})
-			w.WriteHeader(http.StatusCreated)
-			writeJSON(w, c)
+			writeJSONStatus(w, http.StatusCreated, c)
 			return
 		}
 
@@ -1783,8 +1782,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
 			}
-			w.WriteHeader(http.StatusCreated)
-			writeJSON(w, c)
+			writeJSONStatus(w, http.StatusCreated, c)
 			return
 		}
 
@@ -1798,8 +1796,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(w, c)
+		writeJSONStatus(w, http.StatusCreated, c)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -2078,8 +2075,7 @@ func handleReplyCRUD(w http.ResponseWriter, r *http.Request, replyID string, ops
 			http.Error(w, "Comment not found", http.StatusNotFound)
 			return
 		}
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(w, reply)
+		writeJSONStatus(w, http.StatusCreated, reply)
 
 	case r.Method == http.MethodPut && replyID != "":
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
@@ -2188,8 +2184,7 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c := s.session.Load().AddReviewComment(req.Body, req.Author, s.authUserID())
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(w, c)
+		writeJSONStatus(w, http.StatusCreated, c)
 
 	case http.MethodDelete:
 		s.session.Load().ClearAllComments()
@@ -2533,11 +2528,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				// Daemon is shutting down before the user finished reviewing.
 				// Tell the client explicitly so it can deny rather than fall
 				// through to the connection-error path and silently approve.
-				// Set Content-Type before WriteHeader — writeJSON sets it
-				// internally, but headers set after WriteHeader are dropped.
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				writeJSON(w, map[string]any{
+				writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{
 					"status":   "shutdown",
 					"approved": false,
 					"comments": []comment.ListedComment{},
@@ -2713,8 +2704,7 @@ func (s *Server) handleAttachmentUpload(w http.ResponseWriter, r *http.Request) 
 		originalFilename = sanitizeAttachmentAltText(header.Filename)
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, map[string]string{
+	writeJSONStatus(w, http.StatusCreated, map[string]string{
 		"filename":          filename,
 		"original_filename": originalFilename,
 		"url":               "attachments/" + filename,
@@ -2992,8 +2982,7 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 		s.runAgentCmd(prompt, comment.ID, filePath)
 	}()
 
-	w.WriteHeader(http.StatusAccepted)
-	writeJSON(w, map[string]any{
+	writeJSONStatus(w, http.StatusAccepted, map[string]any{
 		"status":     "accepted",
 		"comment_id": body.CommentID,
 		"file_path":  filePath,
@@ -3262,4 +3251,13 @@ func writeJSON(w http.ResponseWriter, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("writeJSON: encode error: %v", err)
 	}
+}
+
+// writeJSONStatus commits a JSON response with an explicit HTTP status.
+// Headers must be set before WriteHeader; writeJSON alone is too late once
+// the response has been committed.
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	writeJSON(w, v)
 }

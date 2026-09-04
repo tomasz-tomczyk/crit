@@ -70,9 +70,7 @@ func (s *Server) handleStoryPost(w http.ResponseWriter, r *http.Request) {
 		// parsing the coverage report don't need to special-case an
 		// error-wrapper shape.
 		w.Header().Set("X-Story-Ingest-Error", ingestErr.Error())
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		writeJSON(w, res.Coverage)
+		writeJSONStatus(w, http.StatusUnprocessableEntity, res.Coverage)
 		return
 	}
 

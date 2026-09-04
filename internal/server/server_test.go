@@ -429,6 +429,9 @@ func TestPostFileComment(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
+	if ct := w.Result().Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("committed Content-Type = %q, want application/json", ct)
+	}
 	var c Comment
 	if err := json.Unmarshal(w.Body.Bytes(), &c); err != nil {
 		t.Fatal(err)
@@ -4652,6 +4655,9 @@ func TestHandleFileComments_AcceptsDOMAnchor_AutoRegistersRoute(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if ct := w.Result().Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("committed Content-Type = %q, want application/json", ct)
 	}
 	var c Comment
 	json.NewDecoder(w.Body).Decode(&c)
