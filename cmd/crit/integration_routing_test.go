@@ -105,20 +105,53 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		kind       globalDestKind
 	}
 	expected := map[string][]want{
-		"claude-code":    {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
-		"cursor":         {{"", globalDestNone}, {"", globalDestNone}},
-		"codex":          {{"", globalDestNone}, {"", globalDestNone}},
-		"qwen":           {{"", globalDestNone}, {"", globalDestNone}},
-		"opencode":       {{".config/opencode/commands/crit.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}, {".config/opencode/plugins/crit.ts", globalDestRelHome}, {".config/opencode/plugins/lib/crit-wait-notify.js", globalDestRelHome}},
-		"github-copilot": {{".agents/skills/crit/SKILL.md", globalDestRelHome}, {".agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"windsurf":       {{".codeium/windsurf/global_workflows/crit.md", globalDestRelHome}, {".codeium/windsurf/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"cline":          {{".cline/data/workflows/crit.md", globalDestRelHome}, {".cline/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"gemini":         {{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome}, {".gemini/commands/crit.toml", globalDestRelHome}, {".gemini/policies/crit.toml", globalDestRelHome}},
-		"grok":           {{"", globalDestNone}, {"", globalDestNone}},
-		"ampcode":        {{".config/agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/agents/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"codex-plugin":   {{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome}, {".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome}, {".codex/plugins/crit/hooks/hooks.json", globalDestRelHome}},
-		"hermes":         {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}},
-		"pi":             {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}},
+		"claude-code": {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"cursor":      {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"codex":       {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"qwen":        {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"opencode": {
+			{".config/opencode/commands/crit.md", globalDestRelHome},
+			{".agents/skills/crit-cli/SKILL.md", globalDestRelHome},
+			{".config/opencode/commands/crit-story.md", globalDestRelHome},
+			{".agents/skills/crit-story/SKILL.md", globalDestRelHome},
+			{".config/opencode/plugins/crit.ts", globalDestRelHome},
+			{".config/opencode/plugins/lib/crit-wait-notify.js", globalDestRelHome},
+		},
+		"github-copilot": {
+			{".agents/skills/crit/SKILL.md", globalDestRelHome},
+			{".agents/skills/crit-cli/SKILL.md", globalDestRelHome},
+			{".agents/skills/crit-story/SKILL.md", globalDestRelHome},
+		},
+		"windsurf": {
+			{".codeium/windsurf/global_workflows/crit.md", globalDestRelHome},
+			{".codeium/windsurf/skills/crit-cli/SKILL.md", globalDestRelHome},
+			{".codeium/windsurf/global_workflows/crit-story.md", globalDestRelHome},
+			{".codeium/windsurf/skills/crit-story/SKILL.md", globalDestRelHome},
+		},
+		"cline": {
+			{".cline/data/workflows/crit.md", globalDestRelHome},
+			{".cline/skills/crit-cli/SKILL.md", globalDestRelHome},
+			{".cline/data/workflows/crit-story.md", globalDestRelHome},
+			{".cline/skills/crit-story/SKILL.md", globalDestRelHome},
+		},
+		"gemini": {
+			{".gemini/skills/crit-cli/SKILL.md", globalDestRelHome},
+			{".gemini/commands/crit.toml", globalDestRelHome},
+			{".gemini/skills/crit-story/SKILL.md", globalDestRelHome},
+			{".gemini/commands/crit-story.toml", globalDestRelHome},
+			{".gemini/policies/crit.toml", globalDestRelHome},
+		},
+		"grok":    {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		"ampcode": {{".config/agents/skills/crit/SKILL.md", globalDestRelHome}, {".config/agents/skills/crit-cli/SKILL.md", globalDestRelHome}, {".config/agents/skills/crit-story/SKILL.md", globalDestRelHome}},
+		"codex-plugin": {
+			{".codex/plugins/crit/.codex-plugin/plugin.json", globalDestRelHome},
+			{".codex/plugins/crit/skills/crit/SKILL.md", globalDestRelHome},
+			{".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestRelHome},
+			{".codex/plugins/crit/skills/crit-story/SKILL.md", globalDestRelHome},
+			{".codex/plugins/crit/hooks/hooks.json", globalDestRelHome},
+		},
+		"hermes": {{".hermes/skills/crit/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-cli/SKILL.md", globalDestRelHome}, {".hermes/skills/crit-story/SKILL.md", globalDestRelHome}},
+		"pi":     {{".pi/agent/skills/crit/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-cli/SKILL.md", globalDestRelHome}, {".pi/agent/skills/crit-story/SKILL.md", globalDestRelHome}},
 	}
 	for tool, files := range expected {
 		got := integrationMap[tool]

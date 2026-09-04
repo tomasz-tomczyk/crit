@@ -134,6 +134,39 @@ func TestManualWorkflowsReplaceAlwaysOnRules(t *testing.T) {
 	}
 }
 
+func TestCritStorySkillsAreWordingGated(t *testing.T) {
+	paths := []string{
+		"integrations/claude-code/skills/crit-story/SKILL.md",
+		"integrations/cursor/skills/crit-story/SKILL.md",
+		"integrations/github-copilot/skills/crit-story/SKILL.md",
+		"integrations/codex/skills/crit-story/SKILL.md",
+		"integrations/codex/plugin/crit/skills/crit-story/SKILL.md",
+		"integrations/pi/skills/crit-story/SKILL.md",
+		"integrations/qwen/skills/crit-story/SKILL.md",
+		"integrations/hermes/skills/crit-story/SKILL.md",
+		"integrations/grok/skills/crit-story/SKILL.md",
+		"integrations/ampcode/skills/crit-story/SKILL.md",
+		"integrations/cline/skills/crit-story/SKILL.md",
+		"integrations/windsurf/skills/crit-story/SKILL.md",
+		"integrations/opencode/skills/crit-story/SKILL.md",
+		"integrations/gemini/skills/crit-story/SKILL.md",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			content := readIntegrationForPolicyTest(t, path)
+			if !strings.Contains(content, "name: crit-story") {
+				t.Fatalf("%s is not a crit-story skill", path)
+			}
+			if !strings.Contains(content, "Do not infer") {
+				t.Fatalf("%s lacks wording-gate language", path)
+			}
+			if strings.Contains(content, "disable-model-invocation: true") {
+				t.Fatalf("%s uses hard disable; prefer wording gate", path)
+			}
+		})
+	}
+}
+
 func TestPlanExitHooksRemainEnabled(t *testing.T) {
 	cases := map[string]string{
 		"integrations/claude-code/hooks/hooks.json":       "ExitPlanMode",

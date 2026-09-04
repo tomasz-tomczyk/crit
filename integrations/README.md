@@ -15,27 +15,28 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 
 | Tool | Install command | Project destination | Global destination |
 |------|----------------|---------------------|--------------------|
-| Claude Code | `crit install claude-code` | `.claude/skills/crit/SKILL.md` + `.claude/skills/crit-cli/SKILL.md` | `~/.claude/skills/crit/SKILL.md` + `~/.claude/skills/crit-cli/SKILL.md` |
-| Cursor | `crit install cursor` | `.cursor/skills/crit/SKILL.md` + `.cursor/skills/crit-cli/SKILL.md` | (project only — Cursor has no stable user-level config dir) |
-| GitHub Copilot | `crit install github-copilot` | `.github/skills/crit/SKILL.md` + `.github/skills/crit-cli/SKILL.md` | `~/.agents/skills/crit/SKILL.md` + `~/.agents/skills/crit-cli/SKILL.md` |
-| OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `.opencode/skills/crit-cli/SKILL.md` + `.opencode/plugins/crit.ts` (+ registers the plugin in `opencode.jsonc`) | `~/.config/opencode/commands/crit.md` + `~/.agents/skills/crit-cli/SKILL.md` + `~/.config/opencode/plugins/crit.ts` (+ registers the plugin in `~/.config/opencode/opencode.jsonc`) |
-| Codex | `crit install codex` | `.agents/skills/crit/SKILL.md` + `.agents/skills/crit-cli/SKILL.md` | `~/.agents/skills/crit/SKILL.md` + `~/.agents/skills/crit-cli/SKILL.md` |
-| Codex plugin | `crit install codex-plugin` | `.agents/skills/*` loose `$crit` skills + `.agents/plugins/marketplace.json` + `plugins/crit/` | loose skills and marketplace under `~/.agents/`, plugin under `~/.codex/plugins/crit/` |
-| Pi | `crit install pi` | `.pi/skills/crit/SKILL.md` + `.pi/skills/crit-cli/SKILL.md` | `~/.pi/agent/skills/crit/SKILL.md` + `~/.pi/agent/skills/crit-cli/SKILL.md` |
-| Qwen Code | `crit install qwen` | `.qwen/skills/crit/SKILL.md` + `.qwen/skills/crit-cli/SKILL.md` | `~/.qwen/skills/crit/SKILL.md` + `~/.qwen/skills/crit-cli/SKILL.md` |
-| Hermes | `crit install hermes` | `.hermes/skills/crit/SKILL.md` + `.hermes/skills/crit-cli/SKILL.md` (requires adding `.hermes/skills` to `external_dirs` in `~/.hermes/config.yaml`) | `~/.hermes/skills/crit/SKILL.md` + `~/.hermes/skills/crit-cli/SKILL.md` |
-| Windsurf | `crit install windsurf` | `.windsurf/workflows/crit.md` + `.windsurf/skills/crit-cli/SKILL.md` | `~/.codeium/windsurf/global_workflows/crit.md` + `~/.codeium/windsurf/skills/crit-cli/SKILL.md` |
-| Cline | `crit install cline` | `.clinerules/workflows/crit.md` + `.cline/skills/crit-cli/SKILL.md` | `~/.cline/data/workflows/crit.md` + `~/.cline/skills/crit-cli/SKILL.md` |
+| Claude Code | `crit install claude-code` | `.claude/skills/crit/SKILL.md` + `crit-cli` + `crit-story` | `~/.claude/skills/crit{,-cli,-story}/SKILL.md` |
+| Cursor | `crit install cursor` | `.cursor/skills/crit/SKILL.md` + `crit-cli` + `crit-story` | (project only — Cursor has no stable user-level config dir) |
+| GitHub Copilot | `crit install github-copilot` | `.github/skills/crit{,-cli,-story}/SKILL.md` | `~/.agents/skills/crit{,-cli,-story}/SKILL.md` |
+| OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `crit-story.md` + skills + plugin | `~/.config/opencode/commands/` + `~/.agents/skills/` + plugins |
+| Codex | `crit install codex` | `.agents/skills/crit{,-cli,-story}/SKILL.md` | `~/.agents/skills/crit{,-cli,-story}/SKILL.md` |
+| Codex plugin | `crit install codex-plugin` | loose skills + marketplace + `plugins/crit/` (incl. crit-story) | `~/.agents/` + `~/.codex/plugins/crit/` |
+| Pi | `crit install pi` | `.pi/skills/crit{,-cli,-story}/SKILL.md` | `~/.pi/agent/skills/crit{,-cli,-story}/SKILL.md` |
+| Qwen Code | `crit install qwen` | `.qwen/skills/crit{,-cli,-story}/SKILL.md` | `~/.qwen/skills/crit{,-cli,-story}/SKILL.md` |
+| Hermes | `crit install hermes` | `.hermes/skills/crit{,-cli,-story}/SKILL.md` (add `.hermes/skills` to `external_dirs`) | `~/.hermes/skills/crit{,-cli,-story}/SKILL.md` |
+| Windsurf | `crit install windsurf` | `.windsurf/workflows/crit.md` + `crit-story.md` + skills | `~/.codeium/windsurf/global_workflows/` + skills |
+| Cline | `crit install cline` | `.clinerules/workflows/crit.md` + `crit-story.md` + skills | `~/.cline/data/workflows/` + `~/.cline/skills/` |
 | Aider | `crit install aider` | `.crit/aider-conventions.md` + adds entry under `read:` in `.aider.conf.yml` | `~/.crit-conventions.md` + adds entry under `read:` in `~/.aider.conf.yml` |
-| Gemini CLI | `crit install gemini` | `.gemini/skills/crit-cli/SKILL.md` + `.gemini/commands/crit.toml` + `.gemini/policies/crit.toml` + `.gemini/settings.json` (merged) | `~/.gemini/skills/crit-cli/SKILL.md` + `~/.gemini/commands/crit.toml` + `~/.gemini/policies/crit.toml` + `~/.gemini/settings.json` (merged) |
-| Grok | `crit install grok` | `.grok/skills/crit/SKILL.md` + `.grok/skills/crit-cli/SKILL.md` | `~/.grok/skills/crit/SKILL.md` + `~/.grok/skills/crit-cli/SKILL.md` |
-| Amp | `crit install ampcode` | `.agents/skills/crit/SKILL.md` + `.agents/skills/crit-cli/SKILL.md` | `~/.config/agents/skills/crit/SKILL.md` + `~/.config/agents/skills/crit-cli/SKILL.md` |
+| Gemini CLI | `crit install gemini` | `crit-cli` + `crit-story` skills + `/crit` + `/crit-story` commands + policy | same under `~/.gemini/` |
+| Grok | `crit install grok` | `.grok/skills/crit{,-cli,-story}/SKILL.md` | `~/.grok/skills/crit{,-cli,-story}/SKILL.md` |
+| Amp | `crit install ampcode` | `.agents/skills/crit{,-cli,-story}/SKILL.md` | `~/.config/agents/skills/crit{,-cli,-story}/SKILL.md` |
 
 ## Plugin marketplace (Claude Code)
 
 For the full experience, install via the plugin marketplace. This gives you:
 - A `/crit` slash command for the review loop
 - A model-discoverable `crit-cli` skill for review files, `crit comment`, `crit pull/push`, etc.
+- A wording-gated `/crit-story` skill for chaptered diff overviews
 
 ```
 claude plugin marketplace add tomasz-tomczyk/crit
@@ -143,6 +144,11 @@ request to review code, a plan, a diff, a PR, or a page does not count.
 `crit-cli` is intentionally model-discoverable. It teaches agents how to leave
 and reply to Crit comments, interpret review JSON, share reviews, and synchronize
 GitHub PR feedback, but it does not start the interactive review cycle.
+
+`crit-story` is wording-gated like `/crit`: agents author a chaptered story
+overview only when the user invokes `/crit-story` (or the tool equivalent) or
+directly asks to generate a crit story. It does not run as part of a normal
+review request.
 
 The only automatic interactive path is a lifecycle hook immediately after
 planning mode. The Claude Code plugin, Codex plugin, and Gemini CLI integration

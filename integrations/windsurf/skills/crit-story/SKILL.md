@@ -1,8 +1,6 @@
 ---
 name: crit-story
 description: "Author a crit story only when the user explicitly invokes /crit-story or directly asks you to generate a crit story. Do not infer this skill from generic review, PR, or diff-review requests."
-allowed-tools: Bash(crit story:*), Read
-argument-hint: ""
 ---
 
 # Author a crit story with `crit story`

@@ -84,10 +84,21 @@ crit landing.html                 # review a static HTML file
 
 If talking to an agent, you can invoke the `/crit` command and optionally provide arguments like the above examples or the agent will try to launch the right thing based on the context of the conversation.
 
-For larger branch, PR, or range reviews, `crit story` can generate an optional
-chaptered overview of the diff before you review it. See the
-**[story mode guide](docs/story-mode.md)** for the workflow and custom prompt
-setup.
+### Story mode
+
+For larger branch, PR, MR, or range reviews, **story mode** adds a chaptered
+overview of the diff — thematic chapters, a prologue, and a support bucket for
+noise — so you can understand the shape of the change before line-by-line
+review. It is an explainer, not a reviewer.
+
+**Recommended:** invoke `/crit-story` (or `$crit-story`, `/skill:crit-story`,
+depending on your agent) after `crit install <tool>`. Your agent authors the
+story in-session via `crit story --prep` / `--story-file`. Only run it when you
+explicitly ask — agents will not infer it from a normal `/crit` review.
+
+**Alternative:** `crit story` from the terminal uses your global `agent_cmd`
+(separate LLM spend). See the **[story mode guide](docs/story-mode.md)** for
+commands, custom prompts, and JSON shape.
 
 ### Live mode
 

@@ -160,6 +160,7 @@ var integrationMap = map[string][]integration{
 	"cursor": {
 		{source: "integrations/cursor/skills/crit/SKILL.md", dest: ".cursor/skills/crit/SKILL.md", hint: "Run /crit in Cursor to start a review loop"},
 		{source: "integrations/cursor/skills/crit-cli/SKILL.md", dest: ".cursor/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Cursor agents when needed"},
+		{source: "integrations/cursor/skills/crit-story/SKILL.md", dest: ".cursor/skills/crit-story/SKILL.md", hint: "Run /crit-story in Cursor to author a story for a diff review"},
 	},
 	"opencode": {
 		// opencode reads commands from `.opencode/commands/` (project) and
@@ -169,6 +170,8 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/opencode/crit.md", dest: ".opencode/commands/crit.md", globalDest: ".config/opencode/commands/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in OpenCode to start a review loop"},
 		// opencode does NOT read ~/.opencode/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/opencode/skills/crit-cli/SKILL.md", dest: ".opencode/skills/crit-cli/SKILL.md", globalDest: ".agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to OpenCode agents when needed"},
+		{source: "integrations/opencode/crit-story.md", dest: ".opencode/commands/crit-story.md", globalDest: ".config/opencode/commands/crit-story.md", globalDestKind: globalDestRelHome, hint: "Run /crit-story in OpenCode to author a story for a diff review"},
+		{source: "integrations/opencode/skills/crit-story/SKILL.md", dest: ".opencode/skills/crit-story/SKILL.md", globalDest: ".agents/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-story skill is available to OpenCode agents when needed"},
 		// Plugin files auto-loaded from project `.opencode/plugins/` or global
 		// `~/.config/opencode/plugins/`. Injects sharing instructions by default
 		// (share_url defaults to https://crit.md); docs cover how to disable.
@@ -181,24 +184,31 @@ var integrationMap = map[string][]integration{
 	"windsurf": {
 		{source: "integrations/windsurf/crit.md", dest: ".windsurf/workflows/crit.md", globalDest: ".codeium/windsurf/global_workflows/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Windsurf to start a review loop"},
 		{source: "integrations/windsurf/skills/crit-cli/SKILL.md", dest: ".windsurf/skills/crit-cli/SKILL.md", globalDest: ".codeium/windsurf/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Windsurf agents when needed"},
+		{source: "integrations/windsurf/crit-story.md", dest: ".windsurf/workflows/crit-story.md", globalDest: ".codeium/windsurf/global_workflows/crit-story.md", globalDestKind: globalDestRelHome, hint: "Run /crit-story in Windsurf to author a story for a diff review"},
+		{source: "integrations/windsurf/skills/crit-story/SKILL.md", dest: ".windsurf/skills/crit-story/SKILL.md", globalDest: ".codeium/windsurf/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-story skill is available to Windsurf agents when needed"},
 	},
 	"github-copilot": {
 		// Copilot does NOT read ~/.github/skills/ globally — redirect to ~/.agents/skills/
 		{source: "integrations/github-copilot/skills/crit/SKILL.md", dest: ".github/skills/crit/SKILL.md", globalDest: ".agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit in GitHub Copilot to start a review loop"},
 		{source: "integrations/github-copilot/skills/crit-cli/SKILL.md", dest: ".github/skills/crit-cli/SKILL.md", globalDest: ".agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to GitHub Copilot agents when needed"},
+		{source: "integrations/github-copilot/skills/crit-story/SKILL.md", dest: ".github/skills/crit-story/SKILL.md", globalDest: ".agents/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit-story in GitHub Copilot to author a story for a diff review"},
 	},
 	"cline": {
 		{source: "integrations/cline/crit.md", dest: ".clinerules/workflows/crit.md", globalDest: ".cline/data/workflows/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit.md in Cline to start a review loop"},
 		{source: "integrations/cline/skills/crit-cli/SKILL.md", dest: ".cline/skills/crit-cli/SKILL.md", globalDest: ".cline/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Cline agents when needed"},
+		{source: "integrations/cline/crit-story.md", dest: ".clinerules/workflows/crit-story.md", globalDest: ".cline/data/workflows/crit-story.md", globalDestKind: globalDestRelHome, hint: "Run /crit-story in Cline to author a story for a diff review"},
+		{source: "integrations/cline/skills/crit-story/SKILL.md", dest: ".cline/skills/crit-story/SKILL.md", globalDest: ".cline/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-story skill is available to Cline agents when needed"},
 	},
 	"codex": {
 		{source: "integrations/codex/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", hint: "Use $crit in Codex to start a review loop"},
 		{source: "integrations/codex/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Codex agents when needed"},
+		{source: "integrations/codex/skills/crit-story/SKILL.md", dest: ".agents/skills/crit-story/SKILL.md", hint: "Use $crit-story in Codex to author a story for a diff review"},
 	},
 	"codex-plugin": {
 		{source: "integrations/codex/plugin/crit/.codex-plugin/plugin.json", dest: "plugins/crit/.codex-plugin/plugin.json", globalDest: ".codex/plugins/crit/.codex-plugin/plugin.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin is registered in the local Codex plugin marketplace"},
 		{source: "integrations/codex/plugin/crit/skills/crit/SKILL.md", dest: "plugins/crit/skills/crit/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit skill is available to Codex as $crit:crit"},
 		{source: "integrations/codex/plugin/crit/skills/crit-cli/SKILL.md", dest: "plugins/crit/skills/crit-cli/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit-cli skill is available to Codex agents when needed"},
+		{source: "integrations/codex/plugin/crit/skills/crit-story/SKILL.md", dest: "plugins/crit/skills/crit-story/SKILL.md", globalDest: ".codex/plugins/crit/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "The plugin-packaged crit-story skill is available to Codex as $crit-story"},
 		{source: "integrations/codex/plugin/crit/hooks/hooks.json", dest: "plugins/crit/hooks/hooks.json", globalDest: ".codex/plugins/crit/hooks/hooks.json", globalDestKind: globalDestRelHome, hint: "The Crit plugin includes a Codex Stop hook for proposed-plan review"},
 	},
 	"qwen": {
@@ -206,6 +216,7 @@ var integrationMap = map[string][]integration{
 		// same shape both modes, so no globalDest redirect is needed.
 		{source: "integrations/qwen/skills/crit/SKILL.md", dest: ".qwen/skills/crit/SKILL.md", hint: "Run /crit in Qwen Code to start a review loop"},
 		{source: "integrations/qwen/skills/crit-cli/SKILL.md", dest: ".qwen/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Qwen Code agents when needed"},
+		{source: "integrations/qwen/skills/crit-story/SKILL.md", dest: ".qwen/skills/crit-story/SKILL.md", hint: "Run /crit-story in Qwen Code to author a story for a diff review"},
 	},
 	"pi": {
 		// Pi auto-discovers skills in both .pi/skills/ (project-local) and
@@ -213,6 +224,7 @@ var integrationMap = map[string][]integration{
 		// globalDest redirects the global install to the agent/skills path.
 		{source: "integrations/pi/skills/crit/SKILL.md", dest: ".pi/skills/crit/SKILL.md", globalDest: ".pi/agent/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit in Pi to start a review loop"},
 		{source: "integrations/pi/skills/crit-cli/SKILL.md", dest: ".pi/skills/crit-cli/SKILL.md", globalDest: ".pi/agent/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Pi agents when needed"},
+		{source: "integrations/pi/skills/crit-story/SKILL.md", dest: ".pi/skills/crit-story/SKILL.md", globalDest: ".pi/agent/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit-story in Pi to author a story for a diff review"},
 	},
 	"hermes": {
 		// Hermes only auto-discovers skills under HERMES_HOME (default ~/.hermes/skills/).
@@ -220,10 +232,13 @@ var integrationMap = map[string][]integration{
 		// ~/.hermes/config.yaml — surfaced via the hint below.
 		{source: "integrations/hermes/skills/crit/SKILL.md", dest: ".hermes/skills/crit/SKILL.md", globalDest: ".hermes/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Hermes to start a review loop"},
 		{source: "integrations/hermes/skills/crit-cli/SKILL.md", dest: ".hermes/skills/crit-cli/SKILL.md", globalDest: ".hermes/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Hermes agents when needed"},
+		{source: "integrations/hermes/skills/crit-story/SKILL.md", dest: ".hermes/skills/crit-story/SKILL.md", globalDest: ".hermes/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /crit-story in Hermes to author a story for a diff review"},
 	},
 	"gemini": {
 		{source: "integrations/gemini/skills/crit-cli/SKILL.md", dest: ".gemini/skills/crit-cli/SKILL.md", globalDest: ".gemini/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Gemini CLI agents when needed"},
 		{source: "integrations/gemini/commands/crit.toml", dest: ".gemini/commands/crit.toml", globalDest: ".gemini/commands/crit.toml", globalDestKind: globalDestRelHome, hint: "Run /crit in Gemini CLI to start a review loop"},
+		{source: "integrations/gemini/skills/crit-story/SKILL.md", dest: ".gemini/skills/crit-story/SKILL.md", globalDest: ".gemini/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-story skill is available to Gemini CLI agents when needed"},
+		{source: "integrations/gemini/commands/crit-story.toml", dest: ".gemini/commands/crit-story.toml", globalDest: ".gemini/commands/crit-story.toml", globalDestKind: globalDestRelHome, hint: "Run /crit-story in Gemini CLI to author a story for a diff review"},
 		{source: "integrations/gemini/hooks/policy.toml", dest: ".gemini/policies/crit.toml", globalDest: ".gemini/policies/crit.toml", globalDestKind: globalDestRelHome, hint: "The crit policy allows exit_plan_mode without confirmation"},
 	},
 	"grok": {
@@ -231,6 +246,7 @@ var integrationMap = map[string][]integration{
 		// Same shape in both cases, so no globalDest redirect is needed.
 		{source: "integrations/grok/skills/crit/SKILL.md", dest: ".grok/skills/crit/SKILL.md", hint: "Run /crit in Grok to start a review loop"},
 		{source: "integrations/grok/skills/crit-cli/SKILL.md", dest: ".grok/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Grok agents when needed"},
+		{source: "integrations/grok/skills/crit-story/SKILL.md", dest: ".grok/skills/crit-story/SKILL.md", hint: "Run /crit-story in Grok to author a story for a diff review"},
 	},
 	"ampcode": {
 		// Amp discovers project skills in .agents/skills/ and global skills in
@@ -238,6 +254,7 @@ var integrationMap = map[string][]integration{
 		// Different paths between modes, so globalDest redirects the global install.
 		{source: "integrations/ampcode/skills/crit/SKILL.md", dest: ".agents/skills/crit/SKILL.md", globalDest: ".config/agents/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Ask Amp to use crit to start a review loop"},
 		{source: "integrations/ampcode/skills/crit-cli/SKILL.md", dest: ".agents/skills/crit-cli/SKILL.md", globalDest: ".config/agents/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to Amp agents when needed"},
+		{source: "integrations/ampcode/skills/crit-story/SKILL.md", dest: ".agents/skills/crit-story/SKILL.md", globalDest: ".config/agents/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "Ask Amp to use crit-story to author a story for a diff review"},
 	},
 }
 

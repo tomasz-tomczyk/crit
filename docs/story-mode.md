@@ -12,7 +12,25 @@ judge the patch, or suggest fixes.
 ## When to use it
 
 Use story mode for branch, PR, MR, or range reviews where the diff is large
-enough that a thematic overview helps:
+enough that a thematic overview helps. It is diff-scoped only — not for
+positional file reviews, live, preview, or plan reviews.
+
+### Recommended: `/crit-story` skill
+
+After `crit install <tool>`, invoke the story skill explicitly (for example
+`/crit-story`, `$crit-story`, or `/skill:crit-story`). The agent:
+
+1. Runs `crit story --guide` and `crit story --prep <path>`
+2. Authors `prologue` / `chapters` / `support` JSON
+3. Ingests with `crit story --story-file <path>` and opens the story view
+
+Agents must not infer story generation from a generic review or `/crit`
+request — only from an explicit story invoke or a direct ask to generate a
+crit story.
+
+### Alternative: `crit story` + `agent_cmd`
+
+From the terminal (no skill):
 
 ```bash
 crit story
@@ -21,10 +39,7 @@ crit story --mr 123
 crit story --range main..HEAD
 ```
 
-`crit story` is diff-scoped only. It does not run for positional file reviews,
-live reviews, preview reviews, or plan reviews.
-
-By default, `crit story` uses your global `agent_cmd` to author the story,
+This uses your global `agent_cmd` to author the story (separate LLM spend),
 saves it into the existing review JSON, starts or updates the review daemon,
 and opens the browser at the story view.
 
