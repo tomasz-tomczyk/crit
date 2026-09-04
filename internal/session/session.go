@@ -532,42 +532,6 @@ type CritJSON struct {
 	Story *Story `json:"story,omitempty"`
 }
 
-// UnmarshalJSON provides read compatibility for review files written before
-// the provider-neutral PendingRemoteDeletes queue existed. New review files
-// only write PendingRemoteDeletes; on read, the legacy GitHub and GitLab queues
-// are folded into it while every other field is decoded unchanged.
-func (cj *CritJSON) UnmarshalJSON(data []byte) error {
-	type plain CritJSON
-	var payload struct {
-		*plain
-		PendingGitHubDeletes []int64 `json:"pending_github_deletes"`
-		PendingGitLabDeletes []struct {
-			NoteID       int64  `json:"note_id"`
-			DiscussionID string `json:"discussion_id"`
-		} `json:"pending_gitlab_deletes"`
-	}
-	payload.plain = (*plain)(cj)
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return err
-	}
-	for _, id := range payload.PendingGitHubDeletes {
-		cj.PendingRemoteDeletes = appendUniqueRemoteRef(cj.PendingRemoteDeletes, RemoteRef{Forge: forge.GitHub, CommentID: id})
-	}
-	for _, ref := range payload.PendingGitLabDeletes {
-		cj.PendingRemoteDeletes = appendUniqueRemoteRef(cj.PendingRemoteDeletes, RemoteRef{Forge: forge.GitLab, CommentID: ref.NoteID, ThreadID: ref.DiscussionID})
-	}
-	return nil
-}
-
-func appendUniqueRemoteRef(refs []RemoteRef, ref RemoteRef) []RemoteRef {
-	for _, existing := range refs {
-		if existing == ref {
-			return refs
-		}
-	}
-	return append(refs, ref)
-}
-
 // RemoteDeletesFor returns one provider's pending delete operations.
 func RemoteDeletesFor(cj CritJSON, provider forge.Kind) []RemoteRef {
 	var refs []RemoteRef

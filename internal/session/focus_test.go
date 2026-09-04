@@ -6,17 +6,15 @@ import (
 	"testing"
 )
 
-func TestFocusUnmarshalNormalizesChangeIdentity(t *testing.T) {
+func TestFocusUnmarshalChangeIdentity(t *testing.T) {
 	tests := []struct {
 		name       string
 		payload    string
 		wantForge  string
 		wantNumber int
 	}{
-		{"canonical gitlab", `{"kind":"range","forge":"gitlab","change_number":17}`, "gitlab", 17},
-		{"canonical github", `{"kind":"range","forge":"github","change_number":42}`, "github", 42},
-		{"legacy gitlab", `{"kind":"range","mr_number":17}`, "gitlab", 17},
-		{"legacy github", `{"kind":"range","pr_number":42}`, "github", 42},
+		{"gitlab", `{"kind":"range","forge":"gitlab","change_number":17}`, "gitlab", 17},
+		{"github", `{"kind":"range","forge":"github","change_number":42}`, "github", 42},
 		{"unknown forge is preserved", `{"kind":"range","forge":"other","change_number":9}`, "other", 9},
 	}
 	for _, tt := range tests {

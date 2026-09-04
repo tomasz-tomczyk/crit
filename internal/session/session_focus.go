@@ -67,38 +67,6 @@ type Focus struct {
 	IsStacked         bool      `json:"is_stacked,omitempty"`
 }
 
-// UnmarshalJSON is a backward-compatibility boundary. Canonical payloads use
-// Forge + ChangeNumber; older sessions and clients may still provide the
-// provider-specific pr_number/mr_number aliases.
-func (f *Focus) UnmarshalJSON(data []byte) error {
-	type plain Focus
-	var wire struct {
-		*plain
-		PRNumber int `json:"pr_number,omitempty"`
-		MRNumber int `json:"mr_number,omitempty"`
-	}
-	wire.plain = (*plain)(f)
-	if err := json.Unmarshal(data, &wire); err != nil {
-		return err
-	}
-	if f.Forge == "" {
-		switch {
-		case wire.MRNumber > 0:
-			f.Forge = "gitlab"
-		case wire.PRNumber > 0:
-			f.Forge = "github"
-		}
-	}
-	if f.ChangeNumber == 0 {
-		if f.Forge == "gitlab" {
-			f.ChangeNumber = wire.MRNumber
-		} else if f.Forge == "github" {
-			f.ChangeNumber = wire.PRNumber
-		}
-	}
-	return nil
-}
-
 // ReadOnly reports whether comments may be added/edited in this focus.
 // v1: always false. Range mode is fully writable so users can annotate;
 // pushes to GitHub are gated separately (see runPush).
