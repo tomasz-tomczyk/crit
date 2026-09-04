@@ -43,6 +43,10 @@ crit/
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
 16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
 
+<important if="you are writing a plan, design doc, or implementation proposal, or about to commit">
+Do not commit plan files to the repo — keep them as untracked local files (or in `/tmp`). This includes `*-plan.md`, `*-proposal.md`, and other AI-generated design docs. Repo history should contain implementation, not planning artifacts. Exception: test fixtures under `test/` that a test explicitly reads.
+</important>
+
 <important if="you need to build, test, lint, or run crit">
 
 ```bash
