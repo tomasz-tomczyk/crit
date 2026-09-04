@@ -136,9 +136,7 @@ func ResolveReviewPathWithArgs(outputDir string, fileArgs []string) (string, err
 }
 
 // identityUnderDataRoot maps --output / config output (a crit data root) to
-// {dataRoot}/reviews/<key>, matching default ~/.crit/reviews/<key> layout. A
-// pre-data-root {dataRoot}/.crit review still wins — see
-// reviewpath.IdentityUnderDataRoot.
+// {dataRoot}/reviews/<key>, matching default ~/.crit/reviews/<key> layout.
 //
 // When a daemon is alive for this cwd, its session key wins — file/live/PR/range
 // reviews key differently from plain git mode, and re-deriving from local
@@ -153,9 +151,9 @@ func identityUnderDataRoot(dataRoot string, fileArgs []string) (string, error) {
 		return "", err
 	}
 	if key != "" {
-		return reviewpath.IdentityUnderDataRoot(dataRoot, key)
+		return reviewpath.Identity(dataRoot, key)
 	}
-	return reviewpath.IdentityUnderDataRoot(dataRoot, sessionKeyForArgs(cwd, fileArgs))
+	return reviewpath.Identity(dataRoot, sessionKeyForArgs(cwd, fileArgs))
 }
 
 // sessionKeyFromDaemon returns the registry key of the best matching live

@@ -19,16 +19,16 @@ type (
 
 var saveAuthSession = auth.SaveAuthSession
 
-// readCritJSON reads .crit/review.json from dir (integration test helper).
+// readCritJSON reads review.json from the keyed folder under --output dir.
 func readCritJSON(t *testing.T, dir string) CritJSON {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	data, err := os.ReadFile(filepath.Join(testOutputIdentity(t, dir), "review.json"))
 	if err != nil {
-		t.Fatalf("reading .crit/review.json: %v", err)
+		t.Fatalf("reading review.json: %v", err)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		t.Fatalf("parsing .crit/review.json: %v", err)
+		t.Fatalf("parsing review.json: %v", err)
 	}
 	return cj
 }

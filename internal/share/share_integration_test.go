@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
@@ -159,15 +160,13 @@ func TestShareSyncIntegration(t *testing.T) {
 		t.Errorf("crit-web should have updated content, got: %s", docBody.Files[0].Content)
 	}
 
-	// g) Verify the web reviewer comment was pulled into local .crit.json
-	// (post-v4 .crit.json is a folder; the canonical review payload lives at
-	// .crit/review.json).
-	localData, err := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	// g) Verify the web reviewer comment was pulled into local review.json
+	localData, err := os.ReadFile(filepath.Join(testOutputIdentity(t, dir), "review.json"))
 	if err != nil {
-		t.Fatalf("reading .crit.json: %v", err)
+		t.Fatalf("reading review.json: %v", err)
 	}
 	if !strings.Contains(string(localData), "web reviewer comment") {
-		t.Errorf("expected web reviewer comment in local .crit.json, got: %s", string(localData))
+		t.Errorf("expected web reviewer comment in local review.json, got: %s", string(localData))
 	}
 
 	// h) Verify export endpoint returns .crit.json-compatible shape
@@ -339,12 +338,9 @@ func reviewRoundFromAPI(t *testing.T, baseURL, token string) int {
 	return body.ReviewRound
 }
 
-// writeTestCritJSON writes a CritJSON to .crit/review.json in dir.
+// writeTestCritJSON writes a CritJSON to the keyed review folder under dir,
+// matching `--output <dir>` resolution (`<dir>/reviews/<key>/review.json`).
 //
-// `--output <dir>` names a crit data root, so a fresh root would key the review
-// as <dir>/reviews/<key>/. Seeding <dir>/.crit puts the tests on the
-// pre-data-root layout that crit still honors for existing users, which is what
-// keeps every helper below (and readCritJSON) pointed at one review folder.
 // NOTE: readCritJSON is defined in integration_export_test.go and shared across
 // test files.
 func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
@@ -353,7 +349,7 @@ func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity := filepath.Join(dir, ".crit")
+	identity := testOutputIdentity(t, dir)
 	if err := os.MkdirAll(identity, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -362,9 +358,25 @@ func writeTestCritJSON(t *testing.T, dir string, cj CritJSON) {
 	}
 }
 
+// testOutputIdentity is the keyed review folder under --output data root dir.
+// Matches ResolveCommandReviewPathWithSession when cwd is dir, there is no live
+// daemon, and the directory is not a VCS checkout (integration temps aren't).
+func testOutputIdentity(t *testing.T, dir string) string {
+	t.Helper()
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := abs
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		cwd = resolved
+	}
+	return filepath.Join(abs, "reviews", daemon.SessionKey(cwd, "", nil))
+}
+
 // critShareCmd runs `crit share` and returns stdout. Fails the test on error.
 // Uses --output to point at the temp dir seeded by writeTestCritJSON, so crit
-// reads/writes .crit/review.json there.
+// reads/writes reviews/<key>/review.json there.
 func critShareCmd(t *testing.T, binary, baseURL, dir string, files ...string) string {
 	t.Helper()
 	args := append([]string{"share", "--share-url", baseURL, "--output", dir}, files...)
@@ -2166,13 +2178,13 @@ func TestShareReceiver_LegacyShareStillWorks(t *testing.T) {
 	}
 
 	// The review file should now record the share URL + delete token.
-	data, err := os.ReadFile(filepath.Join(dir, ".crit", "review.json"))
+	data, err := os.ReadFile(filepath.Join(testOutputIdentity(t, dir), "review.json"))
 	if err != nil {
-		t.Fatalf("read .crit/review.json: %v", err)
+		t.Fatalf("read review.json: %v", err)
 	}
 	var cj CritJSON
 	if err := json.Unmarshal(data, &cj); err != nil {
-		t.Fatalf("decode .crit/review.json: %v", err)
+		t.Fatalf("decode review.json: %v", err)
 	}
 	if cj.ShareURL != "https://crit.stub/r/stubtoken" {
 		t.Errorf("share_url = %q, want https://crit.stub/r/stubtoken", cj.ShareURL)
@@ -2393,7 +2405,7 @@ func TestShareSyncOrgPersistence(t *testing.T) {
 	critShareCmdWithEnv(t, binary, baseURL, dir, []string{"--org", slug, "--visibility", "organization"}, authEnv, "readme.md")
 
 	// Read the review file and verify org fields are persisted
-	reviewPath := filepath.Join(dir, ".crit", "review.json")
+	reviewPath := filepath.Join(testOutputIdentity(t, dir), "review.json")
 	data, err := os.ReadFile(reviewPath)
 	if err != nil {
 		t.Fatalf("reading review file: %v", err)

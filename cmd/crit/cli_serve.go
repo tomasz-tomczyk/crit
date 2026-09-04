@@ -90,7 +90,7 @@ func resolveServeReviewPath(outputDir, planDir, sessionKey string) (string, erro
 	switch {
 	case outputDir != "":
 		// --output / config output is a crit data root (like ~/.crit).
-		return reviewpath.IdentityUnderDataRoot(outputDir, sessionKey)
+		return reviewpath.Identity(outputDir, sessionKey)
 	case planDir != "":
 		abs, err := serveAbsPath(planDir)
 		if err != nil {

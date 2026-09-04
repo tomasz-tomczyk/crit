@@ -496,25 +496,18 @@ func TestResolveCommandReviewPathPrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps using a legacy output layout and warns", func(t *testing.T) {
+	t.Run("ignores a leftover .crit under the data root", func(t *testing.T) {
 		dataRoot := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dataRoot, ".crit"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		var got string
-		stderr := captureStderr(t, func() {
-			var err error
-			got, err = ResolveReviewPathWithArgs(dataRoot, nil)
-			if err != nil {
-				t.Fatalf("ResolveReviewPathWithArgs: %v", err)
-			}
-		})
-		want := filepath.Join(dataRoot, ".crit")
-		if got != want {
-			t.Fatalf("review path = %q, want pre-existing legacy path %q", got, want)
+		got, err := ResolveReviewPathWithArgs(dataRoot, nil)
+		if err != nil {
+			t.Fatalf("ResolveReviewPathWithArgs: %v", err)
 		}
-		if !strings.Contains(stderr, "legacy .crit review") {
-			t.Fatalf("stderr = %q, want legacy warning", stderr)
+		want := filepath.Join(dataRoot, "reviews", daemon.SessionKey(resolvedCWD, "", nil))
+		if got != want {
+			t.Fatalf("review path = %q, want keyed path %q", got, want)
 		}
 	})
 }
