@@ -10891,6 +10891,8 @@
   function ensureStoryLazyFile(file) {
     if (!file || !file.lazy) return Promise.resolve(file);
     if (file._storyLazyPromise) return file._storyLazyPromise;
+    // Match loadAllFileData: when Story is visible, file data is scoped to
+    // 'all' so chapter hunk_refs line up with the loaded diff.
     file._storyLazyPromise = loadSingleFile({
       path: file.path,
       old_path: file.oldPath,
@@ -10898,7 +10900,7 @@
       file_type: file.fileType,
       additions: file.additions,
       deletions: file.deletions,
-    }, effectiveDiffScope()).then(function (loaded) {
+    }, currentFileDataScope()).then(function (loaded) {
       file.oldPath = loaded.oldPath;
       file.content = loaded.content;
       file.previousContent = loaded.previousContent;
@@ -11462,6 +11464,10 @@
         const replacement = renderStoryFileGroup(page, filePath, oldStarts, supportReason);
         replacement.open = section.open;
         section.replaceWith(replacement);
+        renderMermaidBlocks();
+        rebuildNavList();
+        applyHideResolved();
+        renderStoryRail();
       }).catch(function () {
         const emptyEl = section.querySelector('.crit-story-file-group__empty');
         if (emptyEl) emptyEl.textContent = 'Failed to load diff.';

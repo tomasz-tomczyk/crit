@@ -22,6 +22,9 @@ test('ensureStoryLazyFile hydrates a lazy file via loadSingleFile', () => {
   assert.match(appSrc, /function ensureStoryLazyFile\s*\(/);
   const body = sliceFunction(appSrc, 'ensureStoryLazyFile', 'cloneFileForHunks');
   assert.match(body, /loadSingleFile\s*\(/);
+  // Story-visible loads must use the same scope as eager file hydration.
+  assert.match(body, /currentFileDataScope\s*\(/);
+  assert.doesNotMatch(body, /effectiveDiffScope\s*\(/);
   assert.match(body, /file\.lazy\s*=\s*false/);
   assert.match(body, /file\.diffHunks\s*=\s*loaded\.diffHunks/);
   // Cached story clones keyed by empty lazy placeholders must not stick.
@@ -37,4 +40,6 @@ test('renderStoryFileGroup loads lazy files instead of claiming hunks are gone',
     /file\.lazy[\s\S]{0,120}Loading diff[\s\S]{0,80}These hunks are no longer in the diff\./,
   );
   assert.match(body, /ensureStoryLazyFile\(file\)\.then/);
+  // After hydrate, refresh nav / hide-resolved / mermaid like renderStoryFileByPath.
+  assert.match(body, /replaceWith\(replacement\);\s*renderMermaidBlocks\(\);\s*rebuildNavList\(\);\s*applyHideResolved\(\);\s*renderStoryRail\(\);/s);
 });
