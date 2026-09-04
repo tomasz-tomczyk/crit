@@ -35,7 +35,7 @@ jobs:
 
       - name: Install Playwright
         working-directory: test/e2e
-        run: npm ci && npx playwright install chromium --with-deps
+        run: npm ci --ignore-scripts && npx --no-install playwright install chromium --with-deps
 
       - name: Run E2E tests
         working-directory: test/e2e

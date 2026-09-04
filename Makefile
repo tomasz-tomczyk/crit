@@ -23,7 +23,7 @@ build-all:
 	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/crit-windows-arm64.exe ./cmd/crit
 
 update-deps:
-	npm install
+	npm install --ignore-scripts
 	npm run update-deps
 
 test:
@@ -31,6 +31,11 @@ test:
 
 test-frontend:
 	npm run test:frontend
+
+verify-assets:
+	npm run verify-assets:installed
+	npm run update-deps
+	git diff --exit-code -- web/dompurify.min.js web/markdown-it.min.js web/mermaid.min.js web/highlight.min.js web/diff-match-patch.min.js
 
 # Run Go benchmarks locally. Compare against a base with:
 #   git worktree add /tmp/crit-base origin/main
@@ -94,4 +99,4 @@ test-preview: build
 	@echo "Starting preview mode with sample page..."
 	./crit preview test/preview-sample/index.html
 
-.PHONY: build build-all generate verify-generate update-deps test test-frontend setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted test-live-cdp e2e-share e2e-roundtrip e2e-gitlab-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-live-utils test-preview
+.PHONY: build build-all generate verify-generate update-deps test test-frontend verify-assets setup-hooks clean test-diff test-share-sync test-share-sync-selfhosted test-live-cdp e2e-share e2e-roundtrip e2e-gitlab-roundtrip test-daemon test-plan-daemon e2e e2e-failed e2e-report e2e-live-utils test-preview

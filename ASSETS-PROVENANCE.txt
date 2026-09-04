@@ -1,0 +1,15 @@
+# Provenance of the vendored frontend assets embedded in the crit binary.
+#
+# Regenerate: npm ci --ignore-scripts && npm run update-deps && npm run record-assets
+# Verify offline: npm run verify-assets
+# Verify direct copies against the npm registry: npm run verify-assets:npm
+#
+# kind=copy: byte-identical to the path inside the npm tarball.
+# kind=generated: deterministically built by copy-deps.js from the listed packages and local patches.
+#
+# sha256 path npm-sources path-in-package kind
+c2f26ea4fc0d88141c9aa430eb515ac86fce59418ceebd85fa475b87a8d6c3e6 web/dompurify.min.js dompurify@3.4.14 dist/purify.min.js copy
+f9f377ca892291fbe32904e77a00c6e27e8f95c14f435a54c8cb6859b3d97692 web/markdown-it.min.js markdown-it@15.0.1 dist/browser/markdown-it.umd.min.js copy
+581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8 web/mermaid.min.js mermaid@11.17.2 dist/mermaid.min.js copy
+3ea1e33c2366ea9fe4b228dcd54444e3c9f1e68f6bfdb2c0ced9287d95b78b41 web/highlight.min.js @highlightjs/cdn-assets@11.12.0,highlightjs-heex@1.0.1,highlightjs-vue@1.0.0,highlightjs-astro-js@1.0.0 - generated
+85535fef664d09befcafe5d45eb2fcaa83d84eb91058c68aa8f5e2a58aefc662 web/diff-match-patch.min.js @sanity/diff-match-patch@3.2.0,esbuild@0.28.2 - generated

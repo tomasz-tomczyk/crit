@@ -1,5 +1,6 @@
 import { cpSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
+import { vendoredAssets } from "./scripts/vendored-assets.mjs";
 
 const dest = "web";
 
@@ -34,9 +35,13 @@ const vueReg =
 // highlightjs-astro-js dist/astro.js is a CDN build that self-registers on load.
 const astro = readFileSync("node_modules/highlightjs-astro-js/dist/astro.js", "utf8");
 
+// Some npm packages contain CRLF. Normalize generated bundles so their bytes are
+// identical on every platform and are not changed by Git's eol=lf policy.
+const lf = value => value.replace(/\r\n/g, "\n");
+
 writeFileSync(
   `${dest}/highlight.min.js`,
-  core + "\n" + langs + "\n" + patch + "\n" + heexReg + "\n" + vueReg + "\n" + astro
+  lf(core + "\n" + langs + "\n" + patch + "\n" + heexReg + "\n" + vueReg + "\n" + astro)
 );
 
 // mermaid
@@ -49,8 +54,27 @@ writeFileSync(dmpEntry, `\
 import {makeDiff, cleanupSemantic, DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT} from '@sanity/diff-match-patch';
 window.DiffMatchPatch = {makeDiff, cleanupSemantic, DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT};
 `);
-execSync(`npx esbuild ${dmpEntry} --bundle --format=iife --minify --outfile=${dest}/diff-match-patch.min.js`, { stdio: 'inherit' });
+execSync(`npx --no-install esbuild ${dmpEntry} --bundle --format=iife --minify --outfile=${dest}/diff-match-patch.min.js`, { stdio: 'inherit' });
 // Clean up temporary entry file
 unlinkSync(dmpEntry);
+
+// Keep the generator, manifest, and embedded minified files in a closed set.
+// This prevents an ungenerated, self-attested *.min.js file from entering the
+// binary through web/embed.go's broad *.js pattern.
+const generatedAssets = vendoredAssets.map(asset => asset.path).sort();
+const manifestedAssets = readFileSync("ASSETS-PROVENANCE.txt", "utf8")
+  .split("\n")
+  .filter(line => line && !line.startsWith("#"))
+  .map(line => line.split(/\s+/)[1])
+  .sort();
+const embeddedAssets = readdirSync(dest)
+  .filter(name => name.endsWith(".min.js"))
+  .map(name => `${dest}/${name}`)
+  .sort();
+for (const [label, assets] of [["manifest", manifestedAssets], ["web directory", embeddedAssets]]) {
+  if (JSON.stringify(assets) !== JSON.stringify(generatedAssets)) {
+    throw new Error(`${label} vendored assets do not match copy-deps.js outputs`);
+  }
+}
 
 console.log(`Frontend deps copied to web/ (${langFiles.length} highlight.js languages bundled)`);

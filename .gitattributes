@@ -25,6 +25,10 @@
 Makefile  text eol=lf
 Dockerfile text eol=lf
 
+# Preserve third-party and generated assets byte-for-byte. copy-deps.js emits
+# normalized LF for generated bundles; direct copies must match npm tarballs.
+web/*.min.js -text diff
+
 # Binary assets — never touch.
 *.png  binary
 *.jpg  binary
