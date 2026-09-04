@@ -10884,6 +10884,48 @@
     clone.viewMode = 'diff';
   }
 
+  // Story chapters render independently of the flat Diff-view <details>
+  // sections. Lazy files ship with empty diffHunks until opened there, which
+  // made Story show "These hunks are no longer in the diff." (#869). Hydrate
+  // the file data here so chapter groups can filter real hunks.
+  function ensureStoryLazyFile(file) {
+    if (!file || !file.lazy) return Promise.resolve(file);
+    if (file._storyLazyPromise) return file._storyLazyPromise;
+    file._storyLazyPromise = loadSingleFile({
+      path: file.path,
+      old_path: file.oldPath,
+      status: file.status,
+      file_type: file.fileType,
+      additions: file.additions,
+      deletions: file.deletions,
+    }, effectiveDiffScope()).then(function (loaded) {
+      file.oldPath = loaded.oldPath;
+      file.content = loaded.content;
+      file.previousContent = loaded.previousContent;
+      file.comments = loaded.comments;
+      file.diffHunks = loaded.diffHunks;
+      file._autoExpandDone = false;
+      file.lineBlocks = loaded.lineBlocks;
+      file.previousLineBlocks = loaded.previousLineBlocks;
+      file.tocItems = loaded.tocItems;
+      file.diffTooLarge = loaded.diffTooLarge;
+      file.diffLoaded = loaded.diffLoaded;
+      file.fileHash = loaded.fileHash;
+      file.lazy = false;
+      file._lazyLoading = false;
+      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
+      if (loaded.lang) file.lang = loaded.lang;
+      delete file._storyLazyPromise;
+      // Drop clones built against the empty lazy placeholder.
+      storyExpandedFileCache.clear();
+      return file;
+    }).catch(function (err) {
+      delete file._storyLazyPromise;
+      throw err;
+    });
+    return file._storyLazyPromise;
+  }
+
   // Build a shallow file clone whose diffHunks are just the referenced ones,
   // preserving comments/path so the existing diff+comment renderer works
   // unchanged. Returns null if the file isn't loaded or has no matching hunks.
@@ -11270,8 +11312,9 @@
 
   function renderStoryFileGroup(page, filePath, oldStarts, supportReason) {
     const pid = storyPageId(page);
-    const built = cloneFileForHunks(filePath, oldStarts, pid);
     const file = getFileByPath(filePath);
+    // Lazy placeholders have empty diffHunks — don't filter/cache them as a miss.
+    const built = (file && file.lazy) ? null : cloneFileForHunks(filePath, oldStarts, pid);
     const section = document.createElement('details');
     section.className = 'file-section crit-story-file-group';
     section.id = 'story-file-section-' + pid + '-' + filePath;
@@ -11301,6 +11344,7 @@
     const total = built ? built.total : 0;
     let statText;
     if (supportReason) statText = escapeHtml(supportReason);
+    else if (file && file.lazy) statText = 'Loading\u2026';
     else if (total > 1 && shown < total) statText = 'hunk' + (shown === 1 ? ' ' : 's ') + shown + ' of ' + total;
     else statText = shown + ' hunk' + (shown === 1 ? '' : 's');
     const adds = file ? (file.additions || 0) : 0;
@@ -11404,11 +11448,26 @@
     } else {
       const empty = document.createElement('div');
       empty.className = 'crit-story-file-group__empty';
-      empty.textContent = file ? 'These hunks are no longer in the diff.' : 'File not loaded.';
+      if (!file) empty.textContent = 'File not loaded.';
+      else if (file.lazy) empty.textContent = 'Loading diff\u2026';
+      else empty.textContent = 'These hunks are no longer in the diff.';
       body.appendChild(empty);
     }
     section.appendChild(body);
     if (built && built.clone) highlightQuotesInSection(section, built.clone);
+
+    if (file && file.lazy) {
+      ensureStoryLazyFile(file).then(function () {
+        if (!section.isConnected) return;
+        const replacement = renderStoryFileGroup(page, filePath, oldStarts, supportReason);
+        replacement.open = section.open;
+        section.replaceWith(replacement);
+      }).catch(function () {
+        const emptyEl = section.querySelector('.crit-story-file-group__empty');
+        if (emptyEl) emptyEl.textContent = 'Failed to load diff.';
+      });
+    }
+
     return section;
   }
 
