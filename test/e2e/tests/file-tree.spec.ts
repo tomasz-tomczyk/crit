@@ -14,6 +14,55 @@ test.describe('File Tree — Git Mode', () => {
     await expect(panel).toBeVisible();
   });
 
+  test('header toggle hides and restores the file tree', async ({ page }) => {
+    const panel = page.locator('#fileTreePanel');
+    const toggle = page.locator('#fileTreeToggle');
+    await expect(panel).toBeVisible();
+
+    await toggle.click();
+    await expect(panel).toBeHidden();
+    await expect(page.locator('#fileTreeResizer')).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    // Collapsed state survives a reload (persisted in the crit-settings cookie).
+    await loadPage(page);
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+
+    await page.locator('#fileTreeToggle').click();
+    await expect(page.locator('#fileTreePanel')).toBeVisible();
+  });
+
+  test('collapsed tree stays left-anchored and expands into freed space', async ({ page }) => {
+    const openBox = (await page.locator('.main-content').boundingBox())!;
+
+    await page.locator('#fileTreeToggle').click();
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+
+    // Content expands into the vacated sidebar: left edge moves left (not
+    // toward center), width grows. toPass() lets the slide transition settle.
+    await expect(async () => {
+      const layout = await page.locator('.main-layout').boundingBox();
+      const main = await page.locator('.main-content').boundingBox();
+      if (!layout || !main) throw new Error('missing layout boxes');
+      expect(main.width).toBeGreaterThan(openBox.width - 1);
+      expect(main.x).toBeLessThan(openBox.x - 10);
+      const left = main.x - layout.x;
+      expect(left).toBeLessThan(2);
+      // No equal gutters — spare space (if any) is on the right only.
+      const right = (layout.x + layout.width) - (main.x + main.width);
+      expect(right).toBeGreaterThanOrEqual(left - 1);
+    }).toPass();
+  });
+
+  test('b toggles the file tree', async ({ page }) => {
+    const panel = page.locator('#fileTreePanel');
+    await expect(panel).toBeVisible();
+    await page.locator('body').press('b');
+    await expect(panel).toBeHidden();
+    await page.locator('body').press('b');
+    await expect(panel).toBeVisible();
+  });
+
   test('file tree lists all files from the session', async ({ page }) => {
     // Git fixture has: plan.md, skill.md, server.go, handler.js, deleted.txt, routes.go, legacy.go (committed)
     // + utils.go, login.feature (staged), config.yaml (untracked) = 10 total

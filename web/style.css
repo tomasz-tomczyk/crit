@@ -425,7 +425,8 @@ body {
   padding: 3px 10px;
 }
 
-.theme-toggle {
+.theme-toggle,
+.ft-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -437,8 +438,10 @@ body {
   color: var(--crit-editor-fg-muted);
   transition: all 0.15s;
 }
-.theme-toggle svg { width: 16px; height: 16px; display: block; }
-.theme-toggle:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
+.theme-toggle svg,
+.ft-toggle svg { width: 16px; height: 16px; display: block; }
+.theme-toggle:hover,
+.ft-toggle:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
 
 /* ===== Toast Notifications ===== */
 .toast-container {
@@ -3549,6 +3552,11 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .main-content {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
+  /* Flush-left: when the file tree collapses the content grows into the
+     freed space instead of recentering (dual-edge motion feels uncanny on
+     diffs). margin-right:auto keeps any future max-width cap left-anchored. */
+  margin: 0 auto 0 0;
 }
 
 /* ===== Sidebar Resize Handles ===== */
@@ -3584,6 +3592,32 @@ body.sidebar-resizing * {
 }
 
 /* ===== File Tree Sidebar ===== */
+/* Collapsed via the header toggle: a negative margin equal to the panel's own
+   width pulls it off the left edge, so animating that one property slides the
+   panel out and expands the content in lockstep. --file-tree-width is written
+   by app.js from the measured width, so the distance tracks a user-resized
+   sidebar. `visibility` is in the transition list on purpose: it interpolates
+   discretely, so the panel stays visible for the whole slide out and reappears
+   instantly on the way back — and once hidden it's out of the tab order. */
+body.file-tree-collapsed .file-tree-panel {
+  margin-left: calc(-1 * var(--file-tree-width, 280px));
+  visibility: hidden;
+}
+body.file-tree-collapsed #fileTreeResizer { flex-basis: 0; }
+/* Transitions only exist after the first user toggle (app.js adds
+   .file-tree-anim on click, never on load) so a collapsed sidebar doesn't
+   animate in on page load. The content's left edge stays put; only the
+   sidebar margin animates, so the diff expands into the freed space. */
+body.file-tree-anim .file-tree-panel {
+  transition: margin-left 0.22s ease, visibility 0.22s;
+}
+body.file-tree-anim #fileTreeResizer { transition: flex-basis 0.22s ease; }
+@media (prefers-reduced-motion: reduce) {
+  body.file-tree-anim .file-tree-panel,
+  body.file-tree-anim #fileTreeResizer { transition: none; }
+}
+#fileTreeToggle .ft-toggle-fill { opacity: 0.35; transition: opacity 0.15s ease; }
+#fileTreeToggle[aria-expanded="false"] .ft-toggle-fill { opacity: 0; }
 .file-tree-panel {
   width: 280px;
   flex-shrink: 0;
@@ -5937,6 +5971,7 @@ body.sidebar-resizing * {
    regardless of viewport, which would otherwise win over the stylesheet. */
 @media (max-width: 768px) {
   .file-tree-panel { display: none !important; }
+  #fileTreeToggle { display: none !important; }
   .sidebar-resize-handle { display: none !important; }
   .comments-panel { display: none !important; }
   .scope-toggle { display: none !important; }
@@ -6197,7 +6232,8 @@ body.crit-story-active #storyRoot {
 body.crit-story-active #filesContainer,
 body.crit-story-active #reviewConversation,
 body.crit-story-active .file-tree-panel,
-body.crit-story-active #fileTreeResizer { display: none !important; }
+body.crit-story-active #fileTreeResizer,
+body.crit-story-active #fileTreeToggle { display: none !important; }
 
 body.crit-story-active #compareRail,
 body.crit-story-active #scopeToggle,
