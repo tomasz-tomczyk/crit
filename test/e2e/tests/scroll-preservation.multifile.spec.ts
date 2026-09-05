@@ -33,7 +33,8 @@ test.describe('Scroll position across comment updates', () => {
     }));
     expect(before.scrollY).toBeGreaterThan(100);
 
-    await card.locator('.reply-input').fill('replying without losing my place');
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('replying without losing my place');
     await card.locator('.reply-form-buttons .btn-primary').click();
 
     await expect(card.locator('.comment-reply')).toHaveCount(1);

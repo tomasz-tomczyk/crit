@@ -102,6 +102,29 @@ class GateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("allocs/op regression", r.stdout)
 
+    def test_geomean_alloc_noise_is_ignored(self):
+        # Real CI failure mode: every named bench is "~" but geomean still
+        # prints a tiny +% from rounding across packages. Must not fail the gate.
+        content = (
+            "                         │   allocs/op   │  allocs/op   vs base                │\n"
+            "VisibleInFocus/n=10-4        2.000 ± 0%    2.000 ± 0%       ~ (p=1.000 n=6) ¹\n"
+            "ReviewSaveLoad/10x10-4       676.0 ± 0%    677.0 ± 0%       ~ (p=0.058 n=6)\n"
+            "geomean                      70.45         70.46       +0.02%\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("bench check passed", r.stdout)
+
+    def test_geomean_time_noise_is_ignored(self):
+        content = (
+            "                         │    sec/op     │    sec/op      vs base                │\n"
+            "VisibleInFocus/n=10-4      200.0n ± 1%    200.0n ± 1%         ~ (p=1.000 n=6)\n"
+            "geomean                    157.3µ          192.2µ         +22.16%\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("bench check passed", r.stdout)
+
     def test_missing_file_exits_2(self):
         r = subprocess.run(
             [sys.executable, str(SCRIPT), "/nonexistent/benchstat.txt"],

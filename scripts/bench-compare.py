@@ -97,6 +97,11 @@ def main() -> int:
             continue
         if table is None or "~" in line:
             continue
+        # benchstat emits a geomean summary row per table. It aggregates noise
+        # across unrelated benches (and can flag +0.02% when every individual
+        # row is "~"), so it must not gate CI — only named benchmarks do.
+        if line.lstrip().lower().startswith("geomean"):
+            continue
         pct = delta_pct(line)
         if pct is None:
             continue
