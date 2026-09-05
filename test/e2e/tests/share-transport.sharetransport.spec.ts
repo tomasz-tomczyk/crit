@@ -266,6 +266,12 @@ test.describe('Share Transport', () => {
     await expect(page.locator('.share-dialog')).toBeVisible();
     await expect(page.locator('.share-dialog')).toContainText('no longer configured');
     await expect(page.locator('.share-dialog-url')).toContainText(hostedURL);
+    await expect(page.locator('#modalPullBtn')).toHaveCount(0);
+    await expect(page.locator('#modalUnpublishBtn')).toHaveText('Clear local link');
+    await page.locator('#modalUnpublishBtn').click();
+    await expect(page.locator('#shareBtn')).toHaveText('Share');
+    const cleared = await request.get('/api/config').then(r => r.json());
+    expect(cleared.hosted_url).toBe('');
 
     // Restore multi-target config for later tests in this worker.
     fs.writeFileSync(

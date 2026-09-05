@@ -897,8 +897,9 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		if body.TargetURL == "" && !s.configConfigured {
-			if inferred, ok := config.InferShareBaseURL(body.URL, nil); ok {
+		if body.TargetURL == "" {
+			targets, _ := s.resolvedShareTargets()
+			if inferred, ok := config.InferShareBaseURL(body.URL, targets); ok {
 				body.TargetURL = inferred
 			}
 		}
@@ -1461,10 +1462,11 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 	}
 
 	existingCfg := CritJSON{
-		ShareURL:    hostedURL,
-		DeleteToken: deleteToken,
-		ReviewRound: sess.ReviewRound,
-		CliArgs:     s.shareCLIArgsForSession(sess),
+		ShareURL:     hostedURL,
+		ShareBaseURL: sess.GetShareBaseURL(),
+		DeleteToken:  deleteToken,
+		ReviewRound:  sess.ReviewRound,
+		CliArgs:      s.shareCLIArgsForSession(sess),
 	}
 	if data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review); readErr == nil {
 		var onDisk CritJSON
@@ -1472,6 +1474,9 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 			existingCfg.LastShareHash = onDisk.LastShareHash
 			if onDisk.ReviewRound > 0 {
 				existingCfg.ReviewRound = onDisk.ReviewRound
+			}
+			if existingCfg.ShareBaseURL == "" {
+				existingCfg.ShareBaseURL = onDisk.ShareBaseURL
 			}
 		}
 	}
@@ -1509,7 +1514,11 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 
 	localIDs := share.BuildLocalIDSet(cj)
 	localFingerprints, localFingerprintIDs := share.BuildLocalFingerprintIndex(cj)
-	fetched, err := share.FetchWebComments(hostedURL, localIDs, localFingerprints, localFingerprintIDs, s.authTokenSnapshot())
+	target, targetErr := s.targetForRequest("")
+	if targetErr != nil {
+		return 0, 0, targetErr
+	}
+	fetched, err := share.FetchWebCommentsFromTarget(hostedURL, target.URL, localIDs, localFingerprints, localFingerprintIDs, target.Auth.Token)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1536,6 +1545,11 @@ func (s *Server) writeShareTransportError(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 	case errors.Is(err, share.ErrShareUnauthorized):
+		if target, terr := s.targetForRequest(""); terr == nil {
+			auth.ClearTargetAuth(target.URL)
+		} else if base := s.session.Load().GetShareBaseURL(); base != "" {
+			auth.ClearTargetAuth(base)
+		}
 		auth.ClearAuthIdentity()
 		s.clearAuthState()
 		w.WriteHeader(http.StatusUnauthorized)

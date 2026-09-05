@@ -722,10 +722,11 @@
           const r = await fetch('/api/share-consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_url: shareURL }) });
           if (r.ok) {
             needsShareConsent = false;
+            if (selectedTarget) selectedTarget.needs_share_consent = false;
+            const continueTarget = selectedTarget;
             closeShareModal();
-            if (!consentAborted) {
-              const btn = document.getElementById('shareBtn');
-              if (btn) btn.click();
+            if (!consentAborted && continueTarget) {
+              beginShareToTarget(continueTarget);
             }
           } else {
             closeShareModal();
@@ -771,6 +772,7 @@
 
       let subtitleText = 'Anyone with the link can read it. The page works without an account.';
 	  if (!shareURL && shareBaseURL) subtitleText = 'The originating instance (' + escapeHtml(shareBaseURL) + ') is no longer configured. The existing link is preserved.';
+      const missingOrigin = !shareURL && !!shareBaseURL;
       let orgStripHtml = '';
       if (sharedOrg) {
         const orgName = escapeHtml(sharedOrg.name);
@@ -826,10 +828,16 @@
             '</div>' +
           '</div>' +
           '<div class="sd-actions">' +
-            (deleteToken ? '<button class="sd-link-btn sd-link-btn--danger" id="modalUnpublishBtn">Unpublish</button>' : '<span></span>') +
+            (deleteToken || missingOrigin
+              ? '<button class="sd-link-btn sd-link-btn--danger" id="modalUnpublishBtn">' +
+                (missingOrigin ? 'Clear local link' : 'Unpublish') +
+                '</button>'
+              : '<span></span>') +
             '<div class="sd-actions-right">' +
-              '<button class="sd-link-btn" id="modalPullBtn">Pull comments</button>' +
-              '<button class="sd-link-btn" id="modalReshareBtn">Re-share</button>' +
+              (missingOrigin
+                ? ''
+                : '<button class="sd-link-btn" id="modalPullBtn">Pull comments</button>' +
+                  '<button class="sd-link-btn" id="modalReshareBtn">Re-share</button>') +
               '<button class="sd-primary" id="modalCloseBtn">Done</button>' +
             '</div>' +
           '</div>' +
@@ -886,13 +894,15 @@
       // Done button
       overlay.querySelector('#modalCloseBtn').addEventListener('click', closeShareModal);
 
-      // Unpublish
-      if (deleteToken) {
-        overlay.querySelector('#modalUnpublishBtn').addEventListener('click', showUnpublishConfirm);
+      // Unpublish / clear local binding
+      if (deleteToken || missingOrigin) {
+        overlay.querySelector('#modalUnpublishBtn').addEventListener('click', missingOrigin ? handleClearLocalShare : showUnpublishConfirm);
       }
 
-      overlay.querySelector('#modalPullBtn').addEventListener('click', handlePullComments);
-      overlay.querySelector('#modalReshareBtn').addEventListener('click', handleReshare);
+      const pullBtn = overlay.querySelector('#modalPullBtn');
+      if (pullBtn) pullBtn.addEventListener('click', handlePullComments);
+      const reshareBtn = overlay.querySelector('#modalReshareBtn');
+      if (reshareBtn) reshareBtn.addEventListener('click', handleReshare);
     }
 
     // Pull remote comments. Direct transport goes through the local Go server
@@ -1064,6 +1074,26 @@
       dialog.querySelector('#cancelUnpublishBtn').addEventListener('click', showShareModal);
     }
 
+    async function handleClearLocalShare() {
+      try {
+        const clearResp = await fetch('/api/share-url?local_only=1', { method: 'DELETE' });
+        if (!clearResp.ok && clearResp.status !== 204) {
+          throw new Error('failed to clear local share state');
+        }
+        hostedURL = '';
+        hostedToken = '';
+        deleteToken = '';
+        shareBaseURL = '';
+        selectTarget(shareTargets.find(function(t) { return t.default; }) || (shareTargets.length === 1 ? shareTargets[0] : null));
+        setShareButtonState('default');
+        closeShareModal();
+        showToast('share', 'success', '<span>Local share link cleared</span>');
+      } catch (err) {
+        closeShareModal();
+        showShareError(err);
+      }
+    }
+
     async function handleUnpublish() {
 	  if (!shareURL) { closeShareModal(); showShareError(new Error('originating Crit instance is no longer configured')); return; }
       const btn = document.getElementById('confirmUnpublishBtn');
@@ -1204,6 +1234,7 @@
       document.body.appendChild(overlay);
       shareModalEl = overlay;
       overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+      overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShareModal(); });
       overlay.querySelector('.sd-org-close').addEventListener('click', closeShareModal);
       overlay.querySelectorAll('.sd-target-option').forEach(function(row) {
         row.addEventListener('click', function() {

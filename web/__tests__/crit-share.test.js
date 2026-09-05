@@ -165,6 +165,10 @@ test('multi-target sharing scopes transport, API requests, caches, and settings 
   assert.match(src, /getSetting\('shareOrg' \+ settingSuffix/);
   assert.match(src, /External to your organization/);
   assert.match(src, /originating instance[\s\S]*no longer configured/);
+  assert.match(src, /selectedTarget\.needs_share_consent = false/);
+  assert.match(src, /beginShareToTarget\(continueTarget\)/);
+  assert.match(src, /Clear local link/);
+  assert.match(src, /keydown[\s\S]*Escape[\s\S]*closeShareModal/);
 });
 
 test('share modal disables policy-blocked visibility options', () => {
