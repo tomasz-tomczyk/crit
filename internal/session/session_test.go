@@ -3151,6 +3151,11 @@ func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
+	// Isolate git commands from ambient config (e.g. runner-level .gitconfig,
+	// credentials helpers, or external diff tools) that can leak extra files into
+	// the detected change set on CI.
+	t.Setenv("HOME", dir)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 	s, err := NewSessionFromGit(nil)
 	if err != nil {
@@ -3158,7 +3163,17 @@ func TestNewSessionFromGitLazyThreshold(t *testing.T) {
 	}
 
 	if len(s.Files) != 120 {
-		t.Fatalf("expected 120 files, got %d", len(s.Files))
+		want := make(map[string]bool, 120)
+		for i := 0; i < 120; i++ {
+			want[fmt.Sprintf("file%03d.go", i)] = true
+		}
+		var unexpected []string
+		for _, f := range s.Files {
+			if !want[f.Path] {
+				unexpected = append(unexpected, f.Path)
+			}
+		}
+		t.Fatalf("expected 120 files, got %d; unexpected: %v", len(s.Files), unexpected)
 	}
 
 	eagerCount, lazyCount := 0, 0
