@@ -32,54 +32,26 @@ test.describe('File Tree — Git Mode', () => {
     await expect(page.locator('#fileTreePanel')).toBeVisible();
   });
 
-  test('collapsed tree centres the content instead of stretching it', async ({ page }) => {
-    const openWidth = (await page.locator('.main-content').boundingBox())!.width;
+  test('collapsed tree stays left-anchored and expands into freed space', async ({ page }) => {
+    const openBox = (await page.locator('.main-content').boundingBox())!;
 
     await page.locator('#fileTreeToggle').click();
     await expect(page.locator('#fileTreePanel')).toBeHidden();
 
-    // The content keeps at least the width it had with the tree open (the
-    // default width setting keeps exactly that width), sits in equal gutters,
-    // and never runs edge to edge. toPass() lets the slide transition settle.
+    // Content expands into the vacated sidebar: left edge moves left (not
+    // toward center), width grows. toPass() lets the slide transition settle.
     await expect(async () => {
       const layout = await page.locator('.main-layout').boundingBox();
       const main = await page.locator('.main-content').boundingBox();
       if (!layout || !main) throw new Error('missing layout boxes');
-      expect(main.width).toBeGreaterThanOrEqual(openWidth - 1);
-      expect(main.width).toBeLessThan(layout.width);
+      expect(main.width).toBeGreaterThan(openBox.width - 1);
+      expect(main.x).toBeLessThan(openBox.x - 10);
       const left = main.x - layout.x;
+      expect(left).toBeLessThan(2);
+      // No equal gutters — spare space (if any) is on the right only.
       const right = (layout.x + layout.width) - (main.x + main.width);
-      expect(Math.abs(left - right)).toBeLessThan(2);
+      expect(right).toBeGreaterThanOrEqual(left - 1);
     }).toPass();
-  });
-
-  test('width setting drives how wide the collapsed content is', async ({ page }) => {
-    // Read the content width once the width transition has settled: poll until
-    // two consecutive measurements agree.
-    const widthOf = async (setting: string) => {
-      await page.evaluate((s) => document.documentElement.setAttribute('data-width', s), setting);
-      let last = -1;
-      await expect.poll(async () => {
-        const box = await page.locator('.main-content').boundingBox();
-        const width = box ? Math.round(box.width) : -1;
-        const settled = width === last;
-        last = width;
-        return settled;
-      }).toBe(true);
-      return last;
-    };
-
-    await page.locator('#fileTreeToggle').click();
-    await expect(page.locator('#fileTreePanel')).toBeHidden();
-
-    // compact <= default <= wide, and wide leaves only a thin margin.
-    const compact = await widthOf('compact');
-    const dflt = await widthOf('default');
-    const wide = await widthOf('wide');
-    expect(compact).toBeLessThanOrEqual(dflt);
-    expect(dflt).toBeLessThanOrEqual(wide);
-    const layout = (await page.locator('.main-layout').boundingBox())!;
-    expect(wide).toBeGreaterThan(layout.width * 0.9);
   });
 
   test('b toggles the file tree', async ({ page }) => {

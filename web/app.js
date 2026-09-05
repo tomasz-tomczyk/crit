@@ -9496,8 +9496,8 @@
   }
 
   // ===== File Tree Toggle =====
-  // Collapses the left sidebar; the content then centres at the configured
-  // width (compact/default/wide) instead of going full-bleed.
+  // Collapses the left sidebar; the content stays left-anchored and expands
+  // into the freed space (IDE/PR-style — no dual-edge recenter).
   function setFileTreeCollapsed(collapsed, animate) {
     const panel = document.getElementById('fileTreePanel');
     // Slide distance = the panel's own width, which the user can resize.
