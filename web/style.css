@@ -4,14 +4,10 @@
 /* Layout variables */
 :root {
   --content-width: 1040px;
-  /* How much of the width freed by a collapsed file tree the content gives
-     back, in sidebar-widths: at 1 the content keeps exactly the width it had
-     with the tree open, just centered. Used only by the collapsed-tree rule. */
-  --collapsed-inset-mult: 1;
 }
-[data-width="compact"] { --content-width: 840px; --collapsed-inset-mult: 2; }
-[data-width="default"] { --content-width: 1040px; --collapsed-inset-mult: 1; }
-[data-width="wide"]    { --content-width: 1280px; --collapsed-inset-mult: 0.25; }
+[data-width="compact"] { --content-width: 840px; }
+[data-width="default"] { --content-width: 1040px; }
+[data-width="wide"]    { --content-width: 1280px; }
 
 /* ===== Base ===== */
 html {
@@ -3551,9 +3547,10 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   flex: 1;
   min-width: 0;
   max-width: 100%;
-  /* Auto margins centre the content once max-width caps it (collapsed
-     sidebar); with the sidebar open flex-grow leaves no free space to absorb. */
-  margin: 0 auto;
+  /* Flush-left: when the file tree collapses the content grows into the
+     freed space instead of recentering (dual-edge motion feels uncanny on
+     diffs). margin-right:auto keeps any future max-width cap left-anchored. */
+  margin: 0 auto 0 0;
 }
 
 /* ===== Sidebar Resize Handles ===== */
@@ -3601,28 +3598,16 @@ body.file-tree-collapsed .file-tree-panel {
   visibility: hidden;
 }
 body.file-tree-collapsed #fileTreeResizer { flex-basis: 0; }
-/* Content is centered instead of stretching edge to edge once the sidebar is
-   gone, at a width that follows the compact/default/wide setting: default
-   keeps the width it had with the tree open, compact gives back another
-   sidebar's worth, wide keeps nearly all of it. --content-width is the floor,
-   so a narrow window doesn't squeeze the content to nothing. */
-body.file-tree-collapsed:not(.crit-story-active) .main-content {
-  max-width: max(
-    var(--content-width),
-    calc(100% - var(--file-tree-width, 280px) * var(--collapsed-inset-mult, 1))
-  );
-}
 /* Transitions only exist after the first user toggle (app.js adds
    .file-tree-anim on click, never on load) so a collapsed sidebar doesn't
-   animate in on page load. */
+   animate in on page load. The content's left edge stays put; only the
+   sidebar margin animates, so the diff expands into the freed space. */
 body.file-tree-anim .file-tree-panel {
   transition: margin-left 0.22s ease, visibility 0.22s;
 }
-body.file-tree-anim .main-content { transition: max-width 0.22s ease; }
 body.file-tree-anim #fileTreeResizer { transition: flex-basis 0.22s ease; }
 @media (prefers-reduced-motion: reduce) {
   body.file-tree-anim .file-tree-panel,
-  body.file-tree-anim .main-content,
   body.file-tree-anim #fileTreeResizer { transition: none; }
 }
 #fileTreeToggle .ft-toggle-fill { opacity: 0.35; transition: opacity 0.15s ease; }
