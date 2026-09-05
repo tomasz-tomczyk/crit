@@ -146,3 +146,52 @@ func TestFreshShareConfigRuntimeOverride(t *testing.T) {
 		t.Fatalf("runtime override targets=%#v", targets)
 	}
 }
+
+func TestTargetForRequestBoundAndDisabled(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://a.example"},{"url":"https://b.example","default":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, sess := newTestServer(t)
+	s.configConfigured = true
+	s.projectDir = sess.RepoRoot
+	sess.SetSharedTarget("https://a.example/r/tok", "https://a.example", "del")
+
+	if _, err := s.targetForRequest("https://b.example"); err == nil || !strings.Contains(err.Error(), "bound") {
+		t.Fatalf("expected bound error, got %v", err)
+	}
+	got, err := s.targetForRequest("")
+	if err != nil || got.URL != "https://a.example" {
+		t.Fatalf("bound default got=%#v err=%v", got, err)
+	}
+	got, err = s.targetForRequest("https://a.example")
+	if err != nil || got.URL != "https://a.example" {
+		t.Fatalf("explicit bound got=%#v err=%v", got, err)
+	}
+
+	empty := ""
+	s.cfg.RuntimeShareURL = &empty
+	if _, err := s.targetForRequest(""); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("expected disabled, got %v", err)
+	}
+}
+
+func TestResolvedShareTargetsLegacyConstructor(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.configConfigured = false
+	s.shareURL = "https://legacy.example"
+	s.proxyAuth = true
+	s.authToken = "tok"
+	targets, err := s.resolvedShareTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].URL != "https://legacy.example" || !targets[0].ProxyAuth || targets[0].Auth.Token != "tok" {
+		t.Fatalf("targets=%#v", targets)
+	}
+	meta := targetMetadata(targets)
+	if len(meta) != 1 || !meta[0].AuthLoggedIn || !meta[0].ProxyAuth {
+		t.Fatalf("meta=%#v", meta)
+	}
+}

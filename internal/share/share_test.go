@@ -1741,6 +1741,39 @@ func TestHandleShareAuthErrorClearsTargetCredentials(t *testing.T) {
 	}
 }
 
+func TestRunSharePreviewTargetSelection(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runSharePreview(shareFlags{preview: "http://127.0.0.1:3000", svcURLSet: false})
+	if err == nil {
+		t.Fatal("expected disabled sharing error")
+	}
+
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://proxy.example","proxy_auth":true,"default":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = runSharePreview(shareFlags{preview: "http://127.0.0.1:3000", svcURLSet: false})
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Fatalf("expected proxy_auth error, got %v", err)
+	}
+}
+
+func TestResolveOperationTargetSelectErrors(t *testing.T) {
+	if _, err := resolveOperationTarget(config.Config{ShareTargets: []config.ShareTarget{{URL: "ftp://bad"}}}, "", false, session.CritJSON{}, false); err == nil {
+		t.Fatal("expected invalid target config error")
+	}
+	if _, err := resolveOperationTarget(config.Config{}, "ftp://bad", true, session.CritJSON{ShareURL: "https://x.example/r/t"}, true); err == nil {
+		t.Fatal("expected invalid explicit confirmation URL error")
+	}
+	cfg := config.Config{ShareTargets: []config.ShareTarget{{URL: "https://a.example"}}}
+	if _, err := resolveOperationTarget(cfg, "ftp://bad", true, session.CritJSON{ShareURL: "https://a.example/r/t", ShareBaseURL: "https://a.example"}, true); err == nil {
+		t.Fatal("expected invalid explicit share-url on bound review to fail")
+	}
+}
+
 func TestCommentToShareComment(t *testing.T) {
 	t.Run("basic conversion", func(t *testing.T) {
 		c := Comment{

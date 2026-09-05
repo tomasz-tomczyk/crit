@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1210,5 +1211,172 @@ func TestLazyBackfillTargetAuth_Skips(t *testing.T) {
 	LazyBackfillTargetAuth("https://missing.example")
 	if got := atomic.LoadInt32(&hits); got != 0 {
 		t.Fatalf("expected skip, hits=%d", got)
+	}
+}
+
+func TestRunAuthWhoami_ListsMultipleTargets(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	initial := `{
+		"share_targets":[
+			{"name":"Public","url":"https://crit.md","auth":{"token":"t","user_email":"a@example.com"}},
+			{"name":"Acme","url":"https://acme.example","proxy_auth":true},
+			{"name":"Bare","url":"https://bare.example","auth":{"token":"x"}},
+			{"name":"Named","url":"https://named.example","auth":{"token":"y","user_name":"Pat"}},
+			{"name":"Empty","url":"https://empty.example"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runAuthWhoami(nil)
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	text := string(out)
+	for _, want := range []string{"a@example.com", "proxy/SSO", "authenticated", "Pat", "not logged in", "https://acme.example"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+}
+
+func TestRunAuthWhoami_ShareURLNotLoggedIn(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://acme.example"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runAuthWhoami([]string{"--share-url", "https://acme.example"})
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if !strings.Contains(string(out), "Not logged in") {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRunAuthWhoami_ShareURLFetchesIdentity(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "1", "name": "Ada", "email": "ada@example.com"})
+	}))
+	defer srv.Close()
+	cfgJSON := fmt.Sprintf(`{"share_targets":[{"url":%q,"auth":{"token":"tok"}}]}`, srv.URL)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(cfgJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runAuthWhoami([]string{"--share-url", srv.URL})
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if !strings.Contains(string(out), "Ada") || !strings.Contains(string(out), "ada@example.com") {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRunAuthLogin_RequiresShareURLWhenAmbiguous(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://a.example"},{"url":"https://b.example"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runAuthLogin(nil)
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if !strings.Contains(string(out), "Error:") {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRunAuthLogout_ShareURLNotLoggedIn(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://acme.example"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runAuthLogout([]string{"--share-url", "https://acme.example"})
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if !strings.Contains(string(out), "Not logged in") {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRunAuthLogout_ClearsTargetAfterRevoke(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	var revoked atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && r.URL.Path == "/api/auth/token" {
+			revoked.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	cfgJSON := fmt.Sprintf(`{"share_targets":[{"url":%q,"auth":{"token":"tok","user_id":"u"}}]}`, srv.URL)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(cfgJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runAuthLogout([]string{"--share-url", srv.URL})
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if !revoked.Load() {
+		t.Fatal("expected revoke call")
+	}
+	if !strings.Contains(string(out), "Logged out") {
+		t.Fatalf("got %q", out)
+	}
+	targets := readShareTargets(t, home)
+	if len(targets) != 1 || targets[0].Auth.Token != "" {
+		t.Fatalf("auth not cleared: %#v", targets)
+	}
+}
+
+func TestConfirmReauth_NonTTY(t *testing.T) {
+	if confirmReauth() {
+		t.Fatal("non-TTY confirmReauth should return false")
 	}
 }
