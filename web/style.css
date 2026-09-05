@@ -2099,10 +2099,9 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-top: 1px solid var(--crit-border);
 }
 
-/* Compact shape: the form already supplies the padding. */
+/* Compact (unfocused): only the input shows; Cancel/Reply appear on expand. */
 .reply-form:not(.expanded) .reply-form-buttons {
-  padding: 8px 0 0;
-  border-top: none;
+  display: none;
 }
 
 .comment-textarea {
