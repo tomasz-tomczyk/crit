@@ -3,8 +3,9 @@
 
 The gate cannot detect its own parser regressions, so checked-in benchstat
 samples lock the parsing contract: significant time slowdowns fail, noise
-(~) and sub-threshold deltas pass, ANY allocs increase (including 0 -> N
-rendered as +Inf%) fails, B/op only warns, and malformed input exits 2.
+(~), geomean summaries, and high-variance time rows pass, ANY allocs
+increase on a real bench (including 0 -> N rendered as +Inf%) fails, B/op
+only warns, and malformed input exits 2.
 
 Run: python3 scripts/bench-compare_test.py
 """
@@ -140,6 +141,51 @@ class GateTest(unittest.TestCase):
     def test_no_tables_exits_2(self):
         r = run_gate("some log output without any benchstat tables\n")
         self.assertEqual(r.returncode, 2)
+
+    def test_geomean_time_ignored(self):
+        # One noisy bench can pull package geomean over the threshold; geomean
+        # is a summary row and must not fail the gate on its own.
+        content = (
+            "                               │    sec/op     │   sec/op     vs base              │\n"
+            "VisibleInFocus/n=10-4             325.5n ± 0%   325.9n ± 2%       ~ (p=0.368 n=6)\n"
+            "geomean                          157.3µ        192.2µ       +22.16%\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("::error::", r.stdout)
+
+    def test_geomean_alloc_ignored(self):
+        # Float rounding on geomean invents +0.02% alloc deltas that are not
+        # real heap escapes — only per-benchmark alloc rows should gate.
+        content = (
+            "                               │   allocs/op   │  allocs/op   vs base                │\n"
+            "VisibleInFocus/n=10-4              2.000 ± 0%    2.000 ± 0%       ~ (p=1.000 n=6)\n"
+            "geomean                            70.45         70.46       +0.02%\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("::error::", r.stdout)
+
+    def test_high_variance_time_ignored(self):
+        # I/O benches on shared runners report ±70–90% and can still look
+        # "significant" to benchstat — skip gating, warn instead.
+        content = (
+            "                               │    sec/op     │   sec/op     vs base              │\n"
+            "ReviewSaveLoad/10x10-4           2.488m ± 90%  10.262m ± 76%  +312.43% (p=0.002 n=6)\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("::error::", r.stdout)
+        self.assertIn("Ignoring noisy time/op delta", r.stdout)
+
+    def test_low_variance_time_still_fails(self):
+        content = (
+            "                               │    sec/op     │   sec/op     vs base              │\n"
+            "ComputeLineDiff/100_lines-4      102.25µ ± 1%   130.00µ ± 1%  +27.13% (p=0.002 n=6)\n"
+        )
+        r = run_gate(content)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("time/op regression", r.stdout)
 
 
 if __name__ == "__main__":
