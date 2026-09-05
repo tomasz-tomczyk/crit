@@ -429,7 +429,8 @@ body {
   padding: 3px 10px;
 }
 
-.theme-toggle {
+.theme-toggle,
+.ft-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -441,8 +442,10 @@ body {
   color: var(--crit-editor-fg-muted);
   transition: all 0.15s;
 }
-.theme-toggle svg { width: 16px; height: 16px; display: block; }
-.theme-toggle:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
+.theme-toggle svg,
+.ft-toggle svg { width: 16px; height: 16px; display: block; }
+.theme-toggle:hover,
+.ft-toggle:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
 
 /* ===== Toast Notifications ===== */
 .toast-container {
