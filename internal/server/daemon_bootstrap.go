@@ -8,6 +8,7 @@ import (
 // ConfigureDaemon sets fields assigned by cmd/crit during daemon startup.
 func (s *Server) ConfigureDaemon(cfg Config, projectDir, homeDir, reviewPath string, cliArgs []string, startedAt time.Time) {
 	s.cfg = cfg
+	s.configConfigured = true
 	s.projectDir = projectDir
 	s.homeDir = homeDir
 	s.reviewPath = reviewPath

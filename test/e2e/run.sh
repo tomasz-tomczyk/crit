@@ -16,6 +16,7 @@ LIVE_PORT="${CRIT_TEST_LIVE_PORT:-3129}"
 SHARE_PORT="${CRIT_TEST_SHARE_PORT:-3132}"
 STUB_PORT="${CRIT_TEST_STUB_PORT:-3133}"
 PERF_PORT="${CRIT_TEST_PERF_PORT:-3134}"
+STUB2_PORT="${CRIT_TEST_STUB2_PORT:-3135}"
 
 # Build crit once (skip if CRIT_BIN already points to an existing binary, e.g. CI coverage builds)
 if [ -n "${CRIT_BIN:-}" ] && [ -f "$CRIT_BIN" ]; then
@@ -36,7 +37,7 @@ fi
 (cd "$SCRIPT_DIR" && npx playwright install chromium)
 
 # Kill any stale processes on our test ports before starting fresh
-for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT" "$SHARE_PORT" "$STUB_PORT" "$PERF_PORT"; do
+for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT" "$SHARE_PORT" "$STUB_PORT" "$STUB2_PORT" "$PERF_PORT"; do
   e2e_kill_port "$port"
 done
 
@@ -58,7 +59,7 @@ bash setup-fixtures-range-mode.sh "$RANGE_PORT" &
 RANGE_PID=$!
 bash setup-fixtures-livemode.sh "$LIVE_PORT" &
 LIVE_PID=$!
-bash setup-fixtures-sharetransport.sh "$SHARE_PORT" "$STUB_PORT" &
+bash setup-fixtures-sharetransport.sh "$SHARE_PORT" "$STUB_PORT" "$STUB2_PORT" &
 SHARE_PID=$!
 bash setup-fixtures-perf.sh "$PERF_PORT" &
 PERF_PID=$!

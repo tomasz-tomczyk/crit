@@ -186,9 +186,18 @@ crit unpublish                        # remove the shared review
 
 When sharing under an org, visibility defaults to `organization` (members only). Override with `--visibility` (`organization`, `unlisted`, or `public`). The browser UI shows an org picker when you're signed in and belong to an organization.
 
-Sharing uses [crit.md](https://crit.md) by default. To self-host, deploy [`crit-web`](https://github.com/tomasz-tomczyk/crit-web) and point `CRIT_SHARE_URL` (or `--share-url`, or `share_url` in config) at your instance. Set `share_url` to `""` to disable sharing entirely.
+Sharing uses [crit.md](https://crit.md) when no sharing key exists. To use several deployments, configure global `share_targets`; the browser asks for a destination and each review stays bound to its first destination:
 
-If your self-hosted `crit-web` sits behind an SSO reverse proxy that the terminal can't authenticate against, set `proxy_auth: true` in your `~/.crit.config.json` (this option is config-only and global-only — it's a property of the deployment, not a per-invocation choice, so there's no flag or env var). Browser-driven Share / Pull / Re-share / Unpublish then route through a popup window where the proxy can complete its interactive auth flow. Terminal `crit share`, `crit fetch`, and `crit unpublish` remain unavailable behind SSO — use the browser UI buttons.
+```json
+{"share_targets":[
+  {"name":"Acme Crit","url":"https://crit.acme.com","default":true,"proxy_auth":true},
+  {"name":"crit.md","url":"https://crit.md"}
+]}
+```
+
+Run `crit auth login --share-url https://crit.acme.com` to add or authenticate a target, and add `--set-default` to make it the CLI default. `crit auth status` lists every target. An explicit `"share_targets": []` disables sharing and never injects crit.md. Legacy `share_url` remains readable; `crit config --migrate` converts it atomically. `--share-url` and `CRIT_SHARE_URL` are process-only overrides and never persist a new target; an explicitly empty `CRIT_SHARE_URL` disables sharing for that process.
+
+If a target sits behind an SSO reverse proxy, set `proxy_auth: true` on that target. Browser-driven Share / Pull / Re-share / Unpublish then use its popup relay; terminal operations remain unavailable for that target.
 
 #### Authentication
 
@@ -196,8 +205,9 @@ You can share anonymously or you can create a free crit.md account (using GitHub
 
 ```bash
 crit auth login                    # opens browser to log in
-crit auth whoami                   # show current user info
-crit auth logout                   # log out and revoke token
+crit auth login --share-url https://crit.acme.com --set-default
+crit auth status                   # list targets and identities
+crit auth logout --share-url https://crit.md
 ```
 
 `crit auth login` uses the OAuth Device Flow - it opens your browser, you confirm, and the CLI receives a token automatically. The token is stored in your global config (`~/.crit.config.json`).
@@ -383,8 +393,9 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | ---------------------- | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `agent_cmd`            | string   | `""`                       | Shell command for "Send to agent" (e.g. `"claude -p"`). See [Send to agent](#send-to-agent-experimental). |
 | `open_cmd`             | string   | `""`                       | Custom command to open review URLs — receives the URL as its only argument (must be a single executable, no flags). Use when the browser isn't on the machine running crit, e.g. crit runs on a remote host over SSH and a small wrapper script opens the URL on your local machine. When unset, crit uses the platform default opener. |
-| `auth_token`           | string   | `""`                       | Authentication token for crit.md. Set automatically by `crit auth login`. |
-| `share_url`            | string   | `"https://crit.md"`        | Base URL of the share service. Set to `""` to disable sharing entirely. Self-host with [`crit-web`](https://github.com/tomasz-tomczyk/crit-web). |
+| `share_targets`        | array    | implicit crit.md when absent | Deployment list with per-target `name`, `url`, `default`, `proxy_auth`, nested `auth`, and public `share_consented`. An explicit empty array disables sharing. |
+| `auth_token`           | string   | `""`                       | Legacy singleton token; read only while `share_targets` is absent. |
+| `share_url`            | string   | implicit `"https://crit.md"` | Legacy singleton URL. An explicitly empty value disables sharing; migrate with `crit config --migrate`. |
 | `public_url`           | string   | `""`                       | Advertised base URL for stderr and browser-open (e.g. `https://machine.ts.net` via tailscale serve). Listen address unchanged. Requires `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`. |
 | `share_consented`      | bool     | `false`                    | Written automatically to `true` after you confirm the first-time share prompt. Reset to `false` to see the prompt again. Not used when `share_url` is a custom (self-hosted) URL. |
 | `proxy_auth`           | bool     | `false`                    | When `true`, share / pull / unpublish / re-share use the browser popup relay instead of the local Go server contacting crit-web directly. Use when crit-web is behind an SSO reverse proxy that the terminal cannot authenticate against. No flag or env var — this is a property of the deployment, not a per-invocation choice. |

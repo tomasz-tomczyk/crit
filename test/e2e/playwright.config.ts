@@ -10,9 +10,10 @@ const MULTI_PORT = process.env.CRIT_TEST_MULTI_PORT || '3127';
 const RANGE_PORT = process.env.CRIT_TEST_RANGE_PORT || '3128';
 const LIVE_PORT = process.env.CRIT_TEST_LIVE_PORT || '3129';
 const SHARE_PORT = process.env.CRIT_TEST_SHARE_PORT || '3132';
-// Stub crit-web backing the share-transport project. The spec talks to it
-// directly for seeding and assertions, so it needs the port too.
+// Stub crit-web backends for the share-transport project. Specs talk to them
+// directly for seeding and assertions, so they need the ports too.
 const STUB_PORT = process.env.CRIT_TEST_STUB_PORT || '3133';
+const STUB2_PORT = process.env.CRIT_TEST_STUB2_PORT || '3135';
 // Large-review perf fixture (300 files / ~9k changed lines + big markdown).
 const PERF_PORT = process.env.CRIT_TEST_PERF_PORT || '3134';
 // Mobile project re-uses the git-mode fixture — no separate server needed.
@@ -197,7 +198,7 @@ export default defineConfig({
       stdout: 'pipe',
     },
     {
-      command: `bash setup-fixtures-sharetransport.sh ${SHARE_PORT} ${STUB_PORT}`,
+      command: `bash setup-fixtures-sharetransport.sh ${SHARE_PORT} ${STUB_PORT} ${STUB2_PORT}`,
       url: `http://localhost:${SHARE_PORT}/api/session`,
       reuseExistingServer: true,
       timeout: 60_000,

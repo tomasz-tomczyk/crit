@@ -1640,6 +1640,44 @@ func TestResolveAuthToken(t *testing.T) {
 	}
 }
 
+func TestResolveOperationTargetUsesAuthEnvForUnconfiguredBoundTarget(t *testing.T) {
+	t.Setenv("CRIT_AUTH_TOKEN", "bound-token")
+	cj := session.CritJSON{
+		ShareURL:     "http://localhost:4001/r/review-token",
+		ShareBaseURL: "http://localhost:4001",
+	}
+
+	target, err := resolveOperationTarget(config.Config{}, "", false, cj, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.URL != cj.ShareBaseURL {
+		t.Fatalf("URL = %q, want %q", target.URL, cj.ShareBaseURL)
+	}
+	if target.Auth.Token != "bound-token" {
+		t.Fatalf("auth token = %q, want environment override", target.Auth.Token)
+	}
+}
+
+func TestResolveOperationTargetConfirmsAmbiguousLegacyReview(t *testing.T) {
+	cfg := config.Config{ShareTargets: []config.ShareTarget{{
+		Name: "Self-hosted", URL: "https://reviews.example.com/crit",
+	}}}
+	cj := session.CritJSON{ShareURL: "https://legacy.example.com/unknown/r/review-token"}
+
+	target, err := resolveOperationTarget(cfg, "https://reviews.example.com/crit", true, cj, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.URL != "https://reviews.example.com/crit" {
+		t.Fatalf("URL = %q, want configured confirmation target", target.URL)
+	}
+
+	if _, err := resolveOperationTarget(cfg, "https://unconfigured.example.com", true, cj, true); err == nil {
+		t.Fatal("expected an unconfigured legacy target confirmation to fail")
+	}
+}
+
 func TestCommentToShareComment(t *testing.T) {
 	t.Run("basic conversion", func(t *testing.T) {
 		c := Comment{

@@ -27,6 +27,7 @@ type shareFlags struct {
 	configuredOutput string
 	sessionID        string
 	svcURL           string
+	svcURLSet        bool
 	showQR           bool
 	org              string
 	visibility       string
@@ -39,6 +40,7 @@ type unpublishFlags struct {
 	configuredOutput string
 	sessionID        string
 	svcURL           string
+	svcURLSet        bool
 	files            []string
 }
 
@@ -61,7 +63,7 @@ func postPreviewShare(htmlPath, svcURL, authToken string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	SetBearer(req, authToken)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("posting preview to share service: %w", err)
@@ -99,6 +101,9 @@ func parseShareFlags(args []string) (shareFlags, error) {
 				return sf, err
 			}
 			*dest = val
+			if arg == "--share-url" {
+				sf.svcURLSet = true
+			}
 			i++
 			continue
 		}
@@ -128,7 +133,6 @@ func shareFlagDest(sf *shareFlags, arg string) (*string, bool) {
 
 func applyShareConfigDefaults(sf *shareFlags, cfg config.Config) {
 	sf.configuredOutput = cfg.Output
-	sf.svcURL = ResolveShareURL(sf.svcURL, cfg, config.DefaultShareURL)
 }
 
 func runSharePreview(sf shareFlags) error {
@@ -136,8 +140,17 @@ func runSharePreview(sf shareFlags) error {
 		return clicmd.Usage("Error: --preview cannot be combined with file arguments")
 	}
 	cfg := LoadShareConfig()
-	svcURL := ResolveShareURL(sf.svcURL, cfg, config.DefaultShareURL)
-	url, err := postPreviewShare(sf.preview, svcURL, ResolveAuthToken(cfg))
+	target, ok, err := config.SelectShareTarget(sf.svcURL, sf.svcURLSet, cfg)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return clicmd.Usage("Error: sharing is disabled; configure a share target or pass --share-url")
+	}
+	if target.ProxyAuth {
+		return proxyAuthCLIError("crit share")
+	}
+	url, err := postPreviewShare(sf.preview, target.URL, target.Auth.Token)
 	if err != nil {
 		return err
 	}
@@ -206,17 +219,17 @@ func noteStoryNotShared(critPath string) {
 	}
 }
 
-func handleShareAuthError() {
-	auth.ClearAuthIdentity()
+func handleShareAuthError(targetURL string) {
+	auth.ClearTargetAuth(targetURL)
 	fmt.Fprintln(os.Stderr, "Auth token rejected by server; cleared local credentials. Run 'crit auth login' to re-authenticate.")
 }
 
 func runShareExisting(existingCfg session.CritJSON, critPath string, files []ShareFile, sharePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string, showQR bool) error {
 	localIDs := BuildLocalIDSet(existingCfg)
 	localFingerprints, localFingerprintIDs := BuildLocalFingerprintIndex(existingCfg)
-	if fetched, err := FetchWebComments(existingCfg.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken); err != nil {
+	if fetched, err := FetchWebCommentsFromTarget(existingCfg.ShareURL, svcURL, localIDs, localFingerprints, localFingerprintIDs, authToken); err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
-			handleShareAuthError()
+			handleShareAuthError(svcURL)
 			return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 		if errors.Is(err, ErrShareNotFound) {
@@ -238,7 +251,7 @@ func runShareExisting(existingCfg session.CritJSON, critPath string, files []Sha
 	result, err := UpsertShareToWeb(existingCfg, files, allComments, authToken)
 	if err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
-			handleShareAuthError()
+			handleShareAuthError(svcURL)
 		}
 		if errors.Is(err, ErrShareNotFound) {
 			fmt.Fprintln(os.Stderr, "warning: previous shared review no longer exists; creating a new share")
@@ -253,6 +266,9 @@ func runShareExisting(existingCfg session.CritJSON, critPath string, files []Sha
 	if err := UpdateShareState(critPath, ComputeShareHash(files, allComments), result.ReviewRound); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
 	}
+	if existingCfg.ShareBaseURL == "" {
+		_ = bindShareBaseURL(critPath, svcURL)
+	}
 	if result.Changed {
 		fmt.Fprintf(os.Stderr, "updated round %d\n", result.ReviewRound)
 	}
@@ -266,12 +282,12 @@ func runShareNew(critPath string, files []ShareFile, filePaths []string, svcURL,
 	res, err := ShareReviewFiles(critPath, files, filePaths, svcURL, authToken, fallbackAuthor, org, visibility, "")
 	if err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
-			handleShareAuthError()
+			handleShareAuthError(svcURL)
 		}
 		return err
 	}
 
-	if err := PersistShareState(critPath, res.URL, res.DeleteToken, ShareScope(filePaths), org, "", visibility); err != nil {
+	if err := PersistShareStateForTarget(critPath, res.URL, svcURL, res.DeleteToken, ShareScope(filePaths), org, "", visibility); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
@@ -308,10 +324,6 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 	if err != nil {
 		return err
 	}
-	if err := checkProxyAuthCLIAllowed("crit share"); err != nil {
-		return err
-	}
-
 	if sf.preview != "" {
 		return runSharePreview(sf)
 	}
@@ -320,13 +332,10 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 		return shareUsageError()
 	}
 
-	flagURL := sf.svcURL != ""
+	flagURL := sf.svcURLSet
 
 	cfg := LoadShareConfig()
 	applyShareConfigDefaults(&sf, cfg)
-	cfg.AuthToken = ResolveAuthToken(cfg)
-	auth.LazyBackfillAuthUserID(&cfg, sf.svcURL)
-	authToken := cfg.AuthToken
 
 	files, err := loadShareFiles(sf.files)
 	if err != nil {
@@ -347,21 +356,30 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 		sharePaths[i] = f.Path
 	}
 
-	_, ok, err := LoadExistingShareCfg(critPath, sharePaths)
+	existing, existingOK, err := LoadExistingShareCfg(critPath, sharePaths)
 	if err != nil {
 		return err
 	}
-	if !ok && config.NeedsShareConsent(cfg, sf.svcURL) {
+	target, err := resolveOperationTarget(cfg, sf.svcURL, sf.svcURLSet, existing, existingOK)
+	if err != nil {
+		return err
+	}
+	if target.ProxyAuth {
+		return proxyAuthCLIError("crit share")
+	}
+	sf.svcURL = target.URL
+	auth.LazyBackfillTargetAuth(target.URL)
+	if refreshed, found, _ := config.FindShareTarget(LoadShareConfig(), target.URL); found {
+		target = refreshed
+	}
+	authToken := target.Auth.Token
+	if !existingOK && target.NeedsShareConsent() {
 		if !promptShareConsent(os.Stderr, os.Stdin) {
 			return nil
 		}
-		if err := config.SaveGlobalConfig(func(m map[string]json.RawMessage) error {
-			m["share_consented"] = json.RawMessage("true")
-			return nil
-		}); err != nil {
+		if err := config.SaveTargetConsent(target.URL); err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: could not save consent: %v\n", err)
 		}
-		cfg.ShareConsented = true
 	}
 	if flagURL && term.IsTerminal(int(os.Stdin.Fd())) {
 		if !promptShareURLConfirm(os.Stderr, os.Stdin, sf.svcURL) {
@@ -369,9 +387,94 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 		}
 	}
 
-	return session.WithShareLock(critPath, func() error {
-		return runShareUnderLock(critPath, files, sharePaths, sf.svcURL, authToken, cfg.Author, sf.org, sf.visibility, sf.showQR)
+	err = session.WithShareLock(critPath, func() error {
+		// An explicit configured target is also confirmation of an ambiguous
+		// legacy review's origin. Persist that local repair independently of the
+		// remote operation so an offline instance does not prevent migration.
+		if existingOK && existing.ShareBaseURL == "" && sf.svcURLSet {
+			if bindErr := bindShareBaseURL(critPath, target.URL); bindErr != nil {
+				return bindErr
+			}
+		}
+		return runShareUnderLock(critPath, files, sharePaths, target.URL, authToken, cfg.Author, sf.org, sf.visibility, sf.showQR)
 	})
+	if err != nil {
+		return err
+	}
+	if _, configured, _ := config.FindShareTarget(cfg, target.URL); configured {
+		if migrateErr := config.MutateShareTargets(func(_ *[]config.ShareTarget) error { return nil }); migrateErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: share succeeded but legacy config migration failed: %v\n", migrateErr)
+		}
+	}
+	return nil
+}
+
+func resolveOperationTarget(cfg config.Config, explicit string, explicitSet bool, cj session.CritJSON, existing bool) (config.ShareTarget, error) { //nolint:gocyclo // Existing-review affinity and new-share precedence are handled together.
+	if !existing {
+		target, ok, err := config.SelectShareTarget(explicit, explicitSet, cfg)
+		if err != nil {
+			return config.ShareTarget{}, err
+		}
+		if !ok {
+			return config.ShareTarget{}, clicmd.Usage("Error: sharing is disabled; configure a share target or pass --share-url")
+		}
+		return target, nil
+	}
+	base := cj.ShareBaseURL
+	if base == "" {
+		targets, err := config.ResolveShareTargets(cfg)
+		if err != nil {
+			return config.ShareTarget{}, err
+		}
+		if inferred, ok := config.InferShareBaseURL(cj.ShareURL, targets); ok {
+			base = inferred
+		}
+	}
+	if base == "" {
+		if !explicitSet {
+			return config.ShareTarget{}, errors.New("cannot identify the originating Crit instance; re-add or confirm its base URL with --share-url")
+		}
+		selected, configured, selectErr := config.FindShareTarget(cfg, explicit)
+		if selectErr != nil {
+			return config.ShareTarget{}, selectErr
+		}
+		if !configured {
+			return config.ShareTarget{}, errors.New("legacy review target confirmation requires a configured share target")
+		}
+		return selected, nil
+	}
+	if explicitSet {
+		selected, ok, err := config.SelectShareTarget(explicit, true, cfg)
+		if err != nil {
+			return config.ShareTarget{}, err
+		}
+		if !ok || selected.URL != base {
+			return config.ShareTarget{}, errors.New("this review is already shared to another target; unpublish it first")
+		}
+	}
+	target, ok, err := config.FindShareTarget(cfg, base)
+	if err != nil {
+		return config.ShareTarget{}, err
+	}
+	if !ok {
+		// Legacy root-host review files can still perform anonymous/delete-token
+		// operations without borrowing credentials or transport from a default.
+		// Resolve it as an explicit target so CRIT_AUTH_TOKEN still applies to the
+		// already-bound instance, even when that instance is not in config.
+		selected, selectedOK, selectErr := config.SelectShareTarget(base, true, cfg)
+		if selectErr != nil {
+			return config.ShareTarget{}, selectErr
+		}
+		if !selectedOK {
+			return config.ShareTarget{}, errors.New("cannot select the originating Crit instance")
+		}
+		return selected, nil
+	}
+	return target, nil
+}
+
+func proxyAuthCLIError(command string) error {
+	return fmt.Errorf("%s is unavailable for a target with proxy_auth enabled; use Crit's browser interface", command)
 }
 
 func runShareUnderLock(critPath string, files []ShareFile, sharePaths []string, svcURL, authToken, author, org, visibility string, showQR bool) error {
@@ -465,14 +568,21 @@ func runFetchUnderLock(critPath string) error {
 		return clicmd.Usage("Error: no share URL in review file. Run `crit share` first.")
 	}
 
-	authToken := ResolveAuthToken(LoadShareConfig())
+	target, err := resolveOperationTarget(LoadShareConfig(), "", false, cj, true)
+	if err != nil {
+		return err
+	}
+	if target.ProxyAuth {
+		return proxyAuthCLIError("crit fetch")
+	}
+	authToken := target.Auth.Token
 	localIDs := BuildLocalIDSet(cj)
 	localFingerprints, localFingerprintIDs := BuildLocalFingerprintIndex(cj)
 
-	fetched, err := FetchWebComments(cj.ShareURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
+	fetched, err := FetchWebCommentsFromTarget(cj.ShareURL, target.URL, localIDs, localFingerprints, localFingerprintIDs, authToken)
 	if err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
-			handleShareAuthError()
+			handleShareAuthError(target.URL)
 			return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 		return fmt.Errorf("fetching remote comments: %w", err)
@@ -486,6 +596,9 @@ func runFetchUnderLock(critPath string) error {
 
 	if err := MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
 		return fmt.Errorf("saving review file: %w", err)
+	}
+	if cj.ShareBaseURL == "" {
+		_ = bindShareBaseURL(critPath, target.URL)
 	}
 
 	printFetchedComments(fetched.NewComments)
@@ -523,6 +636,7 @@ func parseUnpublishFlags(args []string) (unpublishFlags, error) {
 			}
 			i++
 			f.svcURL = args[i]
+			f.svcURLSet = true
 		default:
 			f.files = append(f.files, arg)
 		}
@@ -532,7 +646,6 @@ func parseUnpublishFlags(args []string) (unpublishFlags, error) {
 
 func applyUnpublishConfigDefaults(f *unpublishFlags, cfg config.Config) {
 	f.configuredOutput = cfg.Output
-	f.svcURL = ResolveShareURL(f.svcURL, cfg, config.DefaultShareURL)
 }
 
 // RunUnpublish removes a shared review from crit-web.
@@ -547,7 +660,6 @@ func RunUnpublish(args []string) error {
 
 	unpubCfg := LoadShareConfig()
 	applyUnpublishConfigDefaults(&f, unpubCfg)
-	unpubAuthToken := ResolveAuthToken(unpubCfg)
 
 	critPath, err := review.ResolveCommandReviewPathWithSessionArgs(f.sessionID, f.outputDir, f.configuredOutput, f.files)
 	if err != nil {
@@ -565,6 +677,15 @@ func RunUnpublish(args []string) error {
 		fmt.Fprintln(os.Stderr, "No shared review found — nothing to unpublish.")
 		return nil
 	}
+	target, err := resolveOperationTarget(unpubCfg, f.svcURL, f.svcURLSet, cj, true)
+	if err != nil {
+		return err
+	}
+	if target.ProxyAuth {
+		return proxyAuthCLIError("crit unpublish")
+	}
+	f.svcURL = target.URL
+	unpubAuthToken := target.Auth.Token
 
 	if err := UnpublishFromWeb(f.svcURL, cj.DeleteToken, unpubAuthToken); err != nil {
 		return err

@@ -836,6 +836,13 @@ body {
 .sd-org-label { display: block; font-size: 12px; font-weight: 600; color: var(--crit-fg-primary); margin-bottom: 8px; letter-spacing: 0.01em; }
 /* Owner radio list */
 .sd-org-owner-list { display: flex; flex-direction: column; border: 1px solid var(--crit-border); border-radius: 8px; overflow: hidden; }
+.sd-target-list { display: flex; flex-direction: column; border: 1px solid var(--crit-border); border-radius: 8px; overflow: hidden; }
+.sd-target-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 12px; border: 0; background: transparent; color: var(--crit-fg-primary); text-align: left; cursor: pointer; font: inherit; }
+.sd-target-option + .sd-target-option { border-top: 1px solid var(--crit-border); }
+.sd-target-option:hover, .sd-target-option:focus-visible { background: var(--crit-option-hover); outline: none; }
+.sd-target-option span:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sd-target-option strong { font-size: 13px; font-weight: 600; }
+.sd-target-option small { color: var(--crit-fg-muted); font-size: 11.5px; line-height: 1.35; }
 .sd-org-owner-option { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; border: 0; background: transparent; transition: background 100ms; text-align: left; font: inherit; color: inherit; width: 100%; }
 .sd-org-owner-option:hover { background: var(--crit-option-hover); }
 .sd-org-owner-option[aria-checked="true"] { background: var(--crit-option-selected-bg); }

@@ -289,7 +289,7 @@ func shareFilesToWeb(files []ShareFile, comments []ShareComment, shareURL string
 	req.Header.Set("Content-Type", "application/json")
 	SetBearer(req, authToken)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("posting to share service: %w", err)
@@ -352,7 +352,7 @@ func UnpublishFromWeb(shareURL string, deleteToken string, authToken string) err
 	req.Header.Set("Content-Type", "application/json")
 	SetBearer(req, authToken)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("contacting share service: %w", err)
@@ -595,6 +595,10 @@ type fetchWebCommentsResult struct {
 // so that web comments matching a previously-imported web-N comment by
 // fingerprint can have their replies merged instead of dropped.
 func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (fetchWebCommentsResult, error) {
+	return fetchWebCommentsFromTarget(shareURL, "", localIDs, localFingerprints, localFingerprintIDs, authToken)
+}
+
+func fetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs map[string]bool, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (fetchWebCommentsResult, error) {
 	var result fetchWebCommentsResult
 	result.ReplyUpdates = make(map[string][]WebReply)
 
@@ -606,7 +610,10 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	if token == "" {
 		return result, fmt.Errorf("invalid share URL: missing /r/<token> path")
 	}
-	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token + "/comments"
+	if shareBaseURL == "" {
+		shareBaseURL = u.Scheme + "://" + u.Host
+	}
+	apiURL := strings.TrimRight(shareBaseURL, "/") + "/api/reviews/" + token + "/comments"
 
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
@@ -614,7 +621,7 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	}
 	SetBearer(req, authToken)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Do(req)
 	if err != nil {
 		return result, fmt.Errorf("fetching remote comments: %w", err)
@@ -699,7 +706,11 @@ func upsertShareToWeb(cfg session.CritJSON, files []ShareFile, comments []ShareC
 	if token == "" {
 		return result, fmt.Errorf("invalid share URL: missing /r/<token> path")
 	}
-	apiURL := u.Scheme + "://" + u.Host + "/api/reviews/" + token
+	baseURL := cfg.ShareBaseURL
+	if baseURL == "" {
+		baseURL = u.Scheme + "://" + u.Host
+	}
+	apiURL := strings.TrimRight(baseURL, "/") + "/api/reviews/" + token
 
 	payload := BuildUpsertPayload(files, comments, cfg.DeleteToken, cfg.ReviewRound, cfg.CliArgs)
 
@@ -715,7 +726,7 @@ func upsertShareToWeb(cfg session.CritJSON, files []ShareFile, comments []ShareC
 	req.Header.Set("Content-Type", "application/json")
 	SetBearer(req, authToken)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Do(req)
 	if err != nil {
 		return result, fmt.Errorf("PUT %s: %w", apiURL, err)
@@ -953,9 +964,30 @@ func updateShareState(critPath string, hash string, reviewRound int) error {
 	return session.SaveCritJSON(critPath, cj)
 }
 
+func bindShareBaseURL(critPath, baseURL string) error {
+	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
+	if err != nil {
+		return err
+	}
+	var cj session.CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
+	}
+	if cj.ShareBaseURL != "" {
+		return nil
+	}
+	cj.ShareBaseURL = baseURL
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return session.SaveCritJSON(critPath, cj)
+}
+
 // persistShareState writes the share URL, delete token, and scope hash to the review file,
 // preserving any existing content.
 func persistShareState(critPath string, shareURL string, deleteToken string, scope string, org, orgName, visibility string) error {
+	return persistShareStateForTarget(critPath, shareURL, "", deleteToken, scope, org, orgName, visibility)
+}
+
+func persistShareStateForTarget(critPath string, shareURL string, shareBaseURL string, deleteToken string, scope string, org, orgName, visibility string) error {
 	var cj session.CritJSON
 	if data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review); err == nil {
 		_ = json.Unmarshal(data, &cj)
@@ -964,6 +996,7 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 		cj.Files = make(map[string]session.CritJSONFile)
 	}
 	cj.ShareURL = shareURL
+	cj.ShareBaseURL = shareBaseURL
 	cj.DeleteToken = deleteToken
 	cj.ShareScope = scope
 	cj.ShareOrg = org
@@ -987,6 +1020,7 @@ func clearShareState(critPath string) error {
 		return fmt.Errorf("invalid review file: %w", err)
 	}
 	cj.ShareURL = ""
+	cj.ShareBaseURL = ""
 	cj.DeleteToken = ""
 	cj.ShareScope = ""
 	cj.LastShareHash = ""

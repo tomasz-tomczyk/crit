@@ -52,26 +52,42 @@
     function dismissToast(id) { return toast.dismiss(id); }
 
     // ---- config (snapshot from options; mutated as share state evolves) ----
-    var shareURL = options.shareURL || '';
+    var shareTargets = Array.isArray(options.shareTargets) ? options.shareTargets.slice() : [];
+    if (shareTargets.length === 0 && options.shareURL) {
+      shareTargets = [{ name: options.shareURL, url: options.shareURL, default: true, proxy_auth: !!options.proxyAuth, auth_user_name: options.authUserName || '', needs_share_consent: !!options.needsShareConsent }];
+    }
+    var shareBaseURL = options.shareBaseURL || '';
+    var selectedTarget = shareBaseURL
+      ? (shareTargets.find(function(t) { return t.url === shareBaseURL; }) || null)
+      : (shareTargets.find(function(t) { return t.default; }) || (shareTargets.length === 1 ? shareTargets[0] : null));
+    var shareURL = selectedTarget ? selectedTarget.url : '';
     var hostedURL = options.hostedURL || '';
     var deleteToken = options.deleteToken || '';
     var hostedToken = options.hostedToken || '';
-    var needsShareConsent = !!options.needsShareConsent;
-    var authUserName = options.authUserName || '';
-    var proxyAuth = !!options.proxyAuth;
+    var needsShareConsent = selectedTarget ? !!selectedTarget.needs_share_consent : !!options.needsShareConsent;
+    var authUserName = selectedTarget ? (selectedTarget.auth_user_name || '') : (options.authUserName || '');
+    var proxyAuth = selectedTarget ? !!selectedTarget.proxy_auth : !!options.proxyAuth;
     var reviewType = options.reviewType || '';
     var sharedOrg = options.sharedOrg || null;
     var sharedVisibility = options.sharedVisibility || '';
 
     // ---- internal share state ----
-    var cachedOrgs = null;
-    var fetchOrgsPromise = null;
-    var cachedSharePolicy = null;
-    var fetchSharePolicyPromise = null;
+    var cachedOrgs = new Map();
+    var fetchOrgsPromise = new Map();
+    var cachedSharePolicy = new Map();
+    var fetchSharePolicyPromise = new Map();
     var shareInFlight = false;
     var shareModalEl = null;
 
     var shareBtnEl = options.shareBtnEl || null;
+
+    function selectTarget(target) {
+      selectedTarget = target;
+      shareURL = target ? target.url : '';
+      proxyAuth = target ? !!target.proxy_auth : false;
+      authUserName = target ? (target.auth_user_name || '') : '';
+      needsShareConsent = target ? !!target.needs_share_consent : false;
+    }
 
     // openShareReceiver(shareURL) opens the crit-web /share-receiver page in a
     // popup and brokers same-origin API calls through it. Fully mode-agnostic.
@@ -220,20 +236,22 @@
     }
 
     async function fetchOrgs() {
-      if (cachedOrgs !== null) return cachedOrgs;
-      if (fetchOrgsPromise) return fetchOrgsPromise;
-      fetchOrgsPromise = (async function() {
+	  const key = shareURL;
+      if (cachedOrgs.has(key)) return cachedOrgs.get(key);
+      if (fetchOrgsPromise.has(key)) return fetchOrgsPromise.get(key);
+      const pending = (async function() {
         try {
-          const resp = await fetch('/api/auth/orgs');
-          if (!resp.ok) { cachedOrgs = []; return cachedOrgs; }
-          cachedOrgs = await resp.json();
+          const resp = await fetch('/api/auth/orgs?target_url=' + encodeURIComponent(key));
+          if (!resp.ok) { cachedOrgs.set(key, []); return []; }
+          cachedOrgs.set(key, await resp.json());
         } catch {
-          cachedOrgs = [];
+          cachedOrgs.set(key, []);
         }
-        fetchOrgsPromise = null;
-        return cachedOrgs;
+        fetchOrgsPromise.delete(key);
+        return cachedOrgs.get(key);
       })();
-      return fetchOrgsPromise;
+      fetchOrgsPromise.set(key, pending);
+      return pending;
     }
 
     const DEFAULT_SHARE_POLICY = {
@@ -261,32 +279,34 @@
     }
 
     function clearSharePolicyCache() {
-      cachedSharePolicy = null;
-      fetchSharePolicyPromise = null;
+      cachedSharePolicy.delete(shareURL);
+      fetchSharePolicyPromise.delete(shareURL);
     }
 
     async function fetchSharePolicy(popupSession) {
-      if (cachedSharePolicy !== null) return cachedSharePolicy;
-      if (fetchSharePolicyPromise) return fetchSharePolicyPromise;
-      fetchSharePolicyPromise = (async function() {
+	  const key = shareURL;
+      if (cachedSharePolicy.has(key)) return cachedSharePolicy.get(key);
+      if (fetchSharePolicyPromise.has(key)) return fetchSharePolicyPromise.get(key);
+      const pending = (async function() {
         try {
           if (popupSession) {
-            cachedSharePolicy = normalizeSharePolicy(await popupSession.run('sharePolicy', {}, 30000));
+            cachedSharePolicy.set(key, normalizeSharePolicy(await popupSession.run('sharePolicy', {}, 30000)));
           } else {
-            const resp = await fetch('/api/share-policy');
+            const resp = await fetch('/api/share-policy?target_url=' + encodeURIComponent(key));
             if (!resp.ok) {
-              cachedSharePolicy = normalizeSharePolicy(null);
-              return cachedSharePolicy;
+              cachedSharePolicy.set(key, normalizeSharePolicy(null));
+              return cachedSharePolicy.get(key);
             }
-            cachedSharePolicy = normalizeSharePolicy(await resp.json());
+            cachedSharePolicy.set(key, normalizeSharePolicy(await resp.json()));
           }
         } catch {
-          cachedSharePolicy = normalizeSharePolicy(null);
+          cachedSharePolicy.set(key, normalizeSharePolicy(null));
         }
-        fetchSharePolicyPromise = null;
-        return cachedSharePolicy;
+        fetchSharePolicyPromise.delete(key);
+        return cachedSharePolicy.get(key);
       })();
-      return fetchSharePolicyPromise;
+      fetchSharePolicyPromise.set(key, pending);
+      return pending;
     }
 
     function sharePolicyAllowsVisibility(policy, visibility) {
@@ -341,6 +361,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               url: result.url,
+              target_url: shareURL,
               delete_token: result.delete_token || '',
               org: org || '',
               org_name: (orgMeta && orgMeta.name) || '',
@@ -354,15 +375,14 @@
           }
           hostedToken = persisted.hosted_token || '';
         } else {
-          const opts = { method: 'POST' };
+          const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+          const shareBody = { target_url: shareURL };
           if (org || visibility) {
-            opts.headers = { 'Content-Type': 'application/json' };
-            const shareBody = {};
             if (org) shareBody.org = org;
             if (visibility) shareBody.visibility = visibility;
             if (orgMeta && orgMeta.name) shareBody.org_name = orgMeta.name;
-            opts.body = JSON.stringify(shareBody);
           }
+          opts.body = JSON.stringify(shareBody);
           const resp = await fetch('/api/share', opts);
           if (!resp.ok) {
             const errBody = await resp.json().catch(function() { return {}; });
@@ -401,8 +421,9 @@
       overlay.setAttribute('aria-modal', 'true');
       overlay.setAttribute('aria-labelledby', 'orgShareTitle');
 
-      const savedOrg = getSetting('shareOrg', '');
-      const savedVis = getSetting('shareVisibility', '');
+      const settingSuffix = ':' + shareURL;
+      const savedOrg = getSetting('shareOrg' + settingSuffix, '');
+      const savedVis = getSetting('shareVisibility' + settingSuffix, '');
       const initials = authUserName
         ? authUserName.split(/\s+/).filter(Boolean).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase()
         : '';
@@ -620,8 +641,8 @@
         const remember = overlay.querySelector('#orgRememberCheck').checked;
 
         if (remember) {
-          setSetting('shareOrg', orgSlug);
-          setSetting('shareVisibility', visibility);
+          setSetting('shareOrg' + settingSuffix, orgSlug);
+          setSetting('shareVisibility' + settingSuffix, visibility);
         }
 
         const orgMeta = orgSlug && selectedOwnerEl
@@ -640,7 +661,7 @@
 
         if (needsShareConsent) {
           try {
-            const cr = await fetch('/api/share-consent', { method: 'POST' });
+            const cr = await fetch('/api/share-consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_url: shareURL }) });
             if (cr.ok) {
               needsShareConsent = false;
             } else {
@@ -698,7 +719,7 @@
       overlay.querySelector('#consentShareBtn').addEventListener('click', async function() {
         this.disabled = true;
         try {
-          const r = await fetch('/api/share-consent', { method: 'POST' });
+          const r = await fetch('/api/share-consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_url: shareURL }) });
           if (r.ok) {
             needsShareConsent = false;
             closeShareModal();
@@ -749,6 +770,7 @@
           '</div>';
 
       let subtitleText = 'Anyone with the link can read it. The page works without an account.';
+	  if (!shareURL && shareBaseURL) subtitleText = 'The originating instance (' + escapeHtml(shareBaseURL) + ') is no longer configured. The existing link is preserved.';
       let orgStripHtml = '';
       if (sharedOrg) {
         const orgName = escapeHtml(sharedOrg.name);
@@ -879,6 +901,7 @@
     async function handlePullComments() {
       const btn = document.getElementById('modalPullBtn');
       if (!btn) return;
+	  if (!shareURL) { showShareError(new Error('originating Crit instance is no longer configured')); return; }
       btn.disabled = true;
       const origLabel = btn.textContent;
       btn.textContent = 'Pulling…';
@@ -938,6 +961,7 @@
     async function handleReshare() {
       const btn = document.getElementById('modalReshareBtn');
       if (!btn) return;
+	  if (!shareURL) { showShareError(new Error('originating Crit instance is no longer configured')); return; }
       btn.disabled = true;
       const origLabel = btn.textContent;
       btn.textContent = 'Re-sharing…';
@@ -993,6 +1017,13 @@
           }
         }
 
+        const bindResp = await fetch('/api/share-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: hostedURL, target_url: shareURL, delete_token: deleteToken }),
+        });
+        if (!bindResp.ok) throw new Error('re-share succeeded but target binding could not be saved');
+
         await onCommentsRefreshed();
         showToast('share', 'success', '<span>Re-shared</span>', { autoDismiss: true });
       } catch (err) {
@@ -1034,6 +1065,7 @@
     }
 
     async function handleUnpublish() {
+	  if (!shareURL) { closeShareModal(); showShareError(new Error('originating Crit instance is no longer configured')); return; }
       const btn = document.getElementById('confirmUnpublishBtn');
       if (btn) { btn.textContent = 'Unpublishing…'; btn.disabled = true; }
 
@@ -1116,17 +1148,8 @@
       });
     }
 
-    async function onShareBtnClick() {
-      // If already shared, toggle modal
-      if (hostedURL) {
-        if (shareModalEl) {
-          closeShareModal();
-        } else {
-          showShareModal();
-        }
-        return;
-      }
-
+    async function beginShareToTarget(target) {
+      selectTarget(target);
       // Open popup synchronously BEFORE any await — Safari blocks popups
       // after async gaps. If we end up showing the org modal instead, close it.
       let popupSession = null;
@@ -1159,6 +1182,57 @@
       performShare('', '', null, popupSession);
     }
 
+    function showDestinationModal() {
+      closeShareModal();
+      const overlay = document.createElement('div');
+      overlay.className = 'share-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-labelledby', 'destinationTitle');
+      const rows = shareTargets.map(function(target, index) {
+        const external = target.url === 'https://crit.md';
+        return '<button class="sd-target-option" data-target-index="' + index + '">' +
+          '<span><strong>' + escapeHtml(target.name || target.url) + '</strong><small>' +
+          escapeHtml(external ? 'External to your organization · Anyone with the link may view' : target.url) +
+          '</small></span><span aria-hidden="true">→</span></button>';
+      }).join('');
+      overlay.innerHTML = '<div class="share-dialog sd-org-dialog"><div class="sd-org-header">' +
+        '<h3 id="destinationTitle" class="sd-org-title">Share review</h3>' +
+        '<button class="sd-org-close" aria-label="Close">×</button></div>' +
+        '<div class="sd-org-body"><div><label class="sd-org-label">Destination</label>' +
+        '<div class="sd-target-list">' + rows + '</div></div></div></div>';
+      document.body.appendChild(overlay);
+      shareModalEl = overlay;
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) closeShareModal(); });
+      overlay.querySelector('.sd-org-close').addEventListener('click', closeShareModal);
+      overlay.querySelectorAll('.sd-target-option').forEach(function(row) {
+        row.addEventListener('click', function() {
+          const target = shareTargets[Number(row.getAttribute('data-target-index'))];
+          closeShareModal();
+          beginShareToTarget(target);
+        });
+      });
+      const first = overlay.querySelector('.sd-target-option');
+      if (first) first.focus();
+    }
+
+    async function onShareBtnClick() {
+      // If already shared, toggle modal. Its saved base URL remains authoritative.
+      if (hostedURL) {
+        if (shareModalEl) closeShareModal(); else showShareModal();
+        return;
+      }
+      if (shareTargets.length > 1) {
+        showDestinationModal();
+        return;
+      }
+      if (!selectedTarget) {
+        showShareError(new Error('sharing is disabled in global configuration'));
+        return;
+      }
+      beginShareToTarget(selectedTarget);
+    }
+
     // Announce copy action to screen readers via live region
     function announceCopy() {
       const el = document.getElementById('copyStatus');
@@ -1174,7 +1248,7 @@
       // reveal() shows the share button iff (shareURL && canShare), and sets
       // the button to the 'shared' state if there's already a hosted URL.
       reveal: function reveal() {
-        if (shareURL && options.canShare) {
+        if ((hostedURL || shareTargets.length > 0) && options.canShare) {
           const btn = shareBtnEl || document.getElementById('shareBtn');
           if (btn) btn.style.display = '';
           if (hostedURL) setShareButtonState('shared');

@@ -63,6 +63,7 @@ type daemonFlagSet struct {
 	noOpen                      bool
 	showVersion                 bool
 	shareURL                    string
+	shareURLSet                 bool
 	proxyAuth                   bool
 	outputDir                   string
 	quiet                       bool
@@ -145,6 +146,12 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		"remote":                               true,
 	})
 	fs.Parse(args)
+	shareURLSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "share-url" {
+			shareURLSet = true
+		}
+	})
 
 	return daemonFlagSet{
 		port:                        *port,
@@ -154,6 +161,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		noOpen:                      *noOpen,
 		showVersion:                 *showVersion,
 		shareURL:                    *shareURL,
+		shareURLSet:                 shareURLSet,
 		outputDir:                   *outputDir,
 		quiet:                       *quiet,
 		noIgnore:                    *noIgnore,
@@ -175,15 +183,30 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	}
 }
 
-func applyDaemonConfigDefaults(sf *daemonFlagSet, cfg config.Config) {
+func applyDaemonConfigDefaults(sf *daemonFlagSet, cfg config.Config) { //nolint:gocyclo // Mirrors documented CLI/env/config precedence.
 	sf.port = config.ResolvePort(sf.port, cfg.Port)
 	sf.host = config.ResolveHost(sf.host, cfg.Host)
 	sf.publicURL = config.ResolvePublicURL(sf.publicURL, cfg)
 	if !sf.noOpen && cfg.NoOpen {
 		sf.noOpen = true
 	}
-	sf.shareURL = config.ResolveShareURL(sf.shareURL, cfg, "")
-	sf.proxyAuth = cfg.ProxyAuth
+	if !sf.shareURLSet {
+		if envURL, ok := os.LookupEnv("CRIT_SHARE_URL"); ok {
+			sf.shareURL = envURL
+		}
+	}
+	if sf.shareURLSet || func() bool { _, ok := os.LookupEnv("CRIT_SHARE_URL"); return ok }() {
+		target, ok, err := config.SelectShareTarget(sf.shareURL, true, cfg)
+		if err == nil && ok {
+			cfg.ShareTargets = []config.ShareTarget{target}
+			sf.shareURL, sf.proxyAuth = target.URL, target.ProxyAuth
+		} else if !ok {
+			cfg.ShareTargets = []config.ShareTarget{}
+			sf.shareURL, sf.proxyAuth = "", false
+		}
+	} else if target, ok, _ := config.SelectShareTarget("", false, cfg); ok {
+		sf.shareURL, sf.proxyAuth = target.URL, target.ProxyAuth
+	}
 	if !sf.quiet && cfg.Quiet {
 		sf.quiet = true
 	}
@@ -217,7 +240,7 @@ func resolveVCSOverride(flagVal, cfgVal string) string {
 // ResolveDaemonCLIConfig parses flags, loads config files, and resolves the
 // final daemon configuration from all sources (CLI > env > config > defaults).
 // Returns nil when the command should exit early (e.g. --version).
-func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) {
+func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:gocyclo // Central CLI configuration resolver.
 	sf := parseDaemonFlags(args)
 
 	if sf.showVersion {
@@ -240,6 +263,27 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) {
 	cfg := config.LoadConfigForCommands(configDir)
 
 	applyDaemonConfigDefaults(&sf, cfg)
+	if sf.shareURLSet {
+		override := sf.shareURL
+		cfg.RuntimeShareURL = &override
+		if sf.shareURL == "" {
+			cfg.ShareTargets = []config.ShareTarget{}
+		} else if target, ok, targetErr := config.SelectShareTarget(sf.shareURL, true, cfg); targetErr != nil {
+			return nil, targetErr
+		} else if ok {
+			cfg.ShareTargets = []config.ShareTarget{target}
+		}
+	} else if envURL, envSet := os.LookupEnv("CRIT_SHARE_URL"); envSet {
+		override := envURL
+		cfg.RuntimeShareURL = &override
+		if envURL == "" {
+			cfg.ShareTargets = []config.ShareTarget{}
+		} else if target, ok, targetErr := config.SelectShareTarget(envURL, true, cfg); targetErr != nil {
+			return nil, targetErr
+		} else if ok {
+			cfg.ShareTargets = []config.ShareTarget{target}
+		}
+	}
 
 	if sf.publicURL != "" {
 		normalized, err := config.NormalizePublicURL(sf.publicURL)

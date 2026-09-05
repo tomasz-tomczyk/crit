@@ -371,6 +371,8 @@
           canShare: true,
           shareBtnEl: shareBtnEl,
           shareURL: cfg.share_url || '',
+          shareTargets: Array.isArray(cfg.share_targets) ? cfg.share_targets : [],
+          shareBaseURL: cfg.share_base_url || '',
           hostedURL: cfg.hosted_url || '',
           deleteToken: cfg.delete_token || '',
           hostedToken: cfg.hosted_token || '',
