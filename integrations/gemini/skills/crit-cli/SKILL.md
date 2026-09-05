@@ -197,15 +197,18 @@ Requires `gh` (GitHub) or `glab` (GitLab) installed and authenticated. Change nu
 
 ```bash
 crit share <file> [file...]                          # Upload and print URL
+crit share --share-url <url> <file>                  # Target a specific Crit deployment
 crit share --qr <file>                               # Also print QR code (terminal only)
 crit share --org <slug> <file>                       # Share under an organization
 crit share --org <slug> --visibility unlisted <file> # Org share with explicit visibility
 crit unpublish [file...]                              # Remove shared review
+crit unpublish --share-url <url> [file...]            # Unpublish from a specific deployment
 ```
 
 - **No server needed** — reads files directly from disk. If a review file exists, comments for the shared files are included automatically.
 - **Always relay the output** — copy the URL (and QR if used) into your response. Don't make the user dig through tool output.
 - **`--qr` is terminal-only** — skip in mobile apps, web chat UIs, or anywhere Unicode block characters won't render correctly.
 - **`--org <slug>`** shares under an organization. Visibility defaults to `organization` (members only). Override with `--visibility` (`organization`, `unlisted`, `public`).
-- **Unpublish uses the persisted delete token** in the review file — no extra args needed.
+- **`--share-url`** selects among configured `share_targets` (or overrides for one invocation). Required when multiple targets are configured and none is marked default. Empty `CRIT_SHARE_URL=` disables sharing for the process.
+- **Unpublish uses the persisted delete token** in the review file — no extra args needed unless targeting a non-default deployment with `--share-url`.
 </important>

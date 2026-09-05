@@ -876,7 +876,9 @@
       .catch(() => { /* fire-and-forget */ });
 
     // Config
-    shareURL = configRes.share_url || '';
+    const configuredShareTargets = Array.isArray(configRes.share_targets) ? configRes.share_targets : [];
+    const initialShareTarget = configuredShareTargets.find(t => t.url === configRes.share_base_url) || configuredShareTargets.find(t => t.default) || (configuredShareTargets.length === 1 ? configuredShareTargets[0] : null);
+    shareURL = initialShareTarget ? initialShareTarget.url : '';
     autoViewedPatterns = Array.isArray(configRes.auto_viewed_patterns) ? configRes.auto_viewed_patterns : [];
     authUserName = configRes.auth_user_name || '';
     configAuthor = configRes.author || '';
@@ -893,6 +895,8 @@
     // hosted URL already exists.
     shareCtl = window.crit.share.create({
       shareURL: shareURL,
+      shareTargets: configuredShareTargets,
+      shareBaseURL: configRes.share_base_url || '',
       hostedURL: configRes.hosted_url || '',
       deleteToken: configRes.delete_token || '',
       hostedToken: configRes.hosted_token || '',

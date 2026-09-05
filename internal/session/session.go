@@ -455,6 +455,7 @@ type Session struct {
 	writeMu             sync.Mutex
 	pendingWrite        bool
 	sharedURL           string
+	shareBaseURL        string
 	deleteToken         string
 	shareScope          string
 	shareOrg            string
@@ -500,6 +501,7 @@ type CritJSON struct {
 	UpdatedAt       string                  `json:"updated_at"`
 	ReviewRound     int                     `json:"review_round"`
 	ShareURL        string                  `json:"share_url,omitempty"`
+	ShareBaseURL    string                  `json:"share_base_url,omitempty"`
 	DeleteToken     string                  `json:"delete_token,omitempty"`
 	ShareScope      string                  `json:"share_scope,omitempty"`
 	ShareOrg        string                  `json:"share_org,omitempty"`
@@ -2032,6 +2034,23 @@ func (s *Session) SetSharedURLAndToken(url, token string) {
 	s.scheduleWrite()
 }
 
+// SetSharedTarget binds the remote URL and delete token to the deployment that
+// issued them.
+func (s *Session) SetSharedTarget(url, baseURL, token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sharedURL = url
+	s.shareBaseURL = baseURL
+	s.deleteToken = token
+	s.scheduleWrite()
+}
+
+func (s *Session) GetShareBaseURL() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shareBaseURL
+}
+
 // SetShareScope stores the scope hash for the current share.
 func (s *Session) SetShareScope(scope string) {
 	s.mu.Lock()
@@ -2426,6 +2445,7 @@ func (s *Session) restoreShareStateLocked(cj *CritJSON) {
 		}
 		if shareScope(paths) == cj.ShareScope {
 			s.sharedURL = cj.ShareURL
+			s.shareBaseURL = cj.ShareBaseURL
 			s.deleteToken = cj.DeleteToken
 			s.shareScope = cj.ShareScope
 			s.shareOrg = cj.ShareOrg
@@ -2436,6 +2456,7 @@ func (s *Session) restoreShareStateLocked(cj *CritJSON) {
 	}
 	if cj.ShareURL != "" {
 		s.sharedURL = cj.ShareURL
+		s.shareBaseURL = cj.ShareBaseURL
 		s.deleteToken = cj.DeleteToken
 		s.shareOrg = cj.ShareOrg
 		s.shareOrgName = cj.ShareOrgName

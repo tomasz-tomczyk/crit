@@ -9,18 +9,131 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
+
+// TestShareSyncMultiInstanceTargets exercises two independently-addressed
+// targets backed by the local crit-web harness. Reverse proxies give each
+// target a distinct canonical URL and traffic counter while preserving a real
+// crit-web on the other side.
+func TestShareSyncMultiInstanceTargets(t *testing.T) {
+	upstream, err := url.Parse(critWebURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTarget := func() (*httptest.Server, *atomic.Int64) {
+		var count atomic.Int64
+		proxy := httputil.NewSingleHostReverseProxy(upstream)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/reviews") {
+				count.Add(1)
+			}
+			proxy.ServeHTTP(w, r)
+		}))
+		return server, &count
+	}
+	targetA, countA := newTarget()
+	defer targetA.Close()
+	targetB, countB := newTarget()
+	defer targetB.Close()
+
+	home := t.TempDir()
+	configBody, _ := json.Marshal(map[string]any{"share_targets": []map[string]any{
+		{"name": "Instance A", "url": targetA.URL},
+		{"name": "Instance B", "url": targetB.URL, "default": true},
+	}})
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binary := critBinary(t)
+	run := func(dir string, args ...string) (string, error) {
+		cmd := exec.Command(binary, args...)
+		cmd.Dir = dir
+		env := make([]string, 0, len(os.Environ())+2)
+		for _, item := range os.Environ() {
+			if strings.HasPrefix(item, "HOME=") || strings.HasPrefix(item, "CRIT_SHARE_URL=") || strings.HasPrefix(item, "CRIT_AUTH_TOKEN=") {
+				continue
+			}
+			env = append(env, item)
+		}
+		cmd.Env = append(env, "HOME="+home, "CRIT_AUTH_TOKEN=")
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	shareOne := func(name, targetURL string) (string, string) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeTestCritJSON(t, dir, CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{"plan.md": {}}})
+		out, err := run(dir, "share", "--share-url", targetURL, "--output", dir, "plan.md")
+		if err != nil {
+			t.Fatalf("share %s failed: %v\n%s", name, err, out)
+		}
+		logReview(t, out)
+		cj := readCritJSON(t, dir)
+		if cj.ShareBaseURL != targetURL {
+			t.Fatalf("%s share_base_url=%q want %q", name, cj.ShareBaseURL, targetURL)
+		}
+		return dir, extractToken(t, out)
+	}
+
+	dirA, _ := shareOne("A", targetA.URL)
+	_, tokenB := shareOne("B", targetB.URL)
+	if countA.Load() == 0 || countB.Load() == 0 {
+		t.Fatalf("expected traffic to both targets: A=%d B=%d", countA.Load(), countB.Load())
+	}
+
+	// Default is B, but re-sharing A without --share-url must remain on A.
+	bBefore := countB.Load()
+	if err := os.WriteFile(filepath.Join(dirA, "plan.md"), []byte("# A round two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(dirA, "share", "--output", dirA, "plan.md")
+	if err != nil {
+		t.Fatalf("bound re-share failed: %v\n%s", err, out)
+	}
+	if countB.Load() != bBefore {
+		t.Fatalf("bound A review contacted default B: before=%d after=%d", bBefore, countB.Load())
+	}
+
+	// Taking A offline must fail locally and never fall back to B.
+	targetA.Close()
+	if err := os.WriteFile(filepath.Join(dirA, "plan.md"), []byte("# A unavailable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bBefore = countB.Load()
+	if out, err = run(dirA, "share", "--output", dirA, "plan.md"); err == nil {
+		t.Fatalf("expected unavailable A to fail, got %s", out)
+	}
+	if countB.Load() != bBefore {
+		t.Fatalf("unavailable A fell back to B: before=%d after=%d", bBefore, countB.Load())
+	}
+
+	// B's independently shared review remains intact.
+	docB := reviewDocFromAPI(t, critWebURL(t), tokenB)
+	filesB, ok := docB["files"].([]any)
+	if !ok || len(filesB) != 1 {
+		t.Fatalf("B document files=%#v, want one file", docB["files"])
+	}
+	fileB, ok := filesB[0].(map[string]any)
+	if !ok || fileB["content"] != "# B\n" {
+		t.Fatalf("B document changed through A routing: %#v", filesB[0])
+	}
+}
 
 func critWebURL(t *testing.T) string {
 	t.Helper()

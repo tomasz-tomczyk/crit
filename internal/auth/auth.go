@@ -30,7 +30,7 @@ func RunAuth(args []string) {
 		runAuthLogin(args[1:])
 	case "logout":
 		runAuthLogout(args[1:])
-	case "whoami":
+	case "whoami", "status":
 		runAuthWhoami(args[1:])
 	default:
 		printAuthUsage()
@@ -44,19 +44,30 @@ func printAuthUsage() {
 	fmt.Fprintln(os.Stderr, "  login     Log in to crit-web")
 	fmt.Fprintln(os.Stderr, "  logout    Log out and revoke token")
 	fmt.Fprintln(os.Stderr, "  whoami    Show current user info")
+	fmt.Fprintln(os.Stderr, "  status    List configured share targets and login state")
 	os.Exit(1)
 }
 
 // authLoginFlags holds parsed flags for crit auth login.
 type authLoginFlags struct {
-	force bool
+	force      bool
+	shareURL   string
+	setDefault bool
 }
 
 func parseAuthLoginFlags(args []string) authLoginFlags {
 	var f authLoginFlags
-	for _, arg := range args {
-		if arg == "--force" {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--force":
 			f.force = true
+		case "--set-default":
+			f.setDefault = true
+		case "--share-url":
+			if i+1 < len(args) {
+				i++
+				f.shareURL = args[i]
+			}
 		}
 	}
 	return f
@@ -65,8 +76,16 @@ func parseAuthLoginFlags(args []string) authLoginFlags {
 func runAuthLogin(args []string) {
 	flags := parseAuthLoginFlags(args)
 	cfg := loadShareConfig()
-	serverURL := config.ResolveShareURL("", cfg, config.DefaultShareURL)
-	existingToken := resolveAuthToken(cfg)
+	target, ok, err := config.SelectShareTarget(flags.shareURL, flags.shareURL != "", cfg)
+	if err != nil || !ok {
+		if err == nil {
+			err = errors.New("no share target selected; use --share-url <instance-url>")
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	serverURL := target.URL
+	existingToken := target.Auth.Token
 
 	if existingToken != "" && !flags.force {
 		if !confirmReauth() {
@@ -90,7 +109,7 @@ func runAuthLogin(args []string) {
 		os.Exit(1)
 	}
 
-	if err := saveAuthSession(token); err != nil {
+	if err := saveAuthSessionForTarget(serverURL, token, flags.setDefault); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving credentials: %v\n", err)
 		os.Exit(1)
 	}
@@ -98,9 +117,7 @@ func runAuthLogin(args []string) {
 	// If the server didn't return a user_id (older crit-web), fetch it now via
 	// /api/auth/whoami so the daemon doesn't need to backfill on first share.
 	if token.UserID == "" {
-		freshCfg := loadShareConfig()
-		freshCfg.AuthToken = token.AccessToken
-		LazyBackfillAuthUserID(&freshCfg, serverURL)
+		LazyBackfillTargetAuth(serverURL)
 	}
 
 	greeting := "Logged in."
@@ -137,7 +154,7 @@ type deviceCodeResponse struct {
 // requestDeviceCode initiates the device flow by requesting a device code.
 func requestDeviceCode(serverURL string) (deviceCodeResponse, error) {
 	var result deviceCodeResponse
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Post(serverURL+"/api/device/code", "application/json", nil)
 	if err != nil {
 		return result, fmt.Errorf("contacting %s: %w", serverURL, err)
@@ -232,7 +249,7 @@ func (r pollResult) nextInterval(current int) int {
 // pollDeviceToken makes a single poll request to the device token endpoint.
 func pollDeviceToken(serverURL string, deviceCode string) (pollResult, error) {
 	body, _ := json.Marshal(map[string]string{"device_code": deviceCode})
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Post(serverURL+"/api/device/token", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return pollResult{}, fmt.Errorf("contacting server: %w", err)
@@ -304,10 +321,44 @@ func saveAuthSession(token tokenResponse) error {
 	})
 }
 
+func saveAuthSessionForTarget(serverURL string, token tokenResponse, setDefault bool) error {
+	canonical, err := config.CanonicalShareURL(serverURL)
+	if err != nil {
+		return err
+	}
+	return config.MutateShareTargets(func(targets *[]config.ShareTarget) error {
+		idx := -1
+		for i := range *targets {
+			if (*targets)[i].URL == canonical {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			*targets = append(*targets, config.ShareTarget{URL: canonical})
+			idx = len(*targets) - 1
+		}
+		(*targets)[idx].Auth = config.TargetAuth{Token: token.AccessToken, UserID: token.UserID, UserName: token.UserName, UserEmail: token.UserEmail}
+		if setDefault {
+			for i := range *targets {
+				(*targets)[i].Default = i == idx
+			}
+		}
+		return nil
+	})
+}
+
 func runAuthLogout(args []string) {
-	_ = args
+	flags := parseAuthLoginFlags(args)
 	cfg := loadShareConfig()
-	token := resolveAuthToken(cfg)
+	target, ok, err := config.SelectShareTarget(flags.shareURL, flags.shareURL != "", cfg)
+	if err != nil || !ok {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		return
+	}
+	token := target.Auth.Token
 
 	if token == "" {
 		fmt.Fprintln(os.Stderr, "  Not logged in.")
@@ -319,13 +370,13 @@ func runAuthLogout(args []string) {
 		return
 	}
 
-	serverURL := config.ResolveShareURL("", cfg, config.DefaultShareURL)
+	serverURL := target.URL
 	// Revoke server-side first while the token is still valid, then clear
 	// local credentials. clearAuthIdentity() removes the token and all
 	// cached identity fields in a single write — keep this in sync with
 	// the 401-handling paths that also call it.
 	revoked := revokeToken(serverURL, token)
-	ClearAuthIdentity()
+	ClearTargetAuth(serverURL)
 
 	if revoked {
 		fmt.Fprintln(os.Stderr, "  Logged out.")
@@ -343,7 +394,7 @@ func revokeToken(serverURL string, token string) bool {
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: config.SameOriginRedirectPolicy}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false
@@ -354,16 +405,42 @@ func revokeToken(serverURL string, token string) bool {
 }
 
 func runAuthWhoami(args []string) {
-	_ = args
+	flags := parseAuthLoginFlags(args)
 	cfg := loadShareConfig()
-	token := resolveAuthToken(cfg)
+	if len(args) == 0 {
+		if targets, err := config.ResolveShareTargets(cfg); err == nil && len(targets) > 1 {
+			for _, target := range targets {
+				identity := "not logged in"
+				switch {
+				case target.ProxyAuth:
+					identity = "proxy/SSO"
+				case target.Auth.UserEmail != "":
+					identity = target.Auth.UserEmail
+				case target.Auth.UserName != "":
+					identity = target.Auth.UserName
+				case target.Auth.Token != "":
+					identity = "authenticated"
+				}
+				fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", target.Name, target.URL, identity)
+			}
+			return
+		}
+	}
+	target, ok, err := config.SelectShareTarget(flags.shareURL, flags.shareURL != "", cfg)
+	if err != nil || !ok {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		return
+	}
+	token := target.Auth.Token
 
 	if token == "" {
 		fmt.Fprintln(os.Stderr, "  Not logged in. Run 'crit auth login' to authenticate.")
 		return
 	}
 
-	serverURL := config.ResolveShareURL("", cfg, config.DefaultShareURL)
+	serverURL := target.URL
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	who, err := fetchWhoami(ctx, serverURL, token)
@@ -396,7 +473,8 @@ func fetchWhoami(ctx context.Context, serverURL string, token string) (whoamiRes
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	// Timeout is owned by the caller's context — don't double-bound via client.Timeout.
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{CheckRedirect: config.SameOriginRedirectPolicy}
+	resp, err := client.Do(req)
 	if err != nil {
 		return result, fmt.Errorf("contacting server: %w", err)
 	}
@@ -487,6 +565,51 @@ func ClearAuthIdentity() {
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to persist credential clear: %v\n", err)
 	}
+}
+
+// ClearTargetAuth clears credentials for one canonical target only.
+func ClearTargetAuth(serverURL string) {
+	canonical, err := config.CanonicalShareURL(serverURL)
+	if err != nil {
+		return
+	}
+	if err := config.MutateShareTargets(func(targets *[]config.ShareTarget) error {
+		for i := range *targets {
+			if (*targets)[i].URL == canonical {
+				(*targets)[i].Auth = config.TargetAuth{}
+				break
+			}
+		}
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to persist credential clear: %v\n", err)
+	}
+}
+
+func LazyBackfillTargetAuth(serverURL string) {
+	cfg := loadShareConfig()
+	target, ok, err := config.FindShareTarget(cfg, serverURL)
+	if err != nil || !ok || target.Auth.Token == "" || target.Auth.UserID != "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	who, err := fetchWhoami(ctx, target.URL, target.Auth.Token)
+	if errors.Is(err, errWhoamiUnauthorized) {
+		ClearTargetAuth(target.URL)
+		return
+	}
+	if err != nil || who.ID == "" {
+		return
+	}
+	_ = config.MutateShareTargets(func(targets *[]config.ShareTarget) error {
+		for i := range *targets {
+			if (*targets)[i].URL == target.URL {
+				(*targets)[i].Auth.UserID, (*targets)[i].Auth.UserName, (*targets)[i].Auth.UserEmail = who.ID, who.Name, who.Email
+			}
+		}
+		return nil
+	})
 }
 
 // errHintAlreadyShown is a sentinel error used by showLoginHint to skip

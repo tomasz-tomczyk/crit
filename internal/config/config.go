@@ -20,26 +20,27 @@ const defaultShareURL = DefaultShareURL
 
 // Config holds all configuration values from config files.
 type Config struct {
-	Port               int      `json:"port,omitempty"`
-	Host               string   `json:"host,omitempty"`       // listen host (default 127.0.0.1)
-	PublicURL          string   `json:"public_url,omitempty"` // advertised base URL (global-only; e.g. tailscale serve)
-	NoOpen             bool     `json:"no_open,omitempty"`
-	OpenCmd            string   `json:"open_cmd,omitempty"`
-	ShareURL           string   `json:"share_url,omitempty"`
-	ProxyAuth          bool     `json:"proxy_auth,omitempty"`
-	Quiet              bool     `json:"quiet,omitempty"`
-	Output             string   `json:"output,omitempty"`
-	Author             string   `json:"author,omitempty"`
-	BaseBranch         string   `json:"base_branch,omitempty"`
-	IgnorePatterns     []string `json:"ignore_patterns,omitempty"`
-	AutoViewedPatterns []string `json:"auto_viewed_patterns,omitempty"`
-	NoIntegrationCheck bool     `json:"no_integration_check,omitempty"`
-	NoUpdateCheck      bool     `json:"no_update_check,omitempty"`
-	AgentCmd           string   `json:"agent_cmd,omitempty"`
-	AuthToken          string   `json:"auth_token,omitempty"`
-	AuthUserName       string   `json:"auth_user_name,omitempty"`
-	AuthUserEmail      string   `json:"auth_user_email,omitempty"`
-	AuthUserID         string   `json:"auth_user_id,omitempty"`
+	Port               int           `json:"port,omitempty"`
+	Host               string        `json:"host,omitempty"`       // listen host (default 127.0.0.1)
+	PublicURL          string        `json:"public_url,omitempty"` // advertised base URL (global-only; e.g. tailscale serve)
+	NoOpen             bool          `json:"no_open,omitempty"`
+	OpenCmd            string        `json:"open_cmd,omitempty"`
+	ShareURL           string        `json:"share_url,omitempty"`
+	ShareTargets       []ShareTarget `json:"share_targets,omitempty"`
+	ProxyAuth          bool          `json:"proxy_auth,omitempty"`
+	Quiet              bool          `json:"quiet,omitempty"`
+	Output             string        `json:"output,omitempty"`
+	Author             string        `json:"author,omitempty"`
+	BaseBranch         string        `json:"base_branch,omitempty"`
+	IgnorePatterns     []string      `json:"ignore_patterns,omitempty"`
+	AutoViewedPatterns []string      `json:"auto_viewed_patterns,omitempty"`
+	NoIntegrationCheck bool          `json:"no_integration_check,omitempty"`
+	NoUpdateCheck      bool          `json:"no_update_check,omitempty"`
+	AgentCmd           string        `json:"agent_cmd,omitempty"`
+	AuthToken          string        `json:"auth_token,omitempty"`
+	AuthUserName       string        `json:"auth_user_name,omitempty"`
+	AuthUserEmail      string        `json:"auth_user_email,omitempty"`
+	AuthUserID         string        `json:"auth_user_id,omitempty"`
 	// PlanApproveMode selects the Claude Code permission mode after a plan-hook
 	// approval. Global-only so a repository cannot weaken a user's permission
 	// policy. Empty leaves Claude Code's current behavior unchanged.
@@ -68,7 +69,10 @@ type Config struct {
 	// inline:/file: forms like prompts, but resolve to an executable instead of
 	// template text. Project-level hooks are gated by the same trust flow as
 	// project prompts (they run arbitrary code).
-	Hooks map[string]string `json:"hooks,omitempty"`
+	Hooks               map[string]string `json:"hooks,omitempty"`
+	shareTargetsPresent bool
+	shareURLPresent     bool
+	RuntimeShareURL     *string `json:"-"`
 }
 
 // needsShareConsent reports whether the user must confirm before sharing.
@@ -116,7 +120,17 @@ func (c Config) NotifyOnRoundReadyEnabled() bool {
 
 // String returns a human-readable JSON representation of the resolved config.
 func (c Config) String() string {
-	data, err := json.MarshalIndent(c, "", "  ")
+	redacted := c
+	if redacted.AuthToken != "" {
+		redacted.AuthToken = "[redacted]"
+	}
+	redacted.ShareTargets = append([]ShareTarget(nil), c.ShareTargets...)
+	for i := range redacted.ShareTargets {
+		if redacted.ShareTargets[i].Auth.Token != "" {
+			redacted.ShareTargets[i].Auth.Token = "[redacted]"
+		}
+	}
+	data, err := json.MarshalIndent(redacted, "", "  ")
 	if err != nil {
 		return "{}"
 	}
@@ -131,16 +145,17 @@ func DefaultConfigString() string {
 // defaultConfig returns a config template with all keys present.
 func defaultConfig() generatedConfig {
 	return generatedConfig{
-		Port:       0,
-		Host:       "127.0.0.1",
-		NoOpen:     false,
-		OpenCmd:    "",
-		ShareURL:   "https://crit.md",
-		ProxyAuth:  false,
-		Quiet:      false,
-		Output:     "",
-		Author:     "",
-		BaseBranch: "",
+		Port:         0,
+		Host:         "127.0.0.1",
+		NoOpen:       false,
+		OpenCmd:      "",
+		ShareURL:     "https://crit.md",
+		ProxyAuth:    false,
+		ShareTargets: []ShareTarget{{Name: "crit.md", URL: DefaultShareURL, Default: true}},
+		Quiet:        false,
+		Output:       "",
+		Author:       "",
+		BaseBranch:   "",
 		IgnorePatterns: []string{
 			"*.lock",
 			"*.min.js",
@@ -164,13 +179,16 @@ func defaultConfig() generatedConfig {
 // auth_token is intentionally excluded — it is global-only and should not appear
 // in project config files where it could be accidentally committed.
 type generatedConfig struct {
-	Port               int               `json:"port"`
-	Host               string            `json:"host"`
-	PublicURL          string            `json:"public_url"`
-	NoOpen             bool              `json:"no_open"`
-	OpenCmd            string            `json:"open_cmd"`
+	Port      int    `json:"port"`
+	Host      string `json:"host"`
+	PublicURL string `json:"public_url"`
+	NoOpen    bool   `json:"no_open"`
+	OpenCmd   string `json:"open_cmd"`
+	// Deprecated singleton fields remain in generated output for one release;
+	// share_targets is authoritative when present.
 	ShareURL           string            `json:"share_url"`
 	ProxyAuth          bool              `json:"proxy_auth"`
+	ShareTargets       []ShareTarget     `json:"share_targets"`
 	Quiet              bool              `json:"quiet"`
 	Output             string            `json:"output"`
 	Author             string            `json:"author"`
@@ -211,6 +229,7 @@ func DefaultConfig() GeneratedConfig {
 // This allows distinguishing "not set" from "explicitly set to empty/zero".
 type ConfigPresence struct {
 	ShareURL           bool
+	ShareTargets       bool
 	IgnorePatterns     bool
 	AutoViewedPatterns bool
 	NoOpen             bool
@@ -241,6 +260,7 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	_, presence.ShareURL = raw["share_url"] // for global config only; project-side ShareURL presence is intentionally ignored by mergeConfigs
+	_, presence.ShareTargets = raw["share_targets"]
 	_, presence.IgnorePatterns = raw["ignore_patterns"]
 	_, presence.AutoViewedPatterns = raw["auto_viewed_patterns"]
 	_, presence.NoOpen = raw["no_open"]
@@ -254,6 +274,8 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 	}
+	cfg.shareURLPresent = presence.ShareURL
+	cfg.shareTargetsPresent = presence.ShareTargets
 	return cfg, presence, nil
 }
 
@@ -263,6 +285,9 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 // Ignore patterns are unioned.
 func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config {
 	merged := global
+	// Sharing destinations and all credentials are global-only.
+	merged.shareURLPresent = global.shareURLPresent
+	merged.shareTargetsPresent = global.shareTargetsPresent
 	if project.Port != 0 {
 		merged.Port = project.Port
 	}
@@ -377,7 +402,7 @@ func mergeProjectHooks(merged *Config, project Config) {
 // file explicitly sets those fields. share_url is global-only — project config
 // cannot override it. To suppress the share_url default, set it to "" in
 // ~/.crit.config.json.
-func LoadConfig(projectDir string) Config {
+func LoadConfig(projectDir string) Config { //nolint:gocyclo // Config precedence is kept explicit for auditability.
 	// 1. Global config
 	global, globalPresence, err := LoadConfigFile(GlobalConfigPath())
 	if err != nil {
@@ -402,8 +427,15 @@ func LoadConfig(projectDir string) Config {
 
 	// 4. Apply runtime defaults for fields not explicitly set in any config file.
 	// share_url is global-only, so only globalPresence controls whether the default applies.
-	if !globalPresence.ShareURL {
-		merged.ShareURL = "https://crit.md"
+	merged.shareURLPresent = globalPresence.ShareURL
+	merged.shareTargetsPresent = globalPresence.ShareTargets
+	if !globalPresence.ShareURL && !globalPresence.ShareTargets {
+		merged.ShareURL = DefaultShareURL
+	}
+	if targets, targetErr := ResolveShareTargets(merged); targetErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: invalid sharing configuration: %v\n", targetErr)
+	} else {
+		merged.ShareTargets = targets
 	}
 	if !globalPresence.IgnorePatterns && !projectPresence.IgnorePatterns {
 		merged.IgnorePatterns = []string{".crit/"}

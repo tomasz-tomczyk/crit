@@ -55,6 +55,7 @@ type writeFilesSnapshot struct {
 	baseRef         string
 	reviewRound     int
 	sharedURL       string
+	shareBaseURL    string
 	deleteToken     string
 	shareScope      string
 	shareOrg        string
@@ -150,6 +151,7 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	cj.ReviewRound = snap.reviewRound
 	cj.ShareURL = snap.sharedURL
+	cj.ShareBaseURL = snap.shareBaseURL
 	cj.DeleteToken = snap.deleteToken
 	cj.ShareScope = snap.shareScope
 	cj.ShareOrg = snap.shareOrg
@@ -234,7 +236,7 @@ func mergeFileSnapshotIntoCritJSON(cj *CritJSON, fs writeFileSnapshot) {
 
 func critJSONIsEmpty(cj CritJSON) bool {
 	return len(cj.Files) == 0 && len(cj.ReviewComments) == 0 &&
-		cj.ShareURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" &&
+		cj.ShareURL == "" && cj.ShareBaseURL == "" && cj.DeleteToken == "" && cj.ShareScope == "" &&
 		cj.Story == nil && len(cj.PendingRemoteDeletes) == 0
 }
 
@@ -354,6 +356,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		baseRef:                 s.BaseRef,
 		reviewRound:             s.ReviewRound,
 		sharedURL:               s.sharedURL,
+		shareBaseURL:            s.shareBaseURL,
 		deleteToken:             s.deleteToken,
 		shareScope:              s.shareScope,
 		shareOrg:                s.shareOrg,

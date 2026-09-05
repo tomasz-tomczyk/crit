@@ -79,6 +79,7 @@ type Server struct {
 	projectDir          string
 	homeDir             string
 	cfg                 Config
+	configConfigured    bool
 	reviewPath          string
 	cliArgs             []string     // positional file args; flags (--pr, --range, etc.) are not preserved
 	prList              *PRListCache // 60s cache for picker "Other PRs"
@@ -462,7 +463,7 @@ func (s *Server) CheckForUpdates() {
 	s.versionMu.Unlock()
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint:gocyclo // Response reflects multiple independent runtime capabilities.
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -472,10 +473,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.versionMu.RUnlock()
 	sess := s.session.Load()
 	shareOrg, shareOrgName, shareVis := sess.GetShareOrgInfo()
+	targets, targetErr := s.resolvedShareTargets()
+	selected, selectedErr := s.targetForRequest("")
+	selectedURL := ""
+	if selectedErr == nil {
+		selectedURL = selected.URL
+	}
 	resp := map[string]interface{}{
-		"share_url":         s.shareURL,
-		"needs_consent":     s.consentNeeded(),
-		"proxy_auth":        s.proxyAuth,
+		"share_targets":     targetMetadata(targets),
+		"share_base_url":    sess.GetShareBaseURL(),
 		"hosted_url":        sess.GetSharedURL(),
 		"hosted_token":      sess.GetToken(),
 		"delete_token":      sess.GetDeleteToken(),
@@ -490,9 +496,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"agent_cmd":         s.agentCmd,
 
 		// Auth status
-		"auth_logged_in":  s.authLoggedIn(),
-		"auth_user_name":  s.authUserName(),
-		"auth_user_email": s.authUserEmail(),
+		"auth_logged_in":  selectedErr == nil && selected.Auth.Token != "",
+		"auth_user_name":  selected.Auth.UserName,
+		"auth_user_email": selected.Auth.UserEmail,
 
 		// Review file path
 		"review_path": s.reviewPath,
@@ -506,6 +512,23 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 		// Available integrations (always included)
 		"integrations_available": availableIntegrations(),
+	}
+	// Compatibility fields for older external consumers; the embedded browser
+	// uses share_targets exclusively.
+	resp["share_url"] = selectedURL
+	resp["proxy_auth"] = selectedErr == nil && selected.ProxyAuth
+	resp["needs_consent"] = selectedErr == nil && selected.NeedsShareConsent()
+	if !s.configConfigured {
+		resp["proxy_auth"] = s.proxyAuth
+		resp["auth_logged_in"] = s.authLoggedIn()
+		resp["auth_user_name"] = s.authUserName()
+		resp["auth_user_email"] = s.authUserEmail()
+	}
+	if targetErr != nil {
+		resp["share_config_error"] = targetErr.Error()
+	}
+	if selectedErr != nil && sess.GetSharedURL() != "" {
+		resp["share_target_warning"] = selectedErr.Error()
 	}
 
 	// Auto-close-after-approve delay, in ms. Omitted entirely when unset (or
@@ -766,10 +789,27 @@ func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := config.SaveGlobalConfig(func(m map[string]json.RawMessage) error {
-		m["share_consented"] = json.RawMessage("true")
-		return nil
-	}); err != nil {
+	var body struct {
+		TargetURL string `json:"target_url"`
+	}
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if body.TargetURL == "" && !s.configConfigured {
+		body.TargetURL = config.DefaultShareURL
+	}
+	var target config.ShareTarget
+	var err error
+	if !s.configConfigured && s.shareURL == "" && body.TargetURL == config.DefaultShareURL {
+		target = config.ShareTarget{URL: config.DefaultShareURL, Name: "crit.md"}
+	} else {
+		target, err = s.targetForRequest(body.TargetURL)
+	}
+	if err != nil || target.URL != config.DefaultShareURL {
+		http.Error(w, "public share target not selected", http.StatusBadRequest)
+		return
+	}
+	if err := config.SaveTargetConsent(target.URL); err != nil {
 		http.Error(w, "failed to persist consent", http.StatusInternalServerError)
 		return
 	}
@@ -816,30 +856,38 @@ func (s *Server) handleProjectPromptTrust(w http.ResponseWriter, r *http.Request
 // flag is false, re-checks the on-disk global config so consent granted by the
 // CLI (crit share) on a separate process is picked up by the running daemon.
 func (s *Server) consentNeeded() bool {
-	s.authMu.RLock()
-	consented := s.cfg.ShareConsented
-	s.authMu.RUnlock()
-	if consented {
-		return false
+	if !s.configConfigured {
+		s.authMu.RLock()
+		consented := s.cfg.ShareConsented
+		s.authMu.RUnlock()
+		if s.shareURL != config.DefaultShareURL || consented {
+			return false
+		}
+		if globalCfg, _, err := config.LoadConfigFile(config.GlobalConfigPath()); err == nil {
+			if targets, resolveErr := config.ResolveShareTargets(globalCfg); resolveErr == nil {
+				for _, target := range targets {
+					if target.URL == config.DefaultShareURL && target.ShareConsented {
+						s.authMu.Lock()
+						s.cfg.ShareConsented = true
+						s.authMu.Unlock()
+						return false
+					}
+				}
+			}
+		}
+		return true
 	}
-	if s.shareURL != config.DefaultShareURL {
-		return false
-	}
-	if globalCfg, _, err := config.LoadConfigFile(config.GlobalConfigPath()); err == nil && globalCfg.ShareConsented {
-		s.authMu.Lock()
-		s.cfg.ShareConsented = true
-		s.authMu.Unlock()
-		return false
-	}
-	return true
+	target, err := s.targetForRequest("")
+	return err == nil && target.NeedsShareConsent()
 }
 
-func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //nolint:gocyclo // Method-specific persistence and target validation share this endpoint.
 	switch r.Method {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 		var body struct {
 			URL         string `json:"url"`
+			TargetURL   string `json:"target_url"`
 			DeleteToken string `json:"delete_token"`
 			Org         string `json:"org"`
 			OrgName     string `json:"org_name"`
@@ -849,12 +897,34 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		s.session.Load().SetSharedURLAndToken(body.URL, body.DeleteToken)
+		if body.TargetURL == "" {
+			targets, _ := s.resolvedShareTargets()
+			if inferred, ok := config.InferShareBaseURL(body.URL, targets); ok {
+				body.TargetURL = inferred
+			}
+		}
+		var target config.ShareTarget
+		var err error
+		if !s.configConfigured && s.shareURL == "" && body.TargetURL != "" {
+			canonical, canonicalErr := config.CanonicalShareURL(body.TargetURL)
+			err = canonicalErr
+			target = config.ShareTarget{URL: canonical, Name: canonical}
+		} else {
+			target, err = s.targetForRequest(body.TargetURL)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		s.session.Load().SetSharedTarget(body.URL, target.URL, body.DeleteToken)
 		s.session.Load().SetShareOrgInfo(body.Org, body.OrgName, body.Visibility)
 		// Persist the share scope from the session's file identity (matches the
 		// direct POST /api/share path) so the shared status is restored on
 		// restart in proxy-auth mode too, not just direct mode.
 		s.session.Load().SetShareScope(share.ShareScope(s.session.Load().FilePathsSnapshot()))
+		if s.configConfigured {
+			_ = config.MutateShareTargets(func(_ *[]config.ShareTarget) error { return nil })
+		}
 		writeJSON(w, map[string]string{
 			"ok":           "true",
 			"hosted_token": tokenFromHostedURL(body.URL),
@@ -864,17 +934,19 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) {
 		// Unpublish from crit-web unless the caller already deleted remotely
 		// (proxy_auth popup path passes local_only=1 after the relay DELETE).
 		localOnly := r.URL.Query().Get("local_only") == "1"
-		if !localOnly && s.shareURL != "" {
-			if _, dt := s.session.Load().GetShareState(); dt != "" {
-				if err := share.UnpublishFromWeb(s.shareURL, dt, s.authTokenSnapshot()); err != nil {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusBadGateway)
-					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-					return
+		if !localOnly {
+			if target, targetErr := s.targetForRequest(""); targetErr == nil {
+				if _, dt := s.session.Load().GetShareState(); dt != "" {
+					if err := share.UnpublishFromWeb(target.URL, dt, target.Auth.Token); err != nil {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusBadGateway)
+						json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+						return
+					}
 				}
 			}
 		}
-		s.session.Load().SetSharedURLAndToken("", "")
+		s.session.Load().SetSharedTarget("", "", "")
 		s.session.Load().SetShareOrgInfo("", "", "")
 		w.WriteHeader(http.StatusNoContent)
 
@@ -925,6 +997,14 @@ func (s *Server) shareCLIArgsForSession(sess *Session) []string {
 }
 
 func (s *Server) writeExistingShareIfPresent(w http.ResponseWriter) (bool, error) {
+	target, err := s.targetForRequest("")
+	if err != nil {
+		return false, err
+	}
+	return s.writeExistingShareForTarget(w, target)
+}
+
+func (s *Server) writeExistingShareForTarget(w http.ResponseWriter, target config.ShareTarget) (bool, error) {
 	// Uses GetShareState() to read both fields under a single lock (avoids TOCTOU race
 	// where a concurrent DELETE /api/share-url could clear the token between two calls).
 	existingURL, existingToken := s.session.Load().GetShareState()
@@ -932,9 +1012,9 @@ func (s *Server) writeExistingShareIfPresent(w http.ResponseWriter) (bool, error
 		return false, nil
 	}
 
-	_, err := share.FetchWebComments(existingURL, map[string]bool{}, map[string]bool{}, map[string]string{}, s.authTokenSnapshot())
+	_, err := share.FetchWebCommentsFromTarget(existingURL, target.URL, map[string]bool{}, map[string]bool{}, map[string]string{}, target.Auth.Token)
 	if errors.Is(err, share.ErrShareNotFound) {
-		s.session.Load().SetSharedURLAndToken("", "")
+		s.session.Load().SetSharedTarget("", "", "")
 		s.session.Load().SetShareScope("")
 		s.session.Load().SetShareOrgInfo("", "", "")
 		return false, nil
@@ -952,32 +1032,11 @@ func (s *Server) writeExistingShareIfPresent(w http.ResponseWriter) (bool, error
 
 // handleShare uploads the current session to crit-web and returns the share URL.
 // POST /api/share
-func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) { //nolint:gocyclo // Sharing coordinates session, target, policy, and persistence checks.
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.shareURL == "" {
-		http.Error(w, "share_url not configured", http.StatusBadRequest)
-		return
-	}
-	if s.consentNeeded() {
-		http.Error(w, "share consent required", http.StatusForbidden)
-		return
-	}
-
-	// Idempotent: if already shared and still present on crit-web, return the
-	// existing URL without uploading. If the remote review was deleted, clear the
-	// stale local state and create a fresh share below.
-	if handled, err := s.writeExistingShareIfPresent(w); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	} else if handled {
-		return
-	}
-
 	// Read file content for the share. Preview sessions crawl the previewed
 	// HTML origin + assets; other sessions use the on-disk review files (kept
 	// current by review.SaveCritJSON). shareFilesForSession is the single source of
@@ -999,6 +1058,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 
 	// Parse optional org + visibility from request body.
 	var shareReq struct {
+		TargetURL  string `json:"target_url"`
 		Org        string `json:"org"`
 		OrgName    string `json:"org_name"`
 		Visibility string `json:"visibility"`
@@ -1008,6 +1068,25 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
+	}
+	target, err := s.targetForRequest(shareReq.TargetURL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if target.NeedsShareConsent() {
+		http.Error(w, "share consent required", http.StatusForbidden)
+		return
+	}
+
+	// Idempotent: existing shares always use their bound target.
+	if handled, err := s.writeExistingShareForTarget(w, target); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	} else if handled {
+		return
 	}
 
 	critPath := s.session.Load().CritJSONPath()
@@ -1025,10 +1104,10 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cliArgs := s.shareCLIArgsForSession(s.session.Load())
-	res, err := share.ShareReviewFilesWithCLIArgs(critPath, files, commentPaths, s.shareURL, s.authTokenSnapshot(), s.author, cliArgs, shareReq.Org, shareReq.Visibility, reviewType)
+	res, err := share.ShareReviewFilesWithCLIArgs(critPath, files, commentPaths, target.URL, target.Auth.Token, s.author, cliArgs, shareReq.Org, shareReq.Visibility, reviewType)
 	if err != nil {
 		if errors.Is(err, share.ErrShareUnauthorized) {
-			auth.ClearAuthIdentity()
+			auth.ClearTargetAuth(target.URL)
 			s.clearAuthState()
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1037,9 +1116,12 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.session.Load().SetSharedURLAndToken(res.URL, res.DeleteToken)
+	s.session.Load().SetSharedTarget(res.URL, target.URL, res.DeleteToken)
 	s.session.Load().SetShareScope(share.ShareScope(scopePaths))
 	s.session.Load().SetShareOrgInfo(shareReq.Org, shareReq.OrgName, shareReq.Visibility)
+	if s.configConfigured {
+		_ = config.MutateShareTargets(func(_ *[]config.ShareTarget) error { return nil })
+	}
 	writeJSON(w, map[string]any{"url": res.URL, "delete_token": res.DeleteToken})
 }
 
@@ -1380,10 +1462,11 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 	}
 
 	existingCfg := CritJSON{
-		ShareURL:    hostedURL,
-		DeleteToken: deleteToken,
-		ReviewRound: sess.ReviewRound,
-		CliArgs:     s.shareCLIArgsForSession(sess),
+		ShareURL:     hostedURL,
+		ShareBaseURL: sess.GetShareBaseURL(),
+		DeleteToken:  deleteToken,
+		ReviewRound:  sess.ReviewRound,
+		CliArgs:      s.shareCLIArgsForSession(sess),
 	}
 	if data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review); readErr == nil {
 		var onDisk CritJSON
@@ -1391,6 +1474,9 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 			existingCfg.LastShareHash = onDisk.LastShareHash
 			if onDisk.ReviewRound > 0 {
 				existingCfg.ReviewRound = onDisk.ReviewRound
+			}
+			if existingCfg.ShareBaseURL == "" {
+				existingCfg.ShareBaseURL = onDisk.ShareBaseURL
 			}
 		}
 	}
@@ -1428,7 +1514,11 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 
 	localIDs := share.BuildLocalIDSet(cj)
 	localFingerprints, localFingerprintIDs := share.BuildLocalFingerprintIndex(cj)
-	fetched, err := share.FetchWebComments(hostedURL, localIDs, localFingerprints, localFingerprintIDs, s.authTokenSnapshot())
+	target, targetErr := s.targetForRequest("")
+	if targetErr != nil {
+		return 0, 0, targetErr
+	}
+	fetched, err := share.FetchWebCommentsFromTarget(hostedURL, target.URL, localIDs, localFingerprints, localFingerprintIDs, target.Auth.Token)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1455,6 +1545,11 @@ func (s *Server) writeShareTransportError(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 	case errors.Is(err, share.ErrShareUnauthorized):
+		if target, terr := s.targetForRequest(""); terr == nil {
+			auth.ClearTargetAuth(target.URL)
+		} else if base := s.session.Load().GetShareBaseURL(); base != "" {
+			auth.ClearTargetAuth(base)
+		}
 		auth.ClearAuthIdentity()
 		s.clearAuthState()
 		w.WriteHeader(http.StatusUnauthorized)
@@ -3123,11 +3218,16 @@ func (s *Server) handleAuthOrgs(w http.ResponseWriter, r *http.Request) {
 
 	emptyArray := func() { writeJSON(w, []any{}) }
 
-	if s.shareURL == "" {
+	target, err := s.targetForRequest(r.URL.Query().Get("target_url"))
+	if err != nil {
+		if r.URL.Query().Has("target_url") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		emptyArray()
 		return
 	}
-	token := s.authTokenSnapshot()
+	token := target.Auth.Token
 	if token == "" {
 		emptyArray()
 		return
@@ -3136,14 +3236,15 @@ func (s *Server) handleAuthOrgs(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.shareURL+"/api/auth/orgs", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL+"/api/auth/orgs", nil)
 	if err != nil {
 		emptyArray()
 		return
 	}
 	share.SetBearer(req, token)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{CheckRedirect: config.SameOriginRedirectPolicy}
+	resp, err := client.Do(req)
 	if err != nil {
 		emptyArray()
 		return
@@ -3175,7 +3276,12 @@ func (s *Server) handleSharePolicy(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if s.shareURL == "" {
+	target, err := s.targetForRequest(r.URL.Query().Get("target_url"))
+	if err != nil {
+		if r.URL.Query().Has("target_url") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		defaultPolicy()
 		return
 	}
@@ -3183,14 +3289,15 @@ func (s *Server) handleSharePolicy(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.shareURL+"/api/share-policy", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL+"/api/share-policy", nil)
 	if err != nil {
 		defaultPolicy()
 		return
 	}
-	share.SetBearer(req, s.authTokenSnapshot())
+	share.SetBearer(req, target.Auth.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{CheckRedirect: config.SameOriginRedirectPolicy}
+	resp, err := client.Do(req)
 	if err != nil {
 		defaultPolicy()
 		return
@@ -3207,30 +3314,55 @@ func (s *Server) handleSharePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authTokenSnapshot() string {
+	if s.configConfigured {
+		if target, err := s.targetForRequest(""); err == nil {
+			return target.Auth.Token
+		}
+	}
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
 	return s.authToken
 }
 
 func (s *Server) authLoggedIn() bool {
+	if s.configConfigured {
+		if target, err := s.targetForRequest(""); err == nil {
+			return target.Auth.Token != ""
+		}
+	}
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
 	return s.authToken != ""
 }
 
 func (s *Server) authUserID() string {
+	if s.configConfigured {
+		if target, err := s.targetForRequest(""); err == nil {
+			return target.Auth.UserID
+		}
+	}
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
 	return s.cfg.AuthUserID
 }
 
 func (s *Server) authUserName() string {
+	if s.configConfigured {
+		if target, err := s.targetForRequest(""); err == nil {
+			return target.Auth.UserName
+		}
+	}
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
 	return s.cfg.AuthUserName
 }
 
 func (s *Server) authUserEmail() string {
+	if s.configConfigured {
+		if target, err := s.targetForRequest(""); err == nil {
+			return target.Auth.UserEmail
+		}
+	}
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
 	return s.cfg.AuthUserEmail

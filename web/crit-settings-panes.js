@@ -420,8 +420,9 @@
         html += '</div></div></div>';
       }
 
+      var settingsTargets = Array.isArray(cfg.share_targets) ? cfg.share_targets : (cfg.share_url ? [{ url: cfg.share_url, auth_logged_in: cfg.auth_logged_in, auth_user_email: cfg.auth_user_email, auth_user_name: cfg.auth_user_name }] : []);
       // Account card
-      if (show.account && cfg.share_url) {
+      if (show.account && settingsTargets.length > 0) {
         if (cfg.auth_logged_in) {
           var display = cfg.auth_user_email || cfg.auth_user_name || 'Logged in';
           html += '<div class="config-card config-card--green"><div class="config-card-header">';
@@ -542,9 +543,8 @@
 
       // Share card
       if (show.share) {
-        if (cfg.share_url) {
-          var hostname;
-          try { hostname = new URL(cfg.share_url).hostname; } catch (_) { hostname = cfg.share_url; }
+        if (settingsTargets.length > 0) {
+          var hostname = settingsTargets.map(function(t) { return t.name || t.url; }).join(' · ');
           html += '<div class="config-card config-card--green"><div class="config-card-header">';
           html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
           html += '<span class="config-card-title">Sharing enabled</span>';

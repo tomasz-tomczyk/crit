@@ -146,26 +146,32 @@ Options:
       --no-open           Do not open a browser
   -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "story", handler: runStory, helpFn: printStoryUsage, bareHelp: true},
-	{name: "auth", handler: runAuth, help: `Usage: crit auth <login|logout|whoami>
+	{name: "auth", handler: runAuth, help: `Usage: crit auth <login|logout|whoami|status>
 
 Manage crit-web authentication.
 
 Commands:
   login     Log in to crit-web
   logout    Log out and revoke the saved token
-  whoami    Show the current user`, subcommands: []commandDescriptor{
-		{name: "login", help: `Usage: crit auth login [--force]
+	  whoami    Show the selected user
+	  status    List configured targets and identities`, subcommands: []commandDescriptor{
+		{name: "login", help: `Usage: crit auth login [--force] [--share-url <url>] [--set-default]
 
 Log in to crit-web with the device authorization flow.
 
 Options:
-      --force  Reauthenticate even when already logged in`},
-		{name: "logout", help: `Usage: crit auth logout
+      --force         Reauthenticate even when already logged in
+      --share-url     Add or update this target
+      --set-default   Make this the sole default target`},
+		{name: "logout", help: `Usage: crit auth logout [--share-url <url>]
 
 Revoke the current token and remove saved credentials.`},
 		{name: "whoami", help: `Usage: crit auth whoami
 
 Show the currently authenticated crit-web user.`},
+		{name: "status", help: `Usage: crit auth status [--share-url <url>]
+
+List configured share targets and their authentication state.`},
 	}},
 	{name: "stop", handler: runStop, help: `Usage: crit stop [--all] [file...]
 

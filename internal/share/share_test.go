@@ -1640,6 +1640,140 @@ func TestResolveAuthToken(t *testing.T) {
 	}
 }
 
+func TestResolveOperationTargetUsesAuthEnvForUnconfiguredBoundTarget(t *testing.T) {
+	t.Setenv("CRIT_AUTH_TOKEN", "bound-token")
+	cj := session.CritJSON{
+		ShareURL:     "http://localhost:4001/r/review-token",
+		ShareBaseURL: "http://localhost:4001",
+	}
+
+	target, err := resolveOperationTarget(config.Config{}, "", false, cj, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.URL != cj.ShareBaseURL {
+		t.Fatalf("URL = %q, want %q", target.URL, cj.ShareBaseURL)
+	}
+	if target.Auth.Token != "bound-token" {
+		t.Fatalf("auth token = %q, want environment override", target.Auth.Token)
+	}
+}
+
+func TestResolveOperationTargetConfirmsAmbiguousLegacyReview(t *testing.T) {
+	cfg := config.Config{ShareTargets: []config.ShareTarget{{
+		Name: "Self-hosted", URL: "https://reviews.example.com/crit",
+	}}}
+	cj := session.CritJSON{ShareURL: "https://legacy.example.com/unknown/r/review-token"}
+
+	target, err := resolveOperationTarget(cfg, "https://reviews.example.com/crit", true, cj, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.URL != "https://reviews.example.com/crit" {
+		t.Fatalf("URL = %q, want configured confirmation target", target.URL)
+	}
+
+	if _, err := resolveOperationTarget(cfg, "https://unconfigured.example.com", true, cj, true); err == nil {
+		t.Fatal("expected an unconfigured legacy target confirmation to fail")
+	}
+}
+
+func TestResolveOperationTargetNewShareAndBoundConflicts(t *testing.T) {
+	orig, had := os.LookupEnv("CRIT_SHARE_URL")
+	os.Unsetenv("CRIT_SHARE_URL")
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("CRIT_SHARE_URL", orig)
+		} else {
+			_ = os.Unsetenv("CRIT_SHARE_URL")
+		}
+	})
+
+	if _, err := resolveOperationTarget(config.Config{ShareTargets: []config.ShareTarget{}}, "", false, session.CritJSON{}, false); err == nil {
+		t.Fatal("expected disabled sharing to fail for new shares")
+	}
+
+	cfg := config.Config{ShareTargets: []config.ShareTarget{
+		{URL: "https://a.example"},
+		{URL: "https://b.example", Default: true},
+	}}
+	cj := session.CritJSON{
+		ShareURL:     "https://a.example/r/tok",
+		ShareBaseURL: "https://a.example",
+	}
+	if _, err := resolveOperationTarget(cfg, "https://b.example", true, cj, true); err == nil {
+		t.Fatal("expected bound/explicit mismatch to fail")
+	}
+	target, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://a.example/r/tok"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.URL != "https://a.example" {
+		t.Fatalf("inferred base = %q", target.URL)
+	}
+}
+
+func TestHandleShareAuthErrorClearsTargetCredentials(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	initial := `{"share_targets":[{"url":"https://auth.example","auth":{"token":"stale","user_id":"u"}}]}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handleShareAuthError("https://auth.example")
+	data, err := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		ShareTargets []struct {
+			Auth struct {
+				Token  string `json:"token"`
+				UserID string `json:"user_id"`
+			} `json:"auth"`
+		} `json:"share_targets"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw.ShareTargets) != 1 || raw.ShareTargets[0].Auth.Token != "" || raw.ShareTargets[0].Auth.UserID != "" {
+		t.Fatalf("auth not cleared: %#v", raw.ShareTargets)
+	}
+}
+
+func TestRunSharePreviewTargetSelection(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runSharePreview(shareFlags{preview: "http://127.0.0.1:3000", svcURLSet: false})
+	if err == nil {
+		t.Fatal("expected disabled sharing error")
+	}
+
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://proxy.example","proxy_auth":true,"default":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = runSharePreview(shareFlags{preview: "http://127.0.0.1:3000", svcURLSet: false})
+	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
+		t.Fatalf("expected proxy_auth error, got %v", err)
+	}
+}
+
+func TestResolveOperationTargetSelectErrors(t *testing.T) {
+	if _, err := resolveOperationTarget(config.Config{ShareTargets: []config.ShareTarget{{URL: "ftp://bad"}}}, "", false, session.CritJSON{}, false); err == nil {
+		t.Fatal("expected invalid target config error")
+	}
+	if _, err := resolveOperationTarget(config.Config{}, "ftp://bad", true, session.CritJSON{ShareURL: "https://x.example/r/t"}, true); err == nil {
+		t.Fatal("expected invalid explicit confirmation URL error")
+	}
+	cfg := config.Config{ShareTargets: []config.ShareTarget{{URL: "https://a.example"}}}
+	if _, err := resolveOperationTarget(cfg, "ftp://bad", true, session.CritJSON{ShareURL: "https://a.example/r/t", ShareBaseURL: "https://a.example"}, true); err == nil {
+		t.Fatal("expected invalid explicit share-url on bound review to fail")
+	}
+}
+
 func TestCommentToShareComment(t *testing.T) {
 	t.Run("basic conversion", func(t *testing.T) {
 		c := Comment{

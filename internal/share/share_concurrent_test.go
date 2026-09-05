@@ -39,6 +39,11 @@ func TestConcurrentShareLock(t *testing.T) {
 			})
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/reviews/token-1/comments" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]any{})
+			return
+		}
 		http.NotFound(w, r)
 	}))
 	defer stub.Close()

@@ -34,6 +34,10 @@ func FetchWebComments(shareURL string, localIDs, localFingerprints map[string]bo
 	return fetchWebComments(shareURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
 }
 
+func FetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (FetchWebCommentsResult, error) {
+	return fetchWebCommentsFromTarget(shareURL, shareBaseURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
+}
+
 func UpsertShareToWeb(cfg session.CritJSON, files []ShareFile, comments []ShareComment, authToken string) (UpsertResult, error) {
 	return upsertShareToWeb(cfg, files, comments, authToken)
 }
@@ -54,6 +58,10 @@ func BuildLocalFingerprintIndex(cj session.CritJSON) (map[string]bool, map[strin
 
 func PersistShareState(critPath, shareURL, deleteToken, scope, org, orgName, visibility string) error {
 	return persistShareState(critPath, shareURL, deleteToken, scope, org, orgName, visibility)
+}
+
+func PersistShareStateForTarget(critPath, shareURL, shareBaseURL, deleteToken, scope, org, orgName, visibility string) error {
+	return persistShareStateForTarget(critPath, shareURL, shareBaseURL, deleteToken, scope, org, orgName, visibility)
 }
 
 func ClearShareState(critPath string) error { return clearShareState(critPath) }
