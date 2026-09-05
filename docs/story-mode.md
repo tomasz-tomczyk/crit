@@ -53,6 +53,22 @@ and opens the browser at the story view.
 generation is prompt-by-reference: Crit writes the full prep file to disk and
 tells the agent to read it. The diff is not pasted into the prompt.
 
+## Token cost
+
+Story generation is **LLM-driven exploration**: the agent reads the prep file,
+may open related source for context, and writes the chapter JSON. That uses
+your agent's tokens (in-session with `/crit-story`, or a separate spawn with
+`agent_cmd`). Crit itself does not bill for stories.
+
+Spend depends more on **how complex and multi-theme the change is** — and how
+much the model explores — than on raw file count or diff size. Cost does
+**not** scale linearly with files or lines changed. Tiny diffs are cheap;
+large multi-theme PRs cost more, but two big diffs can land in a similar
+ballpark if exploration depth is similar.
+
+In our experience, complex PRs (~20–50 files, ~2k–5k lines changed) cost about
+**$1–$1.40** with Claude Opus 5 via `/crit-story`.
+
 ## Common commands
 
 | Command | Use |
