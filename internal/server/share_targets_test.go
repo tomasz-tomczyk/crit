@@ -114,3 +114,35 @@ func TestPullUnauthorizedClearsTargetAuth(t *testing.T) {
 		t.Fatalf("target auth token still present after 401: %s", raw)
 	}
 }
+
+func TestFreshShareConfigRuntimeOverride(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://a.example"},{"url":"https://b.example","default":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, sess := newTestServer(t)
+	s.configConfigured = true
+	s.projectDir = sess.RepoRoot
+	empty := ""
+	s.cfg.RuntimeShareURL = &empty
+	cfg := s.freshShareConfig()
+	targets, err := config.ResolveShareTargets(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 0 {
+		t.Fatalf("empty runtime override should disable targets, got %#v", targets)
+	}
+
+	override := "https://a.example"
+	s.cfg.RuntimeShareURL = &override
+	cfg = s.freshShareConfig()
+	targets, err = config.ResolveShareTargets(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].URL != "https://a.example" {
+		t.Fatalf("runtime override targets=%#v", targets)
+	}
+}

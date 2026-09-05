@@ -1678,6 +1678,69 @@ func TestResolveOperationTargetConfirmsAmbiguousLegacyReview(t *testing.T) {
 	}
 }
 
+func TestResolveOperationTargetNewShareAndBoundConflicts(t *testing.T) {
+	orig, had := os.LookupEnv("CRIT_SHARE_URL")
+	os.Unsetenv("CRIT_SHARE_URL")
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("CRIT_SHARE_URL", orig)
+		} else {
+			_ = os.Unsetenv("CRIT_SHARE_URL")
+		}
+	})
+
+	if _, err := resolveOperationTarget(config.Config{ShareTargets: []config.ShareTarget{}}, "", false, session.CritJSON{}, false); err == nil {
+		t.Fatal("expected disabled sharing to fail for new shares")
+	}
+
+	cfg := config.Config{ShareTargets: []config.ShareTarget{
+		{URL: "https://a.example"},
+		{URL: "https://b.example", Default: true},
+	}}
+	cj := session.CritJSON{
+		ShareURL:     "https://a.example/r/tok",
+		ShareBaseURL: "https://a.example",
+	}
+	if _, err := resolveOperationTarget(cfg, "https://b.example", true, cj, true); err == nil {
+		t.Fatal("expected bound/explicit mismatch to fail")
+	}
+	target, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://a.example/r/tok"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.URL != "https://a.example" {
+		t.Fatalf("inferred base = %q", target.URL)
+	}
+}
+
+func TestHandleShareAuthErrorClearsTargetCredentials(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	initial := `{"share_targets":[{"url":"https://auth.example","auth":{"token":"stale","user_id":"u"}}]}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handleShareAuthError("https://auth.example")
+	data, err := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		ShareTargets []struct {
+			Auth struct {
+				Token  string `json:"token"`
+				UserID string `json:"user_id"`
+			} `json:"auth"`
+		} `json:"share_targets"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw.ShareTargets) != 1 || raw.ShareTargets[0].Auth.Token != "" || raw.ShareTargets[0].Auth.UserID != "" {
+		t.Fatalf("auth not cleared: %#v", raw.ShareTargets)
+	}
+}
+
 func TestCommentToShareComment(t *testing.T) {
 	t.Run("basic conversion", func(t *testing.T) {
 		c := Comment{

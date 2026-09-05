@@ -70,6 +70,49 @@ func TestRunConfig_ShowResolved(t *testing.T) {
 	}
 }
 
+func TestRunConfig_MigrateLegacyShareURL(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	initial := `{"share_url":"https://migrate.example","auth_token":"tok","keep":1}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runErr := RunConfig([]string{"--migrate"})
+	_ = w.Close()
+	os.Stderr = old
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	stderr, _ := io.ReadAll(r)
+	if !strings.Contains(string(stderr), "Migrated sharing configuration") {
+		t.Fatalf("stderr=%q", stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["share_url"]; ok {
+		t.Fatal("share_url should be removed")
+	}
+	var targets []ShareTarget
+	if err := json.Unmarshal(raw["share_targets"], &targets); err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].URL != "https://migrate.example" || targets[0].Auth.Token != "tok" {
+		t.Fatalf("targets=%#v", targets)
+	}
+}
+
 func TestCurrentConfigOutputPrecedence(t *testing.T) {
 	homeDir := t.TempDir()
 	projectDir := t.TempDir()

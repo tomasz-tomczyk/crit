@@ -575,6 +575,31 @@ func TestSession_WriteFiles_SharedURLOnly(t *testing.T) {
 	}
 }
 
+func TestSession_SetSharedTargetPersistsBaseURL(t *testing.T) {
+	s := newTestSession(t)
+	s.SetSharedTarget("https://acme.example/r/tok", "https://acme.example", "delete")
+	if got := s.GetShareBaseURL(); got != "https://acme.example" {
+		t.Fatalf("GetShareBaseURL=%q", got)
+	}
+	if got := s.GetSharedURL(); got != "https://acme.example/r/tok" {
+		t.Fatalf("GetSharedURL=%q", got)
+	}
+
+	flushWrites(s)
+	s.WriteFiles()
+	data, err := os.ReadFile(ReviewPathsFor(s.critJSONPath()).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	if cj.ShareURL != "https://acme.example/r/tok" || cj.ShareBaseURL != "https://acme.example" || cj.DeleteToken != "delete" {
+		t.Fatalf("persisted=%#v", cj)
+	}
+}
+
 func TestSession_LoadCritJSON(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "persisted comment", "", "", "")

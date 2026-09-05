@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -994,5 +995,220 @@ func TestLazyBackfillAuthUserID_Skips(t *testing.T) {
 
 	if got := atomic.LoadInt32(&hits); got != 0 {
 		t.Errorf("expected 0 server hits across skip cases, got %d", got)
+	}
+}
+
+func readShareTargets(t *testing.T, home string) []struct {
+	URL     string `json:"url"`
+	Default bool   `json:"default"`
+	Auth    struct {
+		Token     string `json:"token"`
+		UserID    string `json:"user_id"`
+		UserName  string `json:"user_name"`
+		UserEmail string `json:"user_email"`
+	} `json:"auth"`
+} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(home, ".crit.config.json"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var raw struct {
+		ShareTargets []struct {
+			URL     string `json:"url"`
+			Default bool   `json:"default"`
+			Auth    struct {
+				Token     string `json:"token"`
+				UserID    string `json:"user_id"`
+				UserName  string `json:"user_name"`
+				UserEmail string `json:"user_email"`
+			} `json:"auth"`
+		} `json:"share_targets"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	return raw.ShareTargets
+}
+
+func TestSaveAuthSessionForTarget_CreatesAndDefaults(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	initial := `{
+		"share_targets":[
+			{"name":"A","url":"https://a.example","default":true},
+			{"name":"B","url":"https://b.example"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := saveAuthSessionForTarget("https://B.example/", tokenResponse{
+		AccessToken: "tok-b",
+		UserID:      "uid-b",
+		UserName:    "Bee",
+		UserEmail:   "b@example.com",
+	}, true); err != nil {
+		t.Fatalf("saveAuthSessionForTarget: %v", err)
+	}
+
+	targets := readShareTargets(t, home)
+	if len(targets) != 2 {
+		t.Fatalf("targets=%d, want 2", len(targets))
+	}
+	var gotB, gotA *struct {
+		URL     string `json:"url"`
+		Default bool   `json:"default"`
+		Auth    struct {
+			Token     string `json:"token"`
+			UserID    string `json:"user_id"`
+			UserName  string `json:"user_name"`
+			UserEmail string `json:"user_email"`
+		} `json:"auth"`
+	}
+	for i := range targets {
+		switch targets[i].URL {
+		case "https://a.example":
+			gotA = &targets[i]
+		case "https://b.example":
+			gotB = &targets[i]
+		}
+	}
+	if gotA == nil || gotB == nil {
+		t.Fatalf("missing targets: %#v", targets)
+	}
+	if gotA.Default || !gotB.Default {
+		t.Fatalf("default flags A=%v B=%v", gotA.Default, gotB.Default)
+	}
+	if gotB.Auth.Token != "tok-b" || gotB.Auth.UserID != "uid-b" || gotB.Auth.UserEmail != "b@example.com" {
+		t.Fatalf("B auth = %#v", gotB.Auth)
+	}
+}
+
+func TestSaveAuthSessionForTarget_AppendsMissingTarget(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://a.example"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveAuthSessionForTarget("https://new.example", tokenResponse{AccessToken: "t"}, false); err != nil {
+		t.Fatal(err)
+	}
+	targets := readShareTargets(t, home)
+	if len(targets) != 2 {
+		t.Fatalf("targets=%d, want 2", len(targets))
+	}
+	found := false
+	for _, target := range targets {
+		if target.URL == "https://new.example" && target.Auth.Token == "t" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("new target missing: %#v", targets)
+	}
+}
+
+func TestClearTargetAuth_OnlyClearsMatchingTarget(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	initial := `{
+		"share_targets":[
+			{"url":"https://keep.example","auth":{"token":"keep","user_id":"k"}},
+			{"url":"https://clear.example","auth":{"token":"gone","user_id":"c","user_name":"C","user_email":"c@example.com"}}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ClearTargetAuth("https://clear.example/")
+	ClearTargetAuth("not a url") // invalid input is a no-op
+
+	targets := readShareTargets(t, home)
+	byURL := map[string]struct {
+		Token  string
+		UserID string
+	}{}
+	for _, target := range targets {
+		byURL[target.URL] = struct {
+			Token  string
+			UserID string
+		}{target.Auth.Token, target.Auth.UserID}
+	}
+	if byURL["https://keep.example"].Token != "keep" || byURL["https://keep.example"].UserID != "k" {
+		t.Fatalf("keep target mutated: %#v", byURL["https://keep.example"])
+	}
+	if byURL["https://clear.example"].Token != "" || byURL["https://clear.example"].UserID != "" {
+		t.Fatalf("clear target still has auth: %#v", byURL["https://clear.example"])
+	}
+}
+
+func TestLazyBackfillTargetAuth_FillsIdentity(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/whoami" {
+			t.Errorf("path=%q", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "u-9", "name": "Nine", "email": "nine@example.com"})
+	}))
+	defer srv.Close()
+
+	cfgJSON := fmt.Sprintf(`{"share_targets":[{"url":%q,"auth":{"token":"tok"}}]}`, srv.URL)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(cfgJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	LazyBackfillTargetAuth(srv.URL)
+
+	targets := readShareTargets(t, home)
+	if len(targets) != 1 || targets[0].Auth.UserID != "u-9" || targets[0].Auth.UserName != "Nine" || targets[0].Auth.UserEmail != "nine@example.com" {
+		t.Fatalf("targets=%#v", targets)
+	}
+}
+
+func TestLazyBackfillTargetAuth_UnauthorizedClears(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	cfgJSON := fmt.Sprintf(`{"share_targets":[{"url":%q,"auth":{"token":"bad","user_name":"X"}}]}`, srv.URL)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(cfgJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	LazyBackfillTargetAuth(srv.URL)
+
+	targets := readShareTargets(t, home)
+	if len(targets) != 1 || targets[0].Auth.Token != "" || targets[0].Auth.UserName != "" {
+		t.Fatalf("expected cleared auth, got %#v", targets)
+	}
+}
+
+func TestLazyBackfillTargetAuth_Skips(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	cfgJSON := fmt.Sprintf(`{"share_targets":[{"url":%q,"auth":{"token":"tok","user_id":"already"}}]}`, srv.URL)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(cfgJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	LazyBackfillTargetAuth(srv.URL)
+	LazyBackfillTargetAuth("https://missing.example")
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Fatalf("expected skip, hits=%d", got)
 	}
 }
