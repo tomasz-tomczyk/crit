@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
@@ -23,17 +22,17 @@ func init() {
 	fetchGHUserName = func(login string) (string, error) { return "", nil }
 }
 
+// outputDataRootIdentity returns the review identity folder under dataRoot,
+// matching review.ResolveReviewPath so fixtures land where production code
+// reads them. When a live daemon owns the test cwd, identityUnderDataRoot
+// prefers that session key over a locally re-derived git-mode key.
 func outputDataRootIdentity(t *testing.T, dataRoot string) string {
 	t.Helper()
-	cwd, err := daemon.ResolvedCWD()
+	path, err := review.ResolveReviewPath(dataRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch := ""
-	if vc := vcs.DetectVCS(""); vc != nil {
-		branch = vc.CurrentBranch()
-	}
-	return filepath.Join(dataRoot, "reviews", daemon.SessionKey(cwd, branch, nil))
+	return path
 }
 
 func TestMergeGHComments_BasicConversion(t *testing.T) {
@@ -902,16 +901,7 @@ func TestAddCommentToCritJSON_OutputDir(t *testing.T) {
 		t.Error(".crit.json should not be written to repo root when --output is set")
 	}
 
-	cwd, err := daemon.ResolvedCWD()
-	if err != nil {
-		t.Fatal(err)
-	}
-	branch := ""
-	if vc := vcs.DetectVCS(""); vc != nil {
-		branch = vc.CurrentBranch()
-	}
-	key := daemon.SessionKey(cwd, branch, nil)
-	data, err := os.ReadFile(filepath.Join(outputDir, "reviews", key, "review.json"))
+	data, err := os.ReadFile(filepath.Join(outputDataRootIdentity(t, outputDir), "review.json"))
 	if err != nil {
 		t.Fatalf("expected review under output data root: %v", err)
 	}

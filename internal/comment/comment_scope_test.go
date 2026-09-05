@@ -1,14 +1,11 @@
 package comment
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
-	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 func withDaemonFocus(t *testing.T, f *Focus) {
@@ -25,17 +22,14 @@ func withDaemonFocus(t *testing.T, f *Focus) {
 
 func writeReviewFileWithScope(t *testing.T, dir, scope string) {
 	t.Helper()
-	cwd, err := daemon.ResolvedCWD()
+	// Use ResolveReviewPath so the fixture key matches production path
+	// resolution (including a live daemon session key for this cwd).
+	critPath, err := review.ResolveReviewPath(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch := ""
-	if vc := vcs.DetectVCS(""); vc != nil {
-		branch = vc.CurrentBranch()
-	}
-	key := daemon.SessionKey(cwd, branch, nil)
 	cj := CritJSON{ActiveDiffScope: scope, Files: map[string]CritJSONFile{}}
-	if err := saveCritJSON(filepath.Join(dir, "reviews", key), cj); err != nil {
+	if err := saveCritJSON(critPath, cj); err != nil {
 		t.Fatal(err)
 	}
 }
