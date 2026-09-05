@@ -846,6 +846,7 @@
     // so the shared helper owns read + apply.
     if (window.crit && window.crit.shared) window.crit.shared.applyCodeFontFromCookie();
     initSidebarWidths();
+    setFileTreeCollapsed(getSetting('fileTree', 'open') === 'collapsed');
 
     // Measure actual header height and set CSS variable for sticky offsets
     function updateHeaderHeight() {
@@ -1361,12 +1362,15 @@
 
   function renderFileTree() {
     const panel = document.getElementById('fileTreePanel');
+    const treeToggle = document.getElementById('fileTreeToggle');
     if (files.length <= 1 && session.mode !== 'git') {
       panel.style.display = 'none';
+      treeToggle.style.display = 'none';
       renderMobileFilePicker();
       return;
     }
     panel.style.display = '';
+    treeToggle.style.display = '';
 
     // Stats
     let totalAdd = 0, totalDel = 0;
@@ -9491,6 +9495,37 @@
     return reloadInFlight;
   }
 
+  // ===== File Tree Toggle =====
+  // Collapses the left sidebar; the content then centres at the configured
+  // width (compact/default/wide) instead of going full-bleed.
+  function setFileTreeCollapsed(collapsed, animate) {
+    const panel = document.getElementById('fileTreePanel');
+    // Slide distance = the panel's own width, which the user can resize.
+    // The negative margin shifts the panel without changing its width, so
+    // this measures correctly in both directions.
+    const w = panel.getBoundingClientRect().width;
+    if (w > 0) document.body.style.setProperty('--file-tree-width', w + 'px');
+    if (animate) startFileTreeAnimation();
+    document.body.classList.toggle('file-tree-collapsed', collapsed);
+    document.getElementById('fileTreeToggle').setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    setSetting('fileTree', collapsed ? 'collapsed' : 'open');
+  }
+
+  // Arms the slide transition for the state change that follows. The forced
+  // style flush is the point: a transition declared in the same task as the
+  // change it should animate never runs, because the browser has no
+  // pre-change style with the transition live.
+  function startFileTreeAnimation() {
+    document.body.classList.add('file-tree-anim');
+    document.body.getBoundingClientRect();
+  }
+
+  document.getElementById('fileTreeToggle').addEventListener('click', function() {
+    // Animate user toggles only — a sidebar restored collapsed at load
+    // shouldn't slide in.
+    setFileTreeCollapsed(!document.body.classList.contains('file-tree-collapsed'), true);
+  });
+
   // ===== TOC Toggle =====
   document.getElementById('tocToggle').addEventListener('click', function() {
     const tocEl = document.getElementById('toc');
@@ -9998,6 +10033,13 @@
         refreshHideResolvedView();
         const ht = document.getElementById('hideResolvedToggle');
         if (ht) ht.checked = isHideResolved();
+        break;
+      }
+      case 'toggle_file_tree': {
+        const treeBtn = document.getElementById('fileTreeToggle');
+        if (treeBtn.style.display === 'none') return;
+        e.preventDefault();
+        treeBtn.click();
         break;
       }
       case 'toggle_toc': {

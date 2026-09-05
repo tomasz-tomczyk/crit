@@ -7,7 +7,16 @@ set -e
 # ── Allowlists ──────────────────────────────────────────────────────────────
 
 # Variables set dynamically via JS or intentionally unreferenced
-DEAD_VAR_ALLOWLIST="--font-sans --header-height --p --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out --crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-header-height --crit-r-sm --crit-r-xl --crit-live-composer-bg --crit-live-composer-input-bg --crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow --crit-live-reanchor-active-outline --crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg"
+DEAD_VAR_ALLOWLIST="
+--font-sans --header-height --file-tree-width --p
+--crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out
+--crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-header-height
+--crit-r-sm --crit-r-xl
+--crit-live-composer-bg --crit-live-composer-input-bg
+--crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow
+--crit-live-reanchor-active-outline
+--crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg
+"
 
 # Variables that legitimately exist in only some theme blocks (e.g. hljs vars
 # are scoped to their own selector blocks, not the 4 custom-property blocks)

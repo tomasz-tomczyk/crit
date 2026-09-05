@@ -14,6 +14,83 @@ test.describe('File Tree — Git Mode', () => {
     await expect(panel).toBeVisible();
   });
 
+  test('header toggle hides and restores the file tree', async ({ page }) => {
+    const panel = page.locator('#fileTreePanel');
+    const toggle = page.locator('#fileTreeToggle');
+    await expect(panel).toBeVisible();
+
+    await toggle.click();
+    await expect(panel).toBeHidden();
+    await expect(page.locator('#fileTreeResizer')).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    // Collapsed state survives a reload (persisted in the crit-settings cookie).
+    await loadPage(page);
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+
+    await page.locator('#fileTreeToggle').click();
+    await expect(page.locator('#fileTreePanel')).toBeVisible();
+  });
+
+  test('collapsed tree centres the content instead of stretching it', async ({ page }) => {
+    const openWidth = (await page.locator('.main-content').boundingBox())!.width;
+
+    await page.locator('#fileTreeToggle').click();
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+
+    // The content keeps at least the width it had with the tree open (the
+    // default width setting keeps exactly that width), sits in equal gutters,
+    // and never runs edge to edge. toPass() lets the slide transition settle.
+    await expect(async () => {
+      const layout = await page.locator('.main-layout').boundingBox();
+      const main = await page.locator('.main-content').boundingBox();
+      if (!layout || !main) throw new Error('missing layout boxes');
+      expect(main.width).toBeGreaterThanOrEqual(openWidth - 1);
+      expect(main.width).toBeLessThan(layout.width);
+      const left = main.x - layout.x;
+      const right = (layout.x + layout.width) - (main.x + main.width);
+      expect(Math.abs(left - right)).toBeLessThan(2);
+    }).toPass();
+  });
+
+  test('width setting drives how wide the collapsed content is', async ({ page }) => {
+    // Read the content width once the width transition has settled: poll until
+    // two consecutive measurements agree.
+    const widthOf = async (setting: string) => {
+      await page.evaluate((s) => document.documentElement.setAttribute('data-width', s), setting);
+      let last = -1;
+      await expect.poll(async () => {
+        const box = await page.locator('.main-content').boundingBox();
+        const width = box ? Math.round(box.width) : -1;
+        const settled = width === last;
+        last = width;
+        return settled;
+      }).toBe(true);
+      return last;
+    };
+
+    await page.locator('#fileTreeToggle').click();
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+
+    // compact <= default <= wide, and wide leaves only a thin margin.
+    const compact = await widthOf('compact');
+    const dflt = await widthOf('default');
+    const wide = await widthOf('wide');
+    expect(compact).toBeLessThanOrEqual(dflt);
+    expect(dflt).toBeLessThanOrEqual(wide);
+    const layout = (await page.locator('.main-layout').boundingBox())!;
+    expect(wide).toBeGreaterThan(layout.width * 0.9);
+  });
+
+  test('b toggles the file tree', async ({ page }) => {
+    const panel = page.locator('#fileTreePanel');
+    await expect(panel).toBeVisible();
+    await page.locator('body').press('b');
+    await expect(panel).toBeHidden();
+    await page.locator('body').press('b');
+    await expect(panel).toBeVisible();
+  });
+
   test('file tree lists all files from the session', async ({ page }) => {
     // Git fixture has: plan.md, skill.md, server.go, handler.js, deleted.txt, routes.go, legacy.go (committed)
     // + utils.go, login.feature (staged), config.yaml (untracked) = 10 total
