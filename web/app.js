@@ -9824,7 +9824,7 @@
       hooks.setIgnoreWhitespace = function (v) { ignoreWhitespace = !!v; setSetting('ignoreWhitespace', ignoreWhitespace); };
       hooks.onIgnoreWhitespaceChange = function () { reloadForScope(); };
     }
-shared.renderSettingsTab(pane, {
+    shared.renderSettingsTab(pane, {
       mode: 'code-review',
       cfg: cfg,
       show: isGit ? { ignoreWhitespace: true } : undefined,
