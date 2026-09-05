@@ -64,8 +64,10 @@ Spend depends more on **how complex and multi-theme the change is** — and how
 much the model explores — than on raw file count or diff size. Cost does
 **not** scale linearly with files or lines changed. Tiny diffs are cheap;
 large multi-theme PRs cost more, but two big diffs can land in a similar
-ballpark if exploration depth is similar. Models and pricing move quickly, so
-treat any numbers as a rough indication only.
+ballpark if exploration depth is similar.
+
+In our experience, complex PRs (~20–50 files, ~2k–5k lines changed) cost about
+**$1–$1.40** with Claude Opus 5 via `/crit-story`.
 
 ## Common commands
 

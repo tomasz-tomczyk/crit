@@ -99,8 +99,9 @@ explicitly ask — agents will not infer it from a normal `/crit` review.
 **Alternative:** `crit story` from the terminal uses your global `agent_cmd`
 (separate LLM spend). Generation is LLM-driven exploration — cost depends on
 change complexity more than raw file/diff size, and does not scale linearly.
-See the **[story mode guide](docs/story-mode.md)** for commands, custom
-prompts, JSON shape, and token-cost notes.
+In our experience, complex PRs (~20–50 files, ~2k–5k lines) land around
+$1–$1.40 with Claude Opus 5. See the **[story mode guide](docs/story-mode.md)**
+for commands, custom prompts, JSON shape, and token-cost notes.
 
 ### Live mode
 
