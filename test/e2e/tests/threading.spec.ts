@@ -44,19 +44,22 @@ test.describe('Comment Threading', () => {
     const replyInput = card.locator('.reply-input');
     await expect(replyInput).toBeVisible();
 
+    // Compact: Cancel/Reply stay hidden until focus expands the form.
+    await expect(card.locator('.reply-form-buttons')).toBeHidden();
+
     // Click to expand
     await replyInput.click();
     await expect(card.locator('.reply-textarea')).toBeFocused();
     await expect(card.locator('.reply-form-buttons')).toBeVisible();
 
-    // Escape collapses back to the compact input, but the buttons stay put.
+    // Escape collapses back to the compact input and hides the buttons again.
     await card.locator('.reply-textarea').press('Escape');
     await expect(card.locator('.reply-input')).toBeVisible();
     await expect(card.locator('.reply-textarea')).toHaveCount(0);
-    await expect(card.locator('.reply-form-buttons')).toBeVisible();
+    await expect(card.locator('.reply-form-buttons')).toBeHidden();
   });
 
-  test('send buttons are visible on an open card and hidden with a collapsed one', async ({ page, request }) => {
+  test('send buttons appear on focus and stay hidden when the card is collapsed', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Review this');
     await loadPage(page);
@@ -66,6 +69,9 @@ test.describe('Comment Threading', () => {
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
+    await expect(card.locator('.reply-form-buttons')).toBeHidden();
+
+    await card.locator('.reply-input').click();
     await expect(card.locator('.reply-form-buttons .btn-primary')).toBeVisible();
 
     await card.locator('.comment-collapse-btn').click();
@@ -73,10 +79,12 @@ test.describe('Comment Threading', () => {
     await expect(card.locator('.reply-form-buttons')).toBeHidden();
 
     await card.locator('.comment-collapse-btn').click();
+    await expect(card.locator('.reply-form-buttons')).toBeHidden();
+    await card.locator('.reply-input').click();
     await expect(card.locator('.reply-form-buttons .btn-primary')).toBeVisible();
   });
 
-  test('can send a reply without expanding the box', async ({ page, request }) => {
+  test('can send a reply after expanding the box', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Review this');
     await loadPage(page);
@@ -86,11 +94,12 @@ test.describe('Comment Threading', () => {
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
-    await card.locator('.reply-input').fill('sent without expanding');
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('sent after expanding');
     await card.locator('.reply-form-buttons .btn-primary').click();
 
     await expect(section.locator('.comment-reply')).toHaveCount(1);
-    await expect(section.locator('.reply-body')).toContainText('sent without expanding');
+    await expect(section.locator('.reply-body')).toContainText('sent after expanding');
     await expect(card.locator('.reply-input')).toHaveValue('');
   });
 
