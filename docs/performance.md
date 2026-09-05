@@ -44,9 +44,15 @@ absolute ns/op, only on deltas):
 `.github/workflows/test.yml` runs head-vs-base on the same runner and fails
 only on (see `scripts/bench-compare.py`):
 
-- time/op: statistically significant slowdown **≥ 20%** (benchstat `~` rows ignored).
-- allocs/op: **any** significant increase — allocs are deterministic, so 0→N
-  means a heap escape worth a look. B/op regressions are reported, not gated.
+- time/op: statistically significant slowdown **≥ 20%** (benchstat `~` rows
+  ignored). Rows where either side reports variance **≥ 25%** are ignored
+  with a warning — shared runners produce ±70–90% noise on I/O benches like
+  `ReviewSaveLoad`, and benchstat can still mark those "significant".
+- allocs/op: **any** significant increase on a real benchmark row — allocs are
+  deterministic, so 0→N means a heap escape worth a look. B/op regressions
+  are reported, not gated.
+- Package `geomean` summary rows are never gated (they amplify one noisy bench
+  and float-round into tiny false alloc deltas).
 
 New benchmarks appear in the comparison with no baseline — they report without
 gating until they exist on both sides. A missing baseline fails the job

@@ -5,9 +5,17 @@ Reads benchstat output (from `benchstat old.txt new.txt` where both files are
 `go test -bench=. -benchmem` results) and fails only on:
   - time/op: statistically significant slowdown >= TIME_THRESHOLD_PCT (default 20).
     benchstat marks insignificant rows with `~`; those are ignored.
-  - allocs/op: ANY significant increase. Allocs are deterministic (unlike
-    ns/op on shared runners), so 0 -> N allocs/op always means a heap escape
-    worth a look. Note benchstat prints 0 -> N as `+Inf%`, which counts.
+    Rows where either side reports variance >= VARIANCE_SKIP_PCT (default 25)
+    are ignored — shared CI runners produce ±70–90% noise on I/O-bound
+    benches (e.g. ReviewSaveLoad), and benchstat can still mark those
+    "significant".
+  - allocs/op: ANY significant increase on a real benchmark row. Allocs are
+    deterministic (unlike ns/op on shared runners), so 0 -> N allocs/op
+    always means a heap escape worth a look. Note benchstat prints 0 -> N
+    as `+Inf%`, which counts.
+
+Geomean summary rows are never gated — they amplify one noisy bench into a
+package-wide fail (and float rounding can invent +0.02% allocs deltas).
 
 B/op regressions are printed as warnings but never fail (they usually track
 allocs, which already gate).
@@ -23,6 +31,11 @@ import re
 import sys
 
 TIME_THRESHOLD_PCT = 20.0
+# Skip time/op gating when either side's reported variance is this high.
+# Matches the ±N% annotations benchstat prints next to each mean.
+VARIANCE_SKIP_PCT = 25.0
+
+_VARIANCE_RE = re.compile(r"±\s*(\d+(?:\.\d+)?)%")
 
 
 def parse_threshold(args: list) -> float:
@@ -52,6 +65,12 @@ def delta_pct(line: str) -> float | None:
     return None
 
 
+def max_variance_pct(line: str) -> float | None:
+    """Return the largest ±N% variance annotation on the row, or None."""
+    vals = [float(m.group(1)) for m in _VARIANCE_RE.finditer(line)]
+    return max(vals) if vals else None
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(f"usage: {sys.argv[0]} benchstat.txt [--time-pct 20]", file=sys.stderr)
@@ -61,6 +80,7 @@ def main() -> int:
     time_regs: list = []
     alloc_regs: list = []
     mem_warn: list = []
+    skipped_noisy: list = []
     table = None  # 'time' | 'alloc' | 'mem' | None
     saw_table = False
 
@@ -95,6 +115,9 @@ def main() -> int:
             if low.startswith("name "):
                 table = None
             continue
+        # Package geomean is a summary, not a benchmark — never gate on it.
+        if low.lstrip().startswith("geomean"):
+            continue
         if table is None or "~" in line:
             continue
         # benchstat emits a geomean summary row per table. It aggregates noise
@@ -106,6 +129,10 @@ def main() -> int:
         if pct is None:
             continue
         if table == "time" and pct >= threshold:
+            var = max_variance_pct(line)
+            if var is not None and var >= VARIANCE_SKIP_PCT:
+                skipped_noisy.append(line.rstrip())
+                continue
             time_regs.append(line.rstrip())
         elif table == "alloc" and pct > 0:
             alloc_regs.append(line.rstrip())
@@ -127,6 +154,11 @@ def main() -> int:
         for r in alloc_regs:
             print(f"::error::{r}")
         failed = True
+    for r in skipped_noisy:
+        print(
+            f"::warning::Ignoring noisy time/op delta "
+            f"(variance >= {VARIANCE_SKIP_PCT:g}%): {r}"
+        )
     for r in mem_warn:
         print(f"::warning::B/op increase (informational): {r}")
     if not failed:
