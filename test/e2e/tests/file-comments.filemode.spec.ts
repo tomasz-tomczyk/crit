@@ -70,13 +70,18 @@ test.describe('File-level comments — File Mode', () => {
 
     await card.locator('.comment-actions button[title="Edit"]').click();
 
-    const textarea = section.locator('.file-comments .comment-form textarea').first();
+    // Regression: editing must open one form, not both file compose + inline editor.
+    const forms = section.locator('.file-comments .comment-form');
+    await expect(forms).toHaveCount(1);
+    await expect(forms.locator('.comment-form-header')).toHaveText('Editing file comment');
+
+    const textarea = forms.locator('textarea');
     await expect(textarea).toBeVisible();
     await expect(textarea).toHaveValue('original');
 
     await textarea.clear();
     await textarea.fill('updated');
-    await section.locator('.file-comments .comment-form .btn-primary').first().click();
+    await forms.locator('.btn-primary').click();
 
     await expect(section.locator('.file-comments .comment-card .comment-body')).toContainText('updated');
   });

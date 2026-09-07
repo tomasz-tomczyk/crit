@@ -76,13 +76,20 @@ test.describe('File-level comments — Git Mode', () => {
     // Click Edit
     await card.locator('.comment-actions button[title="Edit"]').click();
 
-    const textarea = section.locator('.file-comments .comment-form textarea').first();
+    // Regression: editing must open one form (inline editor), not both the
+    // file-scope compose form and the inline editor at once.
+    const forms = section.locator('.file-comments .comment-form');
+    await expect(forms).toHaveCount(1);
+    await expect(forms.locator('.comment-form-header')).toHaveText('Editing file comment');
+    await expect(forms.locator('.btn-primary')).toHaveText('Update Comment');
+
+    const textarea = forms.locator('textarea');
     await expect(textarea).toBeVisible();
     await expect(textarea).toHaveValue('original file comment');
 
     await textarea.clear();
     await textarea.fill('updated file comment');
-    await section.locator('.file-comments .comment-form .btn-primary').first().click();
+    await forms.locator('.btn-primary').click();
 
     await expect(section.locator('.file-comments .comment-card .comment-body')).toContainText('updated file comment');
   });

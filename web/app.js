@@ -2828,7 +2828,9 @@
         }
         fileCommentsContainer.appendChild(el);
       }
-      if (fileForm && !isOrphaned) {
+      // Edit-in-progress is rendered in place of the comment card via
+      // createInlineEditor — don't also mount the file compose form.
+      if (fileForm && !isOrphaned && !fileForm.editingId) {
         fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
       }
       section.appendChild(fileCommentsContainer);
@@ -11515,7 +11517,11 @@
         fileComments.forEach(function(comment) {
           fileCommentsContainer.appendChild(comment.resolved ? createResolvedElement(comment, file.path) : createCommentElement(comment, file.path));
         });
-        if (fileForm) fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
+        // Edit-in-progress is rendered in place of the comment card via
+        // createInlineEditor — don't also mount the file compose form.
+        if (fileForm && !fileForm.editingId) {
+          fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
+        }
         section.appendChild(fileCommentsContainer);
       }
     }
