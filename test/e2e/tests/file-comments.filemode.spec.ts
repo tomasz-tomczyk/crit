@@ -74,6 +74,7 @@ test.describe('File-level comments — File Mode', () => {
     const forms = section.locator('.file-comments .comment-form');
     await expect(forms).toHaveCount(1);
     await expect(forms.locator('.comment-form-header')).toHaveText('Editing file comment');
+    await expect(forms.locator('.btn-primary')).toHaveText('Update Comment');
 
     const textarea = forms.locator('textarea');
     await expect(textarea).toBeVisible();

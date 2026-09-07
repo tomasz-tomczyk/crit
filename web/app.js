@@ -2806,7 +2806,9 @@
     const fileComments = isOrphaned
       ? file.comments
       : file.comments.filter(function(c) { return c.scope === 'file'; });
-    const fileForm = getFormsForFile(file.path).find(function(f) { return f.scope === 'file'; });
+    const fileForm = getFormsForFile(file.path).find(function(f) {
+      return f.scope === 'file' && !f.editingId;
+    });
     if (fileComments.length > 0 || (fileForm && !isOrphaned)) {
       const fileCommentsContainer = document.createElement('div');
       fileCommentsContainer.className = 'file-comments';
@@ -2828,9 +2830,9 @@
         }
         fileCommentsContainer.appendChild(el);
       }
-      // Edit-in-progress is rendered in place of the comment card via
-      // createInlineEditor — don't also mount the file compose form.
-      if (fileForm && !isOrphaned && !fileForm.editingId) {
+      // File-comment edits render via createInlineEditor in place of the card.
+      // Only mount the compose form here.
+      if (fileForm && !isOrphaned) {
         fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
       }
       section.appendChild(fileCommentsContainer);
@@ -5179,22 +5181,13 @@
     focusCommentTextarea(newForm.formKey);
   }
 
+  // Compose-only. File-comment edits use createInlineEditor (in place of the card).
   function createFileCommentForm(formObj) {
-    let initialBody = '';
-    if (formObj.editingId) {
-      const file = getFileByPath(formObj.filePath);
-      if (file) {
-        const existing = file.comments.find(function(c) { return c.id === formObj.editingId; });
-        if (existing) initialBody = existing.body;
-      }
-    } else if (formObj.draftBody) {
-      initialBody = formObj.draftBody;
-    }
     return createCommentFormUI({
       formObj: formObj,
-      headerText: formObj.editingId ? 'Editing comment' : 'Comment',
-      submitText: formObj.editingId ? 'Update' : 'Comment',
-      initialBody: initialBody,
+      headerText: 'Comment',
+      submitText: 'Comment',
+      initialBody: formObj.draftBody || '',
       autoFocus: false
     });
   }
@@ -11510,18 +11503,18 @@
 
     if (file) {
       const fileComments = file.comments.filter(function(c) { return c.scope === 'file'; });
-      const fileForm = getFormsForFile(file.path).find(function(f) { return f.scope === 'file'; });
+      const fileForm = getFormsForFile(file.path).find(function(f) {
+        return f.scope === 'file' && !f.editingId;
+      });
       if (fileComments.length > 0 || fileForm) {
         const fileCommentsContainer = document.createElement('div');
         fileCommentsContainer.className = 'file-comments';
         fileComments.forEach(function(comment) {
           fileCommentsContainer.appendChild(comment.resolved ? createResolvedElement(comment, file.path) : createCommentElement(comment, file.path));
         });
-        // Edit-in-progress is rendered in place of the comment card via
-        // createInlineEditor — don't also mount the file compose form.
-        if (fileForm && !fileForm.editingId) {
-          fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
-        }
+        // File-comment edits render via createInlineEditor in place of the card.
+        // Only mount the compose form here.
+        if (fileForm) fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
         section.appendChild(fileCommentsContainer);
       }
     }
