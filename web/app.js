@@ -513,6 +513,13 @@
   function findFormForEdit(commentId) {
     return activeForms.find(function(f) { return f.editingId === commentId; });
   }
+
+  // File compose only — edits use createInlineEditor in place of the card.
+  function getFileComposeForm(filePath) {
+    return getFormsForFile(filePath).find(function(f) {
+      return f.scope === 'file' && !f.editingId;
+    });
+  }
   let selectionStart = null;
   let selectionEnd = null;
   let unifiedVisualStart = null; // visual index range for unified drag (cross-number-space)
@@ -2806,9 +2813,7 @@
     const fileComments = isOrphaned
       ? file.comments
       : file.comments.filter(function(c) { return c.scope === 'file'; });
-    const fileForm = getFormsForFile(file.path).find(function(f) {
-      return f.scope === 'file' && !f.editingId;
-    });
+    const fileForm = getFileComposeForm(file.path);
     if (fileComments.length > 0 || (fileForm && !isOrphaned)) {
       const fileCommentsContainer = document.createElement('div');
       fileCommentsContainer.className = 'file-comments';
@@ -2830,8 +2835,6 @@
         }
         fileCommentsContainer.appendChild(el);
       }
-      // File-comment edits render via createInlineEditor in place of the card.
-      // Only mount the compose form here.
       if (fileForm && !isOrphaned) {
         fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
       }
@@ -5181,7 +5184,6 @@
     focusCommentTextarea(newForm.formKey);
   }
 
-  // Compose-only. File-comment edits use createInlineEditor (in place of the card).
   function createFileCommentForm(formObj) {
     return createCommentFormUI({
       formObj: formObj,
@@ -11503,17 +11505,13 @@
 
     if (file) {
       const fileComments = file.comments.filter(function(c) { return c.scope === 'file'; });
-      const fileForm = getFormsForFile(file.path).find(function(f) {
-        return f.scope === 'file' && !f.editingId;
-      });
+      const fileForm = getFileComposeForm(file.path);
       if (fileComments.length > 0 || fileForm) {
         const fileCommentsContainer = document.createElement('div');
         fileCommentsContainer.className = 'file-comments';
         fileComments.forEach(function(comment) {
           fileCommentsContainer.appendChild(comment.resolved ? createResolvedElement(comment, file.path) : createCommentElement(comment, file.path));
         });
-        // File-comment edits render via createInlineEditor in place of the card.
-        // Only mount the compose form here.
         if (fileForm) fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
         section.appendChild(fileCommentsContainer);
       }
