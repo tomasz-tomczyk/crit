@@ -372,9 +372,9 @@ func runAuthLogout(args []string) {
 
 	serverURL := target.URL
 	// Revoke server-side first while the token is still valid, then clear
-	// local credentials. clearAuthIdentity() removes the token and all
-	// cached identity fields in a single write — keep this in sync with
-	// the 401-handling paths that also call it.
+	// local credentials for this target. ClearTargetAuth removes the token
+	// and cached identity fields for one deployment — keep this in sync with
+	// the 401-handling paths that clear auth.
 	revoked := revokeToken(serverURL, token)
 	ClearTargetAuth(serverURL)
 

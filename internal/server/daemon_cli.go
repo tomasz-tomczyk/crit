@@ -196,12 +196,13 @@ func applyDaemonConfigDefaults(sf *daemonFlagSet, cfg config.Config) { //nolint:
 		}
 	}
 	if sf.shareURLSet || func() bool { _, ok := os.LookupEnv("CRIT_SHARE_URL"); return ok }() {
+		// cfg is passed by value; ShareTargets narrowing happens in
+		// ResolveDaemonCLIConfig on the real Config. Only resolve flag/env
+		// into sf.shareURL / sf.proxyAuth here.
 		target, ok, err := config.SelectShareTarget(sf.shareURL, true, cfg)
 		if err == nil && ok {
-			cfg.ShareTargets = []config.ShareTarget{target}
 			sf.shareURL, sf.proxyAuth = target.URL, target.ProxyAuth
 		} else if !ok {
-			cfg.ShareTargets = []config.ShareTarget{}
 			sf.shareURL, sf.proxyAuth = "", false
 		}
 	} else if target, ok, _ := config.SelectShareTarget("", false, cfg); ok {

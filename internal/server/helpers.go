@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tomasz-tomczyk/crit/internal/auth"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
@@ -82,8 +81,6 @@ func commentsAtOrBeforeRound(comments []Comment, round int) []Comment {
 func recordSessionStats(sess *Session, author string, startedAt time.Time) {
 	session.RecordSessionStats(sess, author, startedAt)
 }
-
-func clearAuthIdentity() { auth.ClearAuthIdentity() }
 
 func filterPathsIgnored(paths []string, patterns []string) []string {
 	return config.FilterPathsIgnored(paths, patterns)

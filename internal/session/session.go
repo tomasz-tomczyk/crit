@@ -2026,12 +2026,9 @@ func (s *Session) GetToken() string {
 }
 
 // SetSharedURLAndToken atomically updates both the shared URL and delete token.
+// Prefer SetSharedTarget when the deployment base URL is known.
 func (s *Session) SetSharedURLAndToken(url, token string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sharedURL = url
-	s.deleteToken = token
-	s.scheduleWrite()
+	s.SetSharedTarget(url, "", token)
 }
 
 // SetSharedTarget binds the remote URL and delete token to the deployment that

@@ -793,7 +793,10 @@ func (s *Server) handleShareConsent(w http.ResponseWriter, r *http.Request) {
 		TargetURL string `json:"target_url"`
 	}
 	if r.Body != nil && r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
 	}
 	if body.TargetURL == "" && !s.configConfigured {
 		body.TargetURL = config.DefaultShareURL

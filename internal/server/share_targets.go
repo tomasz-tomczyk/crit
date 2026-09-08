@@ -30,7 +30,11 @@ func (s *Server) freshShareConfig() config.Config {
 			cfg.RuntimeShareURL = &override
 			if override == "" {
 				cfg.ShareTargets = []config.ShareTarget{}
-			} else if target, ok, err := config.SelectShareTarget(override, true, cfg); err == nil && ok {
+			} else if target, ok, err := config.SelectShareTarget(override, true, cfg); err != nil || !ok {
+				// Invalid/failed override must not leave RuntimeShareURL pointing
+				// at the full configured target list (same outcome as disable).
+				cfg.ShareTargets = []config.ShareTarget{}
+			} else {
 				cfg.ShareTargets = []config.ShareTarget{target}
 			}
 		}
@@ -41,6 +45,8 @@ func (s *Server) freshShareConfig() config.Config {
 
 func (s *Server) resolvedShareTargets() ([]config.ShareTarget, error) {
 	if !s.configConfigured {
+		// NewServer's legacy constructor is widely used by embedders/tests.
+		// Treat its explicit URL as one ephemeral target when daemon config is absent.
 		if s.shareURL == "" {
 			return []config.ShareTarget{}, nil
 		}
@@ -51,32 +57,7 @@ func (s *Server) resolvedShareTargets() ([]config.ShareTarget, error) {
 		return []config.ShareTarget{{Name: canonical, URL: canonical, Default: true, ProxyAuth: s.proxyAuth, ShareConsented: s.cfg.ShareConsented, Auth: config.TargetAuth{Token: s.authTokenSnapshot(), UserID: s.cfg.AuthUserID, UserName: s.cfg.AuthUserName, UserEmail: s.cfg.AuthUserEmail}}}, nil
 	}
 	cfg := s.freshShareConfig()
-	targets, err := config.ResolveShareTargets(cfg)
-	if err != nil {
-		return nil, err
-	}
-	// NewServer's legacy constructor is widely used by embedders/tests. Treat
-	// its explicit URL as one ephemeral target when daemon config is absent.
-	if !s.configConfigured && s.shareURL != "" {
-		canonical, canonicalErr := config.CanonicalShareURL(s.shareURL)
-		if canonicalErr != nil {
-			return nil, canonicalErr
-		}
-		found := false
-		for i := range targets {
-			if targets[i].URL == canonical {
-				targets[i].ProxyAuth = s.proxyAuth
-				if targets[i].Auth.Token == "" {
-					targets[i].Auth.Token = s.authTokenSnapshot()
-				}
-				found = true
-			}
-		}
-		if !found {
-			targets = []config.ShareTarget{{Name: canonical, URL: canonical, Default: true, ProxyAuth: s.proxyAuth, Auth: config.TargetAuth{Token: s.authTokenSnapshot(), UserID: s.cfg.AuthUserID, UserName: s.cfg.AuthUserName, UserEmail: s.cfg.AuthUserEmail}, ShareConsented: s.cfg.ShareConsented}}
-		}
-	}
-	return targets, nil
+	return config.ResolveShareTargets(cfg)
 }
 
 func (s *Server) targetForRequest(requested string) (config.ShareTarget, error) { //nolint:gocyclo // Bound, requested, and default target rules are intentionally explicit.

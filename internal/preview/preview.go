@@ -145,8 +145,18 @@ func buildPreviewStartArgs(absPath string, port int, host, publicURL string, all
 		AllowUnauthenticatedNetwork: allowUnauthNet,
 		NoOpen:                      noOpen,
 		Quiet:                       quiet,
-		ShareURL:                    config.ResolveShareURL(shareURL, cfg, config.DefaultShareURL),
+		ShareURL:                    resolvePreviewShareURL(shareURL, cfg),
 	})
+}
+
+// resolvePreviewShareURL mirrors daemon_cli / SelectShareTarget so share_targets-only
+// config (post-migrate, share_url deleted) reaches the daemon instead of forcing crit.md.
+func resolvePreviewShareURL(flagValue string, cfg config.Config) string {
+	target, ok, err := config.SelectShareTarget(flagValue, flagValue != "", cfg)
+	if err != nil || !ok {
+		return ""
+	}
+	return target.URL
 }
 
 func installDaemonSignalHandler(pid int) {
