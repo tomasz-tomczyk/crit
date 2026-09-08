@@ -35,7 +35,25 @@ crit story --story-file /tmp/crit-story.json
 
 Fix coverage failures and retry. On drift, re-prep and re-author.
 
-## Out of scope
+## Step 5: Reconnect and wait for Finish Review
 
-Do not call `crit comment`, `crit push`, or `crit share`. Do not leave review
-comments. Do not fold this into the `/crit` review loop.
+**CRITICAL.** Ingest opens the UI and exits. Run bare `crit` and wait until it
+exits (same wait mechanics as the `/crit` / `crit` skill for this agent). Do
+not proceed until Finish Review.
+
+```bash
+crit
+```
+
+## Steps 6–8: Review cycle
+
+Same loop as `/crit`: read finish stdout → address comments on **source files**
+(not the story JSON) with `crit comment --reply-to` → run `crit` again for the
+next round → stop when approved.
+
+## Out of scope during authoring
+
+- Do not produce agent-authored review comments while writing the story.
+- Do not run bare `crit story` (LLM via `agent_cmd`) unless the user asks.
+- After ingest, enter the normal review cycle (Steps 5–8); do not edit the
+  saved story JSON unless the user explicitly asks.

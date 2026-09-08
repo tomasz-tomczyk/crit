@@ -23,6 +23,8 @@ After `crit install <tool>`, invoke the story skill explicitly (for example
 1. Runs `crit story --guide` and `crit story --prep <path>`
 2. Authors `prologue` / `chapters` / `support` JSON
 3. Ingests with `crit story --story-file <path>` and opens the story view
+4. Runs bare `crit` to wait for Finish Review, then addresses comments on
+   source files and loops rounds — the same cycle as `/crit`
 
 Agents must not infer story generation from a generic review or `/crit`
 request — only from an explicit story invoke or a direct ask to generate a

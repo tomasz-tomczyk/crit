@@ -1,4 +1,4 @@
-description = "Author a crit story (chaptered diff overview). Use only when the user explicitly invokes /crit-story or directly asks to generate a crit story."
+description = "Author a crit story (chaptered diff overview) and continue the interactive review loop. Use only when the user explicitly invokes /crit-story or directly asks to generate a crit story."
 prompt = """
 # Author a crit story with `crit story`
 
@@ -7,7 +7,8 @@ generate a crit story. Do not infer it from generic review, PR, `/crit`, or
 diff-review requests.
 
 Primary path: author in-session with `--guide` / `--prep` / `--story-file`
-(do **not** run bare `crit story`, which spends `agent_cmd` tokens).
+(do **not** run bare `crit story`, which spends `agent_cmd` tokens), then run
+bare `crit` to listen for Finish Review.
 
 ## Step 1: Fetch the guide
 
@@ -36,13 +37,28 @@ Cluster hunks by theme (not by file). Write JSON with **only** `prologue`,
 crit story --story-file /tmp/crit-story.json
 ```
 
-Exit 0 = saved (browser opens). Exit 1 = rejected — fix coverage and retry.
-On drift, re-run `--prep` and re-author.
+Exit 0 = saved (browser opens) — then continue to Step 5. Exit 1 = rejected —
+fix coverage and retry. On drift, re-run `--prep` and re-author.
+
+## Step 5: Reconnect and wait for Finish Review
+
+**CRITICAL.** Ingest opens the UI and exits. Run bare `crit` and wait until it
+exits. Do not proceed until Finish Review.
+
+```bash
+crit
+```
+
+## Steps 6–8: Review cycle
+
+Same loop as `/crit`: read finish stdout → address comments on **source files**
+(not the story JSON) with `crit comment --reply-to` → run `crit` again for the
+next round → stop when approved.
 
 ## What this does NOT do
 
-- Does not call `crit comment`, `crit push`, or `crit share`
-- Does not produce review comments
-- Does not run inside the `/crit` review loop
+- Does not produce agent-authored review comments during story authoring
+- Does not edit or regenerate the saved story JSON during the review loop
+  unless the user explicitly asks
 - Does not run bare `crit story` unless the user explicitly asks for that path
 """
