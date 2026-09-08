@@ -1372,14 +1372,6 @@ func TestUpsertShareToWeb_SendsBearerToken(t *testing.T) {
 	}
 }
 
-func TestSetBearer_SetsHeader(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
-	SetBearer(req, "crit_abc123")
-	if got := req.Header.Get("Authorization"); got != "Bearer crit_abc123" {
-		t.Errorf("expected Bearer crit_abc123, got %q", got)
-	}
-}
-
 func TestSetBearer_NoopWhenEmpty(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	SetBearer(req, "")

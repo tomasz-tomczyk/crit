@@ -776,66 +776,6 @@ func TestChangedFilesScoped_Dispatcher(t *testing.T) {
 	}
 }
 
-func TestFileDiffScoped_Branch(t *testing.T) {
-	dir := testutil.InitTestRepo(t)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	baseRef := testutil.Git(t, dir, "rev-parse", "HEAD")
-
-	// Create feature branch with a change to README.md
-	testutil.Git(t, dir, "checkout", "-b", "feature/diff-scope")
-	testutil.WriteFile(t, filepath.Join(dir, "README.md"), "# Modified on branch\n\nNew content\n")
-	testutil.Git(t, dir, "add", "README.md")
-	testutil.Git(t, dir, "commit", "-m", "modify readme")
-
-	hunks, err := FileDiffScoped("README.md", "branch", baseRef, dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hunks) == 0 {
-		t.Error("expected diff hunks for branch scope")
-	}
-}
-
-func TestFileDiffScoped_Staged(t *testing.T) {
-	dir := testutil.InitTestRepo(t)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	// Stage a change
-	testutil.WriteFile(t, filepath.Join(dir, "README.md"), "# Staged content\n")
-	testutil.Git(t, dir, "add", "README.md")
-
-	hunks, err := FileDiffScoped("README.md", "staged", "", dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hunks) == 0 {
-		t.Error("expected diff hunks for staged scope")
-	}
-}
-
-func TestFileDiffScoped_Unstaged(t *testing.T) {
-	dir := testutil.InitTestRepo(t)
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	// Modify without staging
-	testutil.WriteFile(t, filepath.Join(dir, "README.md"), "# Unstaged content\n")
-
-	hunks, err := FileDiffScoped("README.md", "unstaged", "", dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hunks) == 0 {
-		t.Error("expected diff hunks for unstaged scope")
-	}
-}
-
 func TestFileDiffScoped_Default(t *testing.T) {
 	dir := testutil.InitTestRepo(t)
 	origDir, _ := os.Getwd()

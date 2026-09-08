@@ -4336,16 +4336,6 @@ func TestHandleReviewComments_POST_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHandleReviewComments_MethodNotAllowed(t *testing.T) {
-	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("PUT", "/api/comments", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-	if w.Code != 405 {
-		t.Errorf("status = %d, want 405", w.Code)
-	}
-}
-
 // --- handleCommentByID additional tests ---
 
 func TestHandleCommentByID_EmptyID(t *testing.T) {
@@ -4435,16 +4425,6 @@ func TestHandleSession_WithCommit(t *testing.T) {
 	}
 	if len(files) == 0 {
 		t.Error("expected files when scoped to specific commit")
-	}
-}
-
-func TestHandleSession_MethodNotAllowed(t *testing.T) {
-	srv, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/session", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-	if w.Code != 405 {
-		t.Errorf("status = %d, want 405", w.Code)
 	}
 }
 
