@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, addComment } from './helpers';
+import { clearAllComments, loadPage, addComment, waitForScrollStable } from './helpers';
 
 // Rebuilding every file section hands back deferred (empty) bodies, so the
 // document collapses shorter than the current offset and the browser clamps the
@@ -26,7 +26,7 @@ test.describe('Scroll position across comment updates', () => {
     // Park the thread mid-viewport and let deferred bodies settle so the
     // measurement below isn't racing the mount observer.
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-    await page.waitForTimeout(500);
+    await waitForScrollStable(page);
     const before = await card.evaluate(el => ({
       scrollY: window.scrollY,
       top: el.getBoundingClientRect().top,
@@ -39,7 +39,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await expect(card.locator('.comment-reply')).toHaveCount(1);
     // The jump happened when the SSE event landed, after the local re-render.
-    await page.waitForTimeout(1500);
+    await waitForScrollStable(page);
 
     const after = await card.evaluate(el => ({
       scrollY: window.scrollY,
@@ -64,7 +64,7 @@ test.describe('Scroll position across comment updates', () => {
     await expect(card).toBeVisible();
 
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-    await page.waitForTimeout(500);
+    await waitForScrollStable(page);
     // The card itself disappears, so anchor the measurement to its file section.
     const before = await section.evaluate(el => ({
       scrollY: window.scrollY,
@@ -74,7 +74,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await card.locator('.comment-actions .delete-btn').click();
     await expect(page.locator('.comment-card')).toHaveCount(0);
-    await page.waitForTimeout(1500);
+    await waitForScrollStable(page);
 
     const after = await section.evaluate(el => ({
       scrollY: window.scrollY,
@@ -91,7 +91,7 @@ test.describe('Scroll position across comment updates', () => {
     await loadPage(page);
 
     await page.evaluate(() => window.scrollTo({ top: 2000, behavior: 'instant' }));
-    await page.waitForTimeout(500);
+    await waitForScrollStable(page);
 
     const before = await page.evaluate(() => {
       const sections = [...document.querySelectorAll('#filesContainer .file-section[id]')];
@@ -104,8 +104,12 @@ test.describe('Scroll position across comment updates', () => {
     expect(before).toBeTruthy();
     expect(before!.scrollY).toBeGreaterThan(100);
 
+    const wasHidden = await page.evaluate(() => document.body.classList.contains('hide-resolved'));
     await page.keyboard.press('h');
-    await page.waitForTimeout(300);
+    // Hide-resolved is a CSS class toggle on <body> — wait for it to flip.
+    await expect.poll(
+      () => page.evaluate(() => document.body.classList.contains('hide-resolved')),
+    ).toBe(!wasHidden);
 
     const after = await page.evaluate((id: string) => {
       const section = document.getElementById(id);

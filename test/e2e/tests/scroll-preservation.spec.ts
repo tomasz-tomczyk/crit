@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { loadPage, waitForScrollStable } from './helpers';
 
 // Switching diff mode rebuilds every file section. Deferred bodies come back
 // empty, so the document used to collapse and the browser clamped the scroll to
@@ -15,9 +15,9 @@ test.describe('Scroll position across view toggles', () => {
     // Walk to the bottom so every body mounts and the height is real, then park
     // deep enough that a collapsed rebuild would be shorter than the offset.
     await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
-    await page.waitForTimeout(500);
+    await waitForScrollStable(page);
     await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight * 0.6, behavior: 'instant' }));
-    await page.waitForTimeout(500);
+    await waitForScrollStable(page);
 
     // Pin the line closest to the vertical center — that's what the rebuild
     // should put back, not just the file-section header.
@@ -53,7 +53,7 @@ test.describe('Scroll position across view toggles', () => {
     expect(before!.scrollY).toBeGreaterThan(100);
 
     await toggle.click();
-    await page.waitForTimeout(1000);
+    await waitForScrollStable(page);
 
     const after = await page.evaluate((a: { filePath: string; lineNum: string; side: string }) => {
       const base =
