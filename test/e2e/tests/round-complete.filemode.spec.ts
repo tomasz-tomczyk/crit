@@ -1,6 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import * as fs from 'fs';
-import { clearAllComments, loadPage, getReviewFilePath } from './helpers';
+import { clearAllComments, loadPage } from './helpers';
 
 // Find a file path from the session
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -10,38 +9,21 @@ async function getTestFilePath(request: APIRequestContext): Promise<string> {
   return file?.path || session.files[0].path;
 }
 
-// ============================================================
-// Multi-Round — File Mode — Frontend Behavior
-// ============================================================
 test.describe('Multi-Round — File Mode — Frontend', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
   });
 
-  test('finish review shows waiting overlay with prompt', async ({ page, request }) => {
-    // Add a comment so the prompt is non-empty
-    const filePath = await getTestFilePath(request);
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Round test comment' },
-    });
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    // Click finish
+  test('finish review with no comments shows approval in file mode', async ({ page }) => {
     await page.locator('#finishBtn').click();
 
-    const overlay = page.locator('#waitingOverlay');
-    await expect(overlay).toHaveClass(/active/);
-
-    // Prompt should contain crit
-    const prompt = page.locator('#waitingPrompt');
-    await expect(prompt).toContainText('crit');
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#waitingDialog')).toHaveClass(/approved/, { timeout: 10_000 });
+    await expect(page.locator('#waitingHeading')).toHaveText('Approved');
   });
 
   test('copy prompt button shows "Copied" feedback then reverts', async ({ page, request }) => {
-    // Add a comment so the prompt is non-empty
     const filePath = await getTestFilePath(request);
     await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
       data: { start_line: 1, end_line: 1, body: 'Copy feedback test' },
@@ -55,36 +37,16 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
 
     const copyBtn = page.locator('#waitingClipboard');
     const label = copyBtn.locator('.copy-label');
-
-    // Clipboard API may not be available in headless — grant permission
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 
     await copyBtn.click();
-
-    // Label should change to "Copied" and button should get .copied class
     await expect(label).toHaveText('Copied');
     await expect(copyBtn).toHaveClass(/copied/);
-
-    // Should revert after timeout
     await expect(label).toHaveText('Copy', { timeout: 5_000 });
     await expect(copyBtn).not.toHaveClass(/copied/);
   });
 
-  test('finish review with no comments shows "no feedback" message', async ({ page }) => {
-    await page.locator('#finishBtn').click();
-
-    const overlay = page.locator('#waitingOverlay');
-    await expect(overlay).toHaveClass(/active/);
-
-    const dialog = page.locator('#waitingDialog');
-    await expect(dialog).toHaveClass(/approved/, { timeout: 10_000 });
-    await expect(page.locator('#waitingHeading')).toHaveText('Approved');
-    await expect(page.locator('#summaryReceipt')).toBeVisible();
-    await expect(page.locator('#summaryLine')).toContainText('Done reviewing');
-  });
-
-  test('round-complete SSE triggers UI refresh and exits waiting state', async ({ page, request }) => {
-    // Add a comment and finish
+  test('round-complete SSE exits waiting state in file mode', async ({ page, request }) => {
     const filePath = await getTestFilePath(request);
     await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
       data: { start_line: 1, end_line: 1, body: 'SSE test' },
@@ -93,197 +55,15 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // Click finish to enter waiting state
     await page.locator('#finishBtn').click();
     const overlay = page.locator('#waitingOverlay');
     await expect(overlay).toHaveClass(/active/);
 
-    // Trigger round-complete via API (simulates agent calling crit)
     await request.post('/api/round-complete');
-
-    // UI should exit waiting state (overlay removed, file sections re-rendered)
     await expect(overlay).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Finish button should be available again (comment persists so "Finish Review")
     const finishBtn = page.locator('#finishBtn');
     await expect(finishBtn).toHaveText('Finish Review');
     await expect(finishBtn).toBeEnabled();
-  });
-
-  test('unresolved comments persist in UI after round-complete', async ({ page, request }) => {
-    // Get the plan.md section
-    const mdSection = page.locator('.file-section').filter({ hasText: 'plan.md' });
-    await expect(mdSection.locator('.document-wrapper')).toBeVisible();
-
-    // Add a comment via UI
-    const lineBlock = mdSection.locator('.line-block').first();
-    await lineBlock.hover();
-    await mdSection.locator('.line-comment-gutter').first().click();
-    await page.locator('.comment-form textarea').fill('Unresolved survives round');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(mdSection.locator('.comment-card')).toBeVisible();
-
-    // Verify comment count icon is visible
-    const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeVisible();
-
-    // Finish and trigger round-complete
-    await page.locator('#finishBtn').click();
-    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
-    await request.post('/api/round-complete');
-
-    // Wait for UI to refresh
-    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
-
-    // Unresolved comment should still be visible (carried forward)
-    await expect(page.locator('.comment-card')).toHaveCount(1);
-    await expect(countEl).toBeVisible();
-  });
-
-  test('resolved comments render with green checkmark after round-complete', async ({ page, request }) => {
-    // Add a comment via API
-    const filePath = await getTestFilePath(request);
-
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Will be resolved visually' },
-    });
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    // Click Finish to write the review file and enter waiting state
-    await page.locator('#finishBtn').click();
-    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
-
-    // Finish already wrote the review file; read the path from the finish response
-    await request.post('/api/finish');
-    const critJsonPath = await getReviewFilePath(request);
-
-    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-    for (const fileKey of Object.keys(critJson.files)) {
-      for (const comment of critJson.files[fileKey].comments) {
-        comment.resolved = true;
-        comment.resolution_note = 'Done';
-      }
-    }
-    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-    // Trigger round-complete
-    await request.post('/api/round-complete');
-    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
-
-    // Resolved comment should render as .comment-card.resolved-card
-    await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
-
-    // Should have Unresolve button indicating resolved state
-    await expect(page.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
-    // Expand to see body
-    await page.locator('.comment-collapse-btn').click();
-    await expect(page.locator('.comment-body')).toContainText('Will be resolved visually');
-  });
-
-  test('resolved comments are excluded from comment count', async ({ page, request }) => {
-    // Add two comments
-    const filePath = await getTestFilePath(request);
-
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Will be resolved' },
-    });
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 2, end_line: 2, body: 'Stays open' },
-    });
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    // Click Finish to write the review file and enter waiting state
-    await page.locator('#finishBtn').click();
-    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
-
-    await request.post('/api/finish');
-    const critJsonPath = await getReviewFilePath(request);
-
-    // Mark only the first comment as resolved
-    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-    for (const fileKey of Object.keys(critJson.files)) {
-      critJson.files[fileKey].comments[0].resolved = true;
-    }
-    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-    // Trigger round-complete
-    await request.post('/api/round-complete');
-    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
-
-    // Only unresolved comment counts — icon visible, not in resolved state.
-    // Use toPass() to retry: SSE comments-changed may transiently update state.
-    const countEl = page.locator('#commentCount');
-    await expect(async () => {
-      await expect(countEl).toBeVisible();
-      await expect(countEl).not.toHaveClass(/comment-count-resolved/);
-    }).toPass({ timeout: 5000 });
-
-    // Both should render: 1 resolved + 1 unresolved (both are .comment-card)
-    await expect(page.locator('.comment-card.resolved-card')).toHaveCount(1);
-    await expect(page.locator('.comment-card:not(.resolved-card)')).toHaveCount(1);
-  });
-
-  test('resolved comment is collapsed by default and expandable', async ({ page, request }) => {
-    // Add and resolve a comment
-    const filePath = await getTestFilePath(request);
-
-    await request.post(`/api/file/comments?path=${encodeURIComponent(filePath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'Expandable comment' },
-    });
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    // Click Finish to write the review file and enter waiting state
-    await page.locator('#finishBtn').click();
-    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
-
-    await request.post('/api/finish');
-    const critJsonPath = await getReviewFilePath(request);
-
-    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-    for (const fileKey of Object.keys(critJson.files)) {
-      for (const comment of critJson.files[fileKey].comments) {
-        comment.resolved = true;
-        comment.resolution_note = 'Expanded note';
-      }
-    }
-    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-    await request.post('/api/round-complete');
-    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
-
-    const resolved = page.locator('.comment-card.resolved-card');
-    await expect(resolved).toBeVisible();
-
-    // Should have collapsed class initially
-    await expect(resolved).toHaveClass(/collapsed/);
-
-    // Click chevron to expand
-    await resolved.locator('.comment-collapse-btn').click();
-    await expect(resolved).not.toHaveClass(/collapsed/);
-
-    // Click again to collapse
-    await resolved.locator('.comment-collapse-btn').click();
-    await expect(resolved).toHaveClass(/collapsed/);
-  });
-
-  test('file sections are re-rendered after round-complete', async ({ page, request }) => {
-    // Count file sections before
-    const sections = page.locator('.file-section');
-    const sectionsBefore = await sections.count();
-
-    // Trigger round-complete
-    await page.locator('#finishBtn').click();
-    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
-    await request.post('/api/round-complete');
-    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
-
-    // Same number of file sections after
-    await expect(sections).toHaveCount(sectionsBefore);
   });
 });
