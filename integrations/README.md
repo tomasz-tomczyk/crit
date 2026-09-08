@@ -36,7 +36,7 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 For the full experience, install via the plugin marketplace. This gives you:
 - A `/crit` slash command for the review loop
 - A model-discoverable `crit-cli` skill for review files, `crit comment`, `crit pull/push`, etc.
-- A wording-gated `/crit-story` skill for chaptered diff overviews
+- A wording-gated `/crit-story` skill for chaptered diff overviews that then continues the `/crit` review loop
 
 ```
 claude plugin marketplace add tomasz-tomczyk/crit
@@ -147,8 +147,9 @@ GitHub PR feedback, but it does not start the interactive review cycle.
 
 `crit-story` is wording-gated like `/crit`: agents author a chaptered story
 overview only when the user invokes `/crit-story` (or the tool equivalent) or
-directly asks to generate a crit story. It does not run as part of a normal
-review request.
+directly asks to generate a crit story. After ingest they reconnect with bare
+`crit` and continue the same wait → address → next-round cycle. It does not run
+as part of a normal review request.
 
 The only automatic interactive path is a lifecycle hook immediately after
 planning mode. The Claude Code plugin, Codex plugin, and Gemini CLI integration
