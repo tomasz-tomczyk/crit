@@ -64,6 +64,58 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 	return s, session
 }
 
+func waitForSubscriberCount(t *testing.T, session *Session, want int) {
+	t.Helper()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for {
+		if got := session.SubscriberCountForTest(); got == want {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-timer.C:
+			t.Fatalf("subscriber count = %d, want %d", session.SubscriberCountForTest(), want)
+		}
+	}
+}
+
+type notifyingResponseRecorder struct {
+	*httptest.ResponseRecorder
+	writes chan string
+}
+
+func newNotifyingResponseRecorder() *notifyingResponseRecorder {
+	return &notifyingResponseRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		writes:           make(chan string, 4),
+	}
+}
+
+func (w *notifyingResponseRecorder) Write(p []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(p)
+	w.writes <- string(p)
+	return n, err
+}
+
+func (w *notifyingResponseRecorder) waitForWrite(t *testing.T, want string) {
+	t.Helper()
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case got := <-w.writes:
+			if strings.Contains(got, want) {
+				return
+			}
+		case <-timer.C:
+			t.Fatalf("response never wrote %q", want)
+		}
+	}
+}
+
 func TestGetSession(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/session", nil)
@@ -852,7 +904,7 @@ func TestReviewCycle_ApproveReturnsEmptyPrompt(t *testing.T) {
 		done <- w
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForSubscriberCount(t, session, 1)
 
 	// Trigger finish with no comments (approve)
 	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
@@ -888,7 +940,7 @@ func TestReviewCycle_UnresolvedReturnsPrompt(t *testing.T) {
 		done <- w
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForSubscriberCount(t, session, 1)
 
 	finishReq := httptest.NewRequest("POST", "/api/finish", nil)
 	s.ServeHTTP(httptest.NewRecorder(), finishReq)
@@ -933,7 +985,7 @@ func TestReviewCycle_NextCommand(t *testing.T) {
 				done <- w
 			}()
 
-			time.Sleep(50 * time.Millisecond)
+			waitForSubscriberCount(t, session, 1)
 
 			finishReq := httptest.NewRequest("POST", "/api/finish", nil)
 			s.ServeHTTP(httptest.NewRecorder(), finishReq)
@@ -2038,7 +2090,7 @@ func TestWaitForEventReturnsOnFinish(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForSubscriberCount(t, session, 1)
 
 	finishReq := httptest.NewRequest(http.MethodPost, "/api/finish", nil)
 	finishW := httptest.NewRecorder()
@@ -2066,31 +2118,33 @@ func TestWaitForEventIgnoresOtherEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var resp *httptest.ResponseRecorder
 	done := make(chan struct{})
 	go func() {
 		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/wait-for-event", nil)
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
+		resp = httptest.NewRecorder()
+		srv.ServeHTTP(resp, req)
 		close(done)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForSubscriberCount(t, session, 1)
 
 	session.Notify(SSEEvent{Type: "comments-changed"})
-
+	session.Notify(SSEEvent{Type: "finish"})
 	select {
 	case <-done:
-		t.Fatal("long-poll should not return on comments-changed event")
-	case <-time.After(200 * time.Millisecond):
-		// Good — still blocking
-	}
-
-	// Stop the long-poll before the test's temporary directory is cleaned up.
-	cancel()
-	select {
-	case <-done:
+		if resp.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.Code)
+		}
+		var event SSEEvent
+		if err := json.NewDecoder(resp.Body).Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type != "finish" {
+			t.Fatalf("event type = %q, want finish", event.Type)
+		}
 	case <-time.After(time.Second):
-		t.Fatal("long-poll did not stop after request cancellation")
+		t.Fatal("long-poll did not return after finish event")
 	}
 }
 
@@ -2323,16 +2377,19 @@ func TestReviewCycleFirstRound(t *testing.T) {
 		done <- w.Code
 	}()
 
-	// Give the handler time to start blocking
-	time.Sleep(50 * time.Millisecond)
+	waitForSubscriberCount(t, session, 1)
 
 	// Simulate user clicking "Finish Review"
 	session.WriteFiles()
 	session.Notify(SSEEvent{Type: "finish", Content: "test feedback"})
 
-	code := <-done
-	if code != http.StatusOK {
-		t.Errorf("POST /api/review-cycle: got %d, want 200", code)
+	select {
+	case code := <-done:
+		if code != http.StatusOK {
+			t.Errorf("POST /api/review-cycle: got %d, want 200", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("review-cycle did not return after finish event")
 	}
 }
 
@@ -3525,21 +3582,24 @@ func TestHandleEvents_SSEHeaders(t *testing.T) {
 	srv, session := newTestServer(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
-	w := httptest.NewRecorder()
-
+	t.Cleanup(cancel)
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil).WithContext(ctx)
+	w := newNotifyingResponseRecorder()
 	done := make(chan struct{})
 	go func() {
 		srv.ServeHTTP(w, req)
 		close(done)
 	}()
 
-	// Send an event then cancel.
-	time.Sleep(50 * time.Millisecond)
+	waitForSubscriberCount(t, session, 1)
 	session.Notify(SSEEvent{Type: "comments-changed"})
-	time.Sleep(50 * time.Millisecond)
+	w.waitForWrite(t, "event: comments-changed")
 	cancel()
-	<-done
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("SSE handler did not stop after request cancellation")
+	}
 
 	// Verify SSE headers.
 	ct := w.Header().Get("Content-Type")
@@ -4809,19 +4869,8 @@ func TestSSE_LiveRoundStart_Broadcasts(t *testing.T) {
 		t.Fatalf("initial frame: %v", err)
 	}
 
-	// Wait briefly for the server to register the subscriber, then fire.
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		// subscribers is guarded by subMu (not the session-state mu) — see
-		// Subscribe/Unsubscribe/notify in session.go. Reading it under the
-		// wrong mutex would race with Subscribe; the race detector would
-		// flag it even though both are sync.Mutex.
-		n := session.SubscriberCountForTest()
-		if n > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Wait for the server to register the subscriber before firing the event.
+	waitForSubscriberCount(t, session, 1)
 	session.FireOnLiveRoundStart(1, 2)
 
 	// Read until we see the live-round-start event.

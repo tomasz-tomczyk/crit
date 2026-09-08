@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mustMkdirAll ensures the parent directory of path exists, then returns path.
@@ -116,6 +117,21 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func overwriteWithNewerMtime(t *testing.T, path string, data []byte) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newer := info.ModTime().Add(time.Second)
+	if err := os.Chtimes(path, newer, newer); err != nil {
 		t.Fatal(err)
 	}
 }

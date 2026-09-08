@@ -1161,10 +1161,13 @@ func TestLiveSession_ExternalReplyEmitsCommentsChanged(t *testing.T) {
 	if err := appendReply(&loaded, "pin1", "looking better", "bob", "u2", false, ""); err != nil {
 		t.Fatalf("appendReply: %v", err)
 	}
-	// Force a distinct mtime even on filesystems with low timestamp resolution.
-	time.Sleep(20 * time.Millisecond)
 	if err := saveCritJSON(identity, loaded); err != nil {
 		t.Fatalf("saveCritJSON: %v", err)
+	}
+	// Force a distinct mtime even on filesystems with low timestamp resolution.
+	newer := info.ModTime().Add(time.Second)
+	if err := os.Chtimes(reviewPath, newer, newer); err != nil {
+		t.Fatalf("Chtimes review: %v", err)
 	}
 
 	// The watcher tick that ultimately fires SSE.

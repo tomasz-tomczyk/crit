@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -67,8 +68,14 @@ func TestReadReviewCycleResponse_OK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != `{"approved":true}` {
-		t.Errorf("got %q", body)
+	var got struct {
+		Approved bool `json:"approved"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !got.Approved {
+		t.Error("approved = false, want true")
 	}
 }
 

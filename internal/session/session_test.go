@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -2464,9 +2465,8 @@ func TestSession_MergeExternalCritJSON_SkippedDuringPendingWrite(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	// Touch with different mtime to bypass own-write check
-	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
+	// Give the external write a deterministic mtime distinct from our own write.
+	overwriteWithNewerMtime(t, filepath.Join(dir, ".crit", "review.json"), data)
 
 	// Merge should be skipped because a write is pending
 	changed := s.mergeExternalCritJSON()
@@ -2510,8 +2510,7 @@ func TestSession_MergeExternalCritJSON_SyncsResolvedState(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
+	overwriteWithNewerMtime(t, filepath.Join(dir, ".crit", "review.json"), data)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -2703,8 +2702,7 @@ func TestSession_MergeExternalCritJSON_SyncsUnresolve(t *testing.T) {
 		},
 	}
 	data, _ := json.MarshalIndent(cj, "", "  ")
-	time.Sleep(10 * time.Millisecond)
-	os.WriteFile(mustMkdirAll(filepath.Join(dir, ".crit", "review.json")), data, 0644)
+	overwriteWithNewerMtime(t, filepath.Join(dir, ".crit", "review.json"), data)
 
 	changed := s.mergeExternalCritJSON()
 	if !changed {
@@ -5572,6 +5570,7 @@ func mapKeys[V any](m map[string]V) []string {
 	for k := range m {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
 }
 
