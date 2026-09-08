@@ -898,8 +898,8 @@
     //
     // Share is available in files + preview review, but not vcs/diff (git):
     // canShare = session.mode !== 'git'. The controller's reveal() shows the
-    // button iff (shareURL && canShare) and sets the 'shared' state when a
-    // hosted URL already exists.
+    // button iff (hostedURL || shareTargets.length > 0) && canShare and sets
+    // the 'shared' state when a hosted URL already exists.
     shareCtl = window.crit.share.create({
       shareURL: shareURL,
       shareTargets: configuredShareTargets,

@@ -22,7 +22,8 @@
 //             needsShareConsent, authUserName, proxyAuth, reviewType,
 //             sharedOrg, sharedVisibility
 //   shareBtnEl: the #shareBtn element (click handler attached internally)
-//   canShare:  bool — reveal() shows the button iff (shareURL && canShare).
+//   canShare:  bool — reveal() shows the button iff
+//              (hostedURL || shareTargets.length > 0) && canShare.
 //              code-review passes session.mode !== 'git'; preview passes true.
 //   adapters:
 //     onCommentsRefreshed():        re-render the comments UI after a merge
@@ -236,7 +237,7 @@
     }
 
     async function fetchOrgs() {
-	  const key = shareURL;
+      const key = shareURL;
       if (cachedOrgs.has(key)) return cachedOrgs.get(key);
       if (fetchOrgsPromise.has(key)) return fetchOrgsPromise.get(key);
       const pending = (async function() {
@@ -284,7 +285,7 @@
     }
 
     async function fetchSharePolicy(popupSession) {
-	  const key = shareURL;
+      const key = shareURL;
       if (cachedSharePolicy.has(key)) return cachedSharePolicy.get(key);
       if (fetchSharePolicyPromise.has(key)) return fetchSharePolicyPromise.get(key);
       const pending = (async function() {
@@ -771,7 +772,7 @@
           '</div>';
 
       let subtitleText = 'Anyone with the link can read it. The page works without an account.';
-	  if (!shareURL && shareBaseURL) subtitleText = 'The originating instance (' + escapeHtml(shareBaseURL) + ') is no longer configured. The existing link is preserved.';
+      if (!shareURL && shareBaseURL) subtitleText = 'The originating instance (' + escapeHtml(shareBaseURL) + ') is no longer configured. The existing link is preserved.';
       const missingOrigin = !shareURL && !!shareBaseURL;
       let orgStripHtml = '';
       if (sharedOrg) {
@@ -911,7 +912,7 @@
     async function handlePullComments() {
       const btn = document.getElementById('modalPullBtn');
       if (!btn) return;
-	  if (!shareURL) { showShareError(new Error('originating Crit instance is no longer configured')); return; }
+      if (!shareURL) { showShareError(new Error('originating Crit instance is no longer configured')); return; }
       btn.disabled = true;
       const origLabel = btn.textContent;
       btn.textContent = 'Pulling…';
@@ -971,7 +972,7 @@
     async function handleReshare() {
       const btn = document.getElementById('modalReshareBtn');
       if (!btn) return;
-	  if (!shareURL) { showShareError(new Error('originating Crit instance is no longer configured')); return; }
+      if (!shareURL) { showShareError(new Error('originating Crit instance is no longer configured')); return; }
       btn.disabled = true;
       const origLabel = btn.textContent;
       btn.textContent = 'Re-sharing…';
@@ -1095,7 +1096,7 @@
     }
 
     async function handleUnpublish() {
-	  if (!shareURL) { closeShareModal(); showShareError(new Error('originating Crit instance is no longer configured')); return; }
+      if (!shareURL) { closeShareModal(); showShareError(new Error('originating Crit instance is no longer configured')); return; }
       const btn = document.getElementById('confirmUnpublishBtn');
       if (btn) { btn.textContent = 'Unpublishing…'; btn.disabled = true; }
 
@@ -1276,7 +1277,8 @@
     }
 
     return {
-      // reveal() shows the share button iff (shareURL && canShare), and sets
+      // reveal() shows the share button iff
+      // (hostedURL || shareTargets.length > 0) && canShare, and sets
       // the button to the 'shared' state if there's already a hosted URL.
       reveal: function reveal() {
         if ((hostedURL || shareTargets.length > 0) && options.canShare) {

@@ -80,11 +80,26 @@ test('create() wires a click handler onto shareBtnEl', () => {
   assert.equal((btn._listeners.click || []).length, 1);
 });
 
-test('reveal() shows the button when shareURL && canShare', () => {
+test('reveal() shows the button when (shareURL || shareTargets) && canShare', () => {
   const btn = wireButton(makeButton());
   installDomStub({ shareBtn: btn });
   share = require('../crit-share.js');
   const ctl = share.create({ shareBtnEl: btn, shareURL: 'https://crit.md', canShare: true });
+  assert.equal(btn.style.display, 'none');
+  ctl.reveal();
+  assert.equal(btn.style.display, '');
+});
+
+test('reveal() shows the button when shareTargets is non-empty even if shareURL is empty', () => {
+  const btn = wireButton(makeButton());
+  installDomStub({ shareBtn: btn });
+  share = require('../crit-share.js');
+  const ctl = share.create({
+    shareBtnEl: btn,
+    shareURL: '',
+    shareTargets: [{ name: 'crit.md', url: 'https://crit.md', default: true }],
+    canShare: true,
+  });
   assert.equal(btn.style.display, 'none');
   ctl.reveal();
   assert.equal(btn.style.display, '');
@@ -99,7 +114,7 @@ test('reveal() does NOT show the button when canShare is false (e.g. git mode)',
   assert.equal(btn.style.display, 'none');
 });
 
-test('reveal() does NOT show the button when shareURL is empty', () => {
+test('reveal() does NOT show the button when shareURL and shareTargets are empty', () => {
   const btn = wireButton(makeButton());
   installDomStub({ shareBtn: btn });
   share = require('../crit-share.js');

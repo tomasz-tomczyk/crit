@@ -835,8 +835,7 @@ body {
 .sd-org-body { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
 .sd-org-label { display: block; font-size: 12px; font-weight: 600; color: var(--crit-fg-primary); margin-bottom: 8px; letter-spacing: 0.01em; }
 /* Owner radio list */
-.sd-org-owner-list { display: flex; flex-direction: column; border: 1px solid var(--crit-border); border-radius: 8px; overflow: hidden; }
-.sd-target-list { display: flex; flex-direction: column; border: 1px solid var(--crit-border); border-radius: 8px; overflow: hidden; }
+.sd-org-owner-list, .sd-target-list { display: flex; flex-direction: column; border: 1px solid var(--crit-border); border-radius: 8px; overflow: hidden; }
 .sd-target-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 12px; border: 0; background: transparent; color: var(--crit-fg-primary); text-align: left; cursor: pointer; font: inherit; }
 .sd-target-option + .sd-target-option { border-top: 1px solid var(--crit-border); }
 .sd-target-option:hover, .sd-target-option:focus-visible { background: var(--crit-option-hover); outline: none; }
