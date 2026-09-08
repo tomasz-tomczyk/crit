@@ -14,8 +14,8 @@ func TestDesktopCommandSpecs(t *testing.T) {
 	body := "Round 2 is ready for review"
 	url := "http://127.0.0.1:3456"
 
-	t.Run("darwin uses osascript", func(t *testing.T) {
-		specs := desktopCommandSpecs("darwin", title, body, url, func(string) bool { return true })
+	t.Run("darwin falls back to osascript when terminal-notifier missing", func(t *testing.T) {
+		specs := desktopCommandSpecs("darwin", title, body, url, func(string) bool { return false })
 		if len(specs) != 1 {
 			t.Fatalf("got %d specs, want 1", len(specs))
 		}
@@ -27,6 +27,25 @@ func TestDesktopCommandSpecs(t *testing.T) {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("osascript args missing %q: %q", want, joined)
 			}
+		}
+	})
+
+	t.Run("darwin prefers terminal-notifier so clicking opens the review URL", func(t *testing.T) {
+		specs := desktopCommandSpecs("darwin", title, body, url, func(name string) bool { return name == "terminal-notifier" })
+		if len(specs) != 2 {
+			t.Fatalf("got %d specs, want 2 (terminal-notifier + osascript fallback): %#v", len(specs), specs)
+		}
+		if specs[0].name != "terminal-notifier" {
+			t.Fatalf("specs[0].name = %q, want terminal-notifier", specs[0].name)
+		}
+		joined := strings.Join(specs[0].args, " ")
+		for _, want := range []string{title, body, "-open", url} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("terminal-notifier args missing %q: %q", want, joined)
+			}
+		}
+		if specs[1].name != "osascript" {
+			t.Fatalf("specs[1].name = %q, want osascript fallback", specs[1].name)
 		}
 	})
 
@@ -117,14 +136,17 @@ func TestRoundReadyRunsDesktopCommand(t *testing.T) {
 	}
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "ran.log")
-	bin := "osascript"
-	if runtime.GOOS == "linux" {
-		bin = "notify-send"
+	bins := []string{"notify-send"}
+	if runtime.GOOS == "darwin" {
+		// Stub both candidates: whichever desktopCommandSpecs prefers must win
+		// over any real terminal-notifier a developer happens to have on PATH.
+		bins = []string{"osascript", "terminal-notifier"}
 	}
-	stub := filepath.Join(dir, bin)
 	script := "#!/bin/sh\necho ok > " + logPath + "\nexit 0\n"
-	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+	for _, bin := range bins {
+		if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
@@ -132,7 +154,7 @@ func TestRoundReadyRunsDesktopCommand(t *testing.T) {
 	Desktop("", "body only", "")
 
 	if _, err := os.Stat(logPath); err != nil {
-		t.Fatalf("expected stub %s to run: %v", bin, err)
+		t.Fatalf("expected one of %v to run: %v", bins, err)
 	}
 }
 

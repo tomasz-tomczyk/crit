@@ -54,7 +54,15 @@ func runCommand(spec commandSpec) error {
 func desktopCommandSpecs(goos, title, body, openURL string, hasCommand func(string) bool) []commandSpec {
 	switch goos {
 	case "darwin":
-		return []commandSpec{{name: "osascript", args: []string{"-e", darwinNotifyScript(title, body, openURL)}}}
+		var specs []commandSpec
+		if hasCommand("terminal-notifier") {
+			args := []string{"-title", title, "-message", body}
+			if u := strings.TrimSpace(openURL); u != "" {
+				args = append(args, "-open", u)
+			}
+			specs = append(specs, commandSpec{name: "terminal-notifier", args: args})
+		}
+		return append(specs, commandSpec{name: "osascript", args: []string{"-e", darwinNotifyScript(title, body, openURL)}})
 	case "linux":
 		var specs []commandSpec
 		if hasCommand("notify-send") {
