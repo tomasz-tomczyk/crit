@@ -122,6 +122,60 @@ func TestRefreshDiffs_SkipsDeletedAndLazyFiles(t *testing.T) {
 	}
 }
 
+// TestRefreshFileList_RenameCarriesComments verifies that when the VCS reports
+// a rename (new path with OldPath pointing at the previous file), comments
+// stored on the old path are migrated to the new FileEntry instead of being
+// dropped or orphaned.
+func TestRefreshFileList_RenameCarriesComments(t *testing.T) {
+	v := &fakeWatchVCS{
+		currentBranch: "feature",
+		defaultBranch: "main",
+		branchChanges: []vcs.FileChange{
+			{Path: "new.go", OldPath: "old.go", Status: "renamed"},
+		},
+	}
+	s := newWatchSession(t, v)
+
+	oldAbs := filepath.Join(s.RepoRoot, "old.go")
+	newAbs := filepath.Join(s.RepoRoot, "new.go")
+	if err := os.WriteFile(oldAbs, []byte("package old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newAbs, []byte("package new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldComment := Comment{ID: "c1", Body: "fix this", StartLine: 1, EndLine: 1, Scope: "line"}
+	s.Files = []*FileEntry{
+		{Path: "old.go", AbsPath: oldAbs, Status: "modified", Comments: []Comment{oldComment}},
+	}
+
+	s.RefreshFileList()
+
+	byPath := make(map[string]*FileEntry, len(s.Files))
+	for _, f := range s.Files {
+		byPath[f.Path] = f
+	}
+
+	newF, ok := byPath["new.go"]
+	if !ok {
+		t.Fatalf("new.go missing from file list; got paths %v", byPath)
+	}
+	if newF.OldPath != "old.go" {
+		t.Errorf("new.go OldPath = %q, want %q", newF.OldPath, "old.go")
+	}
+	if len(newF.Comments) != 1 {
+		t.Fatalf("new.go comments = %d, want 1", len(newF.Comments))
+	}
+	if newF.Comments[0].ID != "c1" {
+		t.Errorf("new.go comment ID = %q, want %q", newF.Comments[0].ID, "c1")
+	}
+
+	if _, ok := byPath["old.go"]; ok {
+		t.Error("old.go should not remain as a separate entry after rename")
+	}
+}
+
 func TestRefreshFileList_AddsAndRemoves(t *testing.T) {
 	v := &fakeWatchVCS{
 		currentBranch: "feature",

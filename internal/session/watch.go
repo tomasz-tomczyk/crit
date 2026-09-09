@@ -117,54 +117,178 @@ func (s *Session) RefreshFileList() {
 		}
 	}
 
-	// Build new file list, doing I/O (os.ReadFile, sha256) without holding the lock.
-	// Status updates for existing entries are deferred to the write-lock section
-	// to avoid racing with concurrent readers.
-	type existingUpdate struct {
-		entry  *FileEntry
-		status string
-	}
-	var newFiles []*FileEntry
-	var updates []existingUpdate
-	for i, fc := range changes {
-		if f, ok := existing[fc.Path]; ok {
-			updates = append(updates, existingUpdate{f, fc.Status})
-			newFiles = append(newFiles, f)
-		} else {
-			absPath := filepath.Join(repoRoot, fc.Path)
-			fe := &FileEntry{
-				Path:     fc.Path,
-				AbsPath:  absPath,
-				Status:   fc.Status,
-				FileType: detectFileType(fc.Path),
-				Comments: []Comment{},
-			}
-
-			// Apply lazy threshold for newly discovered files
-			if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-				fe.Lazy = true
-				if ns, ok := numstats[fc.Path]; ok {
-					fe.LazyAdditions = ns.Additions
-					fe.LazyDeletions = ns.Deletions
-				}
-			} else if fc.Status != "deleted" {
-				if data, err := os.ReadFile(absPath); err == nil {
-					fe.Content = string(data)
-					fe.FileHash = fileHash(data)
-				}
-			}
-
-			newFiles = append(newFiles, fe)
-		}
-	}
+	built := buildRefreshedFileList(existing, changes, repoRoot, numstats)
 
 	// Assign under write lock
 	s.mu.Lock()
-	for _, u := range updates {
+	for _, u := range built.updates {
 		u.entry.Status = u.status
+		if u.oldPath != "" {
+			u.entry.OldPath = u.oldPath
+		}
+		if u.newPath != "" {
+			u.entry.Path = u.newPath
+			u.entry.AbsPath = u.absPath
+		}
 	}
-	s.Files = newFiles
+	s.Files = built.files
+	critPath := s.critJSONPath()
 	s.mu.Unlock()
+
+	// Rewrite review-JSON path keys so persisted threads follow the rename
+	// and restoreOrphanedComments does not resurrect a phantom under OldPath.
+	if len(built.renames) > 0 {
+		rewriteReviewJSONRenames(critPath, built.renames)
+	}
+}
+
+// fileListUpdate defers Path/Status/OldPath mutation until the write lock.
+type fileListUpdate struct {
+	entry   *FileEntry
+	status  string
+	oldPath string // set FileEntry.OldPath when non-empty (rename)
+	newPath string // when set, retarget Path/AbsPath (rename handoff)
+	absPath string
+}
+
+type refreshedFileList struct {
+	files   []*FileEntry
+	updates []fileListUpdate
+	renames []pathRename
+}
+
+// buildRefreshedFileList maps VCS changes onto existing FileEntries, carrying
+// comments across renames via OldPath (#917). Pure aside from reading new
+// file contents from disk for newly discovered paths.
+func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileChange, repoRoot string, numstats map[string]vcs.NumstatEntry) refreshedFileList {
+	var out refreshedFileList
+	for i, fc := range changes {
+		absPath := filepath.Join(repoRoot, fc.Path)
+		if f, ok := existing[fc.Path]; ok {
+			out.updates = append(out.updates, fileListUpdate{entry: f, status: fc.Status, oldPath: fc.OldPath})
+			out.files = append(out.files, f)
+			delete(existing, fc.Path)
+			if fc.OldPath != "" {
+				out.renames = append(out.renames, pathRename{from: fc.OldPath, to: fc.Path})
+				delete(existing, fc.OldPath)
+			}
+			continue
+		}
+		// #917: reuse the pre-rename entry so in-memory comments follow.
+		if fc.OldPath != "" {
+			if old, ok := existing[fc.OldPath]; ok {
+				out.updates = append(out.updates, fileListUpdate{
+					entry:   old,
+					status:  fc.Status,
+					oldPath: fc.OldPath,
+					newPath: fc.Path,
+					absPath: absPath,
+				})
+				out.files = append(out.files, old)
+				delete(existing, fc.OldPath)
+				out.renames = append(out.renames, pathRename{from: fc.OldPath, to: fc.Path})
+				continue
+			}
+			out.renames = append(out.renames, pathRename{from: fc.OldPath, to: fc.Path})
+		}
+
+		fe := &FileEntry{
+			Path:     fc.Path,
+			OldPath:  fc.OldPath,
+			AbsPath:  absPath,
+			Status:   fc.Status,
+			FileType: detectFileType(fc.Path),
+			Comments: []Comment{},
+		}
+
+		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
+			fe.Lazy = true
+			if ns, ok := numstats[fc.Path]; ok {
+				fe.LazyAdditions = ns.Additions
+				fe.LazyDeletions = ns.Deletions
+			}
+		} else if fc.Status != "deleted" {
+			if data, err := os.ReadFile(absPath); err == nil {
+				fe.Content = string(data)
+				fe.FileHash = fileHash(data)
+			}
+		}
+
+		out.files = append(out.files, fe)
+	}
+	return out
+}
+
+// pathRename is old→new path for a VCS-reported rename.
+type pathRename struct {
+	from, to string
+}
+
+// rewriteReviewJSONRenames moves CritJSON.Files keys from the pre-rename path
+// to the post-rename path (merging comments if both keys exist). Best-effort:
+// failures leave disk unchanged so a later write can still reconcile.
+func rewriteReviewJSONRenames(critPath string, renames []pathRename) {
+	if critPath == "" || len(renames) == 0 {
+		return
+	}
+	reviewPath := ReviewPathsFor(critPath).Review
+	data, err := os.ReadFile(reviewPath)
+	if err != nil {
+		return
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil || cj.Files == nil {
+		return
+	}
+	changed := false
+	for _, r := range renames {
+		if r.from == "" || r.to == "" || r.from == r.to {
+			continue
+		}
+		oldFile, hasOld := cj.Files[r.from]
+		if !hasOld {
+			continue
+		}
+		if newFile, hasNew := cj.Files[r.to]; hasNew {
+			cj.Files[r.to] = CritJSONFile{
+				Status:   newFile.Status,
+				FileHash: newFile.FileHash,
+				Comments: mergeCommentSlices(newFile.Comments, oldFile.Comments),
+			}
+		} else {
+			oldFile.Status = "renamed"
+			cj.Files[r.to] = oldFile
+		}
+		delete(cj.Files, r.from)
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = AtomicWriteFile(reviewPath, out, 0o600)
+}
+
+// mergeCommentSlices appends comments from extra whose IDs are not already in base.
+func mergeCommentSlices(base, extra []Comment) []Comment {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base))
+	for _, c := range base {
+		seen[c.ID] = struct{}{}
+	}
+	out := append([]Comment(nil), base...)
+	for _, c := range extra {
+		if _, ok := seen[c.ID]; ok {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // Watch dispatches to the appropriate file-watching strategy based on session mode.
@@ -734,6 +858,12 @@ func (s *Session) loadResolvedComments() {
 	for _, f := range s.Files {
 		if cf, ok := cj.Files[f.Path]; ok {
 			f.PreviousComments = cf.Comments
+		} else if f.OldPath != "" {
+			if cf, ok := cj.Files[f.OldPath]; ok {
+				f.PreviousComments = cf.Comments
+			} else {
+				f.PreviousComments = nil
+			}
 		} else {
 			f.PreviousComments = nil
 		}

@@ -2467,6 +2467,9 @@ func (s *Session) restoreShareStateLocked(cj *CritJSON) {
 func (s *Session) restoreFileCommentsLocked(cj *CritJSON) {
 	for _, f := range s.Files {
 		cf, ok := cj.Files[f.Path]
+		if !ok && f.OldPath != "" {
+			cf, ok = cj.Files[f.OldPath]
+		}
 		if !ok {
 			continue
 		}
@@ -2624,11 +2627,25 @@ func (s *Session) restoreOrphanedComments() {
 // s.mu held or during init (before concurrent access).
 func (s *Session) appendOrphanedFiles(critFiles map[string]CritJSONFile) {
 	knownPaths := make(map[string]bool, len(s.Files))
+	byOldPath := make(map[string]*FileEntry)
 	for _, f := range s.Files {
 		knownPaths[f.Path] = true
+		if f.OldPath != "" {
+			byOldPath[f.OldPath] = f
+		}
 	}
 	for path, cf := range critFiles {
 		if knownPaths[path] || len(cf.Comments) == 0 {
+			continue
+		}
+		// #917: comments keyed under a pre-rename path belong on the renamed entry.
+		if f, ok := byOldPath[path]; ok {
+			f.Comments = mergeCommentSlices(f.Comments, cf.Comments)
+			for i := range f.Comments {
+				if f.Comments[i].Scope == "" {
+					f.Comments[i].Scope = "line"
+				}
+			}
 			continue
 		}
 		fe := &FileEntry{
