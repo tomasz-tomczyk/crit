@@ -94,3 +94,124 @@ func TestHandleRoundCompleteGit_RenameFollowsPersistedComments(t *testing.T) {
 		t.Errorf("old.go was restored as an orphaned phantom holding %d comment(s); the thread should have moved to new.go instead (#917)", len(old.Comments))
 	}
 }
+
+func TestMergeCommentSlices_DedupsByID(t *testing.T) {
+	base := []Comment{{ID: "a", Body: "keep"}, {ID: "b", Body: "also"}}
+	extra := []Comment{{ID: "b", Body: "dup"}, {ID: "c", Body: "new"}}
+	got := mergeCommentSlices(base, extra)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	if got[2].ID != "c" || got[1].Body != "also" {
+		t.Errorf("unexpected merge result: %+v", got)
+	}
+	if mergeCommentSlices(base, nil) == nil {
+		t.Error("nil extra should return base")
+	}
+}
+
+func TestRewriteReviewJSONRenames_MovesAndMerges(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "review-id")
+	if err := os.MkdirAll(identity, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := ReviewPathsFor(identity).Review
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"old.go": {
+				Status:   "modified",
+				Comments: []Comment{{ID: "from-old", Body: "old", Scope: "line"}},
+			},
+			"new.go": {
+				Status:   "renamed",
+				Comments: []Comment{{ID: "from-new", Body: "new", Scope: "line"}},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rewriteReviewJSONRenames(identity, []pathRename{{from: "old.go", to: "new.go"}})
+
+	raw, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got CritJSON
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Files["old.go"]; ok {
+		t.Error("old.go key should be removed")
+	}
+	nf, ok := got.Files["new.go"]
+	if !ok {
+		t.Fatal("new.go key missing")
+	}
+	ids := map[string]bool{}
+	for _, c := range nf.Comments {
+		ids[c.ID] = true
+	}
+	if !ids["from-old"] || !ids["from-new"] {
+		t.Errorf("merged comments = %+v, want both IDs", nf.Comments)
+	}
+}
+
+func TestAppendOrphanedFiles_AttachesViaOldPath(t *testing.T) {
+	s := &Session{
+		Files: []*FileEntry{
+			{Path: "new.go", OldPath: "old.go", Status: "renamed", Comments: nil},
+		},
+	}
+	s.appendOrphanedFiles(map[string]CritJSONFile{
+		"old.go": {
+			Comments: []Comment{{ID: "c1", Body: "follow me", Scope: ""}},
+		},
+	})
+	if len(s.Files) != 1 {
+		t.Fatalf("want 1 file (no phantom), got %d", len(s.Files))
+	}
+	if len(s.Files[0].Comments) != 1 || s.Files[0].Comments[0].ID != "c1" {
+		t.Errorf("comments not attached via OldPath: %+v", s.Files[0].Comments)
+	}
+	if s.Files[0].Comments[0].Scope != "line" {
+		t.Errorf("empty Scope should default to line, got %q", s.Files[0].Comments[0].Scope)
+	}
+	if s.Files[0].Orphaned {
+		t.Error("renamed target must not be marked orphaned")
+	}
+}
+
+func TestRefreshFileList_SetsOldPathWhenNewPathAlreadyPresent(t *testing.T) {
+	v := &fakeWatchVCS{
+		currentBranch: "feature",
+		defaultBranch: "main",
+		branchChanges: []vcs.FileChange{
+			{Path: "new.go", OldPath: "old.go", Status: "renamed"},
+		},
+	}
+	s := newWatchSession(t, v)
+	newAbs := filepath.Join(s.RepoRoot, "new.go")
+	if err := os.WriteFile(newAbs, []byte("package new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.Files = []*FileEntry{
+		{Path: "new.go", AbsPath: newAbs, Status: "added", Comments: []Comment{{ID: "keep", Body: "x"}}},
+	}
+	s.RefreshFileList()
+	if len(s.Files) != 1 || s.Files[0].Path != "new.go" {
+		t.Fatalf("unexpected files: %+v", s.Files)
+	}
+	if s.Files[0].OldPath != "old.go" {
+		t.Errorf("OldPath = %q, want old.go", s.Files[0].OldPath)
+	}
+	if len(s.Files[0].Comments) != 1 {
+		t.Errorf("comments should be preserved, got %d", len(s.Files[0].Comments))
+	}
+}
