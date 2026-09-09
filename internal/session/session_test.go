@@ -1085,6 +1085,180 @@ func TestGetFileDiffSnapshotScoped_UntrackedFileUnstagedScope(t *testing.T) {
 	}
 }
 
+func TestGetFileDiffSnapshotScoped_UnstagedDeletionHasEmptyContent(t *testing.T) {
+	dir := initTestRepo(t)
+	gitT(t, dir, "checkout", "-b", "feature")
+	path := filepath.Join(dir, "main.go")
+	committedContent := "package main\n\nfunc main() {}\n"
+	writeFile(t, path, committedContent)
+	gitT(t, dir, "add", "main.go")
+	gitT(t, dir, "commit", "-m", "add main")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		BaseRef:  "main",
+		VCS:      &vcs.GitVCS{},
+		Files: []*FileEntry{{
+			Path:     "main.go",
+			AbsPath:  path,
+			Status:   "deleted",
+			FileType: "code",
+			Content:  committedContent,
+		}},
+	}
+
+	result, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "", false)
+	if !ok {
+		t.Fatal("expected snapshot")
+	}
+	if result["previous_content"] != committedContent {
+		t.Errorf("previous_content = %q, want index content", result["previous_content"])
+	}
+	if result["content"] != "" {
+		t.Errorf("content = %q, want empty deleted-file content", result["content"])
+	}
+}
+
+// TestGetFileDiffSnapshotScoped_CodeMoveAfterRound_Repro915 reproduces issue #915:
+// after a feedback round moves code around, the staged/unstaged scoped diff must
+// include the content of the revision it is diffed against so the UI can expand
+// context lines correctly. Without that base content, the frontend fills gaps
+// between hunks from the working tree file using line numbers that belong to the
+// index/HEAD, producing a correct changed hunk followed by an incorrect block of
+// unchanged context.
+func TestGetFileDiffSnapshotScoped_CodeMoveAfterRound_Repro915(t *testing.T) {
+	dir := initTestRepo(t)
+	gitT(t, dir, "checkout", "-b", "feature")
+
+	// Round 1: commit a file with helper() above foo().
+	round1 := "package main\n\nfunc helper() {\n\t// helper body\n}\n\nfunc foo() {\n\thelper()\n\t// foo body\n}\n\nfunc bar() {\n\t// bar body\n}\n"
+	writeFile(t, filepath.Join(dir, "main.go"), round1)
+	gitT(t, dir, "add", "main.go")
+	gitT(t, dir, "commit", "-m", "round 1")
+
+	// Round 2: stage a move of helper() below foo(), then add an unstaged tweak
+	// on a different line so the staged diff's new-side line numbers diverge from
+	// the working tree content.
+	round2Staged := "package main\n\nfunc foo() {\n\thelper()\n\t// foo body\n}\n\nfunc helper() {\n\t// helper body\n}\n\nfunc bar() {\n\t// bar body\n}\n"
+	writeFile(t, filepath.Join(dir, "main.go"), round2Staged)
+	gitT(t, dir, "add", "main.go")
+
+	round2Working := "package main\n\nfunc foo() {\n\thelper()\n\t// foo body tweaked\n}\n\nfunc helper() {\n\t// helper body\n}\n\nfunc bar() {\n\t// bar body\n}\n"
+	writeFile(t, filepath.Join(dir, "main.go"), round2Working)
+
+	// Simulate the session state at the end of Round 1.
+	s := &Session{
+		Mode:        "git",
+		RepoRoot:    dir,
+		BaseRef:     "main",
+		VCS:         &vcs.GitVCS{},
+		ReviewRound: 1,
+		subscribers: make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{{
+			Path:     "main.go",
+			AbsPath:  filepath.Join(dir, "main.go"),
+			Status:   "added",
+			FileType: "code",
+			Content:  round1,
+			Comments: []Comment{},
+		}},
+	}
+
+	// Round-complete refreshes the file list, content, and cached DiffHunks.
+	s.handleRoundCompleteGit()
+
+	// The hunks themselves must match real git output.
+	for _, scope := range []string{"unstaged", "staged"} {
+		result, ok := s.GetFileDiffSnapshotScoped("main.go", scope, "", false)
+		if !ok {
+			t.Fatalf("scope=%s: expected snapshot", scope)
+		}
+		hunks := result["hunks"].([]vcs.DiffHunk)
+
+		wantHunks, err := vcs.FileDiffScoped("main.go", scope, "main", dir, false)
+		if err != nil {
+			t.Fatalf("scope=%s: real git diff failed: %v", scope, err)
+		}
+		if !hunksEqual(hunks, wantHunks) {
+			t.Errorf("scope=%s: scoped diff does not match real git diff\nscoped: %s\ngit:    %s", scope, formatHunks(hunks), formatHunks(wantHunks))
+		}
+	}
+
+	// Issue #915: scoped diffs must also expose the base content so the frontend
+	// can expand context lines using the correct revision. Without this, the UI
+	// fills small inter-hunk gaps from the working tree file using line numbers
+	// that belong to the index (staged) or HEAD (branch), producing wrong context.
+	stagedResult, ok := s.GetFileDiffSnapshotScoped("main.go", "staged", "", false)
+	if !ok {
+		t.Fatal("scope=staged: expected snapshot")
+	}
+	if stagedResult["previous_content"] != round1 {
+		t.Errorf("scope=staged: expected previous_content to be HEAD (Round 1) content for correct context expansion; got %q", stagedResult["previous_content"])
+	}
+	if stagedResult["content"] != round2Staged {
+		t.Errorf("scope=staged: expected content to be the index (Round 2 staged) content; got %q", stagedResult["content"])
+	}
+
+	unstagedResult, ok := s.GetFileDiffSnapshotScoped("main.go", "unstaged", "", false)
+	if !ok {
+		t.Fatal("scope=unstaged: expected snapshot")
+	}
+	if unstagedResult["previous_content"] != round2Staged {
+		t.Errorf("scope=unstaged: expected previous_content to be index content for correct context expansion; got %q", unstagedResult["previous_content"])
+	}
+	if unstagedResult["content"] != round2Working {
+		t.Errorf("scope=unstaged: expected content to be current worktree content; got %q", unstagedResult["content"])
+	}
+}
+
+// hunksEqual reports whether two parsed hunks slices are equivalent for test
+// assertions (headers, line counts, types, and content).
+func hunksEqual(a, b []vcs.DiffHunk) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Header != b[i].Header || a[i].OldStart != b[i].OldStart || a[i].OldCount != b[i].OldCount || a[i].NewStart != b[i].NewStart || a[i].NewCount != b[i].NewCount {
+			return false
+		}
+		if len(a[i].Lines) != len(b[i].Lines) {
+			return false
+		}
+		for j := range a[i].Lines {
+			if a[i].Lines[j].Type != b[i].Lines[j].Type || a[i].Lines[j].Content != b[i].Lines[j].Content {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// formatHunks renders parsed hunks as a compact string for test failure output.
+func formatHunks(hunks []vcs.DiffHunk) string {
+	var b strings.Builder
+	for _, h := range hunks {
+		b.WriteString(h.Header)
+		b.WriteString("\n")
+		for _, l := range h.Lines {
+			switch l.Type {
+			case "add":
+				b.WriteString("+")
+			case "del":
+				b.WriteString("-")
+			default:
+				b.WriteString(" ")
+			}
+			b.WriteString(l.Content)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 func TestSession_GlobalCommentIDs(t *testing.T) {
 	s := newTestSession(t)
 	c1, _ := s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")

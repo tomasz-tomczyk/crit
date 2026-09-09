@@ -816,30 +816,39 @@ func addedFileRendersWhole(scope string) bool {
 	return scope != "staged" && scope != "unstaged"
 }
 
-func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v vcs.VCS, ignoreWhitespace bool) []vcs.DiffHunk {
-	if v == nil {
-		return nil
+// scopedHunksForCommit returns hunks when a commit (or commit range) pin is set.
+// ok is false when commit is empty and the caller should use scope-based diffs.
+func scopedHunksForCommit(fc vcs.FileChange, commit, repoRoot string, v vcs.VCS, ignoreWhitespace bool) (hunks []vcs.DiffHunk, ok bool) {
+	if commit == "" {
+		return nil, false
 	}
 	if commit == virtualWorkingTreeCommitSHA {
 		h, err := v.FileDiffUnified(fc.Path, "HEAD", repoRoot, ignoreWhitespace)
 		if err == nil {
-			return h
+			return h, true
 		}
-		return nil
+		return nil, true
 	}
-	if base, head, ok := vcs.SplitCommitRange(commit); ok {
+	if base, head, rangeOK := vcs.SplitCommitRange(commit); rangeOK {
 		h, err := v.FileDiffBetweenSHAs(fc.Path, fc.OldPath, base, head, repoRoot, ignoreWhitespace)
 		if err == nil {
-			return h
+			return h, true
 		}
+		return nil, true
+	}
+	h, err := v.FileDiffForCommit(fc.Path, commit, repoRoot, ignoreWhitespace)
+	if err == nil {
+		return h, true
+	}
+	return nil, true
+}
+
+func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v vcs.VCS, ignoreWhitespace bool) []vcs.DiffHunk {
+	if v == nil {
 		return nil
 	}
-	if commit != "" {
-		h, err := v.FileDiffForCommit(fc.Path, commit, repoRoot, ignoreWhitespace)
-		if err == nil {
-			return h
-		}
-		return nil
+	if hunks, ok := scopedHunksForCommit(fc, commit, repoRoot, v, ignoreWhitespace); ok {
+		return hunks
 	}
 	showWholeFile := fc.Status == "untracked"
 	if fc.Status == "added" {
@@ -852,7 +861,7 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 		}
 		return nil
 	}
-	if fc.Status == "renamed" && fc.OldPath != "" {
+	if fc.Status == "renamed" && fc.OldPath != "" && (scope == "" || scope == "all" || scope == "branch") {
 		h, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, ignoreWhitespace, v)
 		if err == nil {
 			return h
@@ -1058,6 +1067,31 @@ func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseR
 	return scopedHunks(vcs.FileChange{Path: path, OldPath: oldPath, Status: status}, scope, commit, baseRef, repoRoot, v, ignoreWhitespace)
 }
 
+// scopedDiffContents returns the old- and new-side content paired with a Git
+// index diff. Other VCS backends do not expose staged/unstaged scopes.
+func scopedDiffContents(path, scope, repoRoot, worktreeContent string, v vcs.VCS) (previousContent, content string, ok bool) {
+	content = worktreeContent
+	if v == nil || v.Name() != "git" {
+		return "", content, false
+	}
+
+	switch scope {
+	case "staged":
+		previousContent, _ = v.FileContentAtRef(path, "HEAD", repoRoot)
+		content, _ = v.FileContentAtRef(path, ":0", repoRoot)
+	case "unstaged":
+		previousContent, _ = v.FileContentAtRef(path, ":0", repoRoot)
+		if data, err := os.ReadFile(filepath.Join(repoRoot, path)); err == nil {
+			content = string(data)
+		} else if os.IsNotExist(err) {
+			content = ""
+		}
+	default:
+		return "", content, false
+	}
+	return previousContent, content, true
+}
+
 // GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
 // When commit is non-empty, returns the diff for that single commit.
@@ -1080,5 +1114,12 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWh
 	if hunks == nil {
 		hunks = []vcs.DiffHunk{}
 	}
-	return map[string]any{"hunks": hunks}, true
+	result := map[string]any{"hunks": hunks}
+	if commit == "" {
+		if previousContent, scopedContent, ok := scopedDiffContents(path, scope, repoRoot, content, vc); ok {
+			result["previous_content"] = previousContent
+			result["content"] = scopedContent
+		}
+	}
+	return result, true
 }

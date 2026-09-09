@@ -659,13 +659,16 @@
       fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
       fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
     ]);
+    const content = Object.prototype.hasOwnProperty.call(diffRes, 'content')
+      ? diffRes.content
+      : (fileRes.content || '');
 
     const f = {
       path: fi.path,
       oldPath: fi.old_path || '',
       status: fi.status,
       fileType: fi.file_type,
-      content: fileRes.content || '',
+      content: content,
       previousContent: diffRes.previous_content || '',
       comments: Array.isArray(commentsRes) ? commentsRes : [],
       diffHunks: diffRes.hunks || [],
