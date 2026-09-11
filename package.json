@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2",
-    "eslint": "10.9.1",
+    "eslint": "10.10.0",
     "stylelint": "17.14.1"
   }
 }
