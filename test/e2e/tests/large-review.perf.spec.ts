@@ -84,6 +84,10 @@ test('scrolling a large review keeps bodies deferred and main thread free', asyn
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     }
     window.scrollTo(0, 0);
+    // The final jump also schedules IntersectionObserver work. Yield two
+    // frames so the top-position mount/defer cycle is complete before the
+    // structural budget is sampled, just like each intermediate scroll step.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   });
 
   const wallMs = Date.now() - wallStart;
