@@ -45,6 +45,22 @@ test.describe('Settings Panel', () => {
     await expect(page.locator('.settings-pane[data-pane="settings"]')).toHaveClass(/active/);
   });
 
+  test('tab switching resets the shared content scroll position', async ({ page }) => {
+    await page.click('#settingsToggle');
+    const content = page.locator('.settings-content');
+    const scrolled = await content.evaluate((element) => {
+      const spacer = document.createElement('div');
+      spacer.style.height = '2000px';
+      element.appendChild(spacer);
+      element.scrollTop = element.scrollHeight;
+      return element.scrollTop;
+    });
+    expect(scrolled).toBeGreaterThan(0);
+
+    await page.click('.settings-tab[data-tab="about"]');
+    await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBe(0);
+  });
+
   test('? key toggles shortcuts tab when panel is open on shortcuts', async ({ page }) => {
     await page.keyboard.press('?');
     await expect(page.locator('.settings-overlay')).toHaveClass(/active/);

@@ -94,6 +94,8 @@
         var p = panes[j];
         if (p.classList) p.classList.toggle('active', p.dataset && p.dataset.pane === tab);
       }
+      var content = overlay.querySelector('.settings-content');
+      if (content) content.scrollTop = 0;
       positionUnderline(activeBtn);
       if (typeof opts.onTabSwitch === 'function') opts.onTabSwitch(tab);
     }

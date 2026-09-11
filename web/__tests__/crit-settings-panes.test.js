@@ -196,7 +196,7 @@ test('renderSettingsTab: pre-checks hide-resolved checkbox when getHideResolved 
   assert.match(pane.innerHTML, /id="hideResolvedToggle"[^>]*checked/);
 });
 
-test('renderSettingsTab: update card appears when latest_version > version', () => {
+test('renderSettingsTab: update card is not rendered in Settings', () => {
   const sp = loadShared();
   const pane = makePane();
   sp.renderSettingsTab(pane, {
@@ -205,20 +205,38 @@ test('renderSettingsTab: update card appears when latest_version > version', () 
     hooks: { applyTheme: () => {}, applyWidth: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
   });
 
-  assert.match(pane.innerHTML, /Update available/);
-  assert.match(pane.innerHTML, /v1\.1\.0/);
-  assert.match(pane.innerHTML, /brew update &amp;&amp; brew upgrade crit/);
+  assert.doesNotMatch(pane.innerHTML, /Update available/);
+  assert.doesNotMatch(pane.innerHTML, /brew update &amp;&amp; brew upgrade crit/);
 });
 
-test('renderSettingsTab: no update card when no_update_check', () => {
+test('renderAboutPane: update card appears above current session', () => {
   const sp = loadShared();
   const pane = makePane();
-  sp.renderSettingsTab(pane, {
-    mode: 'code-review',
-    cfg: { version: '1.0.0', latest_version: '1.1.0', no_update_check: true },
-    hooks: { applyTheme: () => {}, applyWidth: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
-  });
-  assert.doesNotMatch(pane.innerHTML, /Update available/);
+  sp.renderAboutPane(pane, { version: '1.0.0', latest_version: '1.1.0' }, {});
+  assert.match(pane.innerHTML, /Update available/);
+  assert.match(pane.innerHTML, /v1\.1\.0/);
+  assert.match(pane.innerHTML, /Update instructions depend on how Crit was installed/);
+  assert.match(pane.innerHTML, /View release and download options/);
+  assert.doesNotMatch(pane.innerHTML, /brew update &amp;&amp; brew upgrade crit/);
+  assert.match(pane.innerHTML, /id="aboutUpdateCard"/);
+  assert.ok(pane.innerHTML.indexOf('about-update-card') < pane.innerHTML.indexOf('Current Session'));
+});
+
+test('renderAboutPane: no update card when no_update_check', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderAboutPane(pane, { version: '1.0.0', latest_version: '1.1.0', no_update_check: true }, {});
+  assert.doesNotMatch(pane.innerHTML, /about-update-card/);
+});
+
+test('renderAboutPane: shows installed and latest versions', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderAboutPane(pane, { version: '1.0.0', latest_version: '1.1.0' }, {});
+  assert.match(pane.innerHTML, /Installed version/);
+  assert.match(pane.innerHTML, /1\.0\.0/);
+  assert.match(pane.innerHTML, /Latest version/);
+  assert.match(pane.innerHTML, /1\.1\.0/);
 });
 
 test('renderSettingsTab: agent card unconfigured snippet when agent_cmd_enabled false', () => {
@@ -266,6 +284,36 @@ test('renderSettingsTab: integration card unconfigured CTA when nothing installe
   assert.match(pane.innerHTML, /AI Integration/);
   assert.match(pane.innerHTML, /crit install claude-code/);
   assert.match(pane.innerHTML, /Also: claude-code/);
+});
+
+test('renderSettingsTab: stale integration card shows its update command', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: {
+      integrations: [{ agent: 'claude-code', status: 'stale', hash: 'new-hash', hint: 'Run: crit install claude-code' }],
+      any_integration_installed: true,
+    },
+    hooks: { applyTheme: () => {}, applyWidth: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
+  });
+  assert.match(pane.innerHTML, /AI Integration/);
+  assert.match(pane.innerHTML, /update available/);
+  assert.match(pane.innerHTML, /crit install claude-code/);
+  assert.match(pane.innerHTML, /id="integrationUpdateCard"/);
+});
+
+test('renderSettingsTab: missing integration card shows its install command', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: 'code-review',
+    cfg: { integrations: [], missing_integrations: ['cursor'] },
+    hooks: { applyTheme: () => {}, applyWidth: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
+  });
+  assert.match(pane.innerHTML, /Integration Available/);
+  assert.match(pane.innerHTML, /crit install cursor/);
+  assert.match(pane.innerHTML, /id="integrationAvailableCard"/);
 });
 
 test('renderSettingsTab: share card disabled when no share_url', () => {
