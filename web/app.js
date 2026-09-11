@@ -367,18 +367,21 @@
   let hiddenUnresolved = 0;
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
+  let pendingSettingsCard = '';
+  let pendingSettingsTab = '';
 
-  // Returns true if at least one pending update entry has not been dismissed.
-  // Brew dismiss is keyed by version; integration dismiss is keyed per-agent
+  // Returns true if at least one pending update entry of the requested kind has not been dismissed.
+  // Crit update dismiss is keyed by version; integration dismiss is keyed per-agent
   // by content hash (so re-prompts when we ship a new template).
-  function hasActivePendingUpdates() {
+  function hasActivePendingUpdates(kind) {
     if (!pendingUpdates.length) return false;
-    const brewDismissed = getSetting('updatesDismissed', '');
+    const critDismissed = getSetting('updatesDismissed', '');
     const intDismissed = getSetting('dismissedIntegrations', {}) || {};
     for (let i = 0; i < pendingUpdates.length; i++) {
       const u = pendingUpdates[i];
-      if (u.kind === 'brew') {
-        if (brewDismissed !== pendingUpdatesVersion) return true;
+      if (kind && u.kind !== kind) continue;
+      if (u.kind === 'crit-update') {
+        if (critDismissed !== pendingUpdatesVersion) return true;
       } else if (u.kind === 'integration') {
         if (!u.hash || intDismissed[u.agent] !== u.hash) return true;
       } else if (u.kind === 'missing-integration') {
@@ -388,6 +391,34 @@
       }
     }
     return false;
+  }
+
+  function syncPendingUpdateButtons() {
+    [
+      ['updateBtn', 'crit-update'],
+      ['integrationUpdateBtn', 'integration'],
+      ['integrationAvailableBtn', 'missing-integration'],
+    ].forEach(function (entry) {
+      const button = document.getElementById(entry[0]);
+      if (button) button.style.display = hasActivePendingUpdates(entry[1]) ? '' : 'none';
+    });
+  }
+
+  function focusPendingSettingsCard() {
+    if (!pendingSettingsCard || !settingsPanelOpen || settingsPanelTab !== pendingSettingsTab) return;
+    const card = document.getElementById(pendingSettingsCard);
+    if (!card) return;
+    pendingSettingsCard = '';
+    pendingSettingsTab = '';
+    requestAnimationFrame(function () {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.remove('settings-card-focus');
+      void card.offsetWidth;
+      card.classList.add('settings-card-focus');
+      card.addEventListener('animationend', function () {
+        card.classList.remove('settings-card-focus');
+      }, { once: true });
+    });
   }
 
   let reviewComments = []; // review-level (general) comments
@@ -937,16 +968,16 @@
     };
     window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
 
-    // Update notifications (brew upgrade + stale integrations)
+    // Update notifications (Crit release + stale integrations)
     pendingUpdates = [];
-    const hasBrew = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
-    if (hasBrew) {
+    const hasCritUpdate = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
+    if (hasCritUpdate) {
       pendingUpdates.push({
-        kind: 'brew',
+        kind: 'crit-update',
         version: configRes.latest_version,
         label: 'Crit ' + configRes.latest_version + ' available',
         labelUrl: 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + configRes.latest_version,
-        hint: 'brew update && brew upgrade crit'
+        hint: 'Open About for release-specific update instructions'
       });
     }
     if (configRes.stale_integrations) {
@@ -975,9 +1006,7 @@
     }
 
     pendingUpdatesVersion = configRes.latest_version || configRes.version || '';
-    if (hasActivePendingUpdates()) {
-      document.getElementById('updateBtn').style.display = '';
-    }
+    syncPendingUpdateButtons();
 
     // Header context: branch name in git mode, filename in single-file file mode
     if (session.mode === 'git' && session.branch) {
@@ -8757,7 +8786,21 @@
 
   // ===== Update Button =====
   document.getElementById('updateBtn').addEventListener('click', function() {
+    pendingSettingsCard = 'aboutUpdateCard';
+    pendingSettingsTab = 'about';
+    openSettingsPanel('about');
+  });
+  document.getElementById('integrationUpdateBtn').addEventListener('click', function() {
+    pendingSettingsCard = 'integrationUpdateCard';
+    pendingSettingsTab = 'settings';
     openSettingsPanel('settings');
+    focusPendingSettingsCard();
+  });
+  document.getElementById('integrationAvailableBtn').addEventListener('click', function() {
+    pendingSettingsCard = 'integrationAvailableCard';
+    pendingSettingsTab = 'settings';
+    openSettingsPanel('settings');
+    focusPendingSettingsCard();
   });
 
   // ===== Diff Mode Toggle (Split / Unified) =====
@@ -9813,6 +9856,7 @@
       setHideResolved: setHideResolved,
       onHideResolvedChange: function () { refreshHideResolvedView(); },
       hasActivePendingUpdates: hasActivePendingUpdates,
+      syncPendingUpdateButtons: syncPendingUpdateButtons,
       announceCopy: announceCopy,
       escape: escapeHtml,
     };
@@ -9830,6 +9874,7 @@
       show: isGit ? { ignoreWhitespace: true } : undefined,
       hooks: hooks,
     });
+    focusPendingSettingsCard();
   }
 
   function renderShortcutsPane() {
@@ -9842,7 +9887,12 @@
   function renderAboutPane(cfg) {
     const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderAboutPane) {
-      shared.renderAboutPane(document.getElementById('aboutPane'), cfg, session);
+      shared.renderAboutPane(document.getElementById('aboutPane'), cfg, session, {
+        hasActivePendingUpdates: hasActivePendingUpdates,
+        syncPendingUpdateButtons: syncPendingUpdateButtons,
+        announceCopy: announceCopy,
+      });
+      focusPendingSettingsCard();
     }
   }
 

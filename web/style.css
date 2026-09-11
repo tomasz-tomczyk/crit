@@ -315,6 +315,18 @@ body {
 .update-btn:hover {
   color: var(--crit-green);
 }
+.update-btn-integration {
+  color: var(--crit-yellow);
+}
+.update-btn-integration:hover {
+  color: var(--crit-yellow);
+}
+.update-btn-available {
+  color: var(--crit-brand);
+}
+.update-btn-available:hover {
+  color: var(--crit-brand);
+}
 .update-btn-label {
   font-size: 12px;
   font-weight: 500;
@@ -3078,6 +3090,10 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   flex-direction: column;
   gap: 6px;
 }
+.about-update-card {
+  text-align: left;
+  margin-bottom: 20px;
+}
 .config-card {
   padding: 12px 16px;
   border-radius: 8px;
@@ -3206,6 +3222,13 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .config-card-dismiss:focus-visible {
   outline: none;
   box-shadow: var(--crit-focus);
+}
+@keyframes settings-card-focus {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  25% { box-shadow: 0 0 0 3px var(--crit-brand); }
+}
+.config-card.settings-card-focus {
+  animation: settings-card-focus 1.2s ease-out;
 }
 .config-card-dismissed {
   font-size: 12px;
@@ -3343,6 +3366,9 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .about-version {
   font-size: 13px;
   color: var(--crit-editor-fg-secondary);
+}
+.about-version-label {
+  color: var(--crit-editor-fg-muted);
 }
 .about-badge {
   display: inline-block;
