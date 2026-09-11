@@ -495,7 +495,14 @@ func detectPresentAgents(homeDir string) []string {
 			continue
 		}
 		for _, dir := range p.homeDirs {
-			if fi, err := os.Stat(filepath.Join(homeDir, dir)); err == nil && fi.IsDir() {
+			path := filepath.Join(homeDir, dir)
+			if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+				if p.versionMatch != "" {
+					entries, err := os.ReadDir(path)
+					if err != nil || len(entries) == 0 {
+						continue
+					}
+				}
 				present = append(present, p.agent)
 				seen[p.agent] = true
 				break

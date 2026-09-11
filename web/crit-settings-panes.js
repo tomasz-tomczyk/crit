@@ -9,7 +9,7 @@
 //     opts.mode : 'code-review' | 'live' (default: 'code-review')
 //                  Filters entries by their `modes` array so live users
 //                  don't see code-review-only bindings (j/k, ]/[, c/e/d, …).
-//   renderAboutPane(pane, cfg, sessionInfo)
+//   renderAboutPane(pane, cfg, sessionInfo, hooks)
 //   renderSettingsTab(pane, opts)
 //     opts.mode    : 'code-review' | 'live'
 //     opts.cfg     : /api/config response or {}
@@ -25,7 +25,8 @@
 //                      getIgnoreWhitespace(),                // required if show.ignoreWhitespace
 //                      setIgnoreWhitespace(v),               // required if show.ignoreWhitespace
 //                      onIgnoreWhitespaceChange(),           // optional, called after toggle (reloads diffs)
-//                      hasActivePendingUpdates(),            // optional, default false
+//                      hasActivePendingUpdates(kind),         // optional, default false
+//                      syncPendingUpdateButtons(),            // optional
 //                      announceCopy(),                       // optional
 //                    }
 
@@ -154,7 +155,7 @@
     });
   }
 
-  function renderAboutPane(pane, cfg, sessionInfo) {
+  function renderAboutPane(pane, cfg, sessionInfo, hooks) {
     if (!pane) return;
     cfg = cfg || {};
     var session = sessionInfo || {};
@@ -164,7 +165,10 @@
     html += '<div class="about-header">';
     html += '<h2>Crit</h2>';
     var ver = cfg.version || 'dev';
-    html += '<div class="about-version">' + escapeHTML(ver) + '</div>';
+    html += '<div class="about-version"><span class="about-version-label">Installed version</span> ' + escapeHTML(ver) + '</div>';
+    if (cfg.latest_version) {
+      html += '<div class="about-version"><span class="about-version-label">Latest version</span> ' + escapeHTML(cfg.latest_version) + '</div>';
+    }
     if (!cfg.no_update_check) {
       if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version) {
         html += '<div class="about-badge about-badge--update">Update available: ' + escapeHTML(cfg.latest_version) + '</div>';
@@ -173,6 +177,27 @@
       }
     }
     html += '</div>';
+
+    // Update card
+    if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
+      var releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHTML(cfg.latest_version);
+      var alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
+      html += '<div class="config-card config-card--orange about-update-card" id="aboutUpdateCard" tabindex="-1"><div class="config-card-header">';
+      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
+      html += '<span class="config-card-title">Update available</span>';
+      html += '<span class="config-card-value">v' + escapeHTML(cfg.latest_version) + '</span>';
+      html += '</div>';
+      html += '<div class="config-card-body" id="updateCardBody">';
+      html += '<div>Update instructions depend on how Crit was installed.</div>';
+      html += '<div class="config-card-actions">';
+      html += '<a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">View release and download options</a>';
+      if (alreadyDismissed) {
+        html += '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
+      } else {
+        html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + escapeHTML(cfg.latest_version) + '">Don\'t remind me until next version</button>';
+      }
+      html += '</div></div></div>';
+    }
 
     // Session info
     html += '<div class="settings-section-label">Current Session</div>';
@@ -206,6 +231,7 @@
     html += '</div>';
 
     pane.innerHTML = html;
+    wireConfigCardActions(pane, hooks);
   }
 
   // ============================================================
@@ -220,7 +246,6 @@
         width: false,         // width pill is file-mode only
         hideResolved: true,
         ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
-        update: true,
         account: true,
         agent: true,
         integration: true,
@@ -232,7 +257,6 @@
       width: true,
       hideResolved: true,
       ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
-      update: true,
       account: true,
       agent: true,
       integration: true,
@@ -291,6 +315,76 @@
 
   function formatAgentName(slug) {
     return slug.replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/-/g, ' ');
+  }
+
+  function wireConfigCardActions(pane, hooks) {
+    hooks = hooks || {};
+
+    var dismissBtn = pane.querySelector('#updateDismissBtn');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', function () {
+        var version = dismissBtn.dataset.dismissVersion || '';
+        setSetting('updatesDismissed', version);
+        if (hooks.syncPendingUpdateButtons) hooks.syncPendingUpdateButtons();
+        var updateBtn = document.getElementById('updateBtn');
+        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
+        if (updateBtn && !pending) updateBtn.style.display = 'none';
+        var body = pane.querySelector('#updateCardBody');
+        if (body) {
+          dismissBtn.outerHTML = '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
+        }
+      });
+    }
+
+    var integrationDismissBtn = pane.querySelector('#integrationDismissBtn');
+    if (integrationDismissBtn) {
+      integrationDismissBtn.addEventListener('click', function () {
+        var agent = integrationDismissBtn.dataset.agent || '';
+        var hash = integrationDismissBtn.dataset.hash || '';
+        if (!agent || !hash) return;
+        var map = getSetting('dismissedIntegrations', {}) || {};
+        map[agent] = hash;
+        setSetting('dismissedIntegrations', map);
+        if (hooks.syncPendingUpdateButtons) hooks.syncPendingUpdateButtons();
+        var updateBtn = document.getElementById('updateBtn');
+        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
+        if (updateBtn && !pending) updateBtn.style.display = 'none';
+        integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
+      });
+    }
+
+    pane.querySelectorAll('[data-dismiss-missing]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var agent = btn.dataset.dismissMissing || '';
+        if (!agent) return;
+        var map = getSetting('dismissedIntegrations', {}) || {};
+        map['missing:' + agent] = true;
+        setSetting('dismissedIntegrations', map);
+        if (hooks.syncPendingUpdateButtons) hooks.syncPendingUpdateButtons();
+        var updateBtn = document.getElementById('updateBtn');
+        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
+        if (updateBtn && !pending) updateBtn.style.display = 'none';
+        var card = btn.closest('.config-card');
+        if (card) card.remove();
+      });
+    });
+
+    pane.querySelectorAll('.config-card-copy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = btn.dataset.copy;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = '✓ Copied';
+          btn.setAttribute('aria-label', 'Copied');
+          if (hooks.announceCopy) hooks.announceCopy();
+          btn.classList.add('copied');
+          setTimeout(function () {
+            btn.textContent = 'Copy';
+            btn.setAttribute('aria-label', 'Copy');
+            btn.classList.remove('copied');
+          }, 1500);
+        });
+      });
+    });
   }
 
   function renderSettingsTab(pane, opts) {
@@ -393,32 +487,10 @@
     html += '</div>'; // close settings-display-group
 
     // ---------- Configuration ----------
-    var anyConfigCard = show.update || show.account || show.agent || show.integration || show.share;
+    var anyConfigCard = show.account || show.agent || show.integration || show.share;
     if (anyConfigCard) {
       html += '<div class="settings-section-label">Configuration</div>';
       html += '<div class="config-cards">';
-
-      // Update card
-      if (show.update && cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
-        var upgradeCmd = 'brew update && brew upgrade crit';
-        var releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + esc(cfg.latest_version);
-        var alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
-        html += '<div class="config-card config-card--orange"><div class="config-card-header">';
-        html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
-        html += '<span class="config-card-title">Update available</span>';
-        html += '<span class="config-card-value">v' + esc(cfg.latest_version) + '</span>';
-        html += '</div>';
-        html += '<div class="config-card-cmd"><span>$ ' + esc(upgradeCmd) + '</span><button class="config-card-copy" data-copy="' + esc(upgradeCmd) + '">Copy</button></div>';
-        html += '<div class="config-card-body" id="updateCardBody">';
-        html += '<div class="config-card-actions">';
-        html += '<a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes</a>';
-        if (alreadyDismissed) {
-          html += '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-        } else {
-          html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + esc(cfg.latest_version) + '">Don\'t remind me until next version</button>';
-        }
-        html += '</div></div></div>';
-      }
 
       // Legacy share_url-only configs have no per-target auth; top-level cfg.auth_*
       // still applies. Modern share_targets carry auth_logged_in per target.
@@ -485,7 +557,7 @@
           if (undismissedStale.length > 0) {
             var si = undismissedStale[0];
             var name = formatAgentName(si.agent);
-            html += '<div class="config-card config-card--yellow"><div class="config-card-header">';
+            html += '<div class="config-card config-card--yellow" id="integrationUpdateCard" tabindex="-1"><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
             html += '<span class="config-card-title">AI Integration</span>';
             html += '<span class="config-card-value">' + esc(name) + ' (update available)</span>';
@@ -538,7 +610,7 @@
         if (undismissed.length > 0) {
           undismissed.forEach(function (agent) {
             var name = formatAgentName(agent);
-            html += '<div class="config-card config-card--blue"><div class="config-card-header">';
+            html += '<div class="config-card config-card--blue"' + (undismissed.indexOf(agent) === 0 ? ' id="integrationAvailableCard" tabindex="-1"' : '') + '><div class="config-card-header">';
             html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
             html += '<span class="config-card-title">Integration Available</span>';
             html += '<span class="config-card-value">' + esc(name) + ' detected</span>';
@@ -672,68 +744,7 @@
       }
     }
 
-    var dismissBtn = pane.querySelector('#updateDismissBtn');
-    if (dismissBtn) {
-      dismissBtn.addEventListener('click', function () {
-        var version = dismissBtn.dataset.dismissVersion || '';
-        setSetting('updatesDismissed', version);
-        var updateBtn = document.getElementById('updateBtn');
-        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
-        if (updateBtn && !pending) updateBtn.style.display = 'none';
-        var body = pane.querySelector('#updateCardBody');
-        if (body) {
-          dismissBtn.outerHTML = '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-        }
-      });
-    }
-
-    var integrationDismissBtn = pane.querySelector('#integrationDismissBtn');
-    if (integrationDismissBtn) {
-      integrationDismissBtn.addEventListener('click', function () {
-        var agent = integrationDismissBtn.dataset.agent || '';
-        var hash = integrationDismissBtn.dataset.hash || '';
-        if (!agent || !hash) return;
-        var map = getSetting('dismissedIntegrations', {}) || {};
-        map[agent] = hash;
-        setSetting('dismissedIntegrations', map);
-        var updateBtn = document.getElementById('updateBtn');
-        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
-        if (updateBtn && !pending) updateBtn.style.display = 'none';
-        integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
-      });
-    }
-
-    pane.querySelectorAll('[data-dismiss-missing]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var agent = btn.dataset.dismissMissing || '';
-        if (!agent) return;
-        var map = getSetting('dismissedIntegrations', {}) || {};
-        map['missing:' + agent] = true;
-        setSetting('dismissedIntegrations', map);
-        var updateBtn = document.getElementById('updateBtn');
-        var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
-        if (updateBtn && !pending) updateBtn.style.display = 'none';
-        var card = btn.closest('.config-card');
-        if (card) card.remove();
-      });
-    });
-
-    pane.querySelectorAll('.config-card-copy').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var text = btn.dataset.copy;
-        navigator.clipboard.writeText(text).then(function () {
-          btn.textContent = '✓ Copied';
-          btn.setAttribute('aria-label', 'Copied');
-          if (hooks.announceCopy) hooks.announceCopy();
-          btn.classList.add('copied');
-          setTimeout(function () {
-            btn.textContent = 'Copy';
-            btn.setAttribute('aria-label', 'Copy');
-            btn.classList.remove('copied');
-          }, 1500);
-        });
-      });
-    });
+    wireConfigCardActions(pane, hooks);
   }
 
   window.crit = window.crit || {};
