@@ -632,6 +632,12 @@ func (s *Session) handleRoundCompleteGit() {
 		s.liveRoundStart(prev, next)
 	}
 
+	// Persist carried-forward comments + the new review_round before SSE
+	// clients refetch. Without this, disk stays on the prior round and
+	// mergeExternalCritJSON can clobber in-memory remaps with stale
+	// review.json (e.g. after an interrupted agent reconnect).
+	s.persistAfterRoundComplete()
+
 	// Refresh diffs for all files
 	s.RefreshDiffs()
 
@@ -810,7 +816,22 @@ func (s *Session) handleRoundCompleteFiles() {
 		fmt.Fprintf(os.Stderr, "Warning: write snapshots sidecar: %v\n", err)
 	}
 
+	// Same persist requirement as handleRoundCompleteGit: carried comments
+	// and the bumped review_round must hit review.json before SSE refresh
+	// or mergeExternalCritJSON can see a stale on-disk round.
+	s.persistAfterRoundComplete()
+
 	s.finishRoundComplete(edits)
+}
+
+// persistAfterRoundComplete flushes review.json after a round bump. Failures
+// are logged and do not roll back the in-memory round — mergeExternalCritJSON
+// refuses to apply a disk file whose review_round lags memory, so a transient
+// write error still protects carried-forward comments until the next flush.
+func (s *Session) persistAfterRoundComplete() {
+	if err := s.SyncWriteFiles(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: persist review after round-complete: %v\n", err)
+	}
 }
 
 // emitRoundStatus prints terminal status for a completed round.

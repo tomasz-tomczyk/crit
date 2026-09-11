@@ -596,6 +596,22 @@ func (s *Session) mergeExternalCritJSON() bool {
 		return false
 	}
 
+	s.mu.RLock()
+	memRound := s.ReviewRound
+	s.mu.RUnlock()
+	// Memory is ahead of an explicit on-disk round (round-complete remapped
+	// comments, write pending/failed, or a stale review.json raced in).
+	// Applying that disk file would replace carried-forward IDs with the
+	// prior round's comments and wipe drift bits — refuse until disk catches
+	// up. Disk review_round 0 means unset/legacy (tests and older files);
+	// never treat that as "stale prior round" or share merges stop applying.
+	if cj.ReviewRound > 0 && memRound > cj.ReviewRound {
+		s.mu.Lock()
+		s.lastCritJSONMtime = info.ModTime()
+		s.mu.Unlock()
+		return false
+	}
+
 	s.mu.Lock()
 	s.lastCritJSONMtime = info.ModTime()
 	// Disk is authoritative for external edits — clear deleted tracking
