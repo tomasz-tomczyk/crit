@@ -10911,6 +10911,23 @@
     return { done: done, total: groupFiles.length };
   }
 
+  // Keep the chapter mark button in sync when per-file Viewed state changes.
+  // Updates the existing button in place (preserves scroll/open state) — the
+  // click handler itself reads storyPageProgress live, so only the label needs
+  // syncing here.
+  function updateStoryMarkButton(page) {
+    if (!page || !storyState) return;
+    if (typeof storyView !== 'undefined' && storyView !== storyPageId(page)) return;
+    const view = document.getElementById('crit-story-view-' + storyPageId(page));
+    if (!view) return;
+    const markBtn = view.querySelector('.crit-story-chapter__mark');
+    if (!markBtn) return;
+    const prog = storyPageProgress(page);
+    const allViewed = prog.total > 0 && prog.done >= prog.total;
+    const label = allViewed ? 'Chapter viewed' : 'Mark chapter viewed';
+    if (markBtn.textContent !== label) markBtn.textContent = label;
+  }
+
   function storyStatusClass(page) {
     const p = storyPageProgress(page);
     if (p.total === 0) return '';
@@ -11340,7 +11357,11 @@
     markBtn.type = 'button';
     markBtn.className = 'crit-story-chapter__mark';
     markBtn.textContent = allViewed ? 'Chapter viewed' : 'Mark chapter viewed';
-    markBtn.addEventListener('click', function () { markPageViewed(page, !allViewed); });
+    markBtn.addEventListener('click', function () {
+      const cur = storyPageProgress(page);
+      const curAll = cur.total > 0 && cur.done >= cur.total;
+      markPageViewed(page, !curAll);
+    });
     markRow.appendChild(markBtn);
     view.appendChild(markRow);
 
@@ -11502,6 +11523,7 @@
       if (file && file.viewed && section.open) section.open = false;
       section.classList.toggle('viewed', !!(file && file.viewed));
       renderStoryRail();
+      updateStoryMarkButton(page);
     });
     header.appendChild(viewedLabel);
     section.appendChild(header);
@@ -11546,6 +11568,7 @@
         rebuildNavList();
         applyHideResolved();
         renderStoryRail();
+        updateStoryMarkButton(page);
       }).catch(function () {
         const emptyEl = section.querySelector('.crit-story-file-group__empty');
         if (emptyEl) emptyEl.textContent = 'Failed to load diff.';
@@ -11582,6 +11605,7 @@
     rebuildNavList();
     applyHideResolved();
     renderStoryRail();
+    updateStoryMarkButton(page);
     return true;
   }
 

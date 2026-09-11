@@ -304,6 +304,33 @@ test.describe('Story mode', () => {
     await expect(storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]')).toHaveClass(/viewed/);
   });
 
+  test('marking every file in a chapter viewed updates the chapter mark button in place', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+
+    await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch1').click();
+    await expect(storyView(page, 'ch1')).toBeVisible();
+
+    // ch1 owns a single file group (routes.go), so one checkbox flips the
+    // whole chapter to all-viewed.
+    const markBtn = storyView(page, 'ch1').locator('.crit-story-chapter__mark-row .crit-story-chapter__mark');
+    await expect(markBtn).toHaveText('Mark chapter viewed');
+
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await group.locator('.file-header-viewed').scrollIntoViewIfNeeded();
+    await group.locator('.file-header-viewed').click();
+
+    await expect(group).toHaveClass(/viewed/);
+    await expect(markBtn).toHaveText('Chapter viewed');
+
+    // Click polarity flips too: clicking the viewed-state button unmarks.
+    await markBtn.scrollIntoViewIfNeeded();
+    await markBtn.click();
+    await expect(markBtn).toHaveText('Mark chapter viewed');
+    await expect(group).not.toHaveClass(/viewed/);
+  });
+
   test('chapter file headers reuse collapse and selected-text comment affordances', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
