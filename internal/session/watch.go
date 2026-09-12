@@ -601,9 +601,12 @@ func (s *Session) handleRoundCompleteGit() {
 
 	// Snapshot PreviousContent before re-reading for all files with comments.
 	// LCS + anchor verification is used for all file types.
+	// Taken every round, not only when unset: the comments loaded above hold
+	// line numbers from the round that just ended, so a frozen baseline would
+	// re-apply every earlier round's delta.
 	s.mu.Lock()
 	for _, f := range s.Files {
-		if f.PreviousContent == "" && len(f.PreviousComments) > 0 {
+		if len(f.PreviousComments) > 0 {
 			f.PreviousContent = f.Content
 		}
 	}

@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 // TestWatchFileMtimes_CommentNotLostOnFileChange verifies that a comment added
@@ -1380,6 +1383,111 @@ func TestCarryForwardComments_CodeFileOldSidePreservesPosition(t *testing.T) {
 	}
 	if carried.Side != "old" {
 		t.Errorf("Side should be preserved as %q, got %q", "old", carried.Side)
+	}
+}
+
+// Second round bump: the comment already holds round-2 line numbers, so the
+// LCS baseline must be round-2 content, not round-1. The agent rewords the
+// commented line here because that is when the anchor search can no longer
+// rescue a stale line map.
+func TestHandleRoundCompleteGit_BaselineIsPreviousRound(t *testing.T) {
+	dir := t.TempDir()
+	identity := filepath.Join(dir, ".crit")
+	if err := os.MkdirAll(identity, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goPath := filepath.Join(dir, "main.go")
+
+	const anchor = "// TODO: rename this"
+	body := "package main\nfunc A() {}\n" + anchor + "\nfunc B() {}\nfunc C() {}\n"
+	// Round 1: the agent prepends two lines. Anchor 3 -> 5.
+	r2 := "// header one\n// header two\n" + body
+	// Round 2: two more lines, plus the commented line reworded. 5 -> 7.
+	r3 := "// header three\n// header four\n// header one\n// header two\n" +
+		"package main\nfunc A() {}\n" + anchor + " (updated)\nfunc B() {}\nfunc C() {}\n"
+	writeFile(t, goPath, r2)
+
+	first := Comment{
+		ID:        "c_baseline",
+		StartLine: 3,
+		EndLine:   3,
+		Body:      "rename this",
+		Anchor:    anchor,
+		Scope:     "line",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T00:00:00Z",
+	}
+	seed, err := json.MarshalIndent(CritJSON{
+		Branch:      "feat",
+		ReviewRound: 1,
+		Files:       map[string]CritJSONFile{"main.go": {Status: "modified", Comments: []Comment{first}}},
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(identity, "review.json"), string(seed))
+
+	s := &Session{
+		Mode: "git",
+		VCS: &fakeWatchVCS{
+			currentBranch: "feat",
+			defaultBranch: "main",
+			branchChanges: []vcs.FileChange{{Path: "main.go", Status: "modified"}},
+			diffs:         map[string][]vcs.DiffHunk{"main.go": {{OldStart: 1, NewStart: 1}}},
+		},
+		RepoRoot:       dir,
+		BaseRef:        "main",
+		Branch:         "feat",
+		ReviewFilePath: identity,
+		ReviewRound:    1,
+		subscribers:    make(map[chan SSEEvent]struct{}),
+		Files: []*FileEntry{{
+			Path:     "main.go",
+			AbsPath:  goPath,
+			Status:   "modified",
+			FileType: "code",
+			Content:  body,
+			Comments: []Comment{first},
+		}},
+	}
+
+	s.handleRoundCompleteGit()
+
+	if s.ReviewRound != 2 {
+		t.Fatalf("round 2: ReviewRound = %d, want 2", s.ReviewRound)
+	}
+	got := s.GetComments("main.go")
+	if len(got) != 1 {
+		t.Fatalf("round 2: expected 1 comment, got %d", len(got))
+	}
+	if got[0].StartLine != 5 || got[0].EndLine != 5 {
+		t.Fatalf("round 2: expected line 5, got start=%d end=%d", got[0].StartLine, got[0].EndLine)
+	}
+	if got[0].Drifted {
+		t.Fatal("round 2: anchor untouched, should not be Drifted")
+	}
+
+	writeFile(t, goPath, r3)
+	s.handleRoundCompleteGit()
+
+	if s.ReviewRound != 3 {
+		t.Fatalf("round 3: ReviewRound = %d, want 3", s.ReviewRound)
+	}
+	got = s.GetComments("main.go")
+	if len(got) != 1 {
+		t.Fatalf("round 3: expected 1 comment, got %d", len(got))
+	}
+	if got[0].StartLine != 7 || got[0].EndLine != 7 {
+		lines := strings.Split(strings.TrimSuffix(r3, "\n"), "\n")
+		at := ""
+		if got[0].StartLine >= 1 && got[0].StartLine <= len(lines) {
+			at = lines[got[0].StartLine-1]
+		}
+		t.Errorf("round 3: expected line 7, got start=%d end=%d (renders against %q)",
+			got[0].StartLine, got[0].EndLine, at)
+	}
+	if got[0].Drifted {
+		t.Error("round 3: reworded line is still recognisable, should not be Drifted")
 	}
 }
 
