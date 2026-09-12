@@ -42,6 +42,11 @@ func (s *Session) critJSONPath() string {
 	if s.ReviewFilePath != "" {
 		return s.ReviewFilePath
 	}
+	if s.RepoRoot == "" {
+		// No review destination configured. Returning "" keeps writes out of
+		// the process working directory, which tests mutate with os.Chdir.
+		return ""
+	}
 	// Fallback for tests and backwards compat
 	return filepath.Join(s.RepoRoot, ".crit")
 }
@@ -283,6 +288,9 @@ func (s *Session) SyncWriteFiles() error {
 // pre-existing log-and-continue behaviour).
 func (s *Session) writeFilesErr() error {
 	critPath := s.critJSONPath()
+	if critPath == "" {
+		return nil
+	}
 
 	if s.handleExternalDeletion(critPath) {
 		return nil

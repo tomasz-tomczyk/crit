@@ -54,6 +54,7 @@
       { id: 'toggle_pin_mode', binding: 'p', action: 'Toggle pin mode', modes: LIVE_ONLY },
     ]},
     { label: 'View', shortcuts: [
+      { id: 'toggle_file_tree', binding: 'b', action: 'Toggle file tree sidebar', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_toc', binding: 't', action: 'Toggle table of contents', mode: 'file mode', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_resolved', binding: 'h', action: 'Toggle hide resolved', modes: CODE_REVIEW_ONLY },
       { binding: 'Esc', action: 'Cancel / clear focus', modes: BOTH, fixed: true },
