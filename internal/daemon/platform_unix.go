@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -32,6 +33,7 @@ func terminateProcess(proc *os.Process) error {
 // processExists reports whether the given process is still running. On Unix
 // this is signal-0; on Windows os.FindProcess returns a handle that is alive
 // only while the process exists, so we use a Windows-specific probe.
-func processExists(proc *os.Process) bool {
-	return proc.Signal(syscall.Signal(0)) == nil
+func processExists(proc interface{ Signal(os.Signal) error }) bool {
+	err := proc.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
