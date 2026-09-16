@@ -27,6 +27,28 @@ func TestRemappedCarriedCommentReplacesDiskCopy(t *testing.T) {
 	}
 }
 
+// TestExportedCarryForwardCommentPreservesID covers the exported wrapper used
+// by internal/live, which reaches carry-forward through session.CarryForwardComment
+// rather than the unexported helper.
+func TestExportedCarryForwardCommentPreservesID(t *testing.T) {
+	carried := CarryForwardComment(Comment{
+		ID:        "c_thread",
+		StartLine: 7,
+		EndLine:   7,
+		Body:      "still relevant",
+	}, "2026-09-16T00:00:00Z")
+
+	if carried.ID != "c_thread" {
+		t.Errorf("ID = %q, want c_thread", carried.ID)
+	}
+	if !carried.CarriedForward {
+		t.Error("CarriedForward = false, want true")
+	}
+	if carried.UpdatedAt != "2026-09-16T00:00:00Z" {
+		t.Errorf("UpdatedAt = %q, want the carry timestamp", carried.UpdatedAt)
+	}
+}
+
 // TestCarriedCommentTimelineKeepsOneThreadAcrossRounds verifies that a carried
 // parent remains visible in both rounds while replies stay scoped to the round
 // in which they were authored.
