@@ -651,7 +651,9 @@
     if (diffCommit) {
       diffUrl += '&commit=' + enc(diffCommit);
     }
-    if (ignoreWhitespace) {
+    // Story references use raw-diff hunk coordinates.
+    const storyNeedsStableHunkAnchors = storyHasContent(session && session.story) && !storyHidden;
+    if (ignoreWhitespace && !storyNeedsStableHunkAnchors) {
       diffUrl += '&w=1';
     }
     const [fileRes, commentsRes, diffRes] = await Promise.all([

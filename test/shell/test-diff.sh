@@ -445,6 +445,25 @@ echo "Starting stacked-toggle crit on port $TOGGLE_PORT (--range A..B)..."
 (cd "$TOGGLE_DIR" && "$ROOT/$BINARY" --port "$TOGGLE_PORT" --no-open --range "$TOGGLE_A_SHA..$TOGGLE_B_SHA") &
 TOGGLE_PID=$!
 
+# Story anchors must use raw hunks even when Ignore whitespace is enabled.
+STORY_PORT=$((PORT + 6))
+STORY_DIR=$(mktemp -d)
+git -C "$STORY_DIR" init -q
+git -C "$STORY_DIR" config user.name "Test"
+git -C "$STORY_DIR" config user.email "test@example.com"
+{
+  echo 'const spacing = 1;'
+  for i in $(seq 1 30); do echo "// Unchanged context $i"; done
+  echo 'export const result = "before";'
+} > "$STORY_DIR/example.js"
+git -C "$STORY_DIR" add example.js
+git -C "$STORY_DIR" commit -qm "Initial example"
+sed -e 's/spacing = 1/spacing  =  1/' -e 's/"before"/"after"/' \
+  "$STORY_DIR/example.js" > "$STORY_DIR/updated.js"
+mv "$STORY_DIR/updated.js" "$STORY_DIR/example.js"
+(cd "$STORY_DIR" && exec "$ROOT/$BINARY" _serve --port "$STORY_PORT" --no-open) &
+STORY_PID=$!
+
 cleanup() {
   kill "$CRIT_PID" 2>/dev/null || true
   kill "$WORD_DIFF_PID" 2>/dev/null || true
@@ -452,23 +471,26 @@ cleanup() {
   kill "$CF_GIT_PID" 2>/dev/null || true
   kill "$RANGE_PID" 2>/dev/null || true
   kill "$TOGGLE_PID" 2>/dev/null || true
+  kill "$STORY_PID" 2>/dev/null || true
   wait "$CRIT_PID" 2>/dev/null || true
   wait "$WORD_DIFF_PID" 2>/dev/null || true
   wait "$CF_FILE_PID" 2>/dev/null || true
   wait "$CF_GIT_PID" 2>/dev/null || true
   wait "$RANGE_PID" 2>/dev/null || true
   wait "$TOGGLE_PID" 2>/dev/null || true
+  wait "$STORY_PID" 2>/dev/null || true
   rm -f .crit.json
   rm -f "$CF_FILE"
   rm -rf "$WORD_DIFF_DIR"
   rm -rf "$CF_GIT_DIR"
   rm -rf "$RANGE_DIR"
   rm -rf "$TOGGLE_DIR"
+  rm -rf "$STORY_DIR"
 }
 trap cleanup EXIT INT TERM
 
 # Wait for servers to be ready (poll until /api/session returns 200, not 503)
-for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$RANGE_PORT" "$TOGGLE_PORT"; do
+for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$RANGE_PORT" "$TOGGLE_PORT" "$STORY_PORT"; do
   for i in $(seq 1 40); do
     if curl -sf "http://127.0.0.1:$port_to_wait/api/session" > /dev/null 2>&1; then
       break
@@ -476,6 +498,17 @@ for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$R
     sleep 0.5
   done
 done
+
+curl -sf -X POST "http://127.0.0.1:$STORY_PORT/api/story" \
+  -H 'Content-Type: application/json' -d '{"story": {
+    "version": 1,
+    "prologue": {"title": "Story with whitespace changes", "overview": "Keep raw hunk anchors while ignoring whitespace.",
+      "key_changes": ["Update the exported result."], "risks": ["Whitespace filtering must not hide Story hunks."]},
+    "chapters": [{"id": "result", "title": "Update result", "summary": "Change the exported result.",
+      "hunk_refs": [{"file_path": "example.js", "old_start": 29}]}],
+    "support": [{"reason": "Whitespace-only formatting.",
+      "hunk_refs": [{"file_path": "example.js", "old_start": 1}]}]
+  }}' > /dev/null
 
 # Clear any leftover comments from previous runs (the daemon persists
 # reviews to ~/.crit/reviews/ — re-running without this accumulates dupes)
@@ -934,6 +967,7 @@ echo "  3. Carry-forward (file-mode):     http://127.0.0.1:$CF_FILE_PORT"
 echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
 echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
 echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
+echo "  7. Story + Ignore whitespace:    http://127.0.0.1:$STORY_PORT"
 echo ""
 echo "Instance 1 — GitHub-synced comment badge (#370):"
 echo "  The overview paragraph (line 8) has a comment authored by 'octocat' that"
@@ -1074,13 +1108,14 @@ git -C "$WORD_DIFF_DIR" rm -q helpers.go && git -C "$WORD_DIFF_DIR" commit -q -m
 curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/round-complete" > /dev/null
 
 echo ""
-echo "Six views running:"
+echo "Seven views running:"
 echo "  1. Markdown diff (inter-round):   http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):        http://127.0.0.1:$WORD_DIFF_PORT"
 echo "  3. Carry-forward (file-mode):     http://127.0.0.1:$CF_FILE_PORT"
 echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
 echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
 echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
+echo "  7. Story + Ignore whitespace:    http://127.0.0.1:$STORY_PORT"
 echo ""
 echo "Instance 1: diff view with resolved comments + threaded replies + deletion markers."
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
@@ -1111,5 +1146,9 @@ echo "            still be visible. Toggle: layer shows LAYER ONLY on b.txt;"
 echo "            full-stack shows FULL_STACK ONLY on a.txt. The push-gate"
 echo "            verdict was printed during setup."
 echo ""
+echo "Instance 7: enable Ignore whitespace in Settings, then reload. The Update result"
+echo "            chapter must show the before/after diff, and Support the spacing change."
+echo "            Switch to Diff: only the result change should remain. Switch back to"
+echo "            Story: both chapter and support hunks should still render."
 echo "Press Enter to stop all servers."
 read -r
