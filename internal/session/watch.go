@@ -990,17 +990,37 @@ func anchorSimilar(candidate, anchor string) bool {
 	if a == "" || b == "" {
 		return false
 	}
-	// Common case: text was appended to or trimmed from the anchor line.
+	// Common case: text was appended to or trimmed from the anchor line, or a
+	// single clause was cut out of its middle — the shapes an agent leaves
+	// when it edits a line in place. Both require the deleted text to be
+	// contiguous, which is what keeps unrelated lines that merely share
+	// scattered characters from matching.
 	// Gate on a minimum length so trivial anchors (`}`, `return nil`) don't
 	// match any longer line that happens to contain them.
-	minLen := len(a)
-	if len(b) < minLen {
-		minLen = len(b)
+	shorter, longer := a, b
+	if len(longer) < len(shorter) {
+		shorter, longer = longer, shorter
 	}
-	if minLen >= 8 && (strings.Contains(a, b) || strings.Contains(b, a)) {
+	if len(shorter) >= 8 && (strings.Contains(longer, shorter) || oneMiddleCut(shorter, longer)) {
 		return true
 	}
 	return levenshteinRatio(a, b) >= 0.7
+}
+
+// oneMiddleCut reports whether short can be produced from long by deleting a
+// single contiguous run from the middle, leaving long's opening and closing
+// text intact. Splits are tried on short's rune boundaries, so a multi-byte
+// rune is either kept whole or removed with the rest of the cut.
+func oneMiddleCut(short, long string) bool {
+	if len(short) >= len(long) {
+		return false
+	}
+	for k := range short {
+		if strings.HasPrefix(long, short[:k]) && strings.HasSuffix(long, short[k:]) {
+			return true
+		}
+	}
+	return strings.HasPrefix(long, short)
 }
 
 // levenshteinRatio returns 1 - (distance / maxLen), clamped to [0, 1].

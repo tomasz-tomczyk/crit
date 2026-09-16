@@ -766,6 +766,92 @@ func TestCarryForward_AnchorEditedInPlaceNotDrifted(t *testing.T) {
 	}
 }
 
+// The agent addressed a wording comment by cutting the clause out of the
+// middle of the line, so the line keeps only its prefix and suffix. LCS still
+// maps it to the same row, so the comment belongs there — a Drifted flag here
+// would also silently drop it from `crit push` to GitLab.
+func TestCarryForward_ClauseDeletedFromMiddleOfLineNotDrifted(t *testing.T) {
+	dir := t.TempDir()
+	tsxPath := filepath.Join(dir, "Routes.tsx")
+	const anchor = `      continue. If this organization has no locations yet,{" "}`
+	oldContent := "<div>\n  Please select a location above to\n" + anchor +
+		"\n  <Link to=\"/admin\">create one here</Link>\n</div>\n"
+	newContent := "<div>\n  Please select a location above to\n" +
+		"      continue.{\" \"}\n" +
+		"  <Link to=\"/admin\">Go to admin to create one</Link>\n</div>\n"
+	writeFile(t, tsxPath, newContent)
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		Files: []*FileEntry{
+			{
+				Path:            "Routes.tsx",
+				AbsPath:         tsxPath,
+				Status:          "modified",
+				FileType:        "code",
+				Content:         newContent,
+				PreviousContent: oldContent,
+				Comments:        []Comment{},
+				PreviousComments: []Comment{
+					{
+						ID:        "c_old",
+						StartLine: 3,
+						EndLine:   3,
+						Body:      `Change wording to say "Go to admin to create one"`,
+						Anchor:    anchor,
+						Scope:     "line",
+						CreatedAt: "2026-01-01T00:00:00Z",
+						UpdatedAt: "2026-01-01T00:00:00Z",
+					},
+				},
+			},
+		},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	if len(s.Files[0].Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(s.Files[0].Comments))
+	}
+	carried := s.Files[0].Comments[0]
+	if carried.Drifted {
+		t.Error("expected Drifted=false when only a clause was cut from the line")
+	}
+	if carried.StartLine != 3 || carried.EndLine != 3 {
+		t.Errorf("expected line 3, got %d-%d", carried.StartLine, carried.EndLine)
+	}
+}
+
+func TestOneMiddleCut(t *testing.T) {
+	tests := []struct {
+		name  string
+		short string
+		long  string
+		want  bool
+	}{
+		{"single cut from the middle", "abef", "abcdef", true},
+		{"cut leaves only a prefix", "ab", "abcdef", true},
+		{"cut leaves only a suffix", "ef", "abcdef", true},
+		{"empty short", "", "abcdef", true},
+		{"two separate cuts", "abde", "abcdexf", false},
+		{"reordered", "efab", "abcdef", false},
+		{"not shorter", "abcdef", "abcdef", false},
+		{"longer than long", "abcdefg", "abcdef", false},
+		{"multi-byte rune kept whole", "a—f", "a—cdf", true},
+		{"multi-byte rune cut entirely", "af", "a—f", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := oneMiddleCut(tt.short, tt.long); got != tt.want {
+				t.Errorf("oneMiddleCut(%q, %q) = %v, want %v",
+					tt.short, tt.long, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAnchorSimilar(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -778,6 +864,16 @@ func TestAnchorSimilar(t *testing.T) {
 		{"appended text", "foo bar baz qux", "foo bar baz", true},
 		{"trimmed text", "foo bar baz", "foo bar baz qux", true},
 		{"minor edit", "the quick brown fox", "the quick brn fox", true},
+		// One contiguous clause was cut from the middle of the line, leaving
+		// the opening and closing text intact. Neither string contains the
+		// other and the edit distance is large, but nothing was reworded.
+		{"one contiguous cut from the middle", `continue.{" "}`, `continue. If this organization has no locations yet,{" "}`, true},
+		{"wrapped at both ends", "if err := doSomething(arg); err != nil {", "doSomething(arg)", true},
+		// Unrelated statements that merely share scattered characters. These
+		// need several separate cuts, so they are not the same line edited.
+		{"scattered chars in unrelated call", "return nil, err", `return fmt.Errorf("failed to open config file %q: %w", path, err)`, false},
+		{"shared prefix different statement", "t.Fatal(err)", `t.Fatalf("unexpected error reading %s: %v", path, err)`, false},
+		{"lock semantics changed", "s.mu.Unlock()", "defer s.mu.RUnlock()", false},
 		{"short anchor not trivially contained", "} else {", "}", false},
 		{"short anchor too generic", "x = foo()", "x = 1", false},
 		{"empty candidate", "", "foo bar", false},
