@@ -597,7 +597,7 @@ func releaseSessionLock(f *os.File) {
 // readiness via os.Stdout and the parent reads it via the pipe's read end.
 // _CRIT_READY_STDOUT=1 tells the child to treat stdout as the readiness pipe
 // (otherwise stdout is the user's terminal and we must not emit the port).
-func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
+func setupDaemonCmd(key string, args []string, dir string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("finding executable: %w", err)
@@ -606,11 +606,13 @@ func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *
 	cmdArgs := append([]string{"_serve"}, args...)
 	cmd := exec.Command(selfPath, cmdArgs...)
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
+	if dir == "" {
+		dir, err = os.Getwd()
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("getting working directory: %w", err)
+		}
 	}
-	cmd.Dir = cwd
+	cmd.Dir = dir
 	cmd.Stdin = nil
 
 	logPath, err := sessionLogPath(key)
@@ -638,9 +640,9 @@ func setupDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *
 // prepareDaemonCmd removes stale session state before creating the log that
 // the new daemon inherits. This keeps fatal initialization errors readable by
 // the client after the daemon exits.
-func prepareDaemonCmd(key string, args []string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
+func prepareDaemonCmd(key string, args []string, dir string) (*exec.Cmd, *os.File, *os.File, *os.File, error) {
 	RemoveSessionFile(key)
-	return setupDaemonCmd(key, args)
+	return setupDaemonCmd(key, args, dir)
 }
 
 func readPortFromPipe(readEnd *os.File) (portCh chan int, errCh chan error) {
@@ -710,6 +712,14 @@ func handleDaemonPipeError(key string, readErr error, readEnd *os.File, cmd *exe
 // Raw args (including flags) are passed through to _serve which parses them itself.
 // Uses an OS pipe (FD 3) for the daemon to signal readiness by writing its port number.
 func StartDaemon(key string, args []string) (SessionEntry, error) {
+	return StartDaemonInDir(key, args, "")
+}
+
+// StartDaemonInDir is StartDaemon with an explicit working directory for the
+// daemon process. An empty dir means "inherit ours", which is what a review
+// started from the current directory wants. `crit resume` passes the directory
+// recorded in the review file so a session can be restarted from anywhere.
+func StartDaemonInDir(key string, args []string, dir string) (SessionEntry, error) {
 	lock, err := acquireSessionLock(key)
 	if err != nil {
 		return SessionEntry{}, err
@@ -720,7 +730,7 @@ func StartDaemon(key string, args []string) (SessionEntry, error) {
 		return entry, nil
 	}
 
-	cmd, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, args)
+	cmd, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, args, dir)
 	if err != nil {
 		return SessionEntry{}, err
 	}

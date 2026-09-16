@@ -1060,7 +1060,7 @@ func TestPrepareDaemonCmd_KeepsNewLogAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, nil)
+	_, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, nil, "")
 	if err != nil {
 		t.Fatalf("prepareDaemonCmd: %v", err)
 	}
@@ -1074,6 +1074,47 @@ func TestPrepareDaemonCmd_KeepsNewLogAvailable(t *testing.T) {
 	}
 	if got := ReadDaemonLog(key); got != "" {
 		t.Errorf("ReadDaemonLog = %q, want cleared new log", got)
+	}
+}
+
+func TestSetupDaemonCmd_WorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.MkdirAll(filepath.Join(home, ".crit", "sessions"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("explicit directory", func(t *testing.T) {
+		want := t.TempDir()
+		cmd, readEnd, writeEnd, logFile, err := setupDaemonCmd("explicitdirxx", nil, want)
+		if err != nil {
+			t.Fatalf("setupDaemonCmd: %v", err)
+		}
+		defer closeAll(readEnd, writeEnd, logFile)
+		if cmd.Dir != want {
+			t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
+		}
+	})
+
+	t.Run("empty directory inherits ours", func(t *testing.T) {
+		cmd, readEnd, writeEnd, logFile, err := setupDaemonCmd("inheriteddirx", nil, "")
+		if err != nil {
+			t.Fatalf("setupDaemonCmd: %v", err)
+		}
+		defer closeAll(readEnd, writeEnd, logFile)
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cmd.Dir != wd {
+			t.Errorf("cmd.Dir = %q, want the current directory %q", cmd.Dir, wd)
+		}
+	})
+}
+
+func closeAll(files ...*os.File) {
+	for _, f := range files {
+		f.Close()
 	}
 }
 

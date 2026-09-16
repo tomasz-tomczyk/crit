@@ -378,6 +378,7 @@ type Session struct {
 	Mode           string   // "files" (explicit markdown files) or "git" (auto-detected from git)
 	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
 	SessionKey     string   // stable ID for reconnect via crit --session (set by daemon)
+	CWD            string   // daemon working directory, recorded in review.json for crit resume (set by daemon)
 	Branch         string
 	BaseRef        string
 	BaseBranchName string // display name of the base branch (e.g. "production", "master")
@@ -511,6 +512,12 @@ type CritJSON struct {
 	ReviewComments  []Comment               `json:"review_comments,omitempty"`
 	CliArgs         []string                `json:"cli_args,omitempty"`
 	Files           map[string]CritJSONFile `json:"files"`
+
+	// CWD is the directory the daemon ran in. The session key is a hash of it,
+	// so it cannot be recovered from the key alone — `crit resume` reads it to
+	// restart a review from a different directory. Absent in reviews written
+	// before this field existed; such reviews resume in the current directory.
+	CWD string `json:"cwd,omitempty"`
 
 	// ActiveDiffScope is the most recent focus diff_scope from this session.
 	// Read by `crit push` to gate full-stack pushes; "" indicates working-tree mode.

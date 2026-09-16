@@ -11,8 +11,8 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
-// startDaemonForReconnect is daemon.StartDaemon in production; tests may replace it.
-var startDaemonForReconnect = daemon.StartDaemon
+// startDaemonForReconnect is daemon.StartDaemonInDir in production; tests may replace it.
+var startDaemonForReconnect = daemon.StartDaemonInDir
 
 // Test hooks for migrateLegacyOutputReconnect error paths.
 var (
@@ -175,6 +175,27 @@ func migrateLegacyOutputReconnect(sessionKey, reviewDir string) []string {
 	return []string{"--output", root}
 }
 
+// reconnectDir returns the directory the restarted daemon should run in.
+// Reviews written before review.json recorded a cwd fall back to ours, which
+// is where they could only ever be resumed from anyway.
+func reconnectDir(cj CritJSON, stale daemon.SessionEntry) (string, error) {
+	dir := cj.CWD
+	if dir == "" {
+		dir = stale.CWD
+	}
+	if dir == "" {
+		return "", nil
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("review directory %s is unavailable: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("review directory %s is not a directory", dir)
+	}
+	return dir, nil
+}
+
 // reconnectDeadSession restarts a daemon for an existing review folder.
 func reconnectDeadSession(key string, stale daemon.SessionEntry, quiet bool) (daemon.SessionEntry, error) {
 	revDir, err := resolveReconnectReviewDir(key, stale)
@@ -194,7 +215,11 @@ func reconnectDeadSession(key string, stale daemon.SessionEntry, quiet bool) (da
 		return daemon.SessionEntry{}, fmt.Errorf("parsing review for session %s: %w", key, err)
 	}
 	daemonArgs := daemonArgsForReconnect(key, cj.CliArgs, stale, revDir)
-	entry, err := startDaemonForReconnect(key, daemonArgs)
+	dir, err := reconnectDir(cj, stale)
+	if err != nil {
+		return daemon.SessionEntry{}, err
+	}
+	entry, err := startDaemonForReconnect(key, daemonArgs, dir)
 	if err != nil {
 		return daemon.SessionEntry{}, err
 	}

@@ -73,6 +73,7 @@ crit live <url>               # Review a running web app in live mode (also: cri
 crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
+crit resume [--list] [<id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as a GitHub PR review
@@ -366,6 +367,10 @@ Daemon state in `~/.crit/sessions/`, one file per session.
 Session file: `{"pid", "port", "cwd", "args", "branch", "review_path", "started_at"}`. Review data lives at `~/.crit/reviews/<key>.json` (same key).
 
 `crit _serve` runs the server in foreground (used by daemon spawning, not user-facing).
+
+### Resuming a dead session
+
+The session file is deleted as soon as its daemon dies, so a stopped session can only be found through its review folder. `review.json` therefore records `cwd` alongside `cli_args`: the session key is a hash of the cwd, so the directory cannot be recovered from the key. `crit resume` lists the folders under `~/.crit/reviews/` and hands the chosen key to `crit --session <id>`, which rebuilds the `_serve` argv (`daemonArgsForReconnect`) and respawns the daemon in the recorded directory via `StartDaemonInDir`. Reviews written before the `cwd` field existed resume in the current directory, as they always did.
 </important>
 
 <important if="you are reviewing code or evaluating audit findings for this project">

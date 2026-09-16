@@ -63,6 +63,7 @@ type writeFilesSnapshot struct {
 	shareVisibility string
 	reviewComments  []Comment
 	cliArgs         []string
+	cwd             string
 	// story is the session's in-memory narrative (nil if none). Carried into
 	// CritJSON like the other daemon-managed fields above so `crit story`'s
 	// daemon-side mutators (set via s.SetStory) are actually persisted —
@@ -159,6 +160,12 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.ShareVisibility = snap.shareVisibility
 	cj.ReviewComments = snap.reviewComments
 	cj.CliArgs = snap.cliArgs
+	// Only daemon-built snapshots carry a cwd; an empty one must leave the
+	// recorded directory alone rather than erase a resumable review's only
+	// pointer back to its working tree.
+	if snap.cwd != "" {
+		cj.CWD = snap.cwd
+	}
 	cj.Story = snap.story
 	cj.PendingRemoteDeletes = reconcilePendingRemoteDeletes(
 		snap.pendingRemoteDeletes, cj.PendingRemoteDeletes, snap.lastLoadedRemoteDeletes,
@@ -364,6 +371,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		shareVisibility:         s.shareVisibility,
 		reviewComments:          rc,
 		cliArgs:                 s.CLIArgs,
+		cwd:                     s.CWD,
 		story:                   s.story,
 		pendingRemoteDeletes:    pendDeletes,
 		lastLoadedRemoteDeletes: lastLoaded,

@@ -133,9 +133,12 @@ Relative paths resolve from the repo root. Prefer a gitignored file under `.crit
 
 ```bash
 crit status                       # show review file path and daemon status
+crit resume                       # pick a previous review to reopen
 crit stats                        # show lifetime review statistics
 crit cleanup                      # delete stale review files
 ```
+
+`crit resume` lists every review in `~/.crit/reviews`, newest first, with its branch or files, directory, age, and open comment count. Choosing one reconnects to its daemon, or restarts the daemon in the directory the review came from when it has stopped — so you can resume a review from anywhere. Pass `--list` to print the list instead, or a session ID to skip the picker.
 
 ## Features
 

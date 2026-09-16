@@ -94,7 +94,7 @@ func TestReconnectDeadSession_RestartsDaemon(t *testing.T) {
 	}
 
 	orig := startDaemonForReconnect
-	startDaemonForReconnect = func(gotKey string, args []string) (daemon.SessionEntry, error) {
+	startDaemonForReconnect = func(gotKey string, args []string, _ string) (daemon.SessionEntry, error) {
 		if gotKey != key {
 			t.Fatalf("key = %q, want %q", gotKey, key)
 		}
@@ -156,7 +156,7 @@ func TestRunReview_SessionByID_ReconnectsDeadDaemon(t *testing.T) {
 	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
 
 	origStart := startDaemonForReconnect
-	startDaemonForReconnect = func(string, []string) (daemon.SessionEntry, error) {
+	startDaemonForReconnect = func(string, []string, string) (daemon.SessionEntry, error) {
 		return daemon.SessionEntry{PID: os.Getpid(), Port: port}, nil
 	}
 	t.Cleanup(func() { startDaemonForReconnect = origStart })
@@ -186,7 +186,7 @@ func TestReconnectDeadSession_OutputReviewPath(t *testing.T) {
 
 	stale := daemon.SessionEntry{ReviewPath: revDir}
 	orig := startDaemonForReconnect
-	startDaemonForReconnect = func(gotKey string, args []string) (daemon.SessionEntry, error) {
+	startDaemonForReconnect = func(gotKey string, args []string, _ string) (daemon.SessionEntry, error) {
 		if gotKey != key {
 			t.Fatalf("key = %q, want %q", gotKey, key)
 		}
@@ -470,6 +470,103 @@ func TestReconnectDeadSession_StalePathMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no review found") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReconnectDir(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("prefers the review file's directory", func(t *testing.T) {
+		got, err := reconnectDir(CritJSON{CWD: dir}, daemon.SessionEntry{CWD: t.TempDir()})
+		if err != nil || got != dir {
+			t.Fatalf("reconnectDir = %q, %v; want %q", got, err, dir)
+		}
+	})
+
+	t.Run("falls back to the stale session entry", func(t *testing.T) {
+		got, err := reconnectDir(CritJSON{}, daemon.SessionEntry{CWD: dir})
+		if err != nil || got != dir {
+			t.Fatalf("reconnectDir = %q, %v; want %q", got, err, dir)
+		}
+	})
+
+	t.Run("inherits ours when nothing is recorded", func(t *testing.T) {
+		got, err := reconnectDir(CritJSON{}, daemon.SessionEntry{})
+		if err != nil || got != "" {
+			t.Fatalf("reconnectDir = %q, %v; want an empty directory", got, err)
+		}
+	})
+
+	t.Run("fails when the directory is gone", func(t *testing.T) {
+		_, err := reconnectDir(CritJSON{CWD: filepath.Join(dir, "deleted")}, daemon.SessionEntry{})
+		if err == nil {
+			t.Fatal("expected an error for a missing directory")
+		}
+	})
+
+	t.Run("fails when the path is not a directory", func(t *testing.T) {
+		file := filepath.Join(dir, "file")
+		writeFile(t, file, "")
+		if _, err := reconnectDir(CritJSON{CWD: file}, daemon.SessionEntry{}); err == nil {
+			t.Fatal("expected an error for a non-directory path")
+		}
+	})
+}
+
+// A resumed session must restart its daemon in the directory the review came
+// from, not wherever the user happens to be standing.
+func TestReconnectDeadSession_StartsDaemonInRecordedDirectory(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	key := "839f3b4cd5d6"
+	workdir := t.TempDir()
+
+	revDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveCritJSON(revDir, CritJSON{CWD: workdir}); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotDir string
+	orig := startDaemonForReconnect
+	startDaemonForReconnect = func(_ string, _ []string, dir string) (daemon.SessionEntry, error) {
+		gotDir = dir
+		return daemon.SessionEntry{PID: 42, Port: 3001}, nil
+	}
+	t.Cleanup(func() { startDaemonForReconnect = orig })
+
+	captureStderr(t, func() {
+		if _, err := reconnectDeadSession(key, daemon.SessionEntry{}, false); err != nil {
+			t.Fatalf("reconnectDeadSession: %v", err)
+		}
+	})
+	if gotDir != workdir {
+		t.Errorf("daemon started in %q, want %q", gotDir, workdir)
+	}
+}
+
+func TestReconnectDeadSession_MissingDirectoryFails(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	key := "839f3b4cd5d6"
+
+	revDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveCritJSON(revDir, CritJSON{CWD: filepath.Join(t.TempDir(), "deleted")}); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := startDaemonForReconnect
+	startDaemonForReconnect = func(string, []string, string) (daemon.SessionEntry, error) {
+		t.Fatal("daemon must not start when the review's directory is gone")
+		return daemon.SessionEntry{}, nil
+	}
+	t.Cleanup(func() { startDaemonForReconnect = orig })
+
+	if _, err := reconnectDeadSession(key, daemon.SessionEntry{}, false); err == nil {
+		t.Fatal("expected an error for a missing review directory")
 	}
 }
 

@@ -271,6 +271,7 @@ func runServe(args []string) {
 		sess.CLIArgs = sc.Files
 	}
 	sess.SessionKey = key
+	sess.CWD = cwd
 
 	checkStaleIntegrations(sc, srv, cwd)
 
