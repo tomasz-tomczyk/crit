@@ -390,22 +390,20 @@ func mustMkdir(t *testing.T, path string) {
 	}
 }
 
-// Guard against the resume list quietly swallowing a real read failure.
+// Guard against the resume list quietly swallowing a real read failure. The
+// failure is injected rather than staged on disk because the obvious trick —
+// putting a file where the reviews directory should be — reports as
+// "not exist" on Windows, which is a case resume deliberately treats as an
+// empty list.
 func TestListResumableReviews_SurfacesReadError(t *testing.T) {
-	home := t.TempDir()
-	testutil.SetHome(t, home)
-	reviewsDir, err := daemon.ReviewsDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(reviewsDir), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// A file where the reviews directory should be makes ReadDir fail with
-	// something other than "not exist".
-	writeFile(t, reviewsDir, "")
+	testutil.SetHome(t, t.TempDir())
 
-	if _, err := listResumableReviews(); err == nil || errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("err = %v, want a surfaced read failure", err)
+	orig := readReviewsDir
+	readReviewsDir = func(string) ([]os.DirEntry, error) { return nil, errors.New("disk on fire") }
+	t.Cleanup(func() { readReviewsDir = orig })
+
+	_, err := listResumableReviews()
+	if err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("err = %v, want the read failure surfaced", err)
 	}
 }

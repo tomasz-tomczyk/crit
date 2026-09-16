@@ -27,6 +27,7 @@ var (
 	canShowPicker = func() bool {
 		return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
 	}
+	readReviewsDir = os.ReadDir
 )
 
 // resumableReview is one review folder under ~/.crit/reviews, whether or not a
@@ -113,7 +114,7 @@ func listResumableReviews() ([]resumableReview, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := readReviewsDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
