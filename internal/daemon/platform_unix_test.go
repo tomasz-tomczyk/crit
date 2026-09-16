@@ -9,17 +9,7 @@ import (
 	"testing"
 )
 
-type signalProbe struct {
-	err    error
-	signal os.Signal
-}
-
-func (p *signalProbe) Signal(signal os.Signal) error {
-	p.signal = signal
-	return p.err
-}
-
-func TestProcessExists(t *testing.T) {
+func TestSignalProbeAlive(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		err  error
@@ -33,13 +23,19 @@ func TestProcessExists(t *testing.T) {
 		{name: "other error", err: syscall.EINVAL},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			probe := &signalProbe{err: tt.err}
-			if got := processExists(probe); got != tt.want {
-				t.Errorf("processExists() = %v, want %v", got, tt.want)
-			}
-			if probe.signal != syscall.Signal(0) {
-				t.Errorf("Signal() argument = %v, want signal 0", probe.signal)
+			if got := signalProbeAlive(tt.err); got != tt.want {
+				t.Errorf("signalProbeAlive(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProcessExistsForSelf(t *testing.T) {
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("FindProcess(self): %v", err)
+	}
+	if !processExists(proc) {
+		t.Error("processExists(self) = false, want true")
 	}
 }
