@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
@@ -61,6 +63,14 @@ var aliveClient = &http.Client{Timeout: time.Second}
 // browserClient is used by DaemonHasBrowser which is called once per
 // daemon lifecycle and can tolerate a longer timeout.
 var browserClient = &http.Client{Timeout: 2 * time.Second}
+
+// terminateProc is the function StopDaemon uses to request graceful
+// termination. Tests may override it to simulate signal failures.
+var terminateProc = terminateProcess
+
+// procExists is the function StopDaemon uses to poll for process exit.
+// Tests may override it to avoid killing real processes.
+var procExists = processExists
 
 const daemonFailureRetention = 10 * time.Minute
 
@@ -886,6 +896,13 @@ func DaemonFatal(pipe *os.File, format string, args ...interface{}) {
 	os.Exit(1)
 }
 
+// terminationProvesGone reports whether a failed termination attempt is
+// evidence that the process no longer exists. EPERM and other failures are
+// evidence about our privileges, not about the process.
+func terminationProvesGone(err error) bool {
+	return errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH)
+}
+
 // StopDaemon stops the daemon for the given session key.
 func StopDaemon(key string) error {
 	entry, err := ReadSessionFile(key)
@@ -905,20 +922,19 @@ func StopDaemon(key string) error {
 		return nil //nolint:nilerr // process not found, session already cleaned up
 	}
 
-	if err := terminateProcess(proc); err != nil {
-		RemoveSessionFile(key)
-		return nil //nolint:nilerr // process already gone, cleanup is sufficient
+	if err := terminateProc(proc); err != nil && !terminationProvesGone(err) {
+		return fmt.Errorf("could not stop daemon %s (pid %d): %w; session file kept so you can retry", key, entry.PID, err)
 	}
 
 	// Poll for process exit, escalate to Kill if still alive after the deadline.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
-		if !processExists(proc) {
+		if !procExists(proc) {
 			break
 		}
 	}
-	if processExists(proc) {
+	if procExists(proc) {
 		proc.Kill()
 	}
 	RemoveSessionFile(key)

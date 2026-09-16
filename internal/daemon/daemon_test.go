@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1281,6 +1282,116 @@ func TestLiveSessionKey_Deterministic(t *testing.T) {
 	k2 := LiveSessionKey("/app", "http://localhost:3000")
 	if k1 != k2 {
 		t.Errorf("non-deterministic: %s vs %s", k1, k2)
+	}
+}
+
+func TestTerminationProvesGone(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"ESRCH", syscall.ESRCH, true},
+		{"ErrProcessDone", os.ErrProcessDone, true},
+		{"wrapped ESRCH", fmt.Errorf("signal: %w", syscall.ESRCH), true},
+		{"EPERM", syscall.EPERM, false},
+		{"EINVAL", syscall.EINVAL, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := terminationProvesGone(tt.err); got != tt.want {
+				t.Errorf("terminationProvesGone(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStopDaemon_KeepsSessionFileOnPermissionDenied(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	key := "permtest123456"
+	entry := SessionEntry{
+		PID:    os.Getpid(),
+		Port:   port,
+		CWD:    "/tmp/repo",
+		Branch: "main",
+	}
+	if err := WriteSessionFile(key, entry); err != nil {
+		t.Fatalf("WriteSessionFile: %v", err)
+	}
+
+	origTerminate := terminateProc
+	terminateProc = func(proc *os.Process) error {
+		return syscall.EPERM
+	}
+	t.Cleanup(func() { terminateProc = origTerminate })
+
+	err := StopDaemon(key)
+	if err == nil {
+		t.Fatal("expected error when termination is denied")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, key) {
+		t.Errorf("error = %q, want it to mention key %q", msg, key)
+	}
+	if !strings.Contains(msg, strconv.Itoa(os.Getpid())) {
+		t.Errorf("error = %q, want it to mention pid %d", msg, os.Getpid())
+	}
+
+	path, _ := sessionFilePath(key)
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		t.Error("session file should be kept when termination is denied")
+	}
+}
+
+func TestStopDaemon_RemovesSessionFileWhenProcessGone(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	key := "gonetest123456"
+	entry := SessionEntry{
+		PID:    os.Getpid(),
+		Port:   port,
+		CWD:    "/tmp/repo",
+		Branch: "main",
+	}
+	if err := WriteSessionFile(key, entry); err != nil {
+		t.Fatalf("WriteSessionFile: %v", err)
+	}
+
+	origTerminate := terminateProc
+	terminateProc = func(proc *os.Process) error {
+		return syscall.ESRCH
+	}
+	t.Cleanup(func() { terminateProc = origTerminate })
+
+	origExists := procExists
+	procExists = func(proc *os.Process) bool {
+		return false
+	}
+	t.Cleanup(func() { procExists = origExists })
+
+	if err := StopDaemon(key); err != nil {
+		t.Fatalf("StopDaemon: %v", err)
+	}
+
+	path, _ := sessionFilePath(key)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("session file should be removed when process is already gone")
 	}
 }
 
