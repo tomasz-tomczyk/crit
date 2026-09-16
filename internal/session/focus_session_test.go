@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -527,6 +528,68 @@ func TestEnsureFileLoaded_WorkingTreeLazy(t *testing.T) {
 	}
 	if len(fe.DiffHunks) == 0 {
 		t.Fatal("expected unified new-file hunks for added lazy file")
+	}
+}
+
+// A lazy load and the debounced WriteFiles path both touch a FileEntry's
+// Content/FileHash/DiffHunks/Lazy fields, which is the live daemon state where
+// an /api/file request loads a file while a write timer is armed. Under -race
+// this fails unless both sides go through s.mu.
+func TestEnsureFileLoaded_ConcurrentWithWriteFiles(t *testing.T) {
+	dir := initTestRepo(t)
+
+	var entries []*FileEntry
+	for i := 0; i < 8; i++ {
+		name := fmt.Sprintf("lazy%03d.md", i)
+		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# lazy %d\n", i))
+		entries = append(entries, &FileEntry{
+			Path:     name,
+			AbsPath:  filepath.Join(dir, name),
+			Status:   "added",
+			FileType: "markdown",
+			Lazy:     true,
+		})
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add lazy docs")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		Mode:      "git",
+		RepoRoot:  dir,
+		OutputDir: dir,
+		BaseRef:   base,
+		Focus:     Focus{Kind: FocusWorkingTree, BaseRef: base},
+		VCS:       &vcs.GitVCS{},
+		Files:     entries,
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			s.WriteFiles()
+		}
+	}()
+	for _, fe := range entries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.ensureFileLoaded(fe); err != nil {
+				t.Errorf("ensureFileLoaded(%s): %v", fe.Path, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	for _, fe := range entries {
+		if fe.Lazy {
+			t.Fatalf("%s still lazy after load", fe.Path)
+		}
+		if fe.Content == "" {
+			t.Fatalf("%s content empty after load", fe.Path)
+		}
 	}
 }
 

@@ -226,6 +226,8 @@ type FileEntry struct {
 
 	// Lazy loading: when true, Content and DiffHunks are not yet populated.
 	// Call ensureLoaded() before accessing them. Only used when >lazyFileThreshold files.
+	// Content, FileHash, DiffHunks and Lazy are published together under
+	// Session.mu (see finishLoad), so readers must hold that lock.
 	Lazy     bool      `json:"-"`
 	loadOnce sync.Once // guards one-time loading of content + diffs
 	loadErr  error     // error from loading, if any
@@ -254,66 +256,97 @@ type ShareFile struct {
 
 // ensureFileLoaded loads a lazy file using the session's current focus.
 // Range/--pr focus reads content and diffs at HeadSHA/BaseSHA (including
-// --remote via readFileAtSHA). Working-tree focus reads the disk path.
+// --remote via readFileAtSHAForFocus). Working-tree focus reads the disk path.
+//
+// Callers must not hold s.mu: the loaders take it exclusively to publish.
 func (s *Session) ensureFileLoaded(f *FileEntry) error {
-	if f == nil || !f.Lazy {
+	if f == nil {
 		return nil
 	}
 	s.mu.RLock()
+	lazy := f.Lazy
 	focus := s.Focus
 	repoRoot := s.RepoRoot
 	baseRef := s.BaseRef
 	vc := s.VCS
 	s.mu.RUnlock()
 
+	if !lazy {
+		return nil
+	}
 	if focus.Kind == FocusRange {
 		return f.ensureLoadedAtRange(s, focus, repoRoot, vc)
 	}
-	return f.ensureLoaded(repoRoot, baseRef, vc)
+	return f.ensureLoaded(s, repoRoot, baseRef, vc)
+}
+
+// isLazy reads fe.Lazy under s.mu so the check is ordered against the publish
+// in finishLoad.
+func (s *Session) isLazy(fe *FileEntry) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return fe.Lazy
+}
+
+// finishLoad publishes the result of a lazy load onto fe under s.mu — the same
+// lock every FileEntry reader holds (snapshotForWrite, GetFileSnapshot,
+// GetFileDiffSnapshot). The loaders do their I/O unlocked and call this once,
+// so a concurrent reader — most notably the debounced WriteFiles timer — sees
+// either the unloaded entry or the fully loaded one, never a torn mix.
+func (s *Session) finishLoad(fe *FileEntry, content, hash string, hunks []vcs.DiffHunk) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fe.Content = content
+	fe.FileHash = hash
+	fe.DiffHunks = hunks
+	fe.Lazy = false
 }
 
 // ensureLoaded loads content and diff hunks for a lazy file on first access
 // from the working tree. For non-lazy files, this is an immediate no-op.
 // The vcs parameter is used for computing diffs; pass nil to fall back to
 // the git package-level functions (backward compat for tests).
-func (fe *FileEntry) ensureLoaded(repoRoot, baseRef string, v vcs.VCS) error {
-	if !fe.Lazy {
+func (fe *FileEntry) ensureLoaded(s *Session, repoRoot, baseRef string, v vcs.VCS) error {
+	if !s.isLazy(fe) {
 		return nil
 	}
 	fe.loadOnce.Do(func() {
+		var content, hash string
+		var hunks []vcs.DiffHunk
+
 		if fe.Status != "deleted" {
 			data, err := os.ReadFile(fe.AbsPath)
 			if err != nil {
 				fe.loadErr = fmt.Errorf("reading %s: %w", fe.Path, err)
 				return
 			}
-			fe.Content = string(data)
-			fe.FileHash = fileHash(data)
-		}
+			content = string(data)
+			hash = fileHash(data)
 
-		if fe.Status != "deleted" {
 			if fe.Status == "added" || fe.Status == "untracked" {
-				fe.DiffHunks = vcs.FileDiffUnifiedNewFile(fe.Content)
+				hunks = vcs.FileDiffUnifiedNewFile(content)
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				fe.loadDiff(ctx, repoRoot, baseRef, v)
+				hunks = fe.diffHunks(ctx, repoRoot, baseRef, v)
 			}
 		}
 
-		fe.Lazy = false
+		s.finishLoad(fe, content, hash, hunks)
 	})
 	return fe.loadErr
 }
 
 // ensureLoadedAtRange loads a lazy file from a fixed (BaseSHA, HeadSHA) range.
 func (fe *FileEntry) ensureLoadedAtRange(s *Session, focus Focus, repoRoot string, v vcs.VCS) error {
-	if !fe.Lazy {
+	if !s.isLazy(fe) {
 		return nil
 	}
 	fe.loadOnce.Do(func() {
+		var content, hash string
+
 		if fe.Status != "deleted" {
-			data, err := s.readFileAtSHA(focus.HeadSHA, fe.Path)
+			data, err := s.readFileAtSHAForFocus(focus, focus.HeadSHA, fe.Path)
 			if err != nil {
 				fe.loadErr = fmt.Errorf("reading %s at %s: %w", fe.Path, focus.HeadSHA, err)
 				return
@@ -322,38 +355,39 @@ func (fe *FileEntry) ensureLoadedAtRange(s *Session, focus Focus, repoRoot strin
 				fe.loadErr = fmt.Errorf("reading %s at %s: not found", fe.Path, focus.HeadSHA)
 				return
 			}
-			fe.Content = string(data)
-			fe.FileHash = fileHash(data)
+			content = string(data)
+			hash = fileHash(data)
 		}
 
+		var hunks []vcs.DiffHunk
 		switch {
 		case fe.Status == "added" || fe.Status == "untracked":
-			fe.DiffHunks = vcs.FileDiffUnifiedNewFile(fe.Content)
+			hunks = vcs.FileDiffUnifiedNewFile(content)
 		case v == nil:
 			fe.loadErr = fmt.Errorf("range lazy load requires VCS for %s", fe.Path)
 			return
 		default:
-			hunks, err := v.FileDiffBetweenSHAs(fe.Path, fe.OldPath, focus.DiffBaseSHA(), focus.HeadSHA, repoRoot, false)
+			h, err := v.FileDiffBetweenSHAs(fe.Path, fe.OldPath, focus.DiffBaseSHA(), focus.HeadSHA, repoRoot, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: range diff failed for %s: %v\n", fe.Path, err)
 			} else {
-				fe.DiffHunks = hunks
+				hunks = h
 			}
 		}
 
-		fe.Lazy = false
+		s.finishLoad(fe, content, hash, hunks)
 	})
 	return fe.loadErr
 }
 
-// loadDiff computes diff hunks via the vcs.VCS interface or git package-level fallback.
-func (fe *FileEntry) loadDiff(ctx context.Context, repoRoot, baseRef string, vc vcs.VCS) {
+// diffHunks computes diff hunks via the vcs.VCS interface or git package-level fallback.
+func (fe *FileEntry) diffHunks(ctx context.Context, repoRoot, baseRef string, vc vcs.VCS) []vcs.DiffHunk {
 	hunks, err := diffHunksForFileCtx(ctx, fe.Path, fe.OldPath, fe.Status, baseRef, repoRoot, false, vc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: diff failed for %s: %v\n", fe.Path, err)
-	} else {
-		fe.DiffHunks = hunks
+		return nil
 	}
+	return hunks
 }
 
 // diffHunksForFile returns diff hunks for a file, pairing old+new paths for renames.

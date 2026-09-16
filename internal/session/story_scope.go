@@ -62,31 +62,40 @@ type StoryScope struct {
 // ignored files (which the session already filtered out) so ingest can
 // pre-place them into support[]. ignorePatterns is the resolved union used to
 // build the session.
+//
+// Session state is snapshotted under s.mu and the lock released before any git
+// or filesystem work, because ensureFileLoaded acquires s.mu exclusively to
+// publish a lazy load.
 func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	focus := s.Focus
+	baseRef := s.BaseRef
+	repoRoot := s.RepoRoot
+	vc := s.VCS
+	files := append([]*FileEntry(nil), s.Files...)
+	s.mu.RUnlock()
 
-	scope := StoryScope{BaseSHA: s.BaseRef}
+	scope := StoryScope{BaseSHA: baseRef}
 
 	// HeadSHA is meaningful only for fixed-range scopes (--pr/--mr/--range). For a
 	// working-tree scope it stays empty (the tree is the head).
-	if s.Focus.Kind == FocusRange {
-		scope.BaseSHA = s.Focus.BaseSHA
-		scope.HeadSHA = s.Focus.HeadSHA
-		if s.Focus.Forge == "gitlab" {
-			scope.MRNumber = s.Focus.ChangeNumber
-			scope.MRURL = s.Focus.MRURL
+	if focus.Kind == FocusRange {
+		scope.BaseSHA = focus.BaseSHA
+		scope.HeadSHA = focus.HeadSHA
+		if focus.Forge == "gitlab" {
+			scope.MRNumber = focus.ChangeNumber
+			scope.MRURL = focus.MRURL
 		} else {
-			scope.PRNumber = s.Focus.ChangeNumber
-			scope.PRURL = s.Focus.PRURL
+			scope.PRNumber = focus.ChangeNumber
+			scope.PRURL = focus.PRURL
 		}
 	}
 
 	// CommitLog runs against the (possibly symbolic) base ref before we resolve
 	// it below, so the range is unchanged whether or not rev-parse succeeds.
-	if s.VCS != nil {
+	if vc != nil {
 		headRef := scope.HeadSHA // "" => working-tree HEAD
-		if commits, err := s.VCS.CommitLog(scope.BaseSHA, headRef, s.RepoRoot); err == nil {
+		if commits, err := vc.CommitLog(scope.BaseSHA, headRef, repoRoot); err == nil {
 			for _, c := range commits {
 				scope.CommitMessages = append(scope.CommitMessages, c.Message)
 			}
@@ -97,42 +106,45 @@ func (s *Session) StoryScope(ignorePatterns []string) StoryScope {
 	// BaseRef is often a branch ref like "main"; the persisted Story and the
 	// prompt variables want a pinned SHA. rev-parse failures leave the ref
 	// as-is rather than blocking the scope.
-	scope.BaseSHA = resolveSHA(s.RepoRoot, scope.BaseSHA)
+	scope.BaseSHA = resolveSHA(repoRoot, scope.BaseSHA)
 	if scope.HeadSHA != "" {
-		scope.HeadSHA = resolveSHA(s.RepoRoot, scope.HeadSHA)
+		scope.HeadSHA = resolveSHA(repoRoot, scope.HeadSHA)
 	}
 	if scope.HeadSHA != "" {
-		if mb, err := vcs.MergeBaseOf(scope.BaseSHA, scope.HeadSHA, s.RepoRoot); err == nil {
+		if mb, err := vcs.MergeBaseOf(scope.BaseSHA, scope.HeadSHA, repoRoot); err == nil {
 			scope.MergeBaseSHA = mb
 		}
 	}
 
-	for _, fe := range s.Files {
+	for _, fe := range files {
 		_ = s.ensureFileLoaded(fe)
-		scope.Files = append(scope.Files, StoryScopeFile{
+		s.mu.RLock()
+		f := StoryScopeFile{
 			Path:   fe.Path,
 			Status: fe.Status,
 			Hunks:  convertHunks(fe.DiffHunks),
-		})
+		}
+		s.mu.RUnlock()
+		scope.Files = append(scope.Files, f)
 	}
 
 	// Re-derive ignored files: the session filtered them out, but ingest needs
 	// to pre-place their hunks into support[]. Only meaningful in a git scope.
-	scope.Files = append(scope.Files, s.ignoredStoryScopeFiles(ignorePatterns)...)
+	scope.Files = append(scope.Files, ignoredStoryScopeFiles(ignorePatterns, focus, baseRef, repoRoot, vc)...)
 
 	return scope
 }
 
-func (s *Session) ignoredStoryScopeFiles(ignorePatterns []string) []StoryScopeFile {
-	if s.VCS == nil || len(ignorePatterns) == 0 {
+func ignoredStoryScopeFiles(ignorePatterns []string, focus Focus, baseRef, repoRoot string, vc vcs.VCS) []StoryScopeFile {
+	if vc == nil || len(ignorePatterns) == 0 {
 		return nil
 	}
 	var all []vcs.FileChange
 	var err error
-	if s.Focus.Kind == FocusRange {
-		all, err = s.VCS.ChangedFilesBetweenSHAs(s.Focus.DiffBaseSHA(), s.Focus.HeadSHA, s.RepoRoot)
+	if focus.Kind == FocusRange {
+		all, err = vc.ChangedFilesBetweenSHAs(focus.DiffBaseSHA(), focus.HeadSHA, repoRoot)
 	} else {
-		all, err = s.VCS.ChangedFilesFromBaseInDir(s.BaseRef, s.RepoRoot)
+		all, err = vc.ChangedFilesFromBaseInDir(baseRef, repoRoot)
 	}
 	if err != nil {
 		return nil
@@ -143,10 +155,10 @@ func (s *Session) ignoredStoryScopeFiles(ignorePatterns []string) []StoryScopeFi
 			continue
 		}
 		var hunks []vcs.DiffHunk
-		if s.Focus.Kind == FocusRange {
-			hunks, _ = s.VCS.FileDiffBetweenSHAs(fc.Path, fc.OldPath, s.Focus.DiffBaseSHA(), s.Focus.HeadSHA, s.RepoRoot, false)
+		if focus.Kind == FocusRange {
+			hunks, _ = vc.FileDiffBetweenSHAs(fc.Path, fc.OldPath, focus.DiffBaseSHA(), focus.HeadSHA, repoRoot, false)
 		} else {
-			hunks, _ = diffHunksForFile(fc.Path, fc.OldPath, fc.Status, s.BaseRef, s.RepoRoot, false, s.VCS)
+			hunks, _ = diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, false, vc)
 		}
 		out = append(out, StoryScopeFile{Path: fc.Path, Status: fc.Status, Hunks: convertHunks(hunks), Ignored: true})
 	}

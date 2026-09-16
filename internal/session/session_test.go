@@ -3277,7 +3277,8 @@ func TestEnsureLoaded(t *testing.T) {
 		t.Fatal("expected no diff hunks before ensureLoaded")
 	}
 
-	err := fe.ensureLoaded(dir, base, nil)
+	s := &Session{RepoRoot: dir}
+	err := fe.ensureLoaded(s, dir, base, nil)
 	if err != nil {
 		t.Fatalf("ensureLoaded failed: %v", err)
 	}
@@ -3296,7 +3297,7 @@ func TestEnsureLoaded(t *testing.T) {
 	}
 
 	// Second call is a no-op (sync.Once)
-	err = fe.ensureLoaded(dir, base, nil)
+	err = fe.ensureLoaded(s, dir, base, nil)
 	if err != nil {
 		t.Fatalf("second ensureLoaded should not fail: %v", err)
 	}
@@ -3308,7 +3309,7 @@ func TestEnsureLoadedNotLazy(t *testing.T) {
 		Content: "already loaded",
 		Lazy:    false,
 	}
-	err := fe.ensureLoaded("/tmp", "abc123", nil)
+	err := fe.ensureLoaded(&Session{}, "/tmp", "abc123", nil)
 	if err != nil {
 		t.Fatalf("ensureLoaded on non-lazy file should be no-op, got: %v", err)
 	}
