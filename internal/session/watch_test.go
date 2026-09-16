@@ -145,8 +145,8 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 
 // TestCarryForwardAllComments_NoDuplicateOnDisk verifies that carried-forward
 // comments don't produce duplicates when WriteFiles merges with disk state.
-// The old comment ID must be tracked as deleted so mergeFileSnapshotIntoCritJSON
-// skips it, leaving only the new carried-forward copy.
+// The carried comment keeps its ID, so mergeFileSnapshotIntoCritJSON updates
+// that identity in place instead of appending the persisted copy.
 func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
 	dir := t.TempDir()
 	// v4 folder layout: identity is a folder, review.json lives inside.
@@ -230,13 +230,13 @@ func TestCarryForwardAllComments_NoDuplicateOnDisk(t *testing.T) {
 	s.carryForwardAllComments()
 	s.mu.Unlock()
 
-	// Verify in-memory state: exactly 1 comment with a NEW id.
+	// Verify in-memory state: exactly 1 comment with its original ID.
 	if len(s.Files[0].Comments) != 1 {
 		t.Fatalf("expected 1 carried-forward comment, got %d", len(s.Files[0].Comments))
 	}
 	carried := s.Files[0].Comments[0]
-	if carried.ID == "c_old1" {
-		t.Error("carried-forward comment should have a new ID")
+	if carried.ID != "c_old1" {
+		t.Errorf("carried-forward comment ID = %q, want c_old1", carried.ID)
 	}
 	if !carried.CarriedForward {
 		t.Error("expected CarriedForward=true")
@@ -336,8 +336,8 @@ func TestCarryForwardComments_NoDuplicateOnDisk(t *testing.T) {
 		t.Fatalf("expected 1 carried-forward comment, got %d", len(s.Files[0].Comments))
 	}
 	carried := s.Files[0].Comments[0]
-	if carried.ID == "c_old_md" {
-		t.Error("carried-forward comment should have a new ID")
+	if carried.ID != "c_old_md" {
+		t.Errorf("carried-forward comment ID = %q, want c_old_md", carried.ID)
 	}
 	// Line 3 in old content ("Step 1") is still line 3 in new content.
 	if carried.StartLine != 3 || carried.EndLine != 3 {
@@ -380,7 +380,7 @@ func TestCarryForwardComment_PreservesQuote(t *testing.T) {
 		},
 	}
 
-	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+	carried := carryForwardComment(old, "2026-04-13T11:00:00Z")
 
 	if carried.Quote != "the quoted text" {
 		t.Errorf("Quote not preserved: got %q", carried.Quote)
@@ -403,7 +403,7 @@ func TestCarryForwardComment_PreservesGitHubID(t *testing.T) {
 		GitHubID:  12345,
 	}
 
-	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+	carried := carryForwardComment(old, "2026-04-13T11:00:00Z")
 
 	if carried.GitHubID != 12345 {
 		t.Errorf("GitHubID = %d, want 12345", carried.GitHubID)
@@ -430,7 +430,7 @@ func TestCarryForwardComment_PreservesResolvedRound(t *testing.T) {
 		ReviewRound:   1,
 	}
 
-	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+	carried := carryForwardComment(old, "2026-04-13T11:00:00Z")
 
 	if !carried.Resolved {
 		t.Error("Resolved not preserved")
@@ -458,7 +458,7 @@ func TestCarryForwardComment_PreservesLastPushedBodyHash(t *testing.T) {
 		LastPushedBodyHash: "abc123def456",
 	}
 
-	carried := carryForwardComment(old, "c_new", "2026-04-13T11:00:00Z")
+	carried := carryForwardComment(old, "2026-04-13T11:00:00Z")
 
 	if carried.GitHubID != 99 {
 		t.Errorf("GitHubID = %d, want 99", carried.GitHubID)
@@ -1011,7 +1011,7 @@ func TestCarryForwardComment_PreservesAnchor(t *testing.T) {
 		UpdatedAt: "2026-01-01T00:00:00Z",
 	}
 
-	carried := carryForwardComment(old, "c_new", "2026-01-02T00:00:00Z")
+	carried := carryForwardComment(old, "2026-01-02T00:00:00Z")
 
 	if carried.Anchor != "line10\nline11\nline12" {
 		t.Errorf("Anchor not preserved: got %q", carried.Anchor)

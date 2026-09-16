@@ -2531,10 +2531,10 @@ func TestCarryForwardComment(t *testing.T) {
 		GitHubID:       98765,
 	}
 
-	carried := carryForwardComment(old, "c42", "2026-02-01T00:00:00Z")
+	carried := carryForwardComment(old, "2026-02-01T00:00:00Z")
 
-	if carried.ID != "c42" {
-		t.Errorf("ID = %q, want c42", carried.ID)
+	if carried.ID != "original-id" {
+		t.Errorf("ID = %q, want original-id", carried.ID)
 	}
 	if carried.StartLine != 5 {
 		t.Errorf("StartLine = %d, want 5", carried.StartLine)

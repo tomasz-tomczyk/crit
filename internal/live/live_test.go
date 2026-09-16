@@ -860,7 +860,7 @@ func TestCarryForwardComment_PreservesLivePinFields(t *testing.T) {
 		DriftedOnRound: 2,
 	}
 
-	carried := carryForwardComment(old, "pin-new", "2026-02-01T00:00:00Z")
+	carried := carryForwardComment(old, "2026-02-01T00:00:00Z")
 
 	if carried.DOMAnchor == nil {
 		t.Fatal("DOMAnchor lost on carry-forward")
@@ -900,7 +900,7 @@ func TestCarryForwardComment_CodeCommentDriftPreserved(t *testing.T) {
 		DriftedOnRound: 2,
 	}
 
-	carried := carryForwardComment(old, "code-new", "2026-02-01T00:00:00Z")
+	carried := carryForwardComment(old, "2026-02-01T00:00:00Z")
 
 	if !carried.Drifted {
 		t.Error("Drifted = false, want true (code comments preserve drift)")

@@ -91,8 +91,8 @@ func TestHandleRoundCompleteGit_PersistsCarriedComments(t *testing.T) {
 	if !got[0].CarriedForward {
 		t.Fatal("expected carried_forward comment in memory")
 	}
-	if got[0].ID == "c_old1" {
-		t.Fatal("carried comment kept old ID; expected a new ID")
+	if got[0].ID != "c_old1" {
+		t.Fatalf("carried comment ID = %q, want c_old1", got[0].ID)
 	}
 	if got[0].StartLine != 3 || got[0].EndLine != 3 {
 		t.Fatalf("remapped lines = %d-%d, want 3-3", got[0].StartLine, got[0].EndLine)

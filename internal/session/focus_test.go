@@ -273,7 +273,7 @@ func TestCarryForwardComment_PreservesScope(t *testing.T) {
 		HeadSHA:   "abc1234",
 		DiffScope: "layer",
 	}
-	out := carryForwardComment(old, "c2", "2026-04-28T00:00:00Z")
+	out := carryForwardComment(old, "2026-04-28T00:00:00Z")
 	if out.HeadSHA != "abc1234" {
 		t.Errorf("HeadSHA not preserved: %q", out.HeadSHA)
 	}

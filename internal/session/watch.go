@@ -434,15 +434,13 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 	}
 }
 
-// carryForwardComment builds a fresh Comment for the next review round from
+// carryForwardComment builds a Comment for the next review round from
 // an existing one. It explicitly enumerates every field rather than copying
 // the whole struct so that the set of fields that survive carry-forward is
-// reviewable in one place.
+// reviewable in one place. ID is preserved because it identifies the comment
+// thread for the comment's entire lifetime, including across review rounds.
 //
 // Fields that are intentionally NOT copied (and why):
-//   - ID:             a new ID is minted by the caller (`newID`) so the new round
-//     gets its own identity; `s.trackDeletedComment` records the
-//     old ID so the persisted file does not resurrect both.
 //   - UpdatedAt:      stamped with `now`; carry-forward is itself a new touch.
 //   - CarriedForward: forced to true regardless of the source value.
 //
@@ -450,9 +448,9 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 // added to Comment and is round-scoped state (resolved metadata, GitHub-sync
 // metadata, focus tags, live-pin identity), it MUST be added here too —
 // otherwise it is silently dropped on round bump.
-func carryForwardComment(old Comment, newID string, now string) Comment {
+func carryForwardComment(old Comment, now string) Comment {
 	c := Comment{
-		ID:          newID,
+		ID:          old.ID,
 		StartLine:   old.StartLine,
 		EndLine:     old.EndLine,
 		Side:        old.Side,
@@ -542,11 +540,8 @@ func (s *Session) carryForwardAllComments() {
 			continue
 		}
 		for _, c := range f.PreviousComments {
-			carried := carryForwardComment(c, RandomCommentID(), now)
+			carried := carryForwardComment(c, now)
 			f.Comments = append(f.Comments, carried)
-			// Track the old ID as deleted so mergeFileSnapshotIntoCritJSON
-			// won't re-add the original from disk alongside the carried-forward copy.
-			s.trackDeletedComment(f.Path, c.ID)
 		}
 	}
 }
@@ -1173,11 +1168,9 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 	f.Comments = preserved
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, c := range prevComments {
-		s.trackDeletedComment(f.Path, c.ID)
-
 		// Live pins use DOMAnchor for positioning; skip line remapping.
 		if c.DOMAnchor != nil {
-			carried := carryForwardComment(c, RandomCommentID(), now)
+			carried := carryForwardComment(c, now)
 			carried.DOMAnchor = c.DOMAnchor
 			f.Comments = append(f.Comments, carried)
 			continue
@@ -1187,11 +1180,11 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 		// File-level comments have no line references. Old-side comments
 		// reference the base ref which doesn't change between rounds.
 		if c.Scope == "file" || c.Side == "old" {
-			f.Comments = append(f.Comments, carryForwardComment(c, RandomCommentID(), now))
+			f.Comments = append(f.Comments, carryForwardComment(c, now))
 			continue
 		}
 		newStart, newEnd := remapLines(lineMap, c.StartLine, c.EndLine, newLineCount)
-		carried := carryForwardComment(c, RandomCommentID(), now)
+		carried := carryForwardComment(c, now)
 		carried.StartLine = newStart
 		carried.EndLine = newEnd
 

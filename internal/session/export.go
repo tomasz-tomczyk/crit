@@ -80,8 +80,8 @@ func WhitespaceIgnoredHunks(cached []vcs.DiffHunk, status, oldPath string, ignor
 	return whitespaceIgnoredHunks(cached, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc)
 }
 
-func CarryForwardComment(old Comment, newID, now string) Comment {
-	return carryForwardComment(old, newID, now)
+func CarryForwardComment(old Comment, now string) Comment {
+	return carryForwardComment(old, now)
 }
 
 func (s *Session) CarryForwardFileComments(f *FileEntry) {
