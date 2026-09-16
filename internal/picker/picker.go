@@ -22,7 +22,35 @@ const (
 
 	// maxVisible caps how many rows are drawn at once. Longer lists scroll.
 	maxVisible = 12
+
+	// rowOverhead is the width the decoration around a row costs: a two-space
+	// indent, the two-column "❯ " marker, and a trailing space on the
+	// highlighted row.
+	rowOverhead = 5
 )
+
+// screen is the terminal the picker has to fit inside. Rows wider than the
+// terminal wrap onto a second physical line, which would desync the
+// cursor arithmetic in render and erase, so every line is truncated to fit.
+type screen struct {
+	columns int
+	rows    int
+}
+
+// fallbackScreen is used when the terminal size is unavailable.
+var fallbackScreen = screen{columns: 80, rows: 24}
+
+// visibleRows is how many items fit, leaving room for the prompt and footer.
+func (s screen) visibleRows() int {
+	available := s.rows - 2
+	if available < 1 {
+		return 1
+	}
+	if available > maxVisible {
+		return maxVisible
+	}
+	return available
+}
 
 // ErrCancelled is returned when the user dismisses the picker without choosing.
 var ErrCancelled = errors.New("selection cancelled")
@@ -52,13 +80,21 @@ func Select(in *os.File, out io.Writer, prompt string, items []Item) (int, error
 		fmt.Fprint(out, showCursor)
 	}()
 	fmt.Fprint(out, hideCursor)
-	return run(in, out, prompt, items)
+	return run(in, out, prompt, items, terminalScreen(in))
+}
+
+func terminalScreen(in *os.File) screen {
+	columns, rows, err := term.GetSize(int(in.Fd()))
+	if err != nil || columns <= 0 || rows <= 0 {
+		return fallbackScreen
+	}
+	return screen{columns: columns, rows: rows}
 }
 
 // run is Select without the terminal setup, so tests can drive it with a
 // scripted key sequence.
-func run(in io.Reader, out io.Writer, prompt string, items []Item) (int, error) {
-	l := &list{items: items}
+func run(in io.Reader, out io.Writer, prompt string, items []Item, s screen) (int, error) {
+	l := &list{items: items, screen: s}
 	l.cursor = l.firstSelectable()
 	reader := bufio.NewReader(in)
 
@@ -98,6 +134,7 @@ func erase(out io.Writer, drawn int) {
 
 type list struct {
 	items  []Item
+	screen screen
 	cursor int
 	offset int
 }
@@ -124,16 +161,17 @@ func (l *list) move(delta int) {
 
 // window returns the slice bounds to draw, scrolling to keep the cursor in view.
 func (l *list) window() (start, end int) {
-	if len(l.items) <= maxVisible {
+	visible := l.screen.visibleRows()
+	if len(l.items) <= visible {
 		return 0, len(l.items)
 	}
 	if l.cursor < l.offset {
 		l.offset = l.cursor
 	}
-	if l.cursor >= l.offset+maxVisible {
-		l.offset = l.cursor - maxVisible + 1
+	if l.cursor >= l.offset+visible {
+		l.offset = l.cursor - visible + 1
 	}
-	return l.offset, l.offset + maxVisible
+	return l.offset, l.offset + visible
 }
 
 // render draws the list, first erasing the previous drawn lines. It returns the
@@ -144,7 +182,7 @@ func (l *list) render(out io.Writer, prompt string, drawn int) int {
 		fmt.Fprintf(&b, "\033[%dA", drawn)
 	}
 
-	writeLine(&b, prompt)
+	writeLine(&b, truncate(prompt, l.screen.columns))
 	lines := 1
 
 	start, end := l.window()
@@ -158,7 +196,7 @@ func (l *list) render(out io.Writer, prompt string, drawn int) int {
 	if end-start < len(l.items) {
 		footer = fmt.Sprintf("%s · showing %d-%d of %d", footer, start+1, end, len(l.items))
 	}
-	writeLine(&b, ansiDim+footer+ansiReset)
+	writeLine(&b, ansiDim+truncate(footer, l.screen.columns)+ansiReset)
 	lines++
 
 	fmt.Fprint(out, b.String())
@@ -173,7 +211,9 @@ func (l *list) row(i, width int) string {
 		trailing = item.Note
 	}
 
-	text := fmt.Sprintf("%s  %s", label, trailing)
+	// Truncate the plain text before adding escapes, so the visible width is
+	// what gets measured and the ANSI codes stay intact.
+	text := truncate(fmt.Sprintf("%s  %s", label, trailing), l.screen.columns-rowOverhead)
 	switch {
 	case item.disabled():
 		return "    " + ansiDim + text + ansiReset
@@ -182,6 +222,22 @@ func (l *list) row(i, width int) string {
 	default:
 		return "    " + text
 	}
+}
+
+// truncate shortens text to at most max visible columns, marking the cut with
+// an ellipsis.
+func truncate(text string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(text) <= max {
+		return text
+	}
+	runes := []rune(text)
+	if max == 1 {
+		return "…"
+	}
+	return strings.TrimRight(string(runes[:max-1]), " ") + "…"
 }
 
 // writeLine erases the current line before writing, so a shorter row cannot
@@ -212,8 +268,7 @@ const (
 	keyCancel
 )
 
-// readKey maps one keypress to a picker action. Arrow keys arrive as a
-// three-byte escape sequence; a lone ESC (nothing buffered behind it) cancels.
+// readKey maps one keypress to a picker action.
 func readKey(r *bufio.Reader) (key, error) {
 	c, err := r.ReadByte()
 	if err != nil {
@@ -222,6 +277,10 @@ func readKey(r *bufio.Reader) (key, error) {
 		}
 		return keyNone, err
 	}
+	return classifyKey(c, r)
+}
+
+func classifyKey(c byte, r *bufio.Reader) (key, error) {
 	switch c {
 	case '\r', '\n':
 		return keyEnter, nil
@@ -237,16 +296,30 @@ func readKey(r *bufio.Reader) (key, error) {
 	return keyNone, nil
 }
 
+// readEscape resolves an arrow key from the bytes following ESC, blocking for
+// them. A tty read returns as soon as one byte is available, so the three bytes
+// of an arrow key can arrive in separate reads over SSH or a loaded pty —
+// deciding what ESC meant by what is already buffered would turn an arrow into
+// a stray keypress. A bare ESC is not a cancel (q and Ctrl-C are), so whatever
+// the user types next is simply handled as its own key.
 func readEscape(r *bufio.Reader) (key, error) {
-	if r.Buffered() == 0 {
-		return keyCancel, nil
-	}
-	if c, err := r.ReadByte(); err != nil || c != '[' {
-		return keyNone, nil //nolint:nilerr // an unknown sequence is a no-op, not a failure
-	}
 	c, err := r.ReadByte()
 	if err != nil {
-		return keyNone, nil //nolint:nilerr // truncated sequence, ignore
+		if errors.Is(err, io.EOF) {
+			return keyNone, ErrCancelled
+		}
+		return keyNone, err
+	}
+	if c != '[' {
+		return classifyKey(c, r)
+	}
+
+	c, err = r.ReadByte()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return keyNone, ErrCancelled
+		}
+		return keyNone, err
 	}
 	switch c {
 	case 'A':

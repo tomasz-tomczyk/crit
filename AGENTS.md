@@ -73,7 +73,7 @@ crit live <url>               # Review a running web app in live mode (also: cri
 crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
-crit resume [--list] [<id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)
+crit resume [--list | <id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as a GitHub PR review

@@ -43,9 +43,9 @@ func stubResumeReview(t *testing.T) *[]string {
 
 func forceTerminal(t *testing.T, isTTY bool) {
 	t.Helper()
-	orig := stdinIsTerminal
-	stdinIsTerminal = func() bool { return isTTY }
-	t.Cleanup(func() { stdinIsTerminal = orig })
+	orig := canShowPicker
+	canShowPicker = func() bool { return isTTY }
+	t.Cleanup(func() { canShowPicker = orig })
 }
 
 func TestListResumableReviews_NewestFirst(t *testing.T) {
@@ -183,13 +183,22 @@ func TestResumableReview_UnavailableWhenDirectoryIsGone(t *testing.T) {
 	}
 }
 
+// Reconnecting to a live daemon talks to its port and never re-enters the
+// directory, so deleting a worktree under a running review must not hide it.
+func TestResumableReview_RunningStaysSelectableWithoutItsDirectory(t *testing.T) {
+	running := resumableReview{cwd: filepath.Join(t.TempDir(), "deleted"), running: true}
+	if note := running.unavailable(); note != "" {
+		t.Errorf("unavailable() = %q, want a running review to stay selectable", note)
+	}
+}
+
 func TestParseResumeArgs(t *testing.T) {
-	listOnly, id, passthrough, err := parseResumeArgs([]string{"--list", "839f3b4cd5d6", "--no-open"})
+	listOnly, id, passthrough, err := parseResumeArgs([]string{"839f3b4cd5d6", "--no-open"})
 	if err != nil {
 		t.Fatalf("parseResumeArgs: %v", err)
 	}
-	if !listOnly {
-		t.Error("--list not recognized")
+	if listOnly {
+		t.Error("listOnly set without --list")
 	}
 	if id != "839f3b4cd5d6" {
 		t.Errorf("id = %q, want the session key", id)
@@ -197,11 +206,22 @@ func TestParseResumeArgs(t *testing.T) {
 	if len(passthrough) != 1 || passthrough[0] != "--no-open" {
 		t.Errorf("passthrough = %v, want unrecognized flags forwarded", passthrough)
 	}
+
+	if listOnly, _, _, err := parseResumeArgs([]string{"-l"}); err != nil || !listOnly {
+		t.Errorf("parseResumeArgs(-l) = %v, %v; want listOnly", listOnly, err)
+	}
 }
 
 func TestParseResumeArgs_RejectsTwoSessionIDs(t *testing.T) {
 	if _, _, _, err := parseResumeArgs([]string{"839f3b4cd5d6", "aaaaaaaaaaaa"}); err == nil {
 		t.Fatal("expected an error for two session IDs")
+	}
+}
+
+// --list with an ID would otherwise silently resume instead of listing.
+func TestParseResumeArgs_RejectsListWithSessionID(t *testing.T) {
+	if _, _, _, err := parseResumeArgs([]string{"--list", "839f3b4cd5d6"}); err == nil {
+		t.Fatal("expected an error for --list combined with a session ID")
 	}
 }
 

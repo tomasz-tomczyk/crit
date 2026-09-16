@@ -22,7 +22,11 @@ import (
 var (
 	selectResumeTarget = picker.Select
 	runReviewForResume = RunReview
-	stdinIsTerminal    = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+	// The picker reads keys from stdin and draws on stderr, so both have to be
+	// a terminal — `crit resume 2>log` would otherwise type blind.
+	canShowPicker = func() bool {
+		return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
+	}
 )
 
 // resumableReview is one review folder under ~/.crit/reviews, whether or not a
@@ -62,7 +66,7 @@ func RunResume(args []string) error {
 		printResumableReviews(os.Stdout, reviews)
 		return nil
 	}
-	if !stdinIsTerminal() {
+	if !canShowPicker() {
 		printResumableReviews(os.Stderr, reviews)
 		return clicmd.ExitError{Code: 1, Err: errors.New("crit resume needs a terminal to show the picker; pass a session ID or use --list")}
 	}
@@ -94,6 +98,9 @@ func parseResumeArgs(args []string) (listOnly bool, id string, passthrough []str
 		default:
 			passthrough = append(passthrough, arg)
 		}
+	}
+	if listOnly && id != "" {
+		return false, "", nil, clicmd.Usage("crit resume --list does not take a session ID")
 	}
 	return listOnly, id, passthrough, nil
 }
@@ -150,7 +157,7 @@ func runningSessionKeys() map[string]bool {
 // review.json (orphaned snapshots, partial writes) are skipped.
 func readResumableReview(folder, key string) (resumableReview, bool) {
 	reviewPath := ReviewPathsFor(folder).Review
-	data, err := os.ReadFile(reviewPath)
+	data, err := ReadFileShared(reviewPath)
 	if err != nil {
 		return resumableReview{}, false
 	}
@@ -213,7 +220,10 @@ func (r resumableReview) detail() string {
 
 // unavailable reports why a review cannot be resumed, or "" when it can.
 func (r resumableReview) unavailable() string {
-	if r.cwd == "" {
+	// A running review is reached over HTTP on its existing port, so its
+	// directory never has to be re-entered — deleting a worktree out from
+	// under a live daemon must not hide the one review guaranteed to work.
+	if r.running || r.cwd == "" {
 		return ""
 	}
 	if info, err := os.Stat(r.cwd); err != nil || !info.IsDir() {

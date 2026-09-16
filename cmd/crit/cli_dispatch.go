@@ -180,12 +180,12 @@ exact file-mode session, or use --all to stop every daemon.`},
 	{name: "status", handler: runStatus, help: `Usage: crit status [--json]
 
 Show active session IDs and review paths, daemon status, and comment counts.`},
-	{name: "resume", handler: runResume, help: `Usage: crit resume [--list] [<id>] [review options]
+	{name: "resume", handler: runResume, help: `Usage: crit resume [--list | <id>] [review options]
 
 Pick a stored review to reopen. Without arguments this shows an interactive
 list of every review in ~/.crit/reviews, newest first, and reconnects to the
 one you choose — restarting its daemon in the directory it came from when that
-daemon has stopped.
+daemon has stopped. Pass a session ID to skip the picker.
 
 Options:
   -l, --list               Print the list instead of opening the picker
@@ -310,7 +310,7 @@ Review:
   crit plan --name <slug> <file>             Review a plan file
   crit story                                 Generate and review a story-mode diff
   crit --session <id>                        Reconnect to an existing review session
-  crit resume [--list] [<id>]                Pick a stored review to reopen
+  crit resume [--list | <id>]               Pick a stored review to reopen
 
 Comments:
   crit comment <path>:<line[-end]> <body>    Add a comment (headless, no server needed)

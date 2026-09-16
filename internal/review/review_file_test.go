@@ -1021,3 +1021,40 @@ func TestMatchingLiveSessionsBranchFilterAndAmbiguity(t *testing.T) {
 		t.Fatalf("error = %v, want ambiguity", err)
 	}
 }
+
+// A review created headlessly by `crit comment` must record its directory too,
+// otherwise `crit resume` would restart its daemon wherever the user happens to
+// be standing and then overwrite the recorded directory with that wrong value.
+func TestLoadCritJSON_NewReviewRecordsCWD(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	identity := filepath.Join(t.TempDir(), "reviews", "aaaaaaaaaaaa")
+
+	cj, err := LoadCritJSON(identity)
+	if err != nil {
+		t.Fatalf("LoadCritJSON: %v", err)
+	}
+
+	want, err := daemon.ResolvedCWD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cj.CWD != want {
+		t.Errorf("CWD = %q, want %q", cj.CWD, want)
+	}
+}
+
+func TestLoadCritJSON_ExistingReviewKeepsRecordedCWD(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	identity := filepath.Join(t.TempDir(), "reviews", "aaaaaaaaaaaa")
+	if err := SaveCritJSON(identity, CritJSON{CWD: "/work/app", Branch: "feature"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cj, err := LoadCritJSON(identity)
+	if err != nil {
+		t.Fatalf("LoadCritJSON: %v", err)
+	}
+	if cj.CWD != "/work/app" {
+		t.Errorf("CWD = %q, want the recorded directory to survive a load", cj.CWD)
+	}
+}

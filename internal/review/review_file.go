@@ -343,10 +343,16 @@ func LoadCritJSON(critPath string) (CritJSON, error) {
 			base = vcs.DefaultBaseRef()
 		}
 		baseRef, _ := vcs.MergeBase(base)
+		// Record the directory so `crit resume` can restart this review's
+		// daemon here. Headless `crit comment` often creates the review file
+		// before any daemon runs, and this is the same cwd the review's
+		// identity was derived from.
+		cwd, _ := daemon.ResolvedCWD()
 		cj = CritJSON{
 			Branch:      branch,
 			BaseRef:     baseRef,
 			ReviewRound: 1,
+			CWD:         cwd,
 			Files:       make(map[string]session.CritJSONFile),
 		}
 	} else {
