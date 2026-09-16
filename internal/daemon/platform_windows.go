@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"errors"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -46,14 +47,31 @@ func terminateProcess(proc *os.Process) error {
 func processExists(proc *os.Process) bool {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(proc.Pid))
 	if err != nil {
-		return false
+		return openProcessProbeAlive(err)
 	}
 	defer windows.CloseHandle(h)
 	var code uint32
 	if err := windows.GetExitCodeProcess(h, &code); err != nil {
-		return false
+		return openProcessProbeAlive(err)
 	}
 	// If the process happens to exit with code STILL_ACTIVE (259) this
 	// reports a false positive, but that's extremely unlikely for crit.
 	return code == stillActive
+}
+
+// openProcessProbeAlive classifies the result of an OpenProcess /
+// GetExitCodeProcess probe. ERROR_ACCESS_DENIED tells us our own token is too
+// restricted to query the process, not that the process is gone — a sandboxed
+// or AppContainer daemon would keep running while every probe was denied.
+// Treating it as dead would make crit believe its own live daemon died and
+// spawn a duplicate on every review round. ERROR_INVALID_PARAMETER is what
+// OpenProcess documents for a PID that does not exist, so that — and any other
+// unrecognised error — still reports dead. The /api/health probe in
+// isDaemonAlive is the real authority for liveness; this helper only avoids
+// the false negative that would keep that probe from ever being reached.
+func openProcessProbeAlive(err error) bool {
+	if err == nil {
+		return true
+	}
+	return errors.Is(err, windows.ERROR_ACCESS_DENIED)
 }
