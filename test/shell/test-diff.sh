@@ -34,7 +34,7 @@ if [ ! -f "$BINARY" ]; then
 fi
 
 # Kill any stale processes on test ports
-for port in "$PORT" "$((PORT + 1))" "$((PORT + 2))" "$((PORT + 3))" "$((PORT + 4))" "$((PORT + 5))"; do
+for port in "$PORT" "$((PORT + 1))" "$((PORT + 2))" "$((PORT + 3))" "$((PORT + 4))" "$((PORT + 5))" "$((PORT + 6))"; do
   lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 
@@ -499,15 +499,32 @@ for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$R
   done
 done
 
+STORY_HUNK_ANCHORS=$(curl -sf "http://127.0.0.1:$STORY_PORT/api/file/diff?path=example.js" | python3 -c '
+import json
+import sys
+
+hunks = json.load(sys.stdin).get("hunks", [])
+if len(hunks) != 2:
+    print(f"Expected exactly two example.js hunks, got {len(hunks)}", file=sys.stderr)
+    sys.exit(1)
+try:
+    anchors = sorted(hunk["OldStart"] for hunk in hunks)
+except (KeyError, TypeError):
+    print("Expected every example.js hunk to contain OldStart", file=sys.stderr)
+    sys.exit(1)
+print(*anchors)
+')
+read -r STORY_SUPPORT_OLD_START STORY_CHAPTER_OLD_START <<< "$STORY_HUNK_ANCHORS"
+
 curl -sf -X POST "http://127.0.0.1:$STORY_PORT/api/story" \
   -H 'Content-Type: application/json' -d '{"story": {
     "version": 1,
     "prologue": {"title": "Story with whitespace changes", "overview": "Keep raw hunk anchors while ignoring whitespace.",
       "key_changes": ["Update the exported result."], "risks": ["Whitespace filtering must not hide Story hunks."]},
     "chapters": [{"id": "result", "title": "Update result", "summary": "Change the exported result.",
-      "hunk_refs": [{"file_path": "example.js", "old_start": 29}]}],
+      "hunk_refs": [{"file_path": "example.js", "old_start": '"$STORY_CHAPTER_OLD_START"'}]}],
     "support": [{"reason": "Whitespace-only formatting.",
-      "hunk_refs": [{"file_path": "example.js", "old_start": 1}]}]
+      "hunk_refs": [{"file_path": "example.js", "old_start": '"$STORY_SUPPORT_OLD_START"'}]}]
   }}' > /dev/null
 
 # Clear any leftover comments from previous runs (the daemon persists

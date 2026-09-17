@@ -588,8 +588,8 @@ test.describe('Story mode', () => {
       expect(new URL((await restoredRequest).url()).searchParams.has('w')).toBe(false);
       await expect(storyView(page, 'ch1')).toContainText('http.StatusAccepted');
     } finally {
-      await clearStory(request);
       fs.writeFileSync(routesPath, original);
+      await clearStory(request);
       await request.post('/api/round-complete');
     }
   });

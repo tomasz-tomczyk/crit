@@ -652,8 +652,7 @@
       diffUrl += '&commit=' + enc(diffCommit);
     }
     // Story references use raw-diff hunk coordinates.
-    const storyNeedsStableHunkAnchors = storyHasContent(session && session.story) && !storyHidden;
-    if (ignoreWhitespace && !storyNeedsStableHunkAnchors) {
+    if (ignoreWhitespace && !storyNeedsRawDiff()) {
       diffUrl += '&w=1';
     }
     const [fileRes, commentsRes, diffRes] = await Promise.all([
@@ -8148,7 +8147,7 @@
           storyCleared = true;
           storyHidden = false;
           storyExpandedFileCache.clear();
-          applyStoryPresence();
+          reloadForScope();
         }
       } catch (err) {
         console.error('story-updated parse:', err);
@@ -8814,11 +8813,11 @@
   }
 
   function currentFileDataScope() {
-    return storyHasContent(session && session.story) && !storyHidden ? 'all' : effectiveDiffScope();
+    return storyNeedsRawDiff() ? 'all' : effectiveDiffScope();
   }
 
   function currentSessionFetchScope() {
-    return storyHasContent(session && session.story) && !storyHidden ? 'all' : effectiveDiffScope();
+    return storyNeedsRawDiff() ? 'all' : effectiveDiffScope();
   }
 
   function restoreWorkingTreeDiffScope() {
@@ -9427,7 +9426,8 @@
   // changing diffScope itself, so include those derived scopes in the key.
   let reloadInFlightKey = null;
   async function reloadForScope() {
-    const key = currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit;
+    const diffFetchMode = ignoreWhitespace && !storyNeedsRawDiff() ? 'filtered' : 'raw';
+    const key = currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit + '\0' + diffFetchMode;
     if (reloadInFlight && reloadInFlightKey === key) return reloadInFlight;
     if (reloadInFlight) {
       // Different inputs — chain after the in-flight reload finishes so we
@@ -10755,6 +10755,10 @@
     const chapters = Array.isArray(story.chapters) ? story.chapters : [];
     const support = Array.isArray(story.support) ? story.support : [];
     return chapters.length > 0 || support.length > 0;
+  }
+
+  function storyNeedsRawDiff() {
+    return storyHasContent(session && session.story) && !storyHidden;
   }
 
   async function hydrateStoryIfMissing(nextSession) {
