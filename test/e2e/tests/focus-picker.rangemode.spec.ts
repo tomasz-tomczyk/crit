@@ -3,21 +3,22 @@ import type { Page } from '@playwright/test';
 import { loadPage, clearAllComments } from './helpers';
 import { ensureStackedFocus, rangeFixture } from './range-helpers';
 
-// Opening the stack chip paints "Loading…" synchronously, then swaps in the
-// .stack-popover-item entries once /api/picker resolves (it shells out to git,
-// so under CI load the round-trip can exceed the default 5s expect timeout).
-// Drive the click and the fetch together so assertions never race the network:
-// the prefetch fired at init may already be in flight or done, so we wait for a
-// picker response if one lands but never hang if the cache is already warm.
+// Opening the stack chip paints "Loading stack…" synchronously, then swaps in
+// the .stack-popover-item entries (or the no-stack placeholder) once the
+// /api/picker prefetch fired at init resolves — it shells out to git, so under
+// CI load that round-trip can take seconds. Every test that opens the popover
+// goes through here so no assertion races the fetch.
+//
+// The wait is on the DOM leaving the Loading state, not on the picker response:
+// the click itself never fetches, so when the prefetch has already landed there
+// is no response left to wait for. Either way the popover reaches a settled
+// state — a failed picker stamps an empty stack rather than looping.
 async function openStackPopover(page: Page): Promise<void> {
-  const pickerResponse = page
-    .waitForResponse(
-      (resp) => resp.url().includes('/api/picker') && resp.status() === 200,
-      { timeout: 10_000 },
-    )
-    .catch(() => null);
   await page.locator('#stackChipBtn').click();
-  await pickerResponse;
+  await expect(page.locator('#stackPopover')).toBeVisible();
+  await expect(
+    page.locator('#stackPopover .stack-popover-loading', { hasText: /loading stack/i }),
+  ).toHaveCount(0);
 }
 
 // The stack chip + popover replace the old multi-section focus-picker
@@ -46,12 +47,6 @@ test('stack chip ✕ exit is visible in range focus', async ({ page }) => {
 
 test('popover lists feat-a, feat-b, feat-c', async ({ page }) => {
   await loadPage(page);
-  // Opening the chip renders "Loading…" synchronously and fires /api/picker;
-  // the .stack-popover-item entries only paint once that fetch resolves.
-  // /api/picker shells out to git (and on CI can exceed the default expect
-  // timeout under load), so wait for the response that actually produces the
-  // items instead of racing it. An in-flight prefetch may already be settling,
-  // hence the generous timeout.
   await openStackPopover(page);
   await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
   await expect(page.locator('#stackPopover')).toContainText('feat-a');
@@ -61,7 +56,7 @@ test('popover lists feat-a, feat-b, feat-c', async ({ page }) => {
 
 test('popover renders the default branch as the last entry (base marker)', async ({ page }) => {
   await loadPage(page);
-  await page.locator('#stackChipBtn').click();
+  await openStackPopover(page);
   const dbItem = page.locator('#stackPopover .stack-popover-default');
   await expect(dbItem).toBeVisible();
   await expect(dbItem).toContainText(/stack root:.*main/);
@@ -89,7 +84,7 @@ test('clicking a different stack entry switches focus and rebuilds file list', a
   await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toBeVisible();
   await expect(page.locator('.tree-file', { hasText: 'c.txt' })).toHaveCount(0);
 
-  await page.locator('#stackChipBtn').click();
+  await openStackPopover(page);
   const featC = page.locator('#stackPopover button.stack-popover-item', { hasText: /^.*feat-c.*$/ });
   await expect(featC).toBeVisible();
   await featC.click();
@@ -100,7 +95,7 @@ test('clicking a different stack entry switches focus and rebuilds file list', a
     expect(sess.focus.head_sha).toBeTruthy();
   }).toPass({ timeout: 5_000 });
 
-  await expect(page.locator('.tree-file', { hasText: 'c.txt' })).toBeVisible({ timeout: 5_000 });
+  await expect(page.locator('.tree-file', { hasText: 'c.txt' })).toBeVisible();
   await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toHaveCount(0);
 });
 
@@ -110,19 +105,26 @@ test('chip stays visible in range mode; popover shows no-stack placeholder', asy
   // waiting for /api/picker. When the picker resolves with an empty
   // stack, the popover content transitions from "Loading…" to a
   // "No surrounding stack" placeholder rather than hiding the chip.
-  await page.route('**/api/picker', async (route) => {
-    const real = await (await request.get('/api/picker')).json();
-    real.stack = [];
-    await route.fulfill({
+  //
+  // Fetch the real payload once, before intercepting. `request` is a separate
+  // APIRequestContext that page.route never sees, so this is safe — and it
+  // keeps the handler from re-running the server's git shell-out (2s+ under
+  // load) on every intercepted call, which is what left the popover stuck in
+  // its Loading state.
+  const picker = await (await request.get('/api/picker')).json();
+  picker.stack = [];
+  const emptyStackBody = JSON.stringify(picker);
+  await page.route('**/api/picker', (route) =>
+    route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(real),
-    });
-  });
+      body: emptyStackBody,
+    }),
+  );
   await loadPage(page);
   await expect(page.locator('#stackChip')).toBeVisible();
-  await page.locator('#stackChipBtn').click();
-  await expect(page.locator('#stackPopover')).toContainText(/no surrounding stack/i, { timeout: 5_000 });
+  await openStackPopover(page);
+  await expect(page.locator('#stackPopover')).toContainText(/no surrounding stack/i);
 });
 
 test('chip body opens popover; ✕ exit does NOT open popover (clicks independent)', async ({ page, request }) => {
@@ -143,9 +145,9 @@ test('chip body opens popover; ✕ exit does NOT open popover (clicks independen
 
 test('focus-changed SSE re-renders the chip and popover (current marker moves)', async ({ page, request }) => {
   await loadPage(page);
-  await page.locator('#stackChipBtn').click();
+  await openStackPopover(page);
   const current = page.locator('#stackPopover .stack-popover-current').filter({ hasNotText: /full stack/i });
-  await expect(current).toBeVisible({ timeout: 5_000 });
+  await expect(current).toBeVisible();
   await expect(current).toContainText('feat-b');
 
   // Close popover, switch focus, then re-open and re-check.
@@ -165,8 +167,8 @@ test('focus-changed SSE re-renders the chip and popover (current marker moves)',
       is_stacked: true,
     },
   });
-  await page.locator('#stackChipBtn').click();
+  await openStackPopover(page);
   await expect(
     page.locator('#stackPopover .stack-popover-current').filter({ hasNotText: /full stack/i })
-  ).toContainText('feat-a', { timeout: 5_000 });
+  ).toContainText('feat-a');
 });
