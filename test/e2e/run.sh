@@ -87,6 +87,16 @@ if [ $# -eq 0 ]; then
   PWLOGS=$(mktemp -d)
   FAILED=0
 
+  # Record each project's real exit code. Playwright exits 0 when a test only
+  # flaked and passed on retry, so the log text alone can't tell a recovered
+  # flake from a hard failure — both print "failed" in the error detail.
+  reap() { # name pid
+    local rc=0
+    wait "$2" || rc=$?
+    echo "$rc" > "$PWLOGS/$1.rc"
+    [ "$rc" -eq 0 ] || FAILED=1
+  }
+
   npx playwright test --project=git-mode --shard=1/2 > "$PWLOGS/git-1.log" 2>&1 &
   PW_GIT1=$!
   CRIT_TEST_PORT="$GIT2_PORT" npx playwright test --project=git-mode --shard=2/2 > "$PWLOGS/git-2.log" 2>&1 &
@@ -113,34 +123,38 @@ if [ $# -eq 0 ]; then
   # both git-mode shards, then launch mobile against the first fixture.
   # Skip on Windows — touch emulation is a Chromium feature identical across
   # OS, and Windows headless has reliability issues with touchscreen.tap().
-  wait $PW_GIT1 || FAILED=1
-  wait $PW_GIT2 || FAILED=1
+  reap git-1 $PW_GIT1
+  reap git-2 $PW_GIT2
   if [[ "$OSTYPE" != msys && "$OSTYPE" != cygwin ]]; then
     npx playwright test --project=mobile > "$PWLOGS/mobile.log" 2>&1 &
     PW_MOBILE=$!
   fi
 
   # Now wait for everything else.
-  wait $PW_FILE   || FAILED=1
-  wait $PW_SINGLE || FAILED=1
-  wait $PW_NOGIT  || FAILED=1
-  wait $PW_MULTI  || FAILED=1
-  wait $PW_RANGE  || FAILED=1
-  wait $PW_LIVE   || FAILED=1
-  wait $PW_SHARE  || FAILED=1
-  wait $PW_PERF   || FAILED=1
+  reap file   $PW_FILE
+  reap single $PW_SINGLE
+  reap nogit  $PW_NOGIT
+  reap multi  $PW_MULTI
+  reap range  $PW_RANGE
+  reap live   $PW_LIVE
+  reap share  $PW_SHARE
+  reap perf   $PW_PERF
   if [ -n "${PW_MOBILE:-}" ]; then
-    wait $PW_MOBILE || FAILED=1
+    reap mobile $PW_MOBILE
   fi
 
   # Print results — show summary for passing projects, full output for failures
   for f in "$PWLOGS"/*.log; do
     name=$(basename "$f" .log)
-    if grep -q "failed" "$f"; then
+    rc=$(cat "$PWLOGS/$name.rc" 2>/dev/null || echo 0)
+    if [ "$rc" -ne 0 ]; then
       echo "=== $name (FAILED) ==="
       # Dump the full project log on failure so CI shows every error message
       # (a 30-line tail buries per-test errors when many tests fail).
       cat "$f"
+    elif grep -q "flaky" "$f"; then
+      echo "=== $name (passed, flaky on first attempt) ==="
+      tail -5 "$f"
     else
       echo "=== $name ==="
       tail -5 "$f"
