@@ -1452,6 +1452,60 @@ func TestStopDaemon_KeepsSessionFileOnKillPermissionDenied(t *testing.T) {
 	}
 }
 
+func TestStopDaemon_RemovesSessionFileAfterKill(t *testing.T) {
+	tests := []struct {
+		name    string
+		killErr error
+	}{
+		{name: "kill succeeds", killErr: nil},
+		{name: "kill proves gone", killErr: syscall.ESRCH},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			testutil.SetHome(t, home)
+
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			}))
+			defer ts.Close()
+			port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+			key := "killoktest123"
+			entry := SessionEntry{
+				PID:    os.Getpid(),
+				Port:   port,
+				CWD:    "/tmp/repo",
+				Branch: "main",
+			}
+			if err := WriteSessionFile(key, entry); err != nil {
+				t.Fatalf("WriteSessionFile: %v", err)
+			}
+
+			origTerminate := terminateProc
+			terminateProc = func(proc *os.Process) error { return nil }
+			t.Cleanup(func() { terminateProc = origTerminate })
+
+			origExists := procExists
+			procExists = func(proc *os.Process) bool { return true }
+			t.Cleanup(func() { procExists = origExists })
+
+			origKill := killProc
+			killProc = func(proc *os.Process) error { return tt.killErr }
+			t.Cleanup(func() { killProc = origKill })
+
+			if err := StopDaemon(key); err != nil {
+				t.Fatalf("StopDaemon: %v", err)
+			}
+
+			path, _ := sessionFilePath(key)
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Error("session file should be removed after kill succeeds or proves gone")
+			}
+		})
+	}
+}
+
 func TestAppendCommonDaemonFlags(t *testing.T) {
 	tests := []struct {
 		name string
