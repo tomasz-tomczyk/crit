@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -1396,14 +1397,22 @@ func TestStopDaemon_RemovesSessionFileWhenProcessGone(t *testing.T) {
 }
 
 func TestKillProcess(t *testing.T) {
-	// Use a PID that is vanishingly unlikely to exist so we exercise
-	// killProcess without terminating a live process. Error vs nil is
-	// platform-dependent for a missing PID; we only need the call.
-	proc, err := os.FindProcess(1<<30 - 1)
-	if err != nil {
-		t.Fatalf("FindProcess: %v", err)
+	// Start a short-lived helper so we can call killProcess on a real
+	// Process handle (Windows OpenProcess rejects bogus PIDs).
+	cmd := exec.Command("sleep", "30")
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("ping", "-n", "30", "127.0.0.1")
 	}
-	_ = killProcess(proc)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	if err := killProcess(cmd.Process); err != nil {
+		t.Fatalf("killProcess: %v", err)
+	}
 }
 
 func TestStopDaemon_KeepsSessionFileOnKillPermissionDenied(t *testing.T) {
