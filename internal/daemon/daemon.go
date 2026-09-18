@@ -68,9 +68,12 @@ var browserClient = &http.Client{Timeout: 2 * time.Second}
 // termination. Tests may override it to simulate signal failures.
 var terminateProc = terminateProcess
 
+// killProcess force-kills a process that outlived the graceful-termination poll.
+func killProcess(proc *os.Process) error { return proc.Kill() }
+
 // killProc is the function StopDaemon uses to force-kill a process that
 // outlives the graceful-termination poll. Tests may override it.
-var killProc = func(proc *os.Process) error { return proc.Kill() }
+var killProc = killProcess
 
 // procExists is the function StopDaemon uses to poll for process exit.
 // Tests may override it to avoid killing real processes.

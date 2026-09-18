@@ -1395,6 +1395,17 @@ func TestStopDaemon_RemovesSessionFileWhenProcessGone(t *testing.T) {
 	}
 }
 
+func TestKillProcess(t *testing.T) {
+	// Use a PID that is vanishingly unlikely to exist so we exercise
+	// killProcess without terminating a live process. Error vs nil is
+	// platform-dependent for a missing PID; we only need the call.
+	proc, err := os.FindProcess(1<<30 - 1)
+	if err != nil {
+		t.Fatalf("FindProcess: %v", err)
+	}
+	_ = killProcess(proc)
+}
+
 func TestStopDaemon_KeepsSessionFileOnKillPermissionDenied(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
