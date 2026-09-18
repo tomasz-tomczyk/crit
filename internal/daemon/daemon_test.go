@@ -1395,6 +1395,63 @@ func TestStopDaemon_RemovesSessionFileWhenProcessGone(t *testing.T) {
 	}
 }
 
+func TestStopDaemon_KeepsSessionFileOnKillPermissionDenied(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer ts.Close()
+	port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+	key := "killpermtest123"
+	entry := SessionEntry{
+		PID:    os.Getpid(),
+		Port:   port,
+		CWD:    "/tmp/repo",
+		Branch: "main",
+	}
+	if err := WriteSessionFile(key, entry); err != nil {
+		t.Fatalf("WriteSessionFile: %v", err)
+	}
+
+	origTerminate := terminateProc
+	terminateProc = func(proc *os.Process) error {
+		return nil
+	}
+	t.Cleanup(func() { terminateProc = origTerminate })
+
+	origExists := procExists
+	procExists = func(proc *os.Process) bool {
+		return true
+	}
+	t.Cleanup(func() { procExists = origExists })
+
+	origKill := killProc
+	killProc = func(proc *os.Process) error {
+		return syscall.EPERM
+	}
+	t.Cleanup(func() { killProc = origKill })
+
+	err := StopDaemon(key)
+	if err == nil {
+		t.Fatal("expected error when kill is denied")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, key) {
+		t.Errorf("error = %q, want it to mention key %q", msg, key)
+	}
+	if !strings.Contains(msg, strconv.Itoa(os.Getpid())) {
+		t.Errorf("error = %q, want it to mention pid %d", msg, os.Getpid())
+	}
+
+	path, _ := sessionFilePath(key)
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		t.Error("session file should be kept when kill is denied")
+	}
+}
+
 func TestAppendCommonDaemonFlags(t *testing.T) {
 	tests := []struct {
 		name string
