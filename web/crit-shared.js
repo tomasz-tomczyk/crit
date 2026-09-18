@@ -911,6 +911,9 @@
     'Run <kbd>crit overview.html</kbd> to review an artifact HTML file visually.',
     'Ask your agent to review your work with Crit and leave comments with it.',
     'Enjoying Crit? A GitHub star or sharing it with colleagues helps a lot!',
+    'Thank you for over 1,000 stars on GitHub! ❤️',
+    'If you find Crit useful, please consider <a href="https://github.com/sponsors/tomasz-tomczyk" target="_blank" rel="noopener">sponsoring the effort on GitHub</a>.',
+    'Reviewing a complex code change? Try out the new Story mode with <kbd>/crit-story</kbd>.',
   ];
 
   function startTipRotation(extraTips) {
