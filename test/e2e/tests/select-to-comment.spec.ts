@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Page, Locator } from '@playwright/test';
 import { clearAllComments, loadPage, mdSection, goSection, switchToDocumentView } from './helpers';
 
 // Helper: drag-select between two coordinates, then press `c` to comment.
@@ -14,6 +14,36 @@ async function selectAndPressC(
   await page.mouse.move(x2, y2, { steps });
   await page.mouse.up();
   await page.keyboard.press('c');
+}
+
+// Helper: find a wide addition line's content box, retrying until the
+// lazily-rendered diff lines appear. A one-shot `.count()` scan races with
+// diff rendering (count is 0 → targetBox stays null), so wrap in toPass().
+async function wideAdditionLine(section: Locator, lineSelector: string) {
+  let box: Awaited<ReturnType<Locator['boundingBox']>> = null;
+  let line: Locator | null = null;
+  await expect(async () => {
+    box = null;
+    line = null;
+    const lines = section.locator(lineSelector);
+    const count = await lines.count();
+    for (let i = 0; i < count; i++) {
+      const candidate = lines.nth(i);
+      const content = candidate.locator('.diff-content');
+      const text = await content.textContent();
+      if (text && text.trim().length > 20) {
+        await candidate.scrollIntoViewIfNeeded();
+        const candidateBox = await content.boundingBox();
+        if (candidateBox) {
+          box = candidateBox;
+          line = candidate;
+          break;
+        }
+      }
+    }
+    expect(box).toBeTruthy();
+  }).toPass();
+  return { box: box as NonNullable<typeof box>, line: line as NonNullable<Locator> };
 }
 
 test.describe('Select-to-comment (git mode)', () => {
@@ -486,21 +516,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
 
     test('quote highlight appears in split diff view while form is open', async ({ page }) => {
       const section = goSection(page);
-      const additionLines = section.locator('.diff-split-side.addition');
-      let targetBox: any = null;
-      const count = await additionLines.count();
-      for (let i = 0; i < count; i++) {
-        const line = additionLines.nth(i);
-        const content = line.locator('.diff-content');
-        const text = await content.textContent();
-        if (text && text.trim().length > 20) {
-          await line.scrollIntoViewIfNeeded();
-          targetBox = await content.boundingBox();
-          break;
-        }
-      }
-      expect(targetBox).toBeTruthy();
-      if (!targetBox) return;
+      const { box: targetBox } = await wideAdditionLine(section, '.diff-split-side.addition');
 
       await selectAndPressC(
         page,
@@ -519,21 +535,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await unifiedBtn.click();
 
       const section = goSection(page);
-      const additionLines = section.locator('.diff-line.addition');
-      let targetBox: any = null;
-      const count = await additionLines.count();
-      for (let i = 0; i < count; i++) {
-        const line = additionLines.nth(i);
-        const content = line.locator('.diff-content');
-        const text = await content.textContent();
-        if (text && text.trim().length > 20) {
-          await line.scrollIntoViewIfNeeded();
-          targetBox = await content.boundingBox();
-          break;
-        }
-      }
-      expect(targetBox).toBeTruthy();
-      if (!targetBox) return;
+      const { box: targetBox } = await wideAdditionLine(section, '.diff-line.addition');
 
       await selectAndPressC(
         page,
@@ -552,23 +554,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await unifiedBtn.click();
 
       const section = goSection(page);
-      const additionLines = section.locator('.diff-line.addition');
-      let targetLine: any = null;
-      let targetBox: any = null;
-      const count = await additionLines.count();
-      for (let i = 0; i < count; i++) {
-        const line = additionLines.nth(i);
-        const content = line.locator('.diff-content');
-        const text = await content.textContent();
-        if (text && text.trim().length > 20) {
-          await line.scrollIntoViewIfNeeded();
-          targetLine = line;
-          targetBox = await content.boundingBox();
-          break;
-        }
-      }
-      expect(targetBox).toBeTruthy();
-      if (!targetBox || !targetLine) return;
+      const { box: targetBox } = await wideAdditionLine(section, '.diff-line.addition');
 
       await selectAndPressC(
         page,
