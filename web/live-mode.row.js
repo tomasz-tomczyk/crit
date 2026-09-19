@@ -275,6 +275,13 @@
     parts.wrapper.dataset.liveRoute = routePath;
     parts.card.dataset.id = commentId;
     parts.card.dataset.liveRoute = routePath;
+    // The live panel treats the whole card as an activation target. Keep it
+    // in the tab order for Enter/Space without using role="button": cards
+    // contain their own real buttons, which must remain exposed to assistive
+    // technology rather than becoming nested controls inside an ARIA button.
+    parts.card.tabIndex = 0;
+    parts.card.setAttribute('role', 'group');
+    parts.card.setAttribute('aria-label', 'Pin comment; press Enter to open the pinned element');
     if (c.resolved) {
       parts.card.dataset.resolved = 'true';
       parts.wrapper.dataset.resolved = 'true';

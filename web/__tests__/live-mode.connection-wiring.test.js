@@ -60,6 +60,31 @@ test('live-mode.js transitions to ready in handleAgentReady', () => {
   includes("state.agentConnectionState = 'ready'");
 });
 
+test('agent-ready flushes cross-document pending pin focus after markers are pushed', () => {
+  const start = liveModeSrc.indexOf('function handleAgentReady()');
+  const end = liveModeSrc.indexOf('function handleAgentError', start);
+  assert.ok(start >= 0 && end > start, 'handleAgentReady block must exist');
+  const body = liveModeSrc.slice(start, end);
+  assert.match(body, /pushPinsToAgent\(\);\s*focusPendingPinForCurrentRoute\(\);/);
+});
+
+test('SPA route changes use the same pending pin focus helper', () => {
+  const start = liveModeSrc.indexOf('function handleRouteChange(msg)');
+  const end = liveModeSrc.indexOf('function handlePinClicked', start);
+  assert.ok(start >= 0 && end > start, 'handleRouteChange block must exist');
+  assert.match(liveModeSrc.slice(start, end), /focusPendingPinForCurrentRoute\(\);/);
+});
+
+test('repeated card activation waits while the destination document is loading', () => {
+  const start = liveModeSrc.indexOf('function activatePendingPinId()');
+  const end = liveModeSrc.indexOf('state.activatePendingPinId = activatePendingPinId', start);
+  assert.ok(start >= 0 && end > start, 'activatePendingPinId block must exist');
+  assert.match(
+    liveModeSrc.slice(start, end),
+    /if \(!state\.agentReady\) \{\s*state\.pendingFlashOnLoad = true;\s*return;/,
+  );
+});
+
 test('live-mode.js treats bootstrap errors as connection unavailable', () => {
   includes('isBootstrapErrorKind(e.kind)');
   includes("state.agentConnectionState = 'unavailable'");

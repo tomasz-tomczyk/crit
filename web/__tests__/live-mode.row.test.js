@@ -70,7 +70,7 @@ function makeStubEl(tag) {
   return el;
 }
 
-test('renderLivePinRow includes a Delete button on top-level comment cards', () => {
+test('renderLivePinRow configures top-level card controls and keyboard focus', () => {
   // Regression for Bug C: live-mode comment cards rendered Resolve, Edit,
   // Reply but no Delete affordance. Reply rows already had one; the parent
   // card did not. The button must be in parts.actions and carry the
@@ -97,6 +97,9 @@ test('renderLivePinRow includes a Delete button on top-level comment cards', () 
       { id: 'c-del-1', body: 'wrong colour', dom_anchor: { pathname: '/p' } },
       { iconDelete: '<svg/>' },
     );
+    assert.equal(fakeCard.tabIndex, 0, 'live card must be keyboard focusable');
+    assert.equal(fakeCard._attrs.role, 'group');
+    assert.match(fakeCard._attrs['aria-label'], /press Enter to open/i);
     const deleteBtns = fakeActions.children.filter(
       (b) => b._cls && b._cls.has('crit-live-comment-delete'),
     );

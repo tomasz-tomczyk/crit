@@ -559,24 +559,14 @@
       updateUnresolvedBadge();
     }
 
-    // Scroll to pinned element and flash its marker badge when a comment
-    // card is clicked in the panel. keep-highlight scrolls into view +
-    // adds a transient highlight; clear-highlight removes it after 1s.
-    // flash-marker pulses the badge overlay (1.5s, agent-managed).
-    var _highlightTimer = null;
-    function scrollAndFlashPin(comment) {
-      if (!comment || !comment.id) return;
-      if (!state || !state.postToAgent) return;
-      if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null; }
-      var anchor = comment.dom_anchor || comment.domAnchor;
-      if (anchor && anchor.css_selector) {
-        state.postToAgent({ type: 'keep-highlight', selector: anchor.css_selector, scroll: true });
-        _highlightTimer = setTimeout(function () {
-          state.postToAgent({ type: 'clear-highlight' });
-          _highlightTimer = null;
-        }, 1000);
+    function activatePinCard(card) {
+      if (!card || !state || !state.comments) return;
+      var id = card.dataset && card.dataset.id;
+      if (!id) return;
+      var comment = state.comments.find(function (c) { return String(c.id) === id; });
+      if (comment && typeof state.openPinAndFocus === 'function') {
+        state.openPinAndFocus(comment);
       }
-      state.postToAgent({ type: 'flash-marker', pin_id: comment.id });
     }
 
     var _cardClickInstalled = false;
@@ -588,10 +578,15 @@
         if (e.target.closest && e.target.closest('button, a, input, textarea')) return;
         var card = e.target.closest && e.target.closest('.comment-card[data-id]');
         if (!card) return;
-        var id = card.dataset.id;
-        if (!id || !state.comments) return;
-        var comment = state.comments.find(function (c) { return String(c.id) === id; });
-        if (comment) scrollAndFlashPin(comment);
+        activatePinCard(card);
+      });
+      els.panelBody.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var card = e.target;
+        if (!card || !card.classList || !card.classList.contains('comment-card')) return;
+        if (!card.dataset || !card.dataset.id) return;
+        e.preventDefault();
+        activatePinCard(card);
       });
     }
 

@@ -1696,36 +1696,6 @@
   });
 
   // ============================================================
-  // Clicking a comment row navigates iframe
-  // ============================================================
-  document.addEventListener('click', function (e) {
-    // Don't navigate when clicking interactive controls inside the card.
-    if (e.target.closest && e.target.closest('button, a, input, textarea')) return;
-    var card = e.target.closest && e.target.closest('.comment-card[data-live-route]');
-    if (!card) return;
-    var route = utils.normaliseRoute(card.dataset.liveRoute || '/');
-    // Skip iframe reassignment if already on this route — otherwise we'd
-    // trigger a redundant route-change → request-resolution cycle.
-    if (route === state.currentRoute) return;
-    if (els && els.iframe) loadIframe(proxyURL(route));
-    state.currentRoute = route;
-    renderBreadcrumb();
-  });
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    var t = e.target;
-    if (!t || !t.classList || !t.classList.contains('comment-card')) return;
-    if (!t.dataset.liveRoute) return;
-    e.preventDefault();
-    var route = utils.normaliseRoute(t.dataset.liveRoute || '/');
-    if (route === state.currentRoute) return;
-    if (els && els.iframe) loadIframe(proxyURL(route));
-    state.currentRoute = route;
-    renderBreadcrumb();
-  });
-
-  // ============================================================
   // Settings overlay: live mode mounts the same Settings overlay as
   // code review by delegating Settings/Updates/Shortcuts/About tabs to
   // crit-settings-panes.js.
@@ -1848,6 +1818,7 @@
   }
   state.pendingPinId = parsePinFragment();
   state.pendingFlashOnLoad = false;
+  state.pendingCardHighlightClear = false;
   state.resolutionCache = state.resolutionCache || {};
   state.currentRound = state.currentRound || 1;
   state.openPin = state.openPin || null;
@@ -2199,6 +2170,7 @@
       postToAgent({ type: 'set-marker-tabindex', value: -1 });
     }
     pushPinsToAgent();
+    focusPendingPinForCurrentRoute();
 
     // Register as the active ContentRenderer so chrome modules (comment
     // list click-to-scroll, deeplinks) can interact with the live iframe
@@ -2352,6 +2324,20 @@
     }
   }
 
+  function pinPath(pin) {
+    var anchor = pin && (pin.dom_anchor || pin.domAnchor);
+    return utils.normaliseRoute((anchor && anchor.pathname) || (pin && pin.path) || '/');
+  }
+
+  function focusPendingPinForCurrentRoute() {
+    if (!state.pendingFlashOnLoad || !state.pendingPinId) return;
+    var pin = lookupPin(state.pendingPinId);
+    // Comments may still be loading during initial deep-link boot. Leave the
+    // pending id intact so installDeepLinkActivation can retry it.
+    if (!pin || pinPath(pin) !== state.currentRoute) return;
+    performFlashAndScroll(pin);
+  }
+
   function handleRouteChange(msg) {
     var prevPath = state.currentRoute;
     recordRoute(msg.pathname);
@@ -2364,12 +2350,7 @@
     if (state.resolutionCache[state.currentRoute] !== 'fresh') {
       scheduleResolutionForPath(state.currentRoute);
     }
-    if (state.pendingFlashOnLoad && state.pendingPinId) {
-      var pin = lookupPin(state.pendingPinId);
-      if (pin && pin.dom_anchor && utils.normaliseRoute(pin.dom_anchor.pathname) === state.currentRoute) {
-        performFlashAndScroll(pin);
-      }
-    }
+    focusPendingPinForCurrentRoute();
     if (prevPath !== state.currentRoute) {
       // ignored — kept as anchor for future hooks
     }
@@ -2615,16 +2596,31 @@
   // /api/session at install time; SSE live-round-start handles bumps.
 
   // ---- deep-link activation ----
+  var cardHighlightTimer = null;
   function performFlashAndScroll(pin) {
+    if (!pin || !pin.id) return;
+    var clearCardHighlight = state.pendingCardHighlightClear;
+    state.pendingCardHighlightClear = false;
+    if (cardHighlightTimer) {
+      clearTimeout(cardHighlightTimer);
+      cardHighlightTimer = null;
+      try { postToAgent({ type: 'clear-highlight' }); } catch (_) { /* noop */ }
+    }
     var threadScrollAPI = window.crit && window.crit.live && window.crit.live.threadScroll;
     if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
-      threadScrollAPI.scrollThreadToPin(document, pin.id);
+      try { threadScrollAPI.scrollThreadToPin(document, pin.id); } catch (_) { /* noop */ }
     }
     var anchor = pin.dom_anchor || pin.domAnchor;
     if (anchor && anchor.css_selector) {
       try { postToAgent({ type: 'keep-highlight', selector: anchor.css_selector, scroll: true }); } catch (_) { /* noop */ }
+      if (clearCardHighlight) {
+        cardHighlightTimer = setTimeout(function () {
+          try { postToAgent({ type: 'clear-highlight' }); } catch (_) { /* noop */ }
+          cardHighlightTimer = null;
+        }, 1000);
+      }
     }
-    postToAgent({ type: 'flash-marker', pin_id: pin.id });
+    try { postToAgent({ type: 'flash-marker', pin_id: pin.id }); } catch (_) { /* noop */ }
     state.openPin = pin;
     var dl = window.crit.live.deeplink;
     if (dl) {
@@ -2642,20 +2638,44 @@
     if (!pin) {
       announceLive('Pin ' + pinId + ' not found.');
       state.pendingPinId = null;
+      state.pendingFlashOnLoad = false;
+      state.pendingCardHighlightClear = false;
       return;
     }
-    var targetPath = utils.normaliseRoute((pin.dom_anchor && pin.dom_anchor.pathname) || '/');
+    var targetPath = pinPath(pin);
     if (state.currentRoute !== targetPath) {
+      // Establish pending state before navigation so even a very fast agent
+      // route-change message cannot beat the flash/scroll latch.
+      state.pendingFlashOnLoad = true;
       if (els && els.iframe) {
         try { loadIframe(proxyURL(targetPath)); } catch (_) { /* noop */ }
       }
       state.currentRoute = targetPath;
+      renderBreadcrumb();
+      return;
+    }
+    // currentRoute is updated as soon as navigation starts, before the new
+    // document is ready. A repeated click during that window must keep the
+    // activation pending instead of posting to the outgoing document.
+    if (!state.agentReady) {
       state.pendingFlashOnLoad = true;
       return;
     }
     performFlashAndScroll(pin);
   }
   state.activatePendingPinId = activatePendingPinId;
+
+  // Shared activation path for comment cards. Same-route pins focus
+  // immediately; cross-route pins reuse the deep-link pending latch and are
+  // focused when the new document's agent is ready (or an SPA route changes).
+  function openPinAndFocus(pin) {
+    if (!pin || !pin.id) return;
+    state.pendingPinId = pin.id;
+    state.pendingFlashOnLoad = false;
+    state.pendingCardHighlightClear = true;
+    activatePendingPinId();
+  }
+  state.openPinAndFocus = openPinAndFocus;
 
   registerInstaller(function installDeepLinkActivation() {
     // Defer until comments are loaded.

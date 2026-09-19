@@ -42,6 +42,7 @@ function makeNode(tag) {
     dataset: {},
     style: {},
     attrs: {},
+    _listeners: {},
     parentNode: null,
     childNodes: [],
     scrollTop: 0,
@@ -58,8 +59,14 @@ function makeNode(tag) {
     },
     setAttribute(k, v) { this.attrs[k] = v; },
     getAttribute(k) { return this.attrs[k]; },
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, fn) {
+      (this._listeners[type] = this._listeners[type] || []).push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = this._listeners[type] || [];
+      const idx = list.indexOf(fn);
+      if (idx !== -1) list.splice(idx, 1);
+    },
     appendChild(child) { return this.insertBefore(child, null); },
     insertBefore(child, ref) {
       if (child.parentNode) child.parentNode.removeChild(child);
@@ -305,7 +312,10 @@ test('renderCommentsPanel: live comments use code-review markdown semantics', ()
     getLanguage(lang) { return lang === 'js'; },
     highlight(str) { return { value: '<span class="hl">' + str + '</span>' }; },
   };
-  win.crit.commentHtml = { sanitize(html) { return html; } };
+  win.crit.commentHtml = {
+    normalizeCommentMarkdown(src) { return src; },
+    sanitize(html) { return html; },
+  };
   win.crit.live.row = {
     renderLivePinRow(_comment, deps) {
       commentMd = deps.commentMd;
@@ -329,6 +339,82 @@ test('renderCommentsPanel: live comments use code-review markdown semantics', ()
     assert.match(commentMd.render('first\nsecond'), /first\nsecond/);
     assert.doesNotMatch(commentMd.render('first\nsecond'), /<br>/);
     assert.match(commentMd.render('```js\nconst x = 1;\n```'), /<span class="hl">const x = 1;/);
+  } finally {
+    teardownDom(prev);
+  }
+});
+
+test('panel card click delegates pin focus to the chrome activation path', () => {
+  const prev = { document: global.document, window: global.window };
+  const { panelBody } = setupDom();
+  try {
+    const { ctl, state } = makeCtl(panelBody);
+    const pin = {
+      id: 'pin-1',
+      body: 'focus me',
+      dom_anchor: { pathname: '/dashboard', css_selector: '#target' },
+    };
+    const activated = [];
+    state.comments = [pin];
+    state.openPinAndFocus = comment => activated.push(comment);
+    // A direct agent send here would recreate the duplicate/racy path this
+    // regression test is intended to prevent.
+    state.postToAgent = () => assert.fail('panel renderer must not post agent messages');
+
+    ctl.installPanelCardRendererClick();
+    const card = makeNode('div');
+    card.className = 'comment-card';
+    card.dataset.id = 'pin-1';
+    const target = {
+      closest(selector) {
+        if (selector === 'button, a, input, textarea') return null;
+        if (selector === '.comment-card[data-id]') return card;
+        return null;
+      },
+    };
+
+    panelBody._listeners.click[0]({ target });
+    assert.deepEqual(activated, [pin]);
+  } finally {
+    teardownDom(prev);
+  }
+});
+
+test('panel card activation preserves control exclusions and supports Enter and Space', () => {
+  const prev = { document: global.document, window: global.window };
+  const { panelBody } = setupDom();
+  try {
+    const { ctl, state } = makeCtl(panelBody);
+    const pin = { id: 'pin-1', dom_anchor: { pathname: '/' } };
+    const activated = [];
+    state.comments = [pin];
+    state.openPinAndFocus = comment => activated.push(comment);
+
+    ctl.installPanelCardRendererClick();
+    ctl.installPanelCardRendererClick();
+
+    const card = makeNode('div');
+    card.className = 'comment-card';
+    card.dataset.id = 'pin-1';
+    const interactiveTarget = {
+      closest(selector) {
+        if (selector === 'button, a, input, textarea') return {};
+        return card;
+      },
+    };
+    panelBody._listeners.click[0]({ target: interactiveTarget });
+    assert.equal(activated.length, 0, 'interactive child click must not activate the card');
+
+    let prevented = 0;
+    const keydown = panelBody._listeners.keydown[0];
+    keydown({ key: 'Enter', target: card, preventDefault() { prevented++; } });
+    keydown({ key: ' ', target: card, preventDefault() { prevented++; } });
+    keydown({ key: 'Escape', target: card, preventDefault() { prevented++; } });
+
+    assert.deepEqual(activated, [pin, pin]);
+    assert.equal(prevented, 2);
+    assert.equal(panelBody._listeners.click.length, 1, 'installer must remain idempotent');
+    assert.equal(panelBody._listeners.keydown.length, 1, 'installer must remain idempotent');
   } finally {
     teardownDom(prev);
   }

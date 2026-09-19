@@ -87,7 +87,11 @@ func registerDashboard(mux *http.ServeMux) {
 
 const dashboardHTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>dashboard</title></head>
-<body><main><h1 id="dash-title">Dashboard</h1><a href="/" id="home-link">Home</a></main></body></html>`
+<body><main>
+  <h1 id="dash-title">Dashboard</h1><a href="/" id="home-link">Home</a>
+  <div style="height: 1600px" aria-hidden="true"></div>
+  <button id="dash-bottom-action">Bottom action</button>
+</main></body></html>`
 
 func registerRedirectSame(mux *http.ServeMux) {
 	mux.HandleFunc("/redirect-same", func(w http.ResponseWriter, r *http.Request) {
