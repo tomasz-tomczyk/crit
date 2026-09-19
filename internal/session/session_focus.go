@@ -423,6 +423,9 @@ func dropStaleCacheOnPRSwitch(oldFocus, newFocus Focus) {
 // session and confuse the push gate.
 func (s *Session) persistActiveDiffScope(scope string) error {
 	critPath := s.critJSONPath()
+	if critPath == "" {
+		return nil
+	}
 	cj, err := readCritJSONFromDisk(critPath)
 	if err != nil {
 		// File may not exist yet — fall through and create one with just the scope.
