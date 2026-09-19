@@ -13,7 +13,11 @@ func TestInstallationSourceForPath(t *testing.T) {
 	}{
 		{"homebrew cellar", "/opt/homebrew/Cellar/crit/0.20.2/bin/crit", "", "", "/Users/me", installationSourceHomebrew},
 		{"homebrew opt", "/opt/homebrew/opt/crit/bin/crit", "", "", "/Users/me", installationSourceHomebrew},
+		{"homebrew intel opt", "/usr/local/opt/crit/bin/crit", "", "", "/Users/me", installationSourceHomebrew},
+		{"linuxbrew opt", "/home/linuxbrew/.linuxbrew/opt/crit/bin/crit", "", "", "/home/me", installationSourceHomebrew},
 		{"nix store", "/nix/store/hash-crit-0.20.2/bin/crit", "", "", "/home/me", installationSourceNix},
+		{"nix path containing opt/crit", "/nix/store/hash/opt/crit/bin/crit", "", "", "/home/me", installationSourceNix},
+		{"manual FHS opt", "/opt/crit/bin/crit", "", "", "/Users/me", installationSourceUnknown},
 		{"default Go bin", "/Users/me/go/bin/crit", "", "", "/Users/me", installationSourceGo},
 		{"configured Go bin", "/tools/bin/crit", "/tools/bin", "", "/Users/me", installationSourceGo},
 		{"GOPATH bin", "/workspace/bin/crit", "", "/workspace", "/Users/me", installationSourceGo},

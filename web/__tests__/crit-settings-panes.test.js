@@ -242,6 +242,19 @@ test('renderUpdatesPane: groups Crit releases and integration work', () => {
   assert.match(pane.innerHTML, /Copy all commands/);
 });
 
+test('renderUpdatesPane: uses brand icons for all agents with SVG assets', () => {
+  const sp = loadShared();
+  const pane = makePane();
+  const agents = ['aider', 'cline', 'hermes', 'windsurf', 'claude-code', 'pi'];
+  sp.renderUpdatesPane(pane, {
+    stale_integrations: agents.map((agent) => ({ agent, hash: 'h', hint: 'crit install ' + agent })),
+  }, {});
+  for (const agent of agents) {
+    assert.match(pane.innerHTML, new RegExp('images/integrations/' + agent + '-dark\\.svg'));
+  }
+  assert.doesNotMatch(pane.innerHTML, /updates-agent-icon--fallback/);
+});
+
 test('renderUpdatesPane: current Crit still shows its version and release notes', () => {
   const sp = loadShared();
   const pane = makePane();

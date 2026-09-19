@@ -385,7 +385,7 @@
 
   function integrationIconHTML(agent) {
     var asset = agent === 'codex-plugin' ? 'codex' : agent;
-    var known = ['claude-code', 'cursor', 'codex', 'opencode', 'github-copilot', 'gemini', 'qwen', 'pi', 'grok', 'ampcode'];
+    var known = ['claude-code', 'cursor', 'codex', 'opencode', 'github-copilot', 'gemini', 'qwen', 'pi', 'grok', 'ampcode', 'aider', 'cline', 'hermes', 'windsurf'];
     if (known.indexOf(asset) === -1) {
       return '<span class="updates-agent-icon updates-agent-icon--fallback" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h10v10H3z"/><path d="M6 6h4v4H6z"/></svg></span>';
     }

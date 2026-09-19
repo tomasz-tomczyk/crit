@@ -831,6 +831,32 @@ func TestDetectPresentAgents_IgnoresEmptyAmbiguousConfigDirs(t *testing.T) {
 	}
 }
 
+func TestDetectPresentAgents_JunkFileInAmbiguousConfigDirCountsAsPresent(t *testing.T) {
+	// Documents current behavior: any entry (e.g. .DS_Store) makes an
+	// ambiguous config dir count as "present". Tightening would require
+	// sniffing known config filenames per agent.
+	homeDir := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	geminiDir := filepath.Join(homeDir, ".gemini")
+	if err := os.Mkdir(geminiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(geminiDir, ".DS_Store"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, agent := range detectPresentAgents(homeDir) {
+		if agent == "gemini" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("ambiguous config dir with only .DS_Store currently counts as present")
+	}
+}
+
 func TestHintMissingIntegrations_EnvDisable(t *testing.T) {
 	t.Setenv("CRIT_NO_INTEGRATION_CHECK", "1")
 	// Should return immediately without doing any work

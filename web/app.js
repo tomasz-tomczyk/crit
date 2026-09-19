@@ -945,7 +945,7 @@
 
     // Update notifications (Crit release + stale integrations)
     pendingUpdates = [];
-    const hasCritUpdate = configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
+    const hasCritUpdate = !configRes.no_update_check && configRes.latest_version && configRes.version && configRes.latest_version !== configRes.version;
     if (hasCritUpdate) {
       pendingUpdates.push({
         kind: 'crit-update',
