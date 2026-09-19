@@ -478,8 +478,10 @@
     var paneRect = els.pane.getBoundingClientRect();
     var w, h;
     if (vp.key === 'fit') {
+      var hintEl = document.getElementById('liveModeHint');
+      var hintH = hintEl ? Math.ceil(hintEl.getBoundingClientRect().height) + 10 : 0;
       w = Math.max(320, paneRect.width - 32);
-      h = Math.max(240, paneRect.height - 32);
+      h = Math.max(240, paneRect.height - 32 - hintH);
     } else {
       w = vp.w;
       h = vp.h;
@@ -559,7 +561,8 @@
       key.hidden = !binding;
     }
     var commentBtn = els.modeToggle && els.modeToggle.querySelector('.toggle-btn[data-mode="pin"]');
-    if (commentBtn) {
+    // Keep the Loading… title while the pin button is still disabled.
+    if (commentBtn && !commentBtn.hasAttribute('disabled')) {
       var ariaLabel = binding ? 'Comment mode (' + bindingLabel + ')' : 'Comment mode';
       commentBtn.setAttribute('aria-label', ariaLabel);
       commentBtn.setAttribute('title', ariaLabel);
@@ -2009,7 +2012,7 @@
       if (pinBtn) {
         pinBtn.removeAttribute('disabled');
         pinBtn.removeAttribute('aria-disabled');
-        pinBtn.removeAttribute('title');
+        updateModeHint();
       }
     }
     // After a round transition the iframe reloads and the new agent starts
