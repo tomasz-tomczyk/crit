@@ -65,6 +65,10 @@ test('live-mode.js treats bootstrap errors as connection unavailable', () => {
   includes("state.agentConnectionState = 'unavailable'");
 });
 
+test('live-mode.js gates pin mode on connection state', () => {
+  includes("state.agentConnectionState !== 'ready'");
+});
+
 test('live-mode.js forces Browse when commenting is unavailable', () => {
   includes("state.mode = 'navigate'");
   includes('setActiveModeButton()');
