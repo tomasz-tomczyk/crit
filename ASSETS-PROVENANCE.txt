@@ -8,7 +8,7 @@
 # kind=generated: deterministically built by copy-deps.js from the listed packages and local patches.
 #
 # sha256 path npm-sources path-in-package kind
-c2f26ea4fc0d88141c9aa430eb515ac86fce59418ceebd85fa475b87a8d6c3e6 web/dompurify.min.js dompurify@3.4.14 dist/purify.min.js copy
+f263b05369e050fa175d4ecb9c9358eb4253602d510297adfb31df48b2f1c4d5 web/dompurify.min.js dompurify@3.4.15 dist/purify.min.js copy
 635972b985228e8af9f0143647c68616b7a3bb09f6946e7e4a52e43dcf5e7be5 web/markdown-it.min.js markdown-it@15.0.2 dist/browser/markdown-it.umd.min.js copy
 581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8 web/mermaid.min.js mermaid@11.17.2 dist/mermaid.min.js copy
 3ea1e33c2366ea9fe4b228dcd54444e3c9f1e68f6bfdb2c0ced9287d95b78b41 web/highlight.min.js @highlightjs/cdn-assets@11.12.0,highlightjs-heex@1.0.1,highlightjs-vue@1.0.0,highlightjs-astro-js@1.0.0 - generated

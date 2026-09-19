@@ -1,7 +1,7 @@
 export const vendoredAssets = [
   {
     path: "web/dompurify.min.js",
-    sources: ["dompurify@3.4.14"],
+    sources: ["dompurify@3.4.15"],
     packagePath: "dist/purify.min.js",
     kind: "copy",
   },
