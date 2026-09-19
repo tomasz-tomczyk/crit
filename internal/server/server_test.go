@@ -1422,6 +1422,9 @@ func TestGetConfig(t *testing.T) {
 	if resp["latest_version"] != "" {
 		t.Errorf("latest_version should be empty before update check, got %v", resp["latest_version"])
 	}
+	if resp["installation_source"] == "" {
+		t.Error("installation_source should always be present")
+	}
 }
 
 func TestCheckForUpdates(t *testing.T) {

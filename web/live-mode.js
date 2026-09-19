@@ -1547,6 +1547,9 @@
           },
         });
       }
+      if (panes.renderUpdatesPane) {
+        panes.renderUpdatesPane(overlay.querySelector('#updatesPane'), cfg);
+      }
       if (panes.renderShortcutsPane) {
         panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'), { mode: 'live' });
       }

@@ -315,18 +315,6 @@ body {
 .update-btn:hover {
   color: var(--crit-green);
 }
-.update-btn-integration {
-  color: var(--crit-yellow);
-}
-.update-btn-integration:hover {
-  color: var(--crit-yellow);
-}
-.update-btn-available {
-  color: var(--crit-brand);
-}
-.update-btn-available:hover {
-  color: var(--crit-brand);
-}
 .update-btn-label {
   font-size: 12px;
   font-weight: 500;
@@ -2858,8 +2846,10 @@ textarea.drag-active {
   height: 2px;
   background: var(--crit-brand);
   border-radius: 1px;
-  transition: left 0.2s ease, width 0.2s ease;
   pointer-events: none;
+}
+.settings-tab-underline.is-positioned {
+  transition: left 0.2s ease, width 0.2s ease;
 }
 .settings-tab {
   padding: 12px 16px;
@@ -3090,10 +3080,6 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   flex-direction: column;
   gap: 6px;
 }
-.about-update-card {
-  text-align: left;
-  margin-bottom: 20px;
-}
 .config-card {
   padding: 12px 16px;
   border-radius: 8px;
@@ -3223,13 +3209,6 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   outline: none;
   box-shadow: var(--crit-focus);
 }
-@keyframes settings-card-focus {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  25% { box-shadow: 0 0 0 3px var(--crit-brand); }
-}
-.config-card.settings-card-focus {
-  animation: settings-card-focus 1.2s ease-out;
-}
 .config-card-dismissed {
   font-size: 12px;
   color: var(--crit-editor-fg-muted);
@@ -3251,6 +3230,220 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
   margin-top: 6px;
   font-size: 12px;
   color: var(--crit-editor-fg-muted);
+}
+
+/* Updates tab — compact integration rows expand into the shared command
+   surface. The Crit release card stays open because it has one clear action. */
+.updates-list {
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.updates-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  margin-bottom: 7px;
+}
+.updates-section-head:first-child { margin-top: 0; }
+.updates-section-head .settings-section-label { margin: 0; }
+.updates-section-state {
+  margin-left: auto;
+  color: var(--crit-editor-fg-muted);
+  font-size: 12px;
+}
+.updates-crit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+}
+.updates-crit-row--open {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+.updates-version {
+  color: var(--crit-editor-fg-muted);
+  font-family: var(--crit-font-mono);
+  font-size: 13px;
+}
+.updates-release-link {
+  margin-left: auto;
+  font-size: 12px;
+}
+.updates-release-notes {
+  color: var(--crit-brand);
+  font-size: 13px;
+  text-decoration: none;
+}
+.updates-release-notes:hover {
+  color: var(--crit-editor-fg);
+  text-decoration: none;
+}
+.updates-crit-row .updates-status { margin-left: auto; }
+.updates-crit-row .updates-release-link + .updates-status { margin-left: 4px; }
+.updates-crit-detail {
+  padding: 9px 12px 9px 52px;
+  border: 1px solid var(--crit-border);
+  border-top: 0;
+  color: var(--crit-editor-fg-secondary);
+  font-size: 13px;
+}
+.updates-crit-detail + .config-card-actions {
+  margin-top: 0;
+  padding: 9px 12px 11px 52px;
+  border: 1px solid var(--crit-border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+}
+.updates-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.updates-status--ok { background: var(--crit-green-subtle); color: var(--crit-green); }
+.updates-status--stale { background: var(--crit-yellow-bg); color: var(--crit-yellow); }
+.updates-status--missing { background: var(--crit-brand-bg); color: var(--crit-brand); }
+.updates-status--muted { background: var(--crit-bg-elevated); color: var(--crit-editor-fg-muted); }
+.updates-copy-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--crit-brand);
+  cursor: pointer;
+  font-size: 12px;
+}
+.updates-copy-all:hover { background: var(--crit-brand-subtle); }
+.updates-copy-all svg { width: 13px; height: 13px; }
+.updates-empty {
+  padding: 12px;
+  color: var(--crit-editor-fg-muted);
+  font-size: 13px;
+}
+.updates-list-item + .updates-list-item {
+  border-top: 1px solid var(--crit-border);
+}
+.updates-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--crit-editor-fg);
+  cursor: pointer;
+  text-align: left;
+}
+.updates-row:hover,
+.updates-row[aria-expanded="true"] {
+  background: var(--crit-editor-bg-hover);
+}
+.updates-row:focus-visible {
+  outline: none;
+  box-shadow: inset var(--crit-focus);
+}
+.updates-row-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.updates-crit-row .updates-row-icon--status {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.updates-row-icon--ok {
+  background: var(--crit-green-subtle);
+  color: var(--crit-green);
+}
+.updates-row-icon--warning {
+  background: var(--crit-yellow-bg);
+  color: var(--crit-yellow);
+}
+.updates-agent-icon,
+.updates-agent-icon img,
+.updates-agent-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  object-fit: contain;
+}
+.updates-agent-icon-light { display: none !important; }
+html[data-theme="light"] .updates-agent-icon-dark { display: none !important; }
+html[data-theme="light"] .updates-agent-icon-light { display: block !important; }
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .updates-agent-icon-dark { display: none !important; }
+  html:not([data-theme]) .updates-agent-icon-light { display: block !important; }
+}
+.updates-agent-icon--fallback {
+  color: var(--crit-editor-fg-muted);
+}
+.updates-row-name {
+  flex: 0 0 auto;
+  color: var(--crit-editor-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.updates-row-preview {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--crit-editor-fg-muted);
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.updates-row .updates-status { margin-left: auto; }
+.updates-row-detail {
+  padding: 9px 10px 10px;
+}
+.updates-row-note {
+  margin: 2px 0 8px;
+  color: var(--crit-editor-fg-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.updates-command {
+  margin-top: 6px;
+}
+.updates-command-copy {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  place-items: center;
+  border: 1px solid var(--crit-border);
+  color: var(--crit-editor-fg-muted);
+}
+.updates-command-copy:hover {
+  color: var(--crit-editor-fg);
+  border-color: var(--crit-border-strong);
+  background: var(--crit-editor-bg-hover);
+}
+.updates-command-copy svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Shortcuts table (inside settings panel) */
@@ -3366,9 +3559,6 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .about-version {
   font-size: 13px;
   color: var(--crit-editor-fg-secondary);
-}
-.about-version-label {
-  color: var(--crit-editor-fg-muted);
 }
 .about-badge {
   display: inline-block;

@@ -367,19 +367,16 @@
   let hiddenUnresolved = 0;
   let pendingUpdates = [];
   let pendingUpdatesVersion = '';
-  let pendingSettingsCard = '';
-  let pendingSettingsTab = '';
 
-  // Returns true if at least one pending update entry of the requested kind has not been dismissed.
+  // Returns true if at least one pending update entry has not been dismissed.
   // Crit update dismiss is keyed by version; integration dismiss is keyed per-agent
   // by content hash (so re-prompts when we ship a new template).
-  function hasActivePendingUpdates(kind) {
+  function hasActivePendingUpdates() {
     if (!pendingUpdates.length) return false;
     const critDismissed = getSetting('updatesDismissed', '');
     const intDismissed = getSetting('dismissedIntegrations', {}) || {};
     for (let i = 0; i < pendingUpdates.length; i++) {
       const u = pendingUpdates[i];
-      if (kind && u.kind !== kind) continue;
       if (u.kind === 'crit-update') {
         if (critDismissed !== pendingUpdatesVersion) return true;
       } else if (u.kind === 'integration') {
@@ -394,31 +391,8 @@
   }
 
   function syncPendingUpdateButtons() {
-    [
-      ['updateBtn', 'crit-update'],
-      ['integrationUpdateBtn', 'integration'],
-      ['integrationAvailableBtn', 'missing-integration'],
-    ].forEach(function (entry) {
-      const button = document.getElementById(entry[0]);
-      if (button) button.style.display = hasActivePendingUpdates(entry[1]) ? '' : 'none';
-    });
-  }
-
-  function focusPendingSettingsCard() {
-    if (!pendingSettingsCard || !settingsPanelOpen || settingsPanelTab !== pendingSettingsTab) return;
-    const card = document.getElementById(pendingSettingsCard);
-    if (!card) return;
-    pendingSettingsCard = '';
-    pendingSettingsTab = '';
-    requestAnimationFrame(function () {
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      card.classList.remove('settings-card-focus');
-      void card.offsetWidth;
-      card.classList.add('settings-card-focus');
-      card.addEventListener('animationend', function () {
-        card.classList.remove('settings-card-focus');
-      }, { once: true });
-    });
+    const button = document.getElementById('updateBtn');
+    if (button) button.style.display = hasActivePendingUpdates() ? '' : 'none';
   }
 
   let reviewComments = []; // review-level (general) comments
@@ -978,7 +952,7 @@
         version: configRes.latest_version,
         label: 'Crit ' + configRes.latest_version + ' available',
         labelUrl: 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + configRes.latest_version,
-        hint: 'Open About for release-specific update instructions'
+        hint: 'Open Updates for release-specific update instructions'
       });
     }
     if (configRes.stale_integrations) {
@@ -8790,21 +8764,7 @@
 
   // ===== Update Button =====
   document.getElementById('updateBtn').addEventListener('click', function() {
-    pendingSettingsCard = 'aboutUpdateCard';
-    pendingSettingsTab = 'about';
-    openSettingsPanel('about');
-  });
-  document.getElementById('integrationUpdateBtn').addEventListener('click', function() {
-    pendingSettingsCard = 'integrationUpdateCard';
-    pendingSettingsTab = 'settings';
-    openSettingsPanel('settings');
-    focusPendingSettingsCard();
-  });
-  document.getElementById('integrationAvailableBtn').addEventListener('click', function() {
-    pendingSettingsCard = 'integrationAvailableCard';
-    pendingSettingsTab = 'settings';
-    openSettingsPanel('settings');
-    focusPendingSettingsCard();
+    openSettingsPanel('updates');
   });
 
   // ===== Diff Mode Toggle (Split / Unified) =====
@@ -9794,11 +9754,13 @@
           }).then(function (cfg) {
             cachedConfig = cfg;
             renderSettingsPane(cfg);
+            renderUpdatesPane(cfg);
             renderAboutPane(cfg);
             loadCodeFonts(cfg);
           }).catch(function () {
             cachedConfig = {};
             renderSettingsPane(cachedConfig);
+            renderUpdatesPane(cachedConfig);
             renderAboutPane(cachedConfig);
             loadCodeFonts(cachedConfig);
           });
@@ -9879,7 +9841,17 @@
       show: isGit ? { ignoreWhitespace: true } : undefined,
       hooks: hooks,
     });
-    focusPendingSettingsCard();
+  }
+
+  function renderUpdatesPane(cfg) {
+    const shared = window.crit && window.crit.settingsPanes;
+    if (shared && shared.renderUpdatesPane) {
+      shared.renderUpdatesPane(document.getElementById('updatesPane'), cfg, {
+        hasActivePendingUpdates: hasActivePendingUpdates,
+        syncPendingUpdateButtons: syncPendingUpdateButtons,
+        announceCopy: announceCopy,
+      });
+    }
   }
 
   function renderShortcutsPane() {
@@ -9892,12 +9864,7 @@
   function renderAboutPane(cfg) {
     const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderAboutPane) {
-      shared.renderAboutPane(document.getElementById('aboutPane'), cfg, session, {
-        hasActivePendingUpdates: hasActivePendingUpdates,
-        syncPendingUpdateButtons: syncPendingUpdateButtons,
-        announceCopy: announceCopy,
-      });
-      focusPendingSettingsCard();
+      shared.renderAboutPane(document.getElementById('aboutPane'), cfg, session);
     }
   }
 

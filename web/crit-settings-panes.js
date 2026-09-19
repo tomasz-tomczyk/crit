@@ -9,7 +9,8 @@
 //     opts.mode : 'code-review' | 'live' (default: 'code-review')
 //                  Filters entries by their `modes` array so live users
 //                  don't see code-review-only bindings (j/k, ]/[, c/e/d, …).
-//   renderAboutPane(pane, cfg, sessionInfo, hooks)
+//   renderAboutPane(pane, cfg, sessionInfo)
+//   renderUpdatesPane(pane, cfg, hooks)
 //   renderSettingsTab(pane, opts)
 //     opts.mode    : 'code-review' | 'live'
 //     opts.cfg     : /api/config response or {}
@@ -25,7 +26,7 @@
 //                      getIgnoreWhitespace(),                // required if show.ignoreWhitespace
 //                      setIgnoreWhitespace(v),               // required if show.ignoreWhitespace
 //                      onIgnoreWhitespaceChange(),           // optional, called after toggle (reloads diffs)
-//                      hasActivePendingUpdates(kind),         // optional, default false
+//                      hasActivePendingUpdates(),             // optional, default false
 //                      syncPendingUpdateButtons(),            // optional
 //                      announceCopy(),                       // optional
 //                    }
@@ -155,7 +156,7 @@
     });
   }
 
-  function renderAboutPane(pane, cfg, sessionInfo, hooks) {
+  function renderAboutPane(pane, cfg, sessionInfo) {
     if (!pane) return;
     cfg = cfg || {};
     var session = sessionInfo || {};
@@ -165,39 +166,8 @@
     html += '<div class="about-header">';
     html += '<h2>Crit</h2>';
     var ver = cfg.version || 'dev';
-    html += '<div class="about-version"><span class="about-version-label">Installed version</span> ' + escapeHTML(ver) + '</div>';
-    if (cfg.latest_version) {
-      html += '<div class="about-version"><span class="about-version-label">Latest version</span> ' + escapeHTML(cfg.latest_version) + '</div>';
-    }
-    if (!cfg.no_update_check) {
-      if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version) {
-        html += '<div class="about-badge about-badge--update">Update available: ' + escapeHTML(cfg.latest_version) + '</div>';
-      } else if (cfg.version && cfg.version !== 'dev') {
-        html += '<div class="about-badge about-badge--current">Up to date</div>';
-      }
-    }
+    html += '<div class="about-version">' + escapeHTML(ver) + '</div>';
     html += '</div>';
-
-    // Update card
-    if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
-      var releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + escapeHTML(cfg.latest_version);
-      var alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
-      html += '<div class="config-card config-card--orange about-update-card" id="aboutUpdateCard" tabindex="-1"><div class="config-card-header">';
-      html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#11014;</span>';
-      html += '<span class="config-card-title">Update available</span>';
-      html += '<span class="config-card-value">v' + escapeHTML(cfg.latest_version) + '</span>';
-      html += '</div>';
-      html += '<div class="config-card-body" id="updateCardBody">';
-      html += '<div>Update instructions depend on how Crit was installed.</div>';
-      html += '<div class="config-card-actions">';
-      html += '<a class="about-link" href="' + releaseUrl + '" target="_blank" rel="noopener">View release and download options</a>';
-      if (alreadyDismissed) {
-        html += '<span class="config-card-dismissed" id="updateDismissedNote">Dismissed — will remind you on next version</span>';
-      } else {
-        html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + escapeHTML(cfg.latest_version) + '">Don\'t remind me until next version</button>';
-      }
-      html += '</div></div></div>';
-    }
 
     // Session info
     html += '<div class="settings-section-label">Current Session</div>';
@@ -231,7 +201,6 @@
     html += '</div>';
 
     pane.innerHTML = html;
-    wireConfigCardActions(pane, hooks);
   }
 
   // ============================================================
@@ -248,7 +217,6 @@
         ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
         account: true,
         agent: true,
-        integration: true,
         share: true,
       };
     }
@@ -259,7 +227,6 @@
       ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
       account: true,
       agent: true,
-      integration: true,
       share: true,
     };
   }
@@ -320,6 +287,20 @@
   function wireConfigCardActions(pane, hooks) {
     hooks = hooks || {};
 
+    function markIntegrationMuted(button) {
+      var item = button.closest && button.closest('.updates-list-item');
+      if (!item) return;
+      item.dataset.updateStatus = 'muted';
+      var status = item.querySelector('.updates-status');
+      if (status) {
+        status.className = 'updates-status updates-status--muted';
+        status.textContent = 'Muted';
+      }
+      var list = item.parentNode;
+      var firstMissing = list && list.querySelector('[data-update-status="missing"]');
+      if (firstMissing) list.insertBefore(item, firstMissing);
+    }
+
     var dismissBtn = pane.querySelector('#updateDismissBtn');
     if (dismissBtn) {
       dismissBtn.addEventListener('click', function () {
@@ -336,10 +317,9 @@
       });
     }
 
-    var integrationDismissBtn = pane.querySelector('#integrationDismissBtn');
-    if (integrationDismissBtn) {
+    pane.querySelectorAll('[data-dismiss-integration]').forEach(function (integrationDismissBtn) {
       integrationDismissBtn.addEventListener('click', function () {
-        var agent = integrationDismissBtn.dataset.agent || '';
+        var agent = integrationDismissBtn.dataset.dismissIntegration || '';
         var hash = integrationDismissBtn.dataset.hash || '';
         if (!agent || !hash) return;
         var map = getSetting('dismissedIntegrations', {}) || {};
@@ -349,9 +329,10 @@
         var updateBtn = document.getElementById('updateBtn');
         var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
         if (updateBtn && !pending) updateBtn.style.display = 'none';
+        markIntegrationMuted(integrationDismissBtn);
         integrationDismissBtn.outerHTML = '<span class="config-card-dismissed" id="integrationDismissedNote">Dismissed — will remind you when this integration changes</span>';
       });
-    }
+    });
 
     pane.querySelectorAll('[data-dismiss-missing]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -364,8 +345,8 @@
         var updateBtn = document.getElementById('updateBtn');
         var pending = hooks.hasActivePendingUpdates ? !!hooks.hasActivePendingUpdates() : false;
         if (updateBtn && !pending) updateBtn.style.display = 'none';
-        var card = btn.closest('.config-card');
-        if (card) card.remove();
+        markIntegrationMuted(btn);
+        btn.outerHTML = '<span class="config-card-dismissed">Dismissed — will remind you when this integration changes</span>';
       });
     });
 
@@ -373,18 +354,163 @@
       btn.addEventListener('click', function () {
         var text = btn.dataset.copy;
         navigator.clipboard.writeText(text).then(function () {
-          btn.textContent = '✓ Copied';
+          var iconOnly = btn.classList.contains('updates-command-copy');
+          btn.innerHTML = iconOnly ? commandCopyCheckIcon() : '✓ Copied';
           btn.setAttribute('aria-label', 'Copied');
           if (hooks.announceCopy) hooks.announceCopy();
           btn.classList.add('copied');
           setTimeout(function () {
-            btn.textContent = 'Copy';
-            btn.setAttribute('aria-label', 'Copy');
+            btn.innerHTML = iconOnly ? commandCopyIcon() : 'Copy';
+            btn.setAttribute('aria-label', iconOnly ? 'Copy command' : 'Copy');
             btn.classList.remove('copied');
           }, 1500);
         });
       });
     });
+  }
+
+  // ============================================================
+  // Updates tab. This is the single home for Crit releases and AI integration
+  // maintenance, keeping the main Settings and About tabs focused.
+  // ============================================================
+  function commandCopyIcon() {
+    return (window.crit && window.crit.icons && window.crit.icons.ICON_CLIPBOARD) ||
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  }
+
+  function commandCopyCheckIcon() {
+    return (window.crit && window.crit.icons && window.crit.icons.ICON_CHECK_SMALL) ||
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>';
+  }
+
+  function integrationIconHTML(agent) {
+    var asset = agent === 'codex-plugin' ? 'codex' : agent;
+    var known = ['claude-code', 'cursor', 'codex', 'opencode', 'github-copilot', 'gemini', 'qwen', 'pi', 'grok', 'ampcode'];
+    if (known.indexOf(asset) === -1) {
+      return '<span class="updates-agent-icon updates-agent-icon--fallback" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h10v10H3z"/><path d="M6 6h4v4H6z"/></svg></span>';
+    }
+    var base = 'images/integrations/' + asset;
+    return '<span class="updates-agent-icon" aria-hidden="true"><img class="updates-agent-icon-dark" src="' + base + '-dark.svg" alt=""><img class="updates-agent-icon-light" src="' + base + '-light.svg" alt=""></span>';
+  }
+
+  function updateCommandHTML(command, label) {
+    return '<div class="config-card-cmd updates-command">' +
+      (label ? '<span class="config-card-cmd-label">' + escapeHTML(label) + '</span>' : '') +
+      '<span>$ ' + escapeHTML(command) + '</span><button type="button" class="config-card-copy updates-command-copy" data-copy="' + escapeHTML(command) + '" aria-label="Copy command">' + commandCopyIcon() + '</button></div>';
+  }
+
+  function critUpdateInstructions(source) {
+    if (source === 'homebrew') {
+      return '<div class="updates-row-note">Update Crit with Homebrew.</div>' + updateCommandHTML('brew upgrade crit', '');
+    }
+    if (source === 'go') {
+      return '<div class="updates-row-note">Update Crit with Go.</div>' + updateCommandHTML('go install github.com/tomasz-tomczyk/crit/cmd/crit@latest', '');
+    }
+    if (source === 'nix') {
+      return '<div class="updates-row-note">Update the Nix profile or flake that provides Crit.</div>';
+    }
+    return '<div class="updates-row-note">Download the latest binary for your platform from the release notes.</div>';
+  }
+
+  function renderUpdatesPane(pane, cfg, hooks) {
+    if (!pane) return;
+    cfg = cfg || {};
+    hooks = hooks || {};
+    var esc = hooks.escape || escapeHTML;
+    var html = '';
+
+    html += '<div class="updates-pane">';
+    if (cfg.latest_version && cfg.version && cfg.latest_version !== cfg.version && !cfg.no_update_check) {
+      var releaseUrl = 'https://github.com/tomasz-tomczyk/crit/releases/tag/v' + esc(cfg.latest_version);
+      var alreadyDismissed = getSetting('updatesDismissed', '') === cfg.latest_version;
+      html += '<div class="updates-section-head"><span class="settings-section-label">Crit</span><span class="updates-section-state">Update available</span></div>';
+      html += '<div class="updates-crit-row updates-crit-row--open"><span class="updates-row-icon updates-row-icon--status updates-row-icon--warning" aria-hidden="true">&#11014;</span><span class="updates-row-name">Crit</span><span class="updates-version">v' + esc(cfg.version) + '</span><span class="updates-status updates-status--stale">v' + esc(cfg.latest_version) + '</span></div>';
+      html += '<div class="updates-crit-detail" id="updateCardBody">' + critUpdateInstructions(cfg.installation_source) + '</div>';
+      html += '<div class="config-card-actions"><a class="updates-release-notes" href="' + releaseUrl + '" target="_blank" rel="noopener">Release notes and downloads</a>';
+      if (alreadyDismissed) {
+        html += '<span class="config-card-dismissed">Dismissed — will remind you on next version</span>';
+      } else {
+        html += '<button type="button" class="config-card-dismiss" id="updateDismissBtn" data-dismiss-version="' + esc(cfg.latest_version) + '">Don\'t remind me until next version</button>';
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="updates-section-head"><span class="settings-section-label">Crit</span><span class="updates-section-state">Current</span></div>';
+      html += '<div class="updates-crit-row"><span class="updates-row-icon updates-row-icon--status updates-row-icon--ok" aria-hidden="true">&#10003;</span><span class="updates-row-name">Crit</span><span class="updates-version">v' + esc(cfg.version || 'dev') + '</span><a class="updates-release-notes updates-release-link" href="https://github.com/tomasz-tomczyk/crit/releases" target="_blank" rel="noopener">Release notes</a><span class="updates-status updates-status--ok">Up to date</span></div>';
+    }
+
+    if (!cfg.no_integration_check) {
+      var dismissedMap = getSetting('dismissedIntegrations', {}) || {};
+      var stale = (cfg.stale_integrations || []).map(function (si) { return { item: si, muted: !!si.hash && dismissedMap[si.agent] === si.hash }; });
+      var missing = (cfg.missing_integrations || []).map(function (agent) { return { agent: agent, muted: !!dismissedMap['missing:' + agent] }; });
+      var currentStale = stale.filter(function (entry) { return !entry.muted; });
+      var mutedStale = stale.filter(function (entry) { return entry.muted; });
+      var mutedMissing = missing.filter(function (entry) { return entry.muted; });
+      var uninstalled = missing.filter(function (entry) { return !entry.muted; });
+      var copyAll = [];
+      currentStale.concat(mutedStale).forEach(function (entry) {
+        if (entry.muted) return;
+        (entry.item.hint || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean).forEach(function (line) {
+          var parts = line.split('|');
+          copyAll.push((parts.length === 2 ? parts[1] : line).replace(/^Run:\s*/i, ''));
+        });
+      });
+      missing.forEach(function (entry) { if (!entry.muted) copyAll.push('crit install ' + entry.agent); });
+      html += '<div class="updates-section-head"><span class="settings-section-label">AI integrations</span>' + (copyAll.length ? '<button type="button" class="updates-copy-all" data-copy-all>Copy all commands</button>' : '') + '</div><div class="updates-list">';
+      stale.forEach(function (entry) {
+        var si = entry.item;
+        var name = formatAgentName(si.agent);
+        var commands = [];
+        (si.hint || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean).forEach(function (line) {
+          var parts = line.split('|');
+          var label = parts.length === 2 ? parts[0] : '';
+          var command = (parts.length === 2 ? parts[1] : line).replace(/^Run:\s*/i, '');
+          commands.push({ label: label, command: command });
+        });
+        var status = entry.muted ? 'Muted' : 'Stale';
+        html += '<div class="updates-list-item" data-update-status="' + (entry.muted ? 'muted' : 'stale') + '"><button type="button" class="updates-row" data-updates-row aria-expanded="false"><span class="updates-row-icon">' + integrationIconHTML(si.agent) + '</span><span class="updates-row-name">' + esc(name) + '</span><span class="updates-row-preview">' + esc(commands[0] ? commands[0].command : 'Update integration') + '</span><span class="updates-status updates-status--' + (entry.muted ? 'muted' : 'stale') + '">' + status + '</span></button>';
+        html += '<div class="updates-row-detail" hidden>';
+        commands.forEach(function (item) { html += updateCommandHTML(item.command, item.label); });
+        if (si.hash) html += '<div class="config-card-actions config-card-actions--end"><button type="button" class="config-card-dismiss" data-dismiss-integration="' + esc(si.agent) + '" data-hash="' + esc(si.hash) + '">Don\'t remind me until next version</button></div>';
+        html += '</div></div>';
+      });
+      mutedMissing.concat(uninstalled).forEach(function (entry) {
+        var agent = entry.agent;
+        var name = formatAgentName(agent);
+        var installCommand = 'crit install ' + agent;
+        var missingStatus = entry.muted ? 'Muted' : 'Not installed';
+        html += '<div class="updates-list-item" data-update-status="' + (entry.muted ? 'muted' : 'missing') + '"><button type="button" class="updates-row" data-updates-row aria-expanded="false"><span class="updates-row-icon">' + integrationIconHTML(agent) + '</span><span class="updates-row-name">' + esc(name) + '</span><span class="updates-row-preview">' + esc(installCommand) + '</span><span class="updates-status updates-status--' + (entry.muted ? 'muted' : 'missing') + '">' + missingStatus + '</span></button>';
+        html += '<div class="updates-row-detail" hidden><div class="updates-row-note">' + esc(name) + ' is installed on your system but does not have the Crit integration yet.</div>' + updateCommandHTML(installCommand, '') + '<div class="config-card-actions config-card-actions--end"><button type="button" class="config-card-dismiss" data-dismiss-missing="' + esc(agent) + '">Don\'t show again</button></div></div></div>';
+      });
+      if (!stale.length && !missing.length) html += '<div class="updates-empty">All integrations are up to date.</div>';
+      html += '</div>';
+    }
+
+    pane.innerHTML = html + '</div>';
+    wireConfigCardActions(pane, hooks);
+    pane.querySelectorAll('[data-updates-row]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var detail = row.nextElementSibling;
+        var open = row.getAttribute('aria-expanded') === 'true';
+        pane.querySelectorAll('[data-updates-row][aria-expanded="true"]').forEach(function (otherRow) {
+          if (otherRow === row) return;
+          otherRow.setAttribute('aria-expanded', 'false');
+          var otherDetail = otherRow.nextElementSibling;
+          if (otherDetail) otherDetail.hidden = true;
+        });
+        row.setAttribute('aria-expanded', String(!open));
+        if (detail) detail.hidden = open;
+      });
+    });
+    var copyAllBtn = pane.querySelector('[data-copy-all]');
+    if (copyAllBtn) {
+      copyAllBtn.addEventListener('click', function () {
+        navigator.clipboard.writeText(copyAll.join('\n')).then(function () {
+          copyAllBtn.innerHTML = commandCopyCheckIcon() + '<span>Copied</span>';
+          if (hooks.announceCopy) hooks.announceCopy();
+          setTimeout(function () { copyAllBtn.innerHTML = commandCopyIcon() + '<span>Copy all commands</span>'; }, 1500);
+        });
+      });
+    }
   }
 
   function renderSettingsTab(pane, opts) {
@@ -487,7 +613,7 @@
     html += '</div>'; // close settings-display-group
 
     // ---------- Configuration ----------
-    var anyConfigCard = show.account || show.agent || show.integration || show.share;
+    var anyConfigCard = show.account || show.agent || show.share;
     if (anyConfigCard) {
       html += '<div class="settings-section-label">Configuration</div>';
       html += '<div class="config-cards">';
@@ -542,86 +668,6 @@
           html += '<div class="config-card-body">Edit <code>~/.crit.config.json</code> and set <code>agent_cmd</code> to send comments directly to your AI agent. <a href="https://github.com/tomasz-tomczyk/crit#send-to-agent-experimental" target="_blank" rel="noopener" style="color:var(--crit-brand)">Learn more</a></div>';
           html += '<div class="config-card-snippet">{"agent_cmd": "claude -p"}\n// Also: "opencode run", "aider --message"</div>';
           html += '</div>';
-        }
-      }
-
-      // Integration card
-      if (show.integration && !cfg.no_integration_check) {
-        var integrations = cfg.integrations || [];
-        var anyInstalled = cfg.any_integration_installed;
-        if (anyInstalled) {
-          var current = integrations.filter(function (i) { return i.status === 'current'; });
-          var stale = integrations.filter(function (i) { return i.status === 'stale'; });
-          var dismissedMap = getSetting('dismissedIntegrations', {}) || {};
-          var undismissedStale = stale.filter(function (si) { return !si.hash || dismissedMap[si.agent] !== si.hash; });
-          if (undismissedStale.length > 0) {
-            var si = undismissedStale[0];
-            var name = formatAgentName(si.agent);
-            html += '<div class="config-card config-card--yellow" id="integrationUpdateCard" tabindex="-1"><div class="config-card-header">';
-            html += '<span class="config-card-icon" style="color:var(--crit-yellow)">&#9888;</span>';
-            html += '<span class="config-card-title">AI Integration</span>';
-            html += '<span class="config-card-value">' + esc(name) + ' (update available)</span>';
-            html += '</div>';
-            var hintLines = (si.hint || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-            hintLines.forEach(function (line) {
-              var parts = line.split('|');
-              var lbl = '';
-              var cmd = line.replace(/^Run:\s*/i, '');
-              if (parts.length === 2) { lbl = parts[0]; cmd = parts[1]; }
-              html += '<div class="config-card-cmd">';
-              if (lbl) html += '<span class="config-card-cmd-label">' + esc(lbl) + '</span>';
-              html += '<span>$ ' + esc(cmd) + '</span><button class="config-card-copy" data-copy="' + esc(cmd) + '">Copy</button></div>';
-            });
-            if (si.hash) {
-              html += '<div class="config-card-body" id="integrationCardBody">';
-              html += '<div class="config-card-actions config-card-actions--end">';
-              html += '<button type="button" class="config-card-dismiss" id="integrationDismissBtn" data-agent="' + esc(si.agent) + '" data-hash="' + esc(si.hash) + '">Don\'t remind me until next version</button>';
-              html += '</div></div>';
-            }
-            html += '</div>';
-          } else if (current.length > 0 || stale.length > 0) {
-            var best = current[0] || stale[0];
-            var nm = formatAgentName(best.agent);
-            html += '<div class="config-card config-card--green"><div class="config-card-header">';
-            html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
-            html += '<span class="config-card-title">AI Integration</span>';
-            html += '<span class="config-card-value">' + esc(nm) + ' (up to date)</span>';
-            html += '</div></div>';
-          }
-        } else if (!(cfg.missing_integrations && cfg.missing_integrations.length > 0)) {
-          var available = (cfg.integrations_available || []).join(' · ');
-          html += '<div class="config-card config-card--blue config-card--unconfigured"><div class="config-card-header">';
-          html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
-          html += '<span class="config-card-title">AI Integration</span>';
-          html += '<span class="config-card-badge">Recommended</span>';
-          html += '</div>';
-          html += '<div class="config-card-body">Install a plugin so your AI agent can launch crit, read comments, and iterate.</div>';
-          html += '<div class="config-card-cmd"><span>$ crit install claude-code</span><button class="config-card-copy" data-copy="crit install claude-code">Copy</button></div>';
-          if (available) html += '<div class="config-card-agents">Also: ' + esc(available) + '</div>';
-          html += '</div>';
-        }
-      }
-
-      // Missing integrations card (detected agents without crit integration)
-      if (show.integration && !cfg.no_integration_check) {
-        var missingAgents = cfg.missing_integrations || [];
-        var dismissedMap = getSetting('dismissedIntegrations', {}) || {};
-        var undismissed = missingAgents.filter(function (a) { return !dismissedMap['missing:' + a]; });
-        if (undismissed.length > 0) {
-          undismissed.forEach(function (agent) {
-            var name = formatAgentName(agent);
-            html += '<div class="config-card config-card--blue"' + (undismissed.indexOf(agent) === 0 ? ' id="integrationAvailableCard" tabindex="-1"' : '') + '><div class="config-card-header">';
-            html += '<span class="config-card-icon" style="color:var(--crit-brand)">&#128161;</span>';
-            html += '<span class="config-card-title">Integration Available</span>';
-            html += '<span class="config-card-value">' + esc(name) + ' detected</span>';
-            html += '</div>';
-            html += '<div class="config-card-body">' + esc(name) + ' is installed on your system but doesn\'t have the crit integration yet.</div>';
-            html += '<div class="config-card-cmd"><span>$ crit install ' + esc(agent) + '</span><button class="config-card-copy" data-copy="crit install ' + esc(agent) + '">Copy</button></div>';
-            html += '<div class="config-card-body"><div class="config-card-actions config-card-actions--end">';
-            html += '<button type="button" class="config-card-dismiss" data-dismiss-missing="' + esc(agent) + '">Don\'t show again</button>';
-            html += '</div></div>';
-            html += '</div>';
-          });
         }
       }
 
@@ -751,6 +797,7 @@
   window.crit.settingsPanes = {
     renderShortcutsPane: renderShortcutsPane,
     renderAboutPane: renderAboutPane,
+    renderUpdatesPane: renderUpdatesPane,
     renderSettingsTab: renderSettingsTab,
     fontFamilyStack: fontFamilyStack,
   };

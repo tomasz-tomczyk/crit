@@ -141,9 +141,11 @@ function makeOverlay() {
   //    .settings-tabs[role=tablist]
   //      button.settings-tab[role=tab][data-tab=settings]
   //      button.settings-tab[role=tab][data-tab=shortcuts]
+  //      button.settings-tab[role=tab][data-tab=updates]
   //      button.settings-tab[role=tab][data-tab=about]
   //      button.settings-tab-close#settingsClose
   //    button.settings-pane[data-pane=settings] (.active)
+  //    button.settings-pane[data-pane=updates]
   //    button.settings-pane[data-pane=shortcuts]
   //    button.settings-pane[data-pane=about]
   var overlay = makeNode('div', { id: 'settingsOverlay', classes: ['settings-overlay'] });
@@ -164,8 +166,9 @@ function makeOverlay() {
   }
   var t1 = tab('settings', true, 0);
   var t2 = tab('shortcuts', false, 50);
-  var t3 = tab('about', false, 100);
-  tabsBar._rect = { left: 0, top: 0, width: 200 };
+  var updatesTab = tab('updates', false, 100);
+  var t3 = tab('about', false, 150);
+  tabsBar._rect = { left: 0, top: 0, width: 250 };
 
   var closeBtn = makeNode('button', { id: 'settingsClose', classes: ['settings-tab-close'] });
   tabsBar.appendChild(closeBtn);
@@ -177,6 +180,7 @@ function makeOverlay() {
     return p;
   }
   var p1 = pane('settings', true);
+  pane('updates', false);
   pane('shortcuts', false);
   pane('about', false);
 
@@ -185,7 +189,7 @@ function makeOverlay() {
   p1.appendChild(focusable1);
   overlay.appendChild(content);
 
-  return { overlay: overlay, t1: t1, t2: t2, t3: t3, tabsBar: tabsBar, closeBtn: closeBtn, content: content };
+  return { overlay: overlay, t1: t1, updatesTab: updatesTab, t2: t2, t3: t3, tabsBar: tabsBar, closeBtn: closeBtn, content: content };
 }
 
 function loadOverlay() {
@@ -330,8 +334,8 @@ test('switchTab updates classList + aria-selected + sliding underline position',
   var underline = dom.tabsBar._children.filter(function (c) {
     return c._classes && c._classes.indexOf('settings-tab-underline') !== -1;
   })[0];
-  // about tab: x=100, w=50
-  assert.equal(underline.style.left, '100px');
+  // about tab: x=150, w=50
+  assert.equal(underline.style.left, '150px');
   assert.equal(underline.style.width, '50px');
 });
 

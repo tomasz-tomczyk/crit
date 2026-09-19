@@ -67,14 +67,27 @@
     function positionUnderline(activeBtn) {
       var u = ensureUnderline();
       if (!u || !activeBtn || !activeBtn.parentElement) return;
-      // Some test stubs do not implement getBoundingClientRect — guard so the
-      // installer remains usable in jsdom-less unit tests.
-      if (typeof activeBtn.getBoundingClientRect !== 'function') return;
-      if (typeof activeBtn.parentElement.getBoundingClientRect !== 'function') return;
-      var tabsRect = activeBtn.parentElement.getBoundingClientRect();
-      var btnRect = activeBtn.getBoundingClientRect();
-      u.style.left = (btnRect.left - tabsRect.left) + 'px';
-      u.style.width = btnRect.width + 'px';
+      // offsetLeft/offsetWidth use the tab bar's layout coordinate space.
+      // getBoundingClientRect is affected by the dialog's opening scale
+      // animation, which made the underline visibly drift on first open.
+      if (typeof activeBtn.offsetLeft === 'number' && typeof activeBtn.offsetWidth === 'number') {
+        u.style.left = activeBtn.offsetLeft + 'px';
+        u.style.width = activeBtn.offsetWidth + 'px';
+      } else {
+        // Test stubs do not implement layout offsets; retain a rect fallback.
+        if (typeof activeBtn.getBoundingClientRect !== 'function') return;
+        if (typeof activeBtn.parentElement.getBoundingClientRect !== 'function') return;
+        var tabsRect = activeBtn.parentElement.getBoundingClientRect();
+        var btnRect = activeBtn.getBoundingClientRect();
+        u.style.left = (btnRect.left - tabsRect.left) + 'px';
+        u.style.width = btnRect.width + 'px';
+      }
+      if (u.classList && !u.classList.contains('is-positioned')) {
+        // Commit the initial position before enabling transition for later
+        // tab changes.
+        void u.offsetWidth;
+        u.classList.add('is-positioned');
+      }
     }
 
     // --- tab switching -----------------------------------------------------

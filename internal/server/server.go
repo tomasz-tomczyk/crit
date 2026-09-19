@@ -69,6 +69,7 @@ type Server struct {
 	agentCmd            string
 	currentVersion      string
 	latestVersion       string
+	installationSource  string
 	versionMu           sync.RWMutex
 	staleIntegrations   []StaleIntegration
 	missingIntegrations []string
@@ -122,7 +123,7 @@ type Server struct {
 
 // NewServer creates a Server with the given session and configuration.
 func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth bool, authToken string, author string, currentVersion string, port int, agentCmd string) (*Server, error) {
-	s := &Server{assets: frontendFS, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, port: port, prList: &PRListCache{}, codeFontDiscovery: discoverCodeFontFamilies}
+	s := &Server{assets: frontendFS, shareURL: shareURL, proxyAuth: proxyAuth, authToken: authToken, author: author, agentCmd: agentCmd, currentVersion: currentVersion, installationSource: detectInstallationSource(), port: port, prList: &PRListCache{}, codeFontDiscovery: discoverCodeFontFamilies}
 	if session != nil {
 		s.session.Store(session)
 	}
@@ -159,6 +160,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/live-mode-round-resolve.js", s.serveEmbeddedJS("live-mode-round-resolve.js"))
 	mux.HandleFunc("/live-mode-round-tooltip.js", s.serveEmbeddedJS("live-mode-round-tooltip.js"))
 	mux.HandleFunc("/live-mode.menu-controller.js", s.serveEmbeddedJS("live-mode.menu-controller.js"))
+	mux.HandleFunc("/crit-settings-panes.js", s.serveEmbeddedJS("crit-settings-panes.js"))
 
 	// Session-dependent endpoints (guarded by withReady middleware)
 	mux.HandleFunc("/api/review-cycle", s.withReady(s.handleReviewCycle))
@@ -480,20 +482,21 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 		selectedURL = selected.URL
 	}
 	resp := map[string]interface{}{
-		"share_targets":     targetMetadata(targets),
-		"share_base_url":    sess.GetShareBaseURL(),
-		"hosted_url":        sess.GetSharedURL(),
-		"hosted_token":      sess.GetToken(),
-		"delete_token":      sess.GetDeleteToken(),
-		"share_org":         shareOrg,
-		"share_org_name":    shareOrgName,
-		"share_visibility":  shareVis,
-		"version":           s.currentVersion,
-		"latest_version":    latestVersion,
-		"author":            s.author,
-		"agent_cmd_enabled": s.agentCmd != "",
-		"agent_name":        agentName(s.agentCmd),
-		"agent_cmd":         s.agentCmd,
+		"share_targets":       targetMetadata(targets),
+		"share_base_url":      sess.GetShareBaseURL(),
+		"hosted_url":          sess.GetSharedURL(),
+		"hosted_token":        sess.GetToken(),
+		"delete_token":        sess.GetDeleteToken(),
+		"share_org":           shareOrg,
+		"share_org_name":      shareOrgName,
+		"share_visibility":    shareVis,
+		"version":             s.currentVersion,
+		"latest_version":      latestVersion,
+		"installation_source": s.installationSource,
+		"author":              s.author,
+		"agent_cmd_enabled":   s.agentCmd != "",
+		"agent_name":          agentName(s.agentCmd),
+		"agent_cmd":           s.agentCmd,
 
 		// Auth status
 		"auth_logged_in":  selectedErr == nil && selected.Auth.Token != "",
