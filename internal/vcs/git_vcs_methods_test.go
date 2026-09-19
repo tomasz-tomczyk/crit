@@ -12,50 +12,70 @@ import (
 // toward this package (cross-package calls from session tests do not).
 func TestGitVCS_Methods(t *testing.T) {
 	dir := InitTestRepo(t)
+	t.Chdir(dir)
+	ClearGitEnvForTest(t)
 	g := &GitVCS{}
 
-	if root, err := g.RepoRoot(); err != nil || root == "" {
-		t.Errorf("RepoRoot() = %q, %v", root, err)
+	root, err := g.RepoRoot()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if g.CurrentBranch() == "" {
-		t.Error("CurrentBranch() empty")
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if g.DefaultBranch() == "" {
-		t.Error("DefaultBranch() empty")
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(rootInfo, dirInfo) {
+		t.Errorf("RepoRoot() = %q, want %q", root, dir)
+	}
+	if got := g.CurrentBranch(); got != "main" {
+		t.Errorf("CurrentBranch() = %q, want main", got)
 	}
 	g.SetDefaultBranchOverride("main")
+	t.Cleanup(func() { g.SetDefaultBranchOverride("") })
+	if got := g.DefaultBranch(); got != "main" {
+		t.Errorf("DefaultBranch() = %q, want main", got)
+	}
 	if g.GetDefaultBranchOverride() != "main" {
 		t.Errorf("override = %q", g.GetDefaultBranchOverride())
 	}
-	g.SetDefaultBranchOverride("")
 
 	base := GitRun(t, dir, "rev-parse", "HEAD")
 	head := CommitAtForTest(t, dir, "a.txt", "hi", "add a")
 
-	if mb, err := g.MergeBase("HEAD"); err != nil || mb == "" {
-		t.Errorf("MergeBase: %q, %v", mb, err)
+	if mb, err := g.MergeBase("HEAD"); err != nil || mb != head {
+		t.Errorf("MergeBase(HEAD) = %q, %v; want %q, nil", mb, err, head)
 	}
-	if g.DefaultBaseRef() == "" {
-		t.Error("DefaultBaseRef() empty")
+	if got := g.DefaultBaseRef(); got != "main" {
+		t.Errorf("DefaultBaseRef() = %q, want main", got)
 	}
 
 	changed, err := g.ChangedFilesOnDefaultInDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = changed
+	if len(changed) != 0 {
+		t.Errorf("ChangedFilesOnDefaultInDir(clean) = %+v, want no changes", changed)
+	}
 
 	changed, err = g.ChangedFilesFromBaseInDir("HEAD", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = changed
+	if len(changed) != 0 {
+		t.Errorf("ChangedFilesFromBaseInDir(HEAD) = %+v, want no changes", changed)
+	}
 
 	changed, err = g.ChangedFilesScoped("layer", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = changed
+	if len(changed) != 0 {
+		t.Errorf("ChangedFilesScoped(fallback, clean) = %+v, want no changes", changed)
+	}
 
 	changed, err = g.ChangedFilesForCommit(head, dir)
 	if err != nil {
@@ -70,59 +90,73 @@ func TestGitVCS_Methods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = hunks
+	if len(hunks) != 1 || len(hunks[0].Lines) != 1 || hunks[0].Lines[0].Type != "add" || hunks[0].Lines[0].Content != "hi" {
+		t.Fatalf("FileDiffUnified = %+v, want one added line %q", hunks, "hi")
+	}
 
-	hunks, err = g.FileDiffScoped("a.txt", "layer", base, dir, false)
+	scopedHunks, err := g.FileDiffScoped("a.txt", "layer", base, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = hunks
+	if !reflect.DeepEqual(scopedHunks, hunks) {
+		t.Errorf("FileDiffScoped(fallback) = %+v, want %+v", scopedHunks, hunks)
+	}
 
-	hunks, err = g.FileDiffForCommit("a.txt", head, dir, false)
+	commitHunks, err := g.FileDiffForCommit("a.txt", head, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = hunks
+	if !reflect.DeepEqual(commitHunks, hunks) {
+		t.Errorf("FileDiffForCommit = %+v, want %+v", commitHunks, hunks)
+	}
 
-	hunks, err = g.FileDiffUnifiedNewFile(path)
+	newFileHunks, err := g.FileDiffUnifiedNewFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = hunks
+	if len(newFileHunks) != 1 || len(newFileHunks[0].Lines) != 1 || newFileHunks[0].Lines[0].Content != "hi" {
+		t.Errorf("FileDiffUnifiedNewFile = %+v, want one added line %q", newFileHunks, "hi")
+	}
 
 	log, err := g.CommitLog(base, head, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(log) == 0 {
-		t.Error("CommitLog empty")
+	if len(log) != 1 || log[0].SHA != head || log[0].Message != "add a" {
+		t.Errorf("CommitLog = %+v, want one add-a commit at %s", log, head)
 	}
 
 	untracked, err := g.UntrackedFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = untracked
+	if len(untracked) != 0 {
+		t.Errorf("UntrackedFiles(clean) = %+v, want none", untracked)
+	}
 
 	tracked, err := g.AllTrackedFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tracked) == 0 {
-		t.Error("AllTrackedFiles empty")
+	if want := []string{"README.md", "a.txt"}; !reflect.DeepEqual(tracked, want) {
+		t.Errorf("AllTrackedFiles = %v, want %v", tracked, want)
 	}
 
 	remotes, err := g.RemoteBranches(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = remotes
+	if len(remotes) != 0 {
+		t.Errorf("RemoteBranches(no remotes) = %v, want none", remotes)
+	}
 
 	ns, err := g.DiffNumstat(base, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = ns
+	if want := map[string]NumstatEntry{"a.txt": {Additions: 1}}; !reflect.DeepEqual(ns, want) {
+		t.Errorf("DiffNumstat = %#v, want %#v", ns, want)
+	}
 
 	betweenNS, err := g.DiffNumstatBetweenSHAs(base, head, dir)
 	if err != nil {
@@ -136,8 +170,8 @@ func TestGitVCS_Methods(t *testing.T) {
 	}
 
 	content, err := g.FileContentAtRef("README.md", "HEAD", dir)
-	if err != nil || content == "" {
-		t.Errorf("FileContentAtRef: %q, %v", content, err)
+	if err != nil || content != "# Test" {
+		t.Errorf("FileContentAtRef = %q, %v; want %q, nil", content, err, "# Test")
 	}
 
 	between, err := g.ChangedFilesBetweenSHAs(base, head, dir)
@@ -153,11 +187,13 @@ func TestGitVCS_Methods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = diffHunks
+	if !reflect.DeepEqual(diffHunks, hunks) {
+		t.Errorf("FileDiffBetweenSHAs = %+v, want %+v", diffHunks, hunks)
+	}
 
 	data, err := g.ReadFileAtSHA(head, "a.txt", dir)
-	if err != nil || len(data) == 0 {
-		t.Errorf("ReadFileAtSHA: %v", err)
+	if err != nil || string(data) != "hi" {
+		t.Errorf("ReadFileAtSHA = %q, %v; want %q, nil", data, err, "hi")
 	}
 
 	if !g.HasObject(head, dir) {
@@ -165,19 +201,21 @@ func TestGitVCS_Methods(t *testing.T) {
 	}
 
 	status := g.FileStatusInRepo("a.txt", base, dir)
-	if status == "" {
-		t.Error("FileStatusInRepo empty")
+	if status != "added" {
+		t.Errorf("FileStatusInRepo = %q, want added", status)
 	}
 
-	if g.UserName() == "" {
-		t.Log("git user.name unset in test env (non-fatal)")
+	if got := g.UserName(); got != "Test" {
+		t.Errorf("UserName() = %q, want Test", got)
 	}
 
 	ctxHunks, err := g.FileDiffUnifiedCtx(t.Context(), "a.txt", base, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = ctxHunks
+	if !reflect.DeepEqual(ctxHunks, hunks) {
+		t.Errorf("FileDiffUnifiedCtx = %+v, want %+v", ctxHunks, hunks)
+	}
 
 	tipSHA := GitRun(t, dir, "rev-parse", "HEAD")
 	GitRun(t, dir, "update-ref", "refs/remotes/origin/feat-x", tipSHA)
@@ -185,7 +223,10 @@ func TestGitVCS_Methods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = branchTips
+	wantTips := []BranchEntry{{Name: "origin/feat-x", HeadSHA: tipSHA}}
+	if !reflect.DeepEqual(branchTips, wantTips) {
+		t.Errorf("RemoteBranchTips = %+v, want %+v", branchTips, wantTips)
+	}
 }
 
 func TestResolveDefaultBranchSHA_Git(t *testing.T) {

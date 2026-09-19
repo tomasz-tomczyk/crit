@@ -1,9 +1,10 @@
 package preview
 
 import (
+	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,9 +18,13 @@ func TestRunPreview_NoFileExits(t *testing.T) {
 	if os.Getenv("GO_TEST_HELPER") != "1" {
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_RunPreviewNoFile", "--")
 		cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
-		err := cmd.Run()
-		if err == nil {
-			t.Fatal("expected non-zero exit when no file given")
+		output, err := cmd.CombinedOutput()
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			t.Fatalf("exit error = %v, want exit code 1; output=%q", err, output)
+		}
+		if got := string(output); !strings.Contains(got, "Usage: crit preview <file.html>") {
+			t.Fatalf("stderr = %q, want usage message", got)
 		}
 		return
 	}
@@ -37,9 +42,13 @@ func TestRunPreview_MissingFileExits(t *testing.T) {
 	if os.Getenv("GO_TEST_HELPER") != "1" {
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_RunPreviewMissingFile", "--")
 		cmd.Env = append(os.Environ(), "GO_TEST_HELPER=1")
-		err := cmd.Run()
-		if err == nil {
-			t.Fatal("expected non-zero exit for missing file")
+		output, err := cmd.CombinedOutput()
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			t.Fatalf("exit error = %v, want exit code 1; output=%q", err, output)
+		}
+		if got := string(output); !strings.Contains(got, `crit preview: "/nonexistent/missing.html" is not a file`) {
+			t.Fatalf("stderr = %q, want missing-file message", got)
 		}
 		return
 	}
@@ -51,21 +60,4 @@ func TestHelperProcess_RunPreviewMissingFile(t *testing.T) {
 		return
 	}
 	RunPreview([]string{"/nonexistent/missing.html", "--no-open"})
-}
-
-func TestRunPreview_FlagParsing(t *testing.T) {
-	dir := t.TempDir()
-	html := filepath.Join(dir, "page.html")
-	if err := os.WriteFile(html, []byte("<html></html>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Without a running daemon this will try to start one and block — only
-	// verify LooksLikePreviewArgs + key generation path used by RunPreview.
-	if !LooksLikePreviewArgs([]string{html}) {
-		t.Fatal("expected preview args")
-	}
-	key := PreviewSessionKey(dir, html)
-	if len(key) != 12 {
-		t.Errorf("key len = %d", len(key))
-	}
 }

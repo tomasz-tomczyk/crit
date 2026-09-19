@@ -53,10 +53,18 @@ func TestShareReviewFiles_PreviewRemapsComments(t *testing.T) {
 
 	var captured []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		captured, _ = io.ReadAll(r.Body)
+		var err error
+		captured, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "read body", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"url":"http://stub/r/x","delete_token":"tok"}`))
+		if _, err := w.Write([]byte(`{"url":"http://stub/r/x","delete_token":"tok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 

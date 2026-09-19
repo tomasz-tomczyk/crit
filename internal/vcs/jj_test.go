@@ -244,7 +244,11 @@ func withCwd(t *testing.T, dir string) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(orig) })
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
 }
 
 func stringTrimSpace(s string) string {

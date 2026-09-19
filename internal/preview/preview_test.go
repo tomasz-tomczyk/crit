@@ -1,8 +1,6 @@
 package preview
 
 import (
-	"embed"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,36 +42,41 @@ func TestLooksLikePreviewArgs(t *testing.T) {
 	htmlFile := filepath.Join(dir, "test.html")
 	htmFile := filepath.Join(dir, "test.htm")
 	mdFile := filepath.Join(dir, "test.md")
-	os.WriteFile(htmlFile, []byte("<html></html>"), 0644)
-	os.WriteFile(htmFile, []byte("<html></html>"), 0644)
-	os.WriteFile(mdFile, []byte("# hello"), 0644)
-	os.Mkdir(filepath.Join(dir, "dir.html"), 0755)
+	writeTestFile(t, htmlFile, "<html></html>")
+	writeTestFile(t, htmFile, "<html></html>")
+	writeTestFile(t, mdFile, "# hello")
+	if err := os.Mkdir(filepath.Join(dir, "dir.html"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cases := []struct {
+		name string
 		args []string
 		want bool
 	}{
-		{[]string{htmlFile}, true},
-		{[]string{htmFile}, true},
-		{[]string{mdFile}, false},
-		{[]string{filepath.Join(dir, "dir.html")}, false},
-		{[]string{filepath.Join(dir, "nonexistent.html")}, false},
-		{[]string{htmlFile, htmFile}, false},
-		{nil, false},
-		{[]string{}, false},
+		{name: "html", args: []string{htmlFile}, want: true},
+		{name: "htm", args: []string{htmFile}, want: true},
+		{name: "non-html extension", args: []string{mdFile}, want: false},
+		{name: "directory", args: []string{filepath.Join(dir, "dir.html")}, want: false},
+		{name: "missing", args: []string{filepath.Join(dir, "nonexistent.html")}, want: false},
+		{name: "multiple files", args: []string{htmlFile, htmFile}, want: false},
+		{name: "nil", args: nil, want: false},
+		{name: "empty", args: []string{}, want: false},
 	}
 	for _, tc := range cases {
-		got := looksLikePreviewArgs(tc.args)
-		if got != tc.want {
-			t.Errorf("looksLikePreviewArgs(%v) = %v, want %v", tc.args, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got := looksLikePreviewArgs(tc.args)
+			if got != tc.want {
+				t.Errorf("looksLikePreviewArgs(%v) = %v, want %v", tc.args, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestCreatePreviewSession(t *testing.T) {
 	dir := t.TempDir()
 	htmlFile := filepath.Join(dir, "index.html")
-	os.WriteFile(htmlFile, []byte("<html><body>hello</body></html>"), 0644)
+	writeTestFile(t, htmlFile, "<html><body>hello</body></html>")
 
 	sc := &serverConfig{previewFile: htmlFile}
 	sess, err := createPreviewSession(sc)
@@ -141,7 +144,7 @@ func newPreviewTestServer(t *testing.T, dir string) (*Server, *Session) {
 
 func TestHandlePreviewPage(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview", nil)
@@ -158,7 +161,7 @@ func TestHandlePreviewPage(t *testing.T) {
 
 func TestHandlePreviewPage_MethodNotAllowed(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("POST", "/preview", nil)
@@ -172,7 +175,7 @@ func TestHandlePreviewPage_MethodNotAllowed(t *testing.T) {
 
 func TestHandlePreviewContent_ServesHTML(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html><body>hello</body></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html><body>hello</body></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview-content/", nil)
@@ -190,7 +193,7 @@ func TestHandlePreviewContent_ServesHTML(t *testing.T) {
 
 func TestHandlePreviewContent_InjectsAgent(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html><body>content</body></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html><body>content</body></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview-content/", nil)
@@ -219,7 +222,7 @@ func TestHandlePreviewContent_InjectsAgent(t *testing.T) {
 // Pin stays stuck on "Loading…" forever — matching crit-web's raw_controller.
 func TestHandlePreviewContent_AppendsAgentWhenNoBodyTag(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<div>fragment with no body tag</div>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<div>fragment with no body tag</div>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview-content/", nil)
@@ -248,10 +251,12 @@ func TestHandlePreviewContent_AppendsAgentWhenNoBodyTag(t *testing.T) {
 
 func TestHandlePreviewContent_InjectsAgentOnSiblingHTML(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html><body>home</body></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html><body>home</body></html>")
 	chDir := filepath.Join(dir, "chapters")
-	os.Mkdir(chDir, 0755)
-	os.WriteFile(filepath.Join(chDir, "01-intro.html"), []byte("<html><body>chapter</body></html>"), 0644)
+	if err := os.Mkdir(chDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(chDir, "01-intro.html"), "<html><body>chapter</body></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview-content/chapters/01-intro.html", nil)
@@ -272,8 +277,8 @@ func TestHandlePreviewContent_InjectsAgentOnSiblingHTML(t *testing.T) {
 
 func TestHandlePreviewContent_ServesSiblingAssets(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
-	os.WriteFile(filepath.Join(dir, "style.css"), []byte("body { color: red; }"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
+	writeTestFile(t, filepath.Join(dir, "style.css"), "body { color: red; }")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview-content/style.css", nil)
@@ -283,42 +288,43 @@ func TestHandlePreviewContent_ServesSiblingAssets(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
 	}
-	resp := w.Result()
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "color: red") {
+	if !strings.Contains(w.Body.String(), "color: red") {
 		t.Error("CSS content not served")
 	}
 }
 
 func TestHandlePreviewContent_PathTraversal(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
 	// Create a file outside the preview dir
 	secretDir := t.TempDir()
-	os.WriteFile(filepath.Join(secretDir, "secret.txt"), []byte("secret"), 0644)
+	writeTestFile(t, filepath.Join(secretDir, "secret.txt"), "secret")
 
 	s, _ := newPreviewTestServer(t, dir)
 
-	req := httptest.NewRequest("GET", "/preview-content/../../secret.txt", nil)
+	req := httptest.NewRequest("GET", "/preview-content/", nil)
+	// Set Path after construction because httptest.NewRequest normalizes dot
+	// segments as a browser or proxy would before the handler sees them.
+	req.URL.Path = "/preview-content/../../secret.txt"
 	w := httptest.NewRecorder()
 	s.HandlePreviewContentForTest(w, req)
 
-	// filepath.Clean resolves .., but the prefix check should block it
-	// or the file simply won't exist under dir
-	if w.Code == http.StatusOK {
-		body := w.Body.String()
-		if strings.Contains(body, "secret") {
-			t.Error("path traversal allowed access to file outside preview dir")
-		}
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "secret") {
+		t.Error("path traversal response exposed file outside preview dir")
 	}
 }
 
 func TestHandlePreviewContent_DirectoryListing(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
 	subdir := filepath.Join(dir, "subdir")
-	os.Mkdir(subdir, 0755)
-	os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("hello"), 0644)
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(subdir, "file.txt"), "hello")
 
 	s, _ := newPreviewTestServer(t, dir)
 
@@ -333,7 +339,7 @@ func TestHandlePreviewContent_DirectoryListing(t *testing.T) {
 
 func TestHandlePreviewContent_MethodNotAllowed(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("POST", "/preview-content/", nil)
@@ -362,7 +368,7 @@ func TestHandlePreviewContent_NoSession(t *testing.T) {
 
 func TestHandlePreviewContent_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0644)
+	writeTestFile(t, filepath.Join(dir, "index.html"), "<html></html>")
 	s, _ := newPreviewTestServer(t, dir)
 
 	req := httptest.NewRequest("GET", "/preview-content/nonexistent.css", nil)
@@ -371,28 +377,6 @@ func TestHandlePreviewContent_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Code)
-	}
-}
-
-func TestServePreviewHTML_NoBody(t *testing.T) {
-	dir := t.TempDir()
-	htmlFile := filepath.Join(dir, "index.html")
-	os.WriteFile(htmlFile, []byte("<html><head></head></html>"), 0644)
-
-	s, _ := newPreviewTestServer(t, dir)
-	// Override Origin to point to the no-body file
-	sess := s.LoadSessionForTest()
-	sess.Origin = htmlFile
-	s.StoreSessionForTest(sess)
-
-	req := httptest.NewRequest("GET", "/preview-content/", nil)
-	w := httptest.NewRecorder()
-	s.HandlePreviewContentForTest(w, req)
-
-	body := w.Body.String()
-	// Without </body>, agent injection doesn't happen but the page still serves
-	if !strings.Contains(body, "<html>") {
-		t.Error("HTML not served when no </body> tag present")
 	}
 }
 
@@ -411,9 +395,4 @@ func TestPreviewRouteRegistered(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("/preview status = %d, want 200", w.Code)
 	}
-}
-
-// Compile guard: ensure the frontendFS embed includes preview-related files.
-func TestFrontendFS_IncludesPreviewAssets(t *testing.T) {
-	var _ embed.FS = frontendFS
 }
