@@ -131,6 +131,10 @@ crit live http://localhost:4000/dashboard --cdp-url http://127.0.0.1:9222
 
 Relative paths resolve from the repo root. Prefer a gitignored file under `.crit/` over committing `live_cookie` inline. Run `crit live --help` for all flags.
 
+If Comment/Pin stays unavailable, or a framework needs local CSP / iframe
+tweaks, see the **[live mode guide](docs/live-mode.md)** (injection model,
+common failures, Phoenix / Vite / Next.js recipes).
+
 ```bash
 crit status                       # show review file path and daemon status
 crit resume                       # pick a previous review to reopen
