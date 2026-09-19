@@ -34,13 +34,19 @@ type Config struct {
 	BaseBranch         string        `json:"base_branch,omitempty"`
 	IgnorePatterns     []string      `json:"ignore_patterns,omitempty"`
 	AutoViewedPatterns []string      `json:"auto_viewed_patterns,omitempty"`
-	NoIntegrationCheck bool          `json:"no_integration_check,omitempty"`
-	NoUpdateCheck      bool          `json:"no_update_check,omitempty"`
-	AgentCmd           string        `json:"agent_cmd,omitempty"`
-	AuthToken          string        `json:"auth_token,omitempty"`
-	AuthUserName       string        `json:"auth_user_name,omitempty"`
-	AuthUserEmail      string        `json:"auth_user_email,omitempty"`
-	AuthUserID         string        `json:"auth_user_id,omitempty"`
+	// DefaultMarkdownView selects the initial view for files that support
+	// document view (markdown with the Document/Diff toggle) in git mode.
+	// Allowed values: "diff" | "document". Empty (unset) keeps today's
+	// behavior: diff in git mode, document in file mode. Project overrides
+	// global (scalar, not unioned). No CLI flag.
+	DefaultMarkdownView string `json:"default_markdown_view,omitempty"`
+	NoIntegrationCheck  bool   `json:"no_integration_check,omitempty"`
+	NoUpdateCheck       bool   `json:"no_update_check,omitempty"`
+	AgentCmd            string `json:"agent_cmd,omitempty"`
+	AuthToken           string `json:"auth_token,omitempty"`
+	AuthUserName        string `json:"auth_user_name,omitempty"`
+	AuthUserEmail       string `json:"auth_user_email,omitempty"`
+	AuthUserID          string `json:"auth_user_id,omitempty"`
 	// PlanApproveMode selects the Claude Code permission mode after a plan-hook
 	// approval. Global-only so a repository cannot weaken a user's permission
 	// policy. Empty leaves Claude Code's current behavior unchanged.
@@ -162,16 +168,17 @@ func defaultConfig() generatedConfig {
 			"*.min.css",
 			".crit/",
 		},
-		AutoViewedPatterns: []string{},
-		AgentCmd:           "",
-		PlanApproveMode:    "",
-		CleanupOnApprove:   true,
-		NotifyOnRoundReady: false,
-		VCS:                "",
-		Forge:              "auto",
-		GitLabURL:          "https://gitlab.com",
-		Prompts:            map[string]string{},
-		Hooks:              map[string]string{},
+		AutoViewedPatterns:  []string{},
+		DefaultMarkdownView: "",
+		AgentCmd:            "",
+		PlanApproveMode:     "",
+		CleanupOnApprove:    true,
+		NotifyOnRoundReady:  false,
+		VCS:                 "",
+		Forge:               "auto",
+		GitLabURL:           "https://gitlab.com",
+		Prompts:             map[string]string{},
+		Hooks:               map[string]string{},
 	}
 }
 
@@ -186,27 +193,28 @@ type generatedConfig struct {
 	OpenCmd   string `json:"open_cmd"`
 	// Deprecated singleton fields remain in generated output for one release;
 	// share_targets is authoritative when present.
-	ShareURL           string            `json:"share_url"`
-	ProxyAuth          bool              `json:"proxy_auth"`
-	ShareTargets       []ShareTarget     `json:"share_targets"`
-	Quiet              bool              `json:"quiet"`
-	Output             string            `json:"output"`
-	Author             string            `json:"author"`
-	BaseBranch         string            `json:"base_branch"`
-	IgnorePatterns     []string          `json:"ignore_patterns"`
-	AutoViewedPatterns []string          `json:"auto_viewed_patterns"`
-	NoIntegrationCheck bool              `json:"no_integration_check"`
-	NoUpdateCheck      bool              `json:"no_update_check"`
-	DisableStats       bool              `json:"disable_stats"`
-	AgentCmd           string            `json:"agent_cmd"`
-	PlanApproveMode    string            `json:"plan_approve_mode"`
-	CleanupOnApprove   bool              `json:"cleanup_on_approve"`
-	NotifyOnRoundReady bool              `json:"notify_on_round_ready"`
-	VCS                string            `json:"vcs"`
-	Forge              string            `json:"forge"`
-	GitLabURL          string            `json:"gitlab_url"`
-	Prompts            map[string]string `json:"prompts"`
-	Hooks              map[string]string `json:"hooks"`
+	ShareURL            string            `json:"share_url"`
+	ProxyAuth           bool              `json:"proxy_auth"`
+	ShareTargets        []ShareTarget     `json:"share_targets"`
+	Quiet               bool              `json:"quiet"`
+	Output              string            `json:"output"`
+	Author              string            `json:"author"`
+	BaseBranch          string            `json:"base_branch"`
+	IgnorePatterns      []string          `json:"ignore_patterns"`
+	AutoViewedPatterns  []string          `json:"auto_viewed_patterns"`
+	DefaultMarkdownView string            `json:"default_markdown_view"`
+	NoIntegrationCheck  bool              `json:"no_integration_check"`
+	NoUpdateCheck       bool              `json:"no_update_check"`
+	DisableStats        bool              `json:"disable_stats"`
+	AgentCmd            string            `json:"agent_cmd"`
+	PlanApproveMode     string            `json:"plan_approve_mode"`
+	CleanupOnApprove    bool              `json:"cleanup_on_approve"`
+	NotifyOnRoundReady  bool              `json:"notify_on_round_ready"`
+	VCS                 string            `json:"vcs"`
+	Forge               string            `json:"forge"`
+	GitLabURL           string            `json:"gitlab_url"`
+	Prompts             map[string]string `json:"prompts"`
+	Hooks               map[string]string `json:"hooks"`
 }
 
 func (c generatedConfig) String() string {
@@ -273,6 +281,10 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if !validDefaultMarkdownView(cfg.DefaultMarkdownView) {
+		fmt.Fprintf(os.Stderr, "Warning: invalid default_markdown_view %q in %s (want \"diff\" or \"document\"); ignoring\n", cfg.DefaultMarkdownView, path)
+		cfg.DefaultMarkdownView = ""
 	}
 	cfg.shareURLPresent = presence.ShareURL
 	cfg.shareTargetsPresent = presence.ShareTargets
@@ -358,9 +370,18 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	merged.IgnorePatterns = append(merged.IgnorePatterns, project.IgnorePatterns...)
 	// Union auto-viewed patterns (global + project both apply)
 	merged.AutoViewedPatterns = append(merged.AutoViewedPatterns, project.AutoViewedPatterns...)
+	// Scalar override (not unioned): a non-empty project value wins via
+	// preferProjectString. Empty keeps today's behavior (diff in git mode).
+	merged.DefaultMarkdownView = preferProjectString(project.DefaultMarkdownView, merged.DefaultMarkdownView)
 	mergeProjectPrompts(&merged, project)
 	mergeProjectHooks(&merged, project)
 	return merged
+}
+
+// validDefaultMarkdownView reports whether v is an allowed
+// default_markdown_view value. Empty means unset (today's behavior).
+func validDefaultMarkdownView(v string) bool {
+	return v == "" || v == "diff" || v == "document"
 }
 
 func preferProjectString(project, global string) string {

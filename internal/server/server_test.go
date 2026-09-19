@@ -1254,6 +1254,24 @@ func TestApiConfig_IncludesProxyAuth(t *testing.T) {
 	}
 }
 
+func TestApiConfig_DefaultMarkdownView(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.DefaultMarkdownView = "document"
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["default_markdown_view"] != "document" {
+		t.Errorf("got default_markdown_view=%v, want document", body["default_markdown_view"])
+	}
+}
+
 func TestAPICodeFonts_CachesCodeFontDiscovery(t *testing.T) {
 	s, _ := newTestServer(t)
 	calls := 0

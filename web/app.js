@@ -355,6 +355,17 @@
   let authUserName = '';   // read by the tip-rotation block; share flow gets its own copy
   let configAuthor = '';
   let autoViewedPatterns = [];  // config auto_viewed_patterns; applied once per launch (issue #658)
+  let defaultMarkdownView = '';  // config default_markdown_view; 'document' inits markdown to document view in git mode (issue #926)
+
+  // Initial viewMode for a file. File mode always opens document view.
+  // In git mode only files with a Document/Diff toggle (markdown) honor the
+  // default_markdown_view config; everything else stays diff. Anything other
+  // than 'document' (unset, empty, 'diff') keeps the historical default.
+  function initialViewMode(fileType) {
+    if (session.mode !== 'git') return 'document';
+    if (fileType === 'markdown' && defaultMarkdownView === 'document') return 'document';
+    return 'diff';
+  }
 
   // Share flow (button + modals + popup relay) lives in crit-share.js
   // (window.crit.share). The controller is created in init() once /api/config
@@ -605,7 +616,7 @@
         previousLineBlocks: null,
         tocItems: [],
         collapsed: false,
-        viewMode: (session.mode === 'git') ? 'diff' : 'document',
+        viewMode: initialViewMode(fi.file_type),
         additions: fi.additions || 0,
         deletions: fi.deletions || 0,
         lazy: true,
@@ -683,7 +694,7 @@
       tocItems: [],
       collapsed: fi.status === 'deleted' || fi.generated === true ||
         (fi.status === 'renamed' && !fi.additions && !fi.deletions),
-      viewMode: (session.mode === 'git') ? 'diff' : 'document',
+      viewMode: initialViewMode(fi.file_type),
       additions: fi.additions || 0,
       deletions: fi.deletions || 0,
       lazy: false,
@@ -896,6 +907,7 @@
     const initialShareTarget = configuredShareTargets.find(t => t.url === configRes.share_base_url) || configuredShareTargets.find(t => t.default) || (configuredShareTargets.length === 1 ? configuredShareTargets[0] : null);
     shareURL = initialShareTarget ? initialShareTarget.url : '';
     autoViewedPatterns = Array.isArray(configRes.auto_viewed_patterns) ? configRes.auto_viewed_patterns : [];
+    defaultMarkdownView = configRes.default_markdown_view === 'document' ? 'document' : '';
     authUserName = configRes.auth_user_name || '';
     configAuthor = configRes.author || '';
     agentEnabled = configRes.agent_cmd_enabled || false;

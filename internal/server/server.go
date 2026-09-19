@@ -513,6 +513,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 		// Glob patterns the frontend auto-marks viewed (collapsed) once per launch
 		"auto_viewed_patterns": s.cfg.AutoViewedPatterns,
 
+		// Initial view for files with a Document/Diff toggle (markdown) in
+		// git mode: "document" forces document view, anything else keeps the
+		// historical default (diff in git mode, document in file mode).
+		"default_markdown_view": s.cfg.DefaultMarkdownView,
+
 		// Available integrations (always included)
 		"integrations_available": availableIntegrations(),
 	}
