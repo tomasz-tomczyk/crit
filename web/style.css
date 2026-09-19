@@ -4604,7 +4604,7 @@ body.sidebar-resizing * {
 }
 
 /* Shared toggle-btn base (used by file-header-toggle, scope-toggle, diff-mode-toggle).
-   Raycast-style segmented control: soft track + lifted active pill. */
+   Segmented control: soft track + lifted active pill. */
 .toggle-btn {
   appearance: none;
   display: inline-flex;

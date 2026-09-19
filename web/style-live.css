@@ -231,7 +231,7 @@ html[data-theme="light"] .crit-mode-live {
   50% { opacity: 1; }
 }
 
-/* Comment mode active — brand whisper (Raycast), not the solid segment lift. */
+/* Comment mode active — brand whisper, not the solid segment lift. */
 .crit-mode-live #liveModeToggle .toggle-btn[data-mode="pin"] {
   display: inline-flex;
   align-items: center;

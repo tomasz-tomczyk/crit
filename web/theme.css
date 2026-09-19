@@ -37,7 +37,7 @@
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft Raycast geometry; active uses brand-subtle + brand so 10px
+     Soft segment geometry; active uses brand-subtle + brand so 10px
      file-header pills stay AA (≥4.5:1) in dark theme. */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
   --crit-seg-active:     var(--crit-brand-subtle);
@@ -288,7 +288,7 @@
     --crit-pill-fg-muted:  #59636e;
     --crit-pill-border:    #d0d7de;
     /* ---- Segmented controls (scope / diff / viewport / mode) ----
-       Soft Raycast lift, tinted with brand so actives sit in the same
+       Soft segment lift, tinted with brand so actives sit in the same
        blue family as the rest of the chrome. */
     --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 6%, rgba(0, 0, 0, 0.03));
     --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 12%, #ffffff);
@@ -507,7 +507,7 @@
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft Raycast geometry; active uses brand-subtle + brand so 10px
+     Soft segment geometry; active uses brand-subtle + brand so 10px
      file-header pills stay AA (≥4.5:1) in dark theme. */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
   --crit-seg-active:     var(--crit-brand-subtle);
@@ -725,7 +725,7 @@
   --crit-pill-fg-muted:  #59636e;
   --crit-pill-border:    #d0d7de;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft Raycast lift, tinted with brand so actives sit in the same
+     Soft segment lift, tinted with brand so actives sit in the same
      blue family as the rest of the chrome. */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 6%, rgba(0, 0, 0, 0.03));
   --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 12%, #ffffff);
