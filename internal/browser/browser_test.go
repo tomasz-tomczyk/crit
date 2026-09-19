@@ -150,8 +150,14 @@ func TestCommandQuoting(t *testing.T) {
 func TestCommandExists(t *testing.T) {
 	t.Run("finds executable on PATH", func(t *testing.T) {
 		binDir := t.TempDir()
+		// Windows LookPath only finds names matching PATHEXT (.exe/.cmd/…).
 		fake := filepath.Join(binDir, "crit-test-exe")
-		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		content := []byte("#!/bin/sh\n")
+		if runtime.GOOS == "windows" {
+			fake += ".cmd"
+			content = []byte("@echo off\r\n")
+		}
+		if err := os.WriteFile(fake, content, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
