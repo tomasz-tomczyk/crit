@@ -20,7 +20,7 @@
     PIN_RESOLUTION_RESULT: 'pin-resolution-result',
     VIEWPORT_APPLIED:   'viewport-applied',
     HOVERED_ANCESTOR_LEVEL: 'hovered-ancestor-level',
-    TOGGLE_PIN_MODE:    'toggle-pin-mode',
+    SHORTCUT_KEY:       'shortcut-key',
   };
 
   // Chrome → Agent
@@ -113,7 +113,11 @@
       case A2C.FOCUS_STATE:
         if (!isBool(msg.in_input)) return { ok: false, reason: 'focus-state.in_input' };
         return { ok: true };
-      case A2C.TOGGLE_PIN_MODE:
+      case A2C.SHORTCUT_KEY:
+        if (!isString(msg.key) || !isString(msg.code)) return { ok: false, reason: 'shortcut-key.key' };
+        if (!isBool(msg.ctrlKey) || !isBool(msg.altKey) || !isBool(msg.shiftKey) || !isBool(msg.metaKey)) {
+          return { ok: false, reason: 'shortcut-key.modifiers' };
+        }
         return { ok: true };
       case A2C.ROUTE_CHANGE:
         if (!isString(msg.pathname)) return { ok: false, reason: 'route-change.pathname' };

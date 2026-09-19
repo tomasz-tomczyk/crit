@@ -662,15 +662,24 @@
   }, true);
 
   // The live target owns focus once a reviewer clicks into it, so shortcuts
-  // registered by the review chrome cannot see this key event. Relay the
-  // default Comment shortcut to the trusted parent instead. Never steal
-  // typing or browser/application chords from the page being reviewed.
+  // registered by the review chrome cannot see these events. Relay safe key
+  // details to the trusted parent, which resolves them against the reviewer's
+  // configurable shortcut map. Do not steal typing or native interactive keys
+  // from the page being reviewed.
   document.addEventListener('keydown', function (ev) {
-    if (ev.defaultPrevented || ev.repeat || ev.isComposing ||
-        ev.ctrlKey || ev.metaKey || ev.altKey ||
-        (ev.key !== 'p' && ev.key !== 'P') || isInputLike(ev.target)) return;
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-    postToParent({ type: A2C.TOGGLE_PIN_MODE });
+    if (ev.defaultPrevented || ev.repeat || ev.isComposing || isInputLike(ev.target)) return;
+    var target = ev.target;
+    if (target && target.closest && target.closest(
+      'button, a[href], summary, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"], [role="slider"]'
+    ) && [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(ev.key) !== -1) return;
+    postToParent({
+      type: A2C.SHORTCUT_KEY,
+      key: ev.key,
+      code: ev.code,
+      ctrlKey: !!ev.ctrlKey,
+      altKey: !!ev.altKey,
+      shiftKey: !!ev.shiftKey,
+      metaKey: !!ev.metaKey,
+    });
   }, true);
 })();

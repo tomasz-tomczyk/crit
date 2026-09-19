@@ -11,7 +11,7 @@ test('dispatcher routes selection to onSelection', () => {
     onAgentError: (e) => events.push(['err', e.kind]),
     onRequestAncestorMenu: () => events.push('menu'),
     onFocusState: (s) => events.push(['focus', s]),
-    onTogglePinMode: () => events.push('toggle-pin'),
+    onShortcutKey: (event) => events.push(['shortcut', event.key]),
   });
   d({ type: 'agent-ready' });
   d({ type: 'selection', dom_anchor: {
@@ -21,8 +21,8 @@ test('dispatcher routes selection to onSelection', () => {
   d({ type: 'agent-error', kind: 'shadow-dom', message: 'no' });
   d({ type: 'request-ancestor-menu', options: [{ level: 0, label: 'span' }], pointer: { x: 1, y: 2 } });
   d({ type: 'focus-state', in_input: true });
-  d({ type: 'toggle-pin-mode' });
-  assert.deepEqual(events, ['ready', ['sel', 'body'], ['err', 'shadow-dom'], 'menu', ['focus', true], 'toggle-pin']);
+  d({ type: 'shortcut-key', key: 'p', code: 'KeyP', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
+  assert.deepEqual(events, ['ready', ['sel', 'body'], ['err', 'shadow-dom'], 'menu', ['focus', true], ['shortcut', 'p']]);
 });
 
 test('dispatcher ignores invalid messages silently', () => {

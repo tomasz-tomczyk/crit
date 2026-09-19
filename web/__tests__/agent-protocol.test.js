@@ -49,8 +49,10 @@ test('focus-state requires boolean in_input', () => {
   assert.equal(validateMessage({ type: 'focus-state', in_input: 'yes' }).ok, false);
 });
 
-test('toggle-pin-mode requires no payload', () => {
-  assert.deepEqual(validateMessage({ type: 'toggle-pin-mode' }), { ok: true });
+test('shortcut-key requires safe keyboard event details', () => {
+  const shortcut = { type: 'shortcut-key', key: 'x', code: 'KeyX', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false };
+  assert.deepEqual(validateMessage(shortcut), { ok: true });
+  assert.equal(validateMessage({ type: 'shortcut-key', key: 'x' }).ok, false);
 });
 
 test('request-ancestor-menu requires options array and pointer', () => {

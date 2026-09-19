@@ -1599,7 +1599,10 @@
         });
       }
       if (panes.renderShortcutsPane) {
-        panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'), { mode: 'live' });
+        panes.renderShortcutsPane(overlay.querySelector('#shortcutsPane'), {
+          mode: 'live',
+          onChange: updateModeHint,
+        });
       }
       if (panes.renderAboutPane) {
         panes.renderAboutPane(overlay.querySelector('#aboutPane'), cfg, sessionDescriptor);
@@ -2085,12 +2088,10 @@
     state.focusInInput = !!b;
   }
 
-  function handleIframeTogglePinMode() {
-    // The iframe can only relay the default P key. Honour custom bindings so
-    // a reviewer who changed the shortcut does not get an unexpected toggle.
+  function handleIframeShortcutKey(event) {
     var shortcuts = window.crit && window.crit.shortcuts;
-    if (shortcuts && shortcuts.actionForEvent &&
-        shortcuts.actionForEvent({ key: 'p', code: 'KeyP' }, 'live') !== 'toggle_pin_mode') return;
+    if (!shortcuts || !shortcuts.actionForEvent ||
+        shortcuts.actionForEvent(event, 'live') !== 'toggle_pin_mode') return;
     setMode(state.mode === 'pin' ? 'navigate' : 'pin');
   }
 
@@ -2246,7 +2247,7 @@
       onSelection: handleSelection,
       onRequestAncestorMenu: handleAncestorMenu,
       onFocusState: handleFocusState,
-      onTogglePinMode: handleIframeTogglePinMode,
+      onShortcutKey: handleIframeShortcutKey,
       onRouteChange: handleRouteChange,
       onPinClicked: handlePinClicked,
       onPinResolutionResult: handlePinResolutionResult,

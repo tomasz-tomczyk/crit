@@ -23,7 +23,7 @@
         case A2C.SELECTION: if (handlers.onSelection) handlers.onSelection(msg.dom_anchor, msg.pointer, msg.reanchor_for); break;
         case A2C.REQUEST_ANCESTOR_MENU: if (handlers.onRequestAncestorMenu) handlers.onRequestAncestorMenu(msg.options, msg.pointer); break;
         case A2C.FOCUS_STATE: if (handlers.onFocusState) handlers.onFocusState(msg.in_input); break;
-        case A2C.TOGGLE_PIN_MODE: if (handlers.onTogglePinMode) handlers.onTogglePinMode(); break;
+        case A2C.SHORTCUT_KEY: if (handlers.onShortcutKey) handlers.onShortcutKey(msg); break;
         case A2C.ROUTE_CHANGE: if (handlers.onRouteChange) handlers.onRouteChange(msg); break;
         case A2C.PIN_CLICKED: if (handlers.onPinClicked) handlers.onPinClicked(msg.pin_id); break;
         case A2C.PIN_RESOLUTION_RESULT: if (handlers.onPinResolutionResult) handlers.onPinResolutionResult(msg); break;
