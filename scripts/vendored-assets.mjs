@@ -7,7 +7,7 @@ export const vendoredAssets = [
   },
   {
     path: "web/markdown-it.min.js",
-    sources: ["markdown-it@15.0.1"],
+    sources: ["markdown-it@15.0.2"],
     packagePath: "dist/browser/markdown-it.umd.min.js",
     kind: "copy",
   },
