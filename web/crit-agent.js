@@ -8,7 +8,9 @@
 
   var protocol = window.crit && window.crit.agentProtocol;
   if (!protocol) {
-    // Protocol script failed to load; bail silently to avoid breaking the user app.
+    // Protocol script failed to load; tell the chrome so it can surface the
+    // connection-unavailable state, then bail to avoid breaking the user app.
+    try { window.parent.postMessage({ type: 'agent-error', kind: 'protocol-missing', message: 'Crit agent protocol failed to load' }, '*'); } catch (_) {}
     return;
   }
   var A2C = protocol.A2C;
@@ -35,6 +37,7 @@
   }
   var expectedApiOrigin = guessApiOriginFromAgentTag();
   if (!expectedApiOrigin) {
+    try { window.parent.postMessage({ type: 'agent-error', kind: 'origin-guess-failed', message: 'Crit agent could not determine the API origin' }, '*'); } catch (_) {}
     return;
   }
 

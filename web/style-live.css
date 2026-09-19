@@ -121,6 +121,64 @@
   font: inherit;
   font-weight: 700;
 }
+
+/* Agent connection state banner (issue #959). Lives between the mode hint
+   and the iframe pane. States: connecting | ready | unavailable. */
+.crit-live-connection-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg-secondary);
+  font-size: 12px;
+}
+.crit-live-connection-banner[data-state="connecting"] { border-color: var(--crit-border); }
+.crit-live-connection-banner[data-state="ready"] { border-color: var(--crit-green); color: var(--crit-green); }
+.crit-live-connection-banner[data-state="unavailable"] { border-color: var(--crit-red); color: var(--crit-red); }
+.crit-live-connection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crit-live-connection-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.crit-live-connection-banner[data-state="connecting"] .crit-live-connection-indicator {
+  animation: crit-live-connection-pulse 1.2s ease-in-out infinite;
+}
+@keyframes crit-live-connection-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.crit-live-connection-retry {
+  appearance: none;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  padding: 2px 8px;
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+.crit-live-connection-retry:hover {
+  background: var(--crit-pill-bg-hover);
+}
+.crit-live-connection-help {
+  display: block;
+  color: var(--crit-editor-fg-secondary);
+  font-size: 12px;
+  max-width: 420px;
+}
 .crit-mode-live #liveModeToggle .toggle-btn.active {
   background: var(--crit-brand);
   /* In dark themes the brand is intentionally light, so use the editor
