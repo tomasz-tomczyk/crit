@@ -3524,3 +3524,95 @@ func TestMergeGHComments_ThreadResolvedViaReplyID(t *testing.T) {
 		t.Errorf("ResolvedRound = %d, want 2", c.ResolvedRound)
 	}
 }
+
+func TestShortSHAString(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"abc1234567890", "abc1234"},
+		{"abc1234", "abc1234"},
+		{"ab", "ab"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := shortSHAString(tc.in); got != tc.want {
+				t.Errorf("shortSHAString(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBodyHashAtPush(t *testing.T) {
+	h1 := bodyHashAtPush("hello")
+	h2 := bodyHashAtPush("hello")
+	h3 := bodyHashAtPush("world")
+	if h1 != h2 {
+		t.Errorf("hash not deterministic: %q vs %q", h1, h2)
+	}
+	if h1 == h3 {
+		t.Errorf("different bodies produced same hash: %q", h1)
+	}
+	if len(h1) != 16 {
+		t.Errorf("hash length = %d, want 16", len(h1))
+	}
+}
+
+func TestUpdateCritJSONWithEditedBodies_ExportedWrapper(t *testing.T) {
+	dir := t.TempDir()
+	critPath := filepath.Join(dir, "review.json")
+
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"a.go": {Comments: []Comment{{
+				ID: "c1", GitHubID: 500, Body: "edited", LastPushedBodyHash: bodyHashAtPush("original"),
+				Replies: []Reply{
+					{ID: "r1", GitHubID: 600, Body: "reply edit", LastPushedBodyHash: bodyHashAtPush("reply orig")},
+				},
+			}}},
+		},
+	}
+	data, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(critPath, data, 0644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	succeeded := []GhEditForPush{
+		{GitHubID: 500, Body: "edited", Path: "a.go"},
+		{GitHubID: 600, Body: "reply edit", IsReply: true},
+	}
+	if err := UpdateCritJSONWithEditedBodies(critPath, succeeded); err != nil {
+		t.Fatalf("UpdateCritJSONWithEditedBodies: %v", err)
+	}
+
+	out, err := os.ReadFile(critPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var got CritJSON
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	c := got.Files["a.go"].Comments[0]
+	if want := bodyHashAtPush("edited"); c.LastPushedBodyHash != want {
+		t.Errorf("comment LastPushedBodyHash=%q, want %q", c.LastPushedBodyHash, want)
+	}
+	if want := bodyHashAtPush("reply edit"); c.Replies[0].LastPushedBodyHash != want {
+		t.Errorf("reply LastPushedBodyHash=%q, want %q", c.Replies[0].LastPushedBodyHash, want)
+	}
+}
+
+func TestPRListCache_CacheHit(t *testing.T) {
+	c := &PRListCache{}
+	c.SeedForTest([]PRSummary{{Number: 1, Title: "Seeded"}})
+	got, err := c.Get()
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got) != 1 || got[0].Number != 1 {
+		t.Errorf("got %+v, want seeded summary", got)
+	}
+}

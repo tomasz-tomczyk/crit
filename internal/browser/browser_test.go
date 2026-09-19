@@ -1,8 +1,16 @@
 package browser
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLooksLikeWSL(t *testing.T) {
@@ -137,6 +145,84 @@ func TestCommandQuoting(t *testing.T) {
 			t.Fatalf("cmdDoubleQuote() = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestCommandExists(t *testing.T) {
+	t.Run("finds executable on PATH", func(t *testing.T) {
+		binDir := t.TempDir()
+		fake := filepath.Join(binDir, "crit-test-exe")
+		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if !commandExists("crit-test-exe") {
+			t.Error("expected commandExists to find fake executable")
+		}
+	})
+
+	t.Run("missing executable returns false", func(t *testing.T) {
+		if commandExists("crit-test-definitely-missing-" + strconv.Itoa(int(time.Now().UnixNano()))) {
+			t.Error("expected commandExists to return false for missing command")
+		}
+	})
+}
+
+func TestSystemIsWSL(t *testing.T) {
+	t.Run("non-linux returns false", func(t *testing.T) {
+		if runtime.GOOS != "linux" && systemIsWSL() {
+			t.Error("expected false on non-linux OS")
+		}
+	})
+
+	t.Run("linux with WSL env marker", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("linux-only")
+		}
+		t.Setenv("WSL_DISTRO_NAME", "Ubuntu")
+		t.Cleanup(func() { os.Unsetenv("WSL_DISTRO_NAME") })
+		if !systemIsWSL() {
+			t.Error("expected WSL when WSL_DISTRO_NAME is set")
+		}
+	})
+}
+
+func TestOpenBrowserWithCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake browser shim is POSIX-only")
+	}
+
+	t.Run("custom command success does not print warning", func(t *testing.T) {
+		binDir := t.TempDir()
+		fake := filepath.Join(binDir, "crit-test-browser")
+		script := "#!/bin/sh\nexit 0\n"
+		if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		stderr := captureStderr(t, func() {
+			OpenBrowserWithCommand("http://example.test", "crit-test-browser")
+		})
+		if strings.Contains(stderr, "could not open browser") {
+			t.Errorf("unexpected warning on stderr: %q", stderr)
+		}
+	})
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	fn()
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String()
 }
 
 func TestTryOpenBrowser(t *testing.T) {

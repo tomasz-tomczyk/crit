@@ -60,6 +60,16 @@ func TestExportedPushWrappers(t *testing.T) {
 	if len(comments) != 1 || comments[0]["path"] != "a.go" {
 		t.Errorf("BucketsToGHComments = %+v", comments)
 	}
+
+	cj := CritJSON{
+		Files: map[string]CritJSONFile{
+			"a.go": {Comments: []Comment{{ID: "c1", Body: "postable", StartLine: 1, EndLine: 1}}},
+		},
+	}
+	buckets := BucketCommentsForPush(cj, "", false)
+	if len(buckets.Postable) != 1 {
+		t.Errorf("BucketCommentsForPush = %+v", buckets)
+	}
 }
 
 func TestWriteOrphanExport_Exported(t *testing.T) {

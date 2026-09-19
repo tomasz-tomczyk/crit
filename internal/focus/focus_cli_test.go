@@ -166,6 +166,66 @@ func TestResolveFocus_NilWhenNoFlags(t *testing.T) {
 	}
 }
 
+func TestLooksLikeMRURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"https://gitlab.com/a/b/-/merge_requests/295", true},
+		{"https://gitlab.company.test/a/b/-/merge_requests/295/files", true},
+		{"http://gitlab.com/a/b/-/merge_requests/1", true},
+		{"https://github.com/a/b/pull/295", false},
+		{"https://gitlab.com/a/b/issues/295", false},
+		{"295", false},
+		{"README.md", false},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			if got := LooksLikeMRURL(c.in); got != c.want {
+				t.Errorf("LooksLikeMRURL(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestParseMRSpec(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    int
+		wantErr bool
+	}{
+		{"295", 295, false},
+		{"https://gitlab.com/a/b/-/merge_requests/295", 295, false},
+		{"https://gitlab.com/a/b/-/merge_requests/295/files", 295, false},
+		{"https://gitlab.com/a/b/-/merge_requests/295?diff=split", 295, false},
+		{"abc", 0, true},
+		{"-5", 0, true},
+		{"0", 0, true},
+		{"", 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got, err := parseMRSpec(c.in)
+			if (err != nil) != c.wantErr {
+				t.Errorf("err=%v wantErr=%v", err, c.wantErr)
+			}
+			if got != c.want {
+				t.Errorf("got %d want %d", got, c.want)
+			}
+		})
+	}
+}
+
+func TestCommentScopeOverrideFromFlag_Invalid(t *testing.T) {
+	_, err := CommentScopeOverrideFromFlag("bogus")
+	if err == nil {
+		t.Fatal("expected error for invalid scope")
+	}
+	if !strings.Contains(err.Error(), "layer | full-stack | working-tree") {
+		t.Errorf("error = %q, want layer|full-stack|working-tree hint", err)
+	}
+}
+
 func TestResolveFocus_InvalidScopeRejected(t *testing.T) {
 	_, err := ResolveFocus(ChangeSpec{}, "a..b", "bogus", false, nil, "")
 	if err == nil {

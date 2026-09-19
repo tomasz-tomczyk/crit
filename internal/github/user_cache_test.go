@@ -32,6 +32,7 @@ func TestVersionAtLeast(t *testing.T) {
 		{"2.48.0-rc1", 2, 48, 0, true},
 		{"2.48", 2, 48, 0, false},
 		{"not-a-version", 2, 48, 0, false},
+		{"", 2, 48, 0, false},
 	}
 	for _, c := range cases {
 		if got := versionAtLeast(c.version, c.major, c.minor, c.patch); got != c.want {

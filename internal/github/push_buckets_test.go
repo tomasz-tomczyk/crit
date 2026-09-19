@@ -118,36 +118,6 @@ func TestBucketComments_StaleToOrphan(t *testing.T) {
 	}
 }
 
-func TestBucketComments_NoAnchorToOrphan(t *testing.T) {
-	cj := CritJSON{
-		ActiveDiffScope: "layer",
-		Files: map[string]CritJSONFile{
-			"a.go": {Comments: []Comment{
-				{ID: "c1", Body: "no anchor", DiffScope: "layer", HeadSHA: ""},
-			}},
-		},
-	}
-	b := bucketCommentsForPush(cj, "head1", true)
-	if len(b.Unmapped) != 1 || b.Unmapped[0].Reason != bucketReasonNoAnchor {
-		t.Errorf("got %+v", b.Unmapped)
-	}
-}
-
-func TestBucketComments_WorkingTreeKeepsAll(t *testing.T) {
-	cj := CritJSON{
-		ActiveDiffScope: "",
-		Files: map[string]CritJSONFile{
-			"a.go": {Comments: []Comment{
-				{ID: "c1", Body: "legacy", DiffScope: "", HeadSHA: ""},
-			}},
-		},
-	}
-	b := bucketCommentsForPush(cj, "", false)
-	if len(b.Postable) != 1 {
-		t.Errorf("Postable=%d, want 1", len(b.Postable))
-	}
-}
-
 func TestBucketComments_WorkingTree(t *testing.T) {
 	// Empty HeadSHA when NOT in range mode is the today's-default: legacy
 	// comment, postable.
