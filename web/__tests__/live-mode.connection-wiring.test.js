@@ -2,7 +2,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
 
 const liveModeSrc = fs.readFileSync(require.resolve('../live-mode.js'), 'utf8');
 const agentSrc = fs.readFileSync(require.resolve('../crit-agent.js'), 'utf8');
@@ -12,8 +11,16 @@ function includes(substr, msg) {
   assert.ok(liveModeSrc.includes(substr), msg || 'live-mode.js should include: ' + substr);
 }
 
+function excludes(substr, msg) {
+  assert.ok(!liveModeSrc.includes(substr), msg || 'live-mode.js should not include: ' + substr);
+}
+
 test('live-mode.js defaults agentConnectionState to connecting', () => {
   includes('agentConnectionState: \'connecting\'');
+});
+
+test('live-mode.js defaults to Comment (pin) mode', () => {
+  includes('mode: \'pin\'');
 });
 
 test('live-mode.js declares connection controller variable', () => {
@@ -24,11 +31,15 @@ test('live-mode.js has connection UI update function', () => {
   includes('function updateConnectionUI()');
 });
 
-test('live-mode.js renders the connection banner in buildShell', () => {
-  includes('id="liveConnectionBanner"');
-  includes('id="liveConnectionText"');
-  includes('id="liveConnectionRetry"');
-  includes('id="liveConnectionHelp"');
+test('live-mode.js renders navbar status chip and context strips in buildShell', () => {
+  includes('liveConnStatus');
+  includes('liveConnStatusText');
+  includes('id="liveModeHint"');
+  includes('id="liveUnavailableFlash"');
+  includes('id="liveUnavailableGuide"');
+  includes('id="liveModeHintDismiss"');
+  excludes('id="liveConnectionBanner"');
+  excludes('id="liveConnectionRetry"');
 });
 
 test('live-mode.js starts connection tracking on iframe navigation', () => {
@@ -40,9 +51,9 @@ test('live-mode.js starts connection tracking on iframe navigation', () => {
   includes('agentReadyForCurrentLoad');
 });
 
-test('live-mode.js wires the retry button', () => {
-  includes('function installConnectionRetry()');
-  includes('liveConnectionRetry');
+test('live-mode.js does not wire a Retry button', () => {
+  excludes('function installConnectionRetry()');
+  includes('function installModeHintDismiss()');
 });
 
 test('live-mode.js transitions to ready in handleAgentReady', () => {

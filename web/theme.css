@@ -36,6 +36,12 @@
   --crit-pill-fg:        #c9d1d9;
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
+  /* ---- Segmented controls (scope / diff / viewport / mode) ----
+     Soft Raycast lift, tinted with brand so actives sit in the same
+     periwinkle family as the branch pills — not a flat grey slab. */
+  --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
+  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 20%, rgba(255, 255, 255, 0.06));
+  --crit-seg-active-fg:  var(--crit-editor-fg);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
@@ -281,6 +287,12 @@
     --crit-pill-fg:        #1f2328;
     --crit-pill-fg-muted:  #59636e;
     --crit-pill-border:    #d0d7de;
+    /* ---- Segmented controls (scope / diff / viewport / mode) ----
+       Soft Raycast lift, tinted with brand so actives sit in the same
+       blue family as the rest of the chrome. */
+    --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 6%, rgba(0, 0, 0, 0.03));
+    --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 12%, #ffffff);
+    --crit-seg-active-fg:  var(--crit-brand);
     --crit-rail-fg:        #59636e;
     --crit-rail-arrow:     #8b949e;
 
@@ -494,6 +506,12 @@
   --crit-pill-fg:        #c9d1d9;
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
+  /* ---- Segmented controls (scope / diff / viewport / mode) ----
+     Soft Raycast lift, tinted with brand so actives sit in the same
+     periwinkle family as the branch pills — not a flat grey slab. */
+  --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
+  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 20%, rgba(255, 255, 255, 0.06));
+  --crit-seg-active-fg:  var(--crit-editor-fg);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
@@ -706,6 +724,12 @@
   --crit-pill-fg:        #1f2328;
   --crit-pill-fg-muted:  #59636e;
   --crit-pill-border:    #d0d7de;
+  /* ---- Segmented controls (scope / diff / viewport / mode) ----
+     Soft Raycast lift, tinted with brand so actives sit in the same
+     blue family as the rest of the chrome. */
+  --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 6%, rgba(0, 0, 0, 0.03));
+  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 12%, #ffffff);
+  --crit-seg-active-fg:  var(--crit-brand);
   --crit-rail-fg:        #59636e;
   --crit-rail-arrow:     #8b949e;
 

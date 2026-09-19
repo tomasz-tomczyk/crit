@@ -45,7 +45,10 @@ export async function enterPinMode(page: Page): Promise<void> {
   const pinBtn = page.locator('#liveModeToggle button[data-mode="pin"]');
   await expect(pinBtn).toBeVisible();
   await expect(pinBtn).toBeEnabled();
-  await pinBtn.click();
+  // Default launch mode is Comment (pin). Only click when Browse is active.
+  if (!(await pinBtn.evaluate((el) => el.classList.contains('active')))) {
+    await pinBtn.click();
+  }
   await expect(pinBtn).toHaveClass(/active/);
 }
 

@@ -87,116 +87,164 @@
   position: relative;
   overflow: auto;
   background: var(--crit-live-iframe-bg);
-  padding: 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Keep the current interaction state next to the page being reviewed. The
-   colours deliberately do not rely on the low-contrast shared toggle tint. */
-.crit-live-mode-hint {
+/* Full-bleed context strips (mode hint / unavailable Flash). */
+.crit-mode-live {
+  --crit-live-flash-bg: color-mix(in srgb, var(--crit-red) 12%, var(--crit-bg-card, var(--crit-editor-bg-elevated)));
+}
+[data-theme="light"] .crit-mode-live,
+html[data-theme="light"] .crit-mode-live {
+  --crit-live-flash-bg: color-mix(in srgb, var(--crit-red) 8%, #ffffff);
+}
+
+.crit-live-context {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 auto 10px;
-  padding: 6px 10px;
-  border: 1px solid var(--crit-border);
-  border-radius: 6px;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--crit-border);
   background: var(--crit-editor-bg-elevated);
   color: var(--crit-editor-fg-secondary);
   font-size: 12px;
+  line-height: 1.35;
 }
-.crit-live-mode-hint strong { color: var(--crit-editor-fg); }
-.crit-live-mode-hint[data-mode="pin"] {
-  border-color: var(--crit-brand);
+.crit-live-context[hidden] {
+  display: none;
+}
+.crit-live-context[data-kind="hint"][data-mode="navigate"] {
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg-secondary);
+}
+.crit-live-context[data-kind="hint"][data-mode="pin"] {
   background: var(--crit-brand-subtle);
   color: var(--crit-brand);
+  border-bottom-color: color-mix(in srgb, var(--crit-brand) 28%, var(--crit-border));
 }
-.crit-live-mode-hint[data-mode="pin"] strong { color: var(--crit-brand); }
-.crit-live-mode-hint kbd,
+.crit-live-context[data-kind="flash"] {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  background: var(--crit-live-flash-bg);
+  color: var(--crit-red);
+  border-bottom-color: color-mix(in srgb, var(--crit-red) 28%, var(--crit-border));
+}
+.crit-live-context-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.crit-live-context-primary strong {
+  font-weight: 600;
+  color: inherit;
+}
+.crit-live-context-help {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--crit-editor-fg-secondary);
+  font-size: 12px;
+}
+.crit-live-context-guide {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.crit-live-context-guide:hover {
+  opacity: 0.85;
+}
+.crit-live-context kbd,
 #liveModeToggle kbd {
-  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
   border: 1px solid currentColor;
   border-radius: 3px;
   font: inherit;
   font-weight: 700;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+.crit-live-context-dismiss {
+  appearance: none;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--crit-r-sm, 4px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.crit-live-context-dismiss:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
 }
 
-/* Agent connection state banner (issue #959). Lives between the mode hint
-   and the iframe pane. States: connecting | ready | unavailable. */
-.crit-live-connection-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 auto 10px;
-  padding: 6px 10px;
-  border: 1px solid var(--crit-border);
-  border-radius: 6px;
-  background: var(--crit-editor-bg-elevated);
-  color: var(--crit-editor-fg-secondary);
-  font-size: 12px;
-}
-.crit-live-connection-banner[data-state="connecting"] { border-color: var(--crit-border); }
-.crit-live-connection-banner[data-state="ready"] { border-color: var(--crit-green); color: var(--crit-green); }
-.crit-live-connection-banner[data-state="unavailable"] { border-color: var(--crit-red); color: var(--crit-red); }
-.crit-live-connection-row {
-  display: flex;
+/* Navbar connection chip — connecting / unavailable only (ready is silent). */
+.crit-live-conn-status {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-.crit-live-connection-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.crit-live-connection-banner[data-state="connecting"] .crit-live-connection-indicator {
-  animation: crit-live-connection-pulse 1.2s ease-in-out infinite;
-}
-@keyframes crit-live-connection-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-.crit-live-connection-retry {
-  appearance: none;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border-radius: 7px;
+  border: 1px solid transparent;
   background: transparent;
-  border: 1px solid currentColor;
-  color: inherit;
-  padding: 2px 8px;
-  border-radius: var(--crit-r-sm);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-}
-.crit-live-connection-retry:hover {
-  background: var(--crit-pill-bg-hover);
-}
-.crit-live-connection-help {
   color: var(--crit-editor-fg-secondary);
   font-size: 12px;
-  max-width: 420px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
-/* Author `display` would override the UA [hidden] rule — keep it explicit. */
-.crit-live-connection-help[hidden] {
+.crit-live-conn-status[hidden] {
   display: none;
 }
-.crit-live-connection-banner[data-state="unavailable"] .crit-live-connection-help:not([hidden]) {
-  display: block;
+.crit-live-conn-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
 }
-.crit-mode-live #liveModeToggle .toggle-btn.active {
-  background: var(--crit-brand);
-  /* In dark themes the brand is intentionally light, so use the editor
-     surface (dark there, white in light themes) for a reliable text ratio. */
-  color: var(--crit-editor-bg);
-  box-shadow: none;
+.crit-live-conn-status[data-state="connecting"] {
+  color: var(--crit-editor-fg-secondary);
 }
+.crit-live-conn-status[data-state="connecting"] .crit-live-conn-status-dot {
+  animation: crit-live-conn-pulse 1.1s ease-in-out infinite;
+}
+.crit-live-conn-status[data-state="unavailable"] {
+  color: var(--crit-red);
+  border-color: color-mix(in srgb, var(--crit-red) 35%, transparent);
+  background: var(--crit-live-flash-bg);
+}
+@keyframes crit-live-conn-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* Comment mode active — brand whisper (Raycast), not the solid segment lift. */
 .crit-mode-live #liveModeToggle .toggle-btn[data-mode="pin"] {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-weight: 600;
+  gap: 6px;
+}
+.crit-mode-live #liveModeToggle .toggle-btn[data-mode="pin"].active {
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--crit-brand) 28%, transparent);
+}
+.crit-mode-live #liveModeToggle .toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .crit-live-iframe-pane-inner {
@@ -205,6 +253,9 @@
   align-items: flex-start;
   min-width: 100%;
   width: max-content;
+  flex: 1 1 auto;
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .crit-live-iframe-frame {

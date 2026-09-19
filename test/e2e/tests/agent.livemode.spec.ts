@@ -78,10 +78,14 @@ test.describe('live-mode agent — boot + handshake', () => {
 
   test('P toggles Comment mode while the iframe owns focus', async ({ page }) => {
     await waitForAgentReady(page);
+    // Start from Browse so P has something to flip into Comment.
+    await page.locator('#liveModeToggle button[data-mode="navigate"]').click();
+    await expect(page.locator('#liveModeToggle button[data-mode="navigate"]')).toHaveClass(/active/);
     const target = getIframe(page).locator('#primary-btn');
     await target.focus();
     await target.press('p');
     await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toHaveClass(/active/);
+    await expect(page.locator('#liveModeHint')).toBeVisible();
     await expect(page.locator('#liveModeHint')).toHaveAttribute('data-mode', 'pin');
   });
 });

@@ -7,8 +7,8 @@ Crit does **not** magically share your normal browser tab with the app. It
 loads the app inside an iframe on Crit’s proxy port, injects a small agent
 bundle into HTML responses, and talks to that agent over `postMessage`. When
 injection or the agent handshake fails, Browse/Navigate still works, but
-Comment/Pin stays unavailable (banner: **Commenting unavailable — Crit could
-not connect to this page**).
+Comment/Pin stays unavailable (navbar chip + Flash: **Commenting unavailable —
+Crit could not connect to this page**, with a link to this guide).
 
 This guide covers how that works, what Crit already rewrites for you, common
 failure modes, and framework-specific setup for local apps.
@@ -26,9 +26,12 @@ failure modes, and framework-specific setup for local apps.
 4. The agent loads scripts from Crit’s API origin (e.g.
    `http://localhost:3195/crit-agent.js`), then posts `agent-ready` to the
    parent chrome.
-5. Only after `agent-ready` does Crit enable Comment/Pin.
+5. Only after `agent-ready` does Crit enable Comment/Pin. Live mode launches
+   in Comment mode by default; until the agent is ready the Comment button
+   stays disabled.
 
-If step 3 or 4 fails, you get the connection-unavailable state (with Retry).
+If step 3 or 4 fails, you get the connection-unavailable Flash (Browse still
+works). Fix the upstream issue and reload Crit — see the checklist below.
 
 ## What Crit already handles
 
@@ -184,11 +187,9 @@ As long as the URL returns HTML with a `</body>`, Crit can inject. Checklist:
 [ ] Iframe Network: agent-*.js / crit-agent.js load (200)
 [ ] No CSP / blocked-script errors in the iframe console
 [ ] After login walls: cookies forwarded (--cookie / --cookie-file / --cdp-url)
-[ ] Retry on the connection banner after fixing upstream
+[ ] Reload Crit after fixing upstream (no Retry button — structural failures need a real fix)
 ```
 
 ## Related
 
 - [README — Live mode](../README.md#live-mode) (cookies, config keys)
-- Issue [#959](https://github.com/tomasz-tomczyk/crit/issues/959) — connection
-  state UI when the agent cannot connect

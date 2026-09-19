@@ -98,16 +98,24 @@ test.describe('live-mode shell — Pin/Navigate toggle', () => {
     await expect(group.locator('.toggle-btn')).toHaveCount(2);
     const pinBtn = group.locator('button[data-mode="pin"]');
     await expect(pinBtn).toBeEnabled();
-    await expect(group.locator('button[data-mode="navigate"]')).toHaveClass(/active/);
+    // Live mode launches in Comment mode by default once the agent is ready.
+    await expect(pinBtn).toHaveClass(/active/);
   });
 
-  test('mode chrome describes browsing and how to enter Comment mode', async ({ page }) => {
+  test('mode chrome describes Comment mode after agent-ready', async ({ page }) => {
     await page.goto('/live');
     await expect(page.locator('#liveModeToggle button[data-mode="navigate"]')).toHaveText('Browse');
     await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toContainText('P');
     await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toContainText('Comment');
-    await expect(page.locator('#liveModeHint')).toContainText('Browsing');
+    await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toHaveClass(/active/);
+    await expect(page.locator('#liveModeHint')).toBeVisible();
+    await expect(page.locator('#liveModeHint')).toContainText('Commenting');
     await expect(page.locator('#liveModeHint')).toContainText('leave feedback');
+
+    await page.locator('#liveModeToggle button[data-mode="navigate"]').click();
+    await expect(page.locator('#liveModeHint')).toBeVisible();
+    await expect(page.locator('#liveModeHint')).toContainText('Browsing');
+    await expect(page.locator('#liveModeHint')).toHaveAttribute('data-mode', 'navigate');
   });
 });
 
