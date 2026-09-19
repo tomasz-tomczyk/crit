@@ -174,10 +174,16 @@
   background: var(--crit-pill-bg-hover);
 }
 .crit-live-connection-help {
-  display: block;
   color: var(--crit-editor-fg-secondary);
   font-size: 12px;
   max-width: 420px;
+}
+/* Author `display` would override the UA [hidden] rule — keep it explicit. */
+.crit-live-connection-help[hidden] {
+  display: none;
+}
+.crit-live-connection-banner[data-state="unavailable"] .crit-live-connection-help:not([hidden]) {
+  display: block;
 }
 .crit-mode-live #liveModeToggle .toggle-btn.active {
   background: var(--crit-brand);
