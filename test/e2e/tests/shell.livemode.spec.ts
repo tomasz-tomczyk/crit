@@ -296,7 +296,7 @@ test.describe('live-mode shell — deep-link / a11y / errors', () => {
         hasRoutes: Array.isArray(d.routes),
         hasCurrentRoute: typeof d.currentRoute === 'string',
         hasViewport: typeof d.viewport === 'object',
-        hasMode: d.mode === 'navigate',
+        hasMode: d.mode === 'pin',
         hasComments: Array.isArray(d.comments),
         // State.pinModeEnabled defaults to false; the chrome flips the Pin
         // button's `disabled` attr via agent-ready but never mutates this

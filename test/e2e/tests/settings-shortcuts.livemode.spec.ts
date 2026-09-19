@@ -16,7 +16,6 @@ test.describe('Settings shortcuts — Live and Preview controller', () => {
     await page.keyboard.press('x');
     await page.keyboard.press('x');
     await expect(page.locator('#liveModeShortcut')).toHaveText('X');
-    await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).not.toHaveClass(/active/);
     await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
 
     // Default launch mode is Comment; switch to Browse so we can assert that

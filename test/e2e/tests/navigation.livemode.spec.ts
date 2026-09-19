@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllLivePins, getIframe, setIframeRoute } from './livemode-helpers';
+import { clearAllLivePins, exitPinMode, getIframe, setIframeRoute, waitForAgentReady } from './livemode-helpers';
 
 test.describe('navigation — link, pushState, redirects (Scenarios 10–13)', () => {
   test.beforeEach(async ({ request }) => {
@@ -8,6 +8,9 @@ test.describe('navigation — link, pushState, redirects (Scenarios 10–13)', (
 
   test('link click in iframe lands on /dashboard', async ({ page }) => {
     await page.goto('/live');
+    await waitForAgentReady(page);
+    // Default Comment mode intercepts clicks for pinning — Browse first.
+    await exitPinMode(page);
     await expect(getIframe(page).locator('#dash-link')).toBeVisible();
     await getIframe(page).locator('#dash-link').click();
     await expect(getIframe(page).locator('#dash-title')).toBeVisible();
@@ -17,6 +20,8 @@ test.describe('navigation — link, pushState, redirects (Scenarios 10–13)', (
 
   test('pushState on /spa updates breadcrumb to /spa/section', async ({ page }) => {
     await page.goto('/live');
+    await waitForAgentReady(page);
+    await exitPinMode(page);
     await setIframeRoute(page, '/spa');
     await expect(getIframe(page).locator('#spa-title')).toBeVisible();
     await getIframe(page).locator('#push-btn').click();
@@ -25,6 +30,8 @@ test.describe('navigation — link, pushState, redirects (Scenarios 10–13)', (
 
   test('same-origin redirect lands on /dashboard via proxy', async ({ page }) => {
     await page.goto('/live');
+    await waitForAgentReady(page);
+    await exitPinMode(page);
     await setIframeRoute(page, '/redirect-same');
     // Iframe content lands on /dashboard via proxy's same-origin redirect rewrite.
     await expect(getIframe(page).locator('#dash-title')).toBeVisible();

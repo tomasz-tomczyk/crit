@@ -36,17 +36,18 @@ test.describe('live-mode agent — boot + handshake', () => {
     await waitForAgentReady(page);
     const iframe = getIframe(page);
     // Capture mode before, post a foreign-source set-mode, verify mode unchanged.
+    // Live mode defaults to Comment (pin); a dropped message must not flip it.
     await iframe.locator('body').evaluate(() => {
       // Posting to self bypasses the parent-source guard and should be dropped.
-      window.postMessage({ type: 'set-mode', value: 'pin' }, '*');
+      window.postMessage({ type: 'set-mode', value: 'navigate' }, '*');
     });
-    // Allow a microtask flush; mode must remain 'navigate'.
+    // Allow a microtask flush; mode must remain 'pin'.
     await expect.poll(
       () => iframe.locator('body').evaluate(() => {
         return (window as unknown as { __critAgentState?: { mode?: string } })
           .__critAgentState?.mode ?? 'unknown';
       }),
-    ).toBe('navigate');
+    ).toBe('pin');
   });
 
   test('agent posts to the verified API origin, not "*"', async ({ page }) => {
