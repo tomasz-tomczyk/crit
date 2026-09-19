@@ -37,11 +37,11 @@
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft segment geometry; active uses brand-subtle + brand so 10px
-     file-header pills stay AA (≥4.5:1) in dark theme. */
+     Soft segment geometry. Dark active fg is editor periwinkle (not brand)
+     so 10px file-header pills clear WCAG AA (≥4.5:1) on washed active bg. */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
   --crit-seg-active:     var(--crit-brand-subtle);
-  --crit-seg-active-fg:  var(--crit-brand);
+  --crit-seg-active-fg:  var(--crit-editor-fg);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
@@ -507,11 +507,11 @@
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft segment geometry; active uses brand-subtle + brand so 10px
-     file-header pills stay AA (≥4.5:1) in dark theme. */
+     Soft segment geometry. Dark active fg is editor periwinkle (not brand)
+     so 10px file-header pills clear WCAG AA (≥4.5:1) on washed active bg. */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
   --crit-seg-active:     var(--crit-brand-subtle);
-  --crit-seg-active-fg:  var(--crit-brand);
+  --crit-seg-active-fg:  var(--crit-editor-fg);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
