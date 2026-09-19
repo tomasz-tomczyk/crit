@@ -754,6 +754,15 @@
   // every load would wipe that ready state and falsely time out.
   var agentReadyForCurrentLoad = false;
 
+  // Assign iframe.src for a new document. Always clear the ready latch so a
+  // prior page's agent-ready cannot mask a failed injection on the next load.
+  function loadIframe(url) {
+    agentReadyForCurrentLoad = false;
+    state.agentReady = false;
+    if (!els || !els.iframe) return;
+    els.iframe.src = url;
+  }
+
   function startConnectionTracking() {
     var connMod = window.crit && window.crit.live && window.crit.live.connection;
     if (!connMod || !connMod.makeConnectionState) return;
@@ -778,6 +787,8 @@
     // Scripts (crit-agent) run before `load`. If agent-ready already landed
     // for this document, keep Ready — do not recreate the timer.
     if (agentReadyForCurrentLoad) {
+      // Consume the latch so the next navigation cannot inherit Ready.
+      agentReadyForCurrentLoad = false;
       if (connectionCtl) connectionCtl.setReady();
       state.agentConnectionState = 'ready';
       updateConnectionUI();
@@ -792,7 +803,7 @@
     state.currentRoute = utils.normaliseRoute(state.currentRoute);
     if (!els.iframe) return;
     els.iframe.addEventListener('load', onIframeLoad);
-    els.iframe.src = proxyURL(state.currentRoute);
+    loadIframe(proxyURL(state.currentRoute));
     startConnectionTracking();
   });
 
@@ -1696,7 +1707,7 @@
     // Skip iframe reassignment if already on this route — otherwise we'd
     // trigger a redundant route-change → request-resolution cycle.
     if (route === state.currentRoute) return;
-    if (els && els.iframe) els.iframe.src = proxyURL(route);
+    if (els && els.iframe) loadIframe(proxyURL(route));
     state.currentRoute = route;
     renderBreadcrumb();
   });
@@ -1709,7 +1720,7 @@
     e.preventDefault();
     var route = utils.normaliseRoute(t.dataset.liveRoute || '/');
     if (route === state.currentRoute) return;
-    if (els && els.iframe) els.iframe.src = proxyURL(route);
+    if (els && els.iframe) loadIframe(proxyURL(route));
     state.currentRoute = route;
     renderBreadcrumb();
   });
@@ -1860,7 +1871,7 @@
       '<button type="button">Retry</button>';
     box.querySelector('button').addEventListener('click', function () {
       box.remove();
-      els.iframe.src = proxyURL(state.currentRoute);
+      loadIframe(proxyURL(state.currentRoute));
     });
     els.frame.appendChild(box);
   }
@@ -2577,6 +2588,10 @@
     // against detached frames during teardown.
     reloadIframe: function () {
       if (!els || !els.iframe) return;
+      // Round transition loads a new document — drop any prior ready latch
+      // before reload/src reset so a missing agent times out correctly.
+      agentReadyForCurrentLoad = false;
+      state.agentReady = false;
       try {
         var w = els.iframe.contentWindow;
         if (w && w.location && typeof w.location.reload === 'function') {
@@ -2587,7 +2602,7 @@
       try {
         var url = els.iframe.src || proxyURL(state.currentRoute || '/');
         var sep = url.indexOf('?') >= 0 ? '&' : '?';
-        els.iframe.src = url + sep + '_critRoundReload=' + Date.now();
+        loadIframe(url + sep + '_critRoundReload=' + Date.now());
       } catch (_) { /* noop */ }
     },
   });
@@ -2632,7 +2647,7 @@
     var targetPath = utils.normaliseRoute((pin.dom_anchor && pin.dom_anchor.pathname) || '/');
     if (state.currentRoute !== targetPath) {
       if (els && els.iframe) {
-        try { els.iframe.src = proxyURL(targetPath); } catch (_) { /* noop */ }
+        try { loadIframe(proxyURL(targetPath)); } catch (_) { /* noop */ }
       }
       state.currentRoute = targetPath;
       state.pendingFlashOnLoad = true;

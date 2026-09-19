@@ -65,8 +65,14 @@ test('live-mode.js treats bootstrap errors as connection unavailable', () => {
   includes("state.agentConnectionState = 'unavailable'");
 });
 
-test('live-mode.js gates pin mode on connection state', () => {
-  includes("state.agentConnectionState !== 'ready'");
+test('live-mode.js forces Browse when commenting is unavailable', () => {
+  includes("state.mode = 'navigate'");
+  includes('setActiveModeButton()');
+});
+
+test('live-mode.js clears the agent-ready latch on iframe navigations', () => {
+  includes('function loadIframe(url)');
+  includes('Consume the latch so the next navigation cannot inherit Ready');
 });
 
 test('crit-agent.js emits structured bootstrap errors', () => {
