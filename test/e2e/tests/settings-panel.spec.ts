@@ -39,6 +39,8 @@ test.describe('Settings Panel', () => {
     await page.click('#settingsToggle');
     await page.click('.settings-tab[data-tab="shortcuts"]');
     await expect(page.locator('.settings-pane[data-pane="shortcuts"]')).toHaveClass(/active/);
+    await page.click('.settings-tab[data-tab="updates"]');
+    await expect(page.locator('.settings-pane[data-pane="updates"]')).toHaveClass(/active/);
     await page.click('.settings-tab[data-tab="about"]');
     await expect(page.locator('.settings-pane[data-pane="about"]')).toHaveClass(/active/);
     await page.click('.settings-tab[data-tab="settings"]');
@@ -235,16 +237,22 @@ test.describe('Settings Panel', () => {
   test('settings pane shows configuration cards', async ({ page }) => {
     await page.click('#settingsToggle');
     const pane = page.locator('.settings-pane[data-pane="settings"]');
-    // Core cards — always rendered (in various states). Integration title varies
-    // (AI Integration vs Integration Available); share title varies (Share vs Sharing enabled).
+    // Core cards — always rendered (in various states). Share title varies
+    // (Share vs Sharing enabled). Integration updates live on the Updates tab.
     await expect(pane.locator('.config-card-title', { hasText: 'Account' })).toBeVisible();
     await expect(pane.locator('.config-card-title', { hasText: 'Agent Command' })).toBeVisible();
     await expect(
-      pane.locator('.config-card-title', { hasText: /AI Integration|Integration Available/ }).first(),
-    ).toBeVisible();
-    await expect(
       pane.locator('.config-card-title', { hasText: /Share|Sharing enabled/ }).first(),
     ).toBeVisible();
+  });
+
+  test('updates pane shows Crit status and AI integrations', async ({ page }) => {
+    await page.click('#settingsToggle');
+    await page.click('.settings-tab[data-tab="updates"]');
+    const pane = page.locator('.settings-pane[data-pane="updates"]');
+    await expect(pane.locator('.settings-section-label', { hasText: 'Crit' })).toBeVisible();
+    await expect(pane.locator('.updates-crit-row')).toBeVisible();
+    await expect(pane.locator('.settings-section-label', { hasText: 'AI integrations' })).toBeVisible();
   });
 
   test('about pane shows version and session info', async ({ page }) => {
