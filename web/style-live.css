@@ -231,16 +231,11 @@ html[data-theme="light"] .crit-mode-live {
   50% { opacity: 1; }
 }
 
-/* Comment mode active — brand whisper, not the solid segment lift. */
+/* Comment keeps a kbd sibling; match shared .toggle-btn.active lift otherwise. */
 .crit-mode-live #liveModeToggle .toggle-btn[data-mode="pin"] {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.crit-mode-live #liveModeToggle .toggle-btn[data-mode="pin"].active {
-  background: var(--crit-brand-subtle);
-  color: var(--crit-brand);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--crit-brand) 28%, transparent);
 }
 .crit-mode-live #liveModeToggle .toggle-btn:disabled {
   opacity: 0.4;
