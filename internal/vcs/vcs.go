@@ -137,6 +137,14 @@ type VCS interface {
 	SkipDirNames() []string
 }
 
+// InitialChangeSnapshotter is an optional fast path for VCS backends that can
+// derive the initial working-tree file list and scope availability from the
+// same repository snapshot. The bool is false when the backend cannot take a
+// snapshot and the caller should use the regular VCS methods.
+type InitialChangeSnapshotter interface {
+	InitialChangesAndScopes(baseRef, dir string) (changes []FileChange, scopes []string, ok bool, err error)
+}
+
 // DetectVCS returns the appropriate VCS backend for the current directory.
 // If vcsOverride is set ("git", "sl"/"sapling", or "jj"), that backend is
 // preferred but falls back to git if the requested backend isn't available.

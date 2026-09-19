@@ -646,6 +646,15 @@ var (
 
 const scopeCacheTTL = 2 * time.Second
 
+func seedAvailableScopes(baseRef string, scopes []string) {
+	scopeCacheMu.Lock()
+	defer scopeCacheMu.Unlock()
+
+	scopeCacheBaseRef = baseRef
+	scopeCacheResult = append([]string(nil), scopes...)
+	scopeCacheExpiry = time.Now().Add(scopeCacheTTL)
+}
+
 // cachedAvailableScopes returns availableScopes results, using a 2-second cache
 // to avoid running VCS commands on every /api/session poll.
 func cachedAvailableScopes(baseRef string, v vcs.VCS) []string {

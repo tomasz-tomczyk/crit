@@ -37,6 +37,10 @@ func (g *GitVCS) ChangedFilesFromBaseInDir(baseRef, dir string) ([]FileChange, e
 	return changedFilesFromBaseInDir(baseRef, dir)
 }
 
+func (g *GitVCS) InitialChangesAndScopes(baseRef, dir string) ([]FileChange, []string, bool, error) {
+	return initialGitChangesAndScopes(baseRef, dir)
+}
+
 func (g *GitVCS) ChangedFilesScoped(scope, baseRef string) ([]FileChange, error) {
 	return ChangedFilesScoped(scope, baseRef)
 }

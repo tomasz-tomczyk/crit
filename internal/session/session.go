@@ -739,27 +739,42 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 // DetectVCSChanges resolves the base ref and returns the list of changed files using the vcs.VCS interface.
 // DetectVCSChanges resolves the base ref and returns changed files using the vcs.VCS interface.
 func DetectVCSChanges(vc vcs.VCS, root string, ignorePatterns []string) (branch, baseRef, resolvedBase string, changes []vcs.FileChange, err error) {
+	branch, baseRef, resolvedBase, changes, _, err = detectVCSChangesAndScopes(vc, root, ignorePatterns)
+	return branch, baseRef, resolvedBase, changes, err
+}
+
+func detectVCSChangesAndScopes(vc vcs.VCS, root string, ignorePatterns []string) (branch, baseRef, resolvedBase string, changes []vcs.FileChange, scopes []string, err error) {
 	branch = vc.CurrentBranch()
 	resolvedBase = vc.DefaultBranch()
 	if branch != resolvedBase {
 		baseRef, _ = vc.MergeBase(vc.DefaultBaseRef())
 	}
 
-	if baseRef != "" {
-		changes, err = vc.ChangedFilesFromBaseInDir(baseRef, root)
-	} else {
-		changes, err = vc.ChangedFilesOnDefaultInDir(root)
+	usedSnapshot := false
+	if snapshotter, ok := vc.(vcs.InitialChangeSnapshotter); ok {
+		changes, scopes, usedSnapshot, err = snapshotter.InitialChangesAndScopes(baseRef, root)
+		if !usedSnapshot {
+			changes = nil
+			scopes = nil
+		}
+	}
+	if !usedSnapshot && err == nil {
+		if baseRef != "" {
+			changes, err = vc.ChangedFilesFromBaseInDir(baseRef, root)
+		} else {
+			changes, err = vc.ChangedFilesOnDefaultInDir(root)
+		}
 	}
 	if err != nil {
-		return "", "", "", nil, fmt.Errorf("detecting changes: %w", err)
+		return "", "", "", nil, nil, fmt.Errorf("detecting changes: %w", err)
 	}
 	changes = config.FilterIgnored(changes, ignorePatterns)
 	changes = filterBinary(changes)
 
 	if len(changes) == 0 {
-		return "", "", "", nil, ErrNoChangedFiles
+		return "", "", "", nil, nil, ErrNoChangedFiles
 	}
-	return branch, baseRef, resolvedBase, changes, nil
+	return branch, baseRef, resolvedBase, changes, scopes, nil
 }
 
 // resolveSessionStartBaseRef pins BaseRef to HEAD when reviewing on the default
@@ -833,7 +848,7 @@ func newGitSession(v vcs.VCS, ignorePatterns []string, requireChanges bool) (*Se
 		return nil, fmt.Errorf("not a %s repository: %w", v.Name(), err)
 	}
 
-	branch, baseRef, resolvedBase, changes, err := DetectVCSChanges(v, root, ignorePatterns)
+	branch, baseRef, resolvedBase, changes, initialScopes, err := detectVCSChangesAndScopes(v, root, ignorePatterns)
 	if errors.Is(err, ErrNoChangedFiles) && !requireChanges {
 		// DetectVCSChanges zeroes its return values on the empty path; recover
 		// the metadata so the session reports the correct branch/base.
@@ -897,6 +912,9 @@ func newGitSession(v vcs.VCS, ignorePatterns []string, requireChanges bool) (*Se
 			continue
 		}
 		s.Files = append(s.Files, fe)
+	}
+	if len(initialScopes) > 0 {
+		seedAvailableScopes(baseRef, initialScopes)
 	}
 
 	return s, nil

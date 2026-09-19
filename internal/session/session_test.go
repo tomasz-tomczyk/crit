@@ -3,9 +3,12 @@ package session
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -4801,6 +4804,230 @@ func TestAvailableScopes_NilVCS(t *testing.T) {
 	scopes := availableScopes("main", nil)
 	if len(scopes) != 1 || scopes[0] != "all" {
 		t.Errorf("expected [all] for nil vcs.VCS, got %v", scopes)
+	}
+}
+
+type initialSnapshotVCS struct {
+	vcs.VCS
+	branch          string
+	defaultBranch   string
+	baseRef         string
+	snapshotChanges []vcs.FileChange
+	snapshotScopes  []string
+	snapshotOK      bool
+	snapshotErr     error
+	branchChanges   []vcs.FileChange
+	defaultChanges  []vcs.FileChange
+	branchCalls     int
+	defaultCalls    int
+}
+
+func (f *initialSnapshotVCS) CurrentBranch() string  { return f.branch }
+func (f *initialSnapshotVCS) DefaultBranch() string  { return f.defaultBranch }
+func (f *initialSnapshotVCS) DefaultBaseRef() string { return f.defaultBranch }
+func (f *initialSnapshotVCS) MergeBase(string) (string, error) {
+	return f.baseRef, nil
+}
+func (f *initialSnapshotVCS) InitialChangesAndScopes(string, string) ([]vcs.FileChange, []string, bool, error) {
+	return f.snapshotChanges, f.snapshotScopes, f.snapshotOK, f.snapshotErr
+}
+func (f *initialSnapshotVCS) ChangedFilesFromBaseInDir(string, string) ([]vcs.FileChange, error) {
+	f.branchCalls++
+	return f.branchChanges, nil
+}
+func (f *initialSnapshotVCS) ChangedFilesOnDefaultInDir(string) ([]vcs.FileChange, error) {
+	f.defaultCalls++
+	return f.defaultChanges, nil
+}
+
+func TestDetectVCSChangesAndScopesUsesSnapshot(t *testing.T) {
+	fake := &initialSnapshotVCS{
+		branch:          "feature",
+		defaultBranch:   "main",
+		baseRef:         "base",
+		snapshotChanges: []vcs.FileChange{{Path: "snapshot.go", Status: "modified"}},
+		snapshotScopes:  []string{"all", "branch"},
+		snapshotOK:      true,
+	}
+
+	branch, baseRef, resolvedBase, changes, scopes, err := detectVCSChangesAndScopes(fake, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feature" || baseRef != "base" || resolvedBase != "main" {
+		t.Fatalf("metadata = (%q, %q, %q), want (feature, base, main)", branch, baseRef, resolvedBase)
+	}
+	if want := []vcs.FileChange{{Path: "snapshot.go", Status: "modified"}}; !reflect.DeepEqual(changes, want) {
+		t.Fatalf("changes = %#v, want %#v", changes, want)
+	}
+	if want := []string{"all", "branch"}; !reflect.DeepEqual(scopes, want) {
+		t.Fatalf("scopes = %v, want %v", scopes, want)
+	}
+	if fake.branchCalls != 0 || fake.defaultCalls != 0 {
+		t.Fatalf("fallback calls = (branch: %d, default: %d), want zero", fake.branchCalls, fake.defaultCalls)
+	}
+
+	_, _, _, publicChanges, err := DetectVCSChanges(fake, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(publicChanges, changes) {
+		t.Fatalf("DetectVCSChanges() changes = %#v, want %#v", publicChanges, changes)
+	}
+}
+
+func TestDetectVCSChangesAndScopesFallsBackWhenSnapshotUnavailable(t *testing.T) {
+	tests := []struct {
+		name             string
+		branch           string
+		defaultBranch    string
+		baseRef          string
+		branchChanges    []vcs.FileChange
+		defaultChanges   []vcs.FileChange
+		wantChanges      []vcs.FileChange
+		wantBranchCalls  int
+		wantDefaultCalls int
+	}{
+		{
+			name:            "feature branch",
+			branch:          "feature",
+			defaultBranch:   "main",
+			baseRef:         "base",
+			branchChanges:   []vcs.FileChange{{Path: "branch.go", Status: "modified"}},
+			wantChanges:     []vcs.FileChange{{Path: "branch.go", Status: "modified"}},
+			wantBranchCalls: 1,
+		},
+		{
+			name:             "default branch",
+			branch:           "main",
+			defaultBranch:    "main",
+			defaultChanges:   []vcs.FileChange{{Path: "working.go", Status: "modified"}},
+			wantChanges:      []vcs.FileChange{{Path: "working.go", Status: "modified"}},
+			wantDefaultCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &initialSnapshotVCS{
+				branch:          tt.branch,
+				defaultBranch:   tt.defaultBranch,
+				baseRef:         tt.baseRef,
+				snapshotChanges: []vcs.FileChange{{Path: "discarded.go", Status: "modified"}},
+				snapshotScopes:  []string{"all", "discarded"},
+				branchChanges:   tt.branchChanges,
+				defaultChanges:  tt.defaultChanges,
+			}
+
+			_, _, _, changes, scopes, err := detectVCSChangesAndScopes(fake, t.TempDir(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(changes, tt.wantChanges) {
+				t.Fatalf("changes = %#v, want %#v", changes, tt.wantChanges)
+			}
+			if scopes != nil {
+				t.Fatalf("scopes = %v, want nil", scopes)
+			}
+			if fake.branchCalls != tt.wantBranchCalls || fake.defaultCalls != tt.wantDefaultCalls {
+				t.Fatalf("fallback calls = (branch: %d, default: %d), want (%d, %d)", fake.branchCalls, fake.defaultCalls, tt.wantBranchCalls, tt.wantDefaultCalls)
+			}
+		})
+	}
+}
+
+func TestDetectVCSChangesAndScopesReturnsSnapshotError(t *testing.T) {
+	fake := &initialSnapshotVCS{
+		branch:        "feature",
+		defaultBranch: "main",
+		baseRef:       "base",
+		snapshotErr:   fmt.Errorf("snapshot failed"),
+	}
+
+	branch, baseRef, resolvedBase, changes, scopes, err := detectVCSChangesAndScopes(fake, t.TempDir(), nil)
+	if err == nil || !strings.Contains(err.Error(), "detecting changes: snapshot failed") {
+		t.Fatalf("error = %v, want wrapped snapshot error", err)
+	}
+	if branch != "" || baseRef != "" || resolvedBase != "" || changes != nil || scopes != nil {
+		t.Fatalf("results = (%q, %q, %q, %#v, %v), want zero values", branch, baseRef, resolvedBase, changes, scopes)
+	}
+	if fake.branchCalls != 0 || fake.defaultCalls != 0 {
+		t.Fatalf("fallback calls = (branch: %d, default: %d), want zero", fake.branchCalls, fake.defaultCalls)
+	}
+}
+
+func TestDetectVCSChangesAndScopesReturnsNoChangedFiles(t *testing.T) {
+	fake := &initialSnapshotVCS{
+		branch:        "main",
+		defaultBranch: "main",
+		snapshotOK:    true,
+	}
+
+	_, _, _, _, _, err := detectVCSChangesAndScopes(fake, t.TempDir(), nil)
+	if !errors.Is(err, ErrNoChangedFiles) {
+		t.Fatalf("error = %v, want ErrNoChangedFiles", err)
+	}
+}
+
+func preserveScopeCache(t *testing.T) {
+	t.Helper()
+	scopeCacheMu.Lock()
+	previousBaseRef := scopeCacheBaseRef
+	previousResult := append([]string(nil), scopeCacheResult...)
+	previousExpiry := scopeCacheExpiry
+	scopeCacheMu.Unlock()
+	t.Cleanup(func() {
+		scopeCacheMu.Lock()
+		scopeCacheBaseRef = previousBaseRef
+		scopeCacheResult = previousResult
+		scopeCacheExpiry = previousExpiry
+		scopeCacheMu.Unlock()
+	})
+}
+
+func TestSeedAvailableScopes(t *testing.T) {
+	preserveScopeCache(t)
+
+	want := []string{"all", "branch", "unstaged"}
+	seedAvailableScopes("base", want)
+	want[1] = "mutated"
+
+	got := cachedAvailableScopes("base", nil)
+	wantCached := []string{"all", "branch", "unstaged"}
+	if !reflect.DeepEqual(got, wantCached) {
+		t.Fatalf("cachedAvailableScopes() = %v, want %v", got, wantCached)
+	}
+}
+
+func TestNewGitSessionReusesInitialScopesThenRefreshes(t *testing.T) {
+	preserveScopeCache(t)
+	dir := initTestRepo(t)
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	writeFile(t, filepath.Join(dir, "staged.go"), "package staged\n")
+	gitT(t, dir, "add", "staged.go")
+	s, err := NewGitSession(&vcs.GitVCS{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "commit", "-m", "commit staged file")
+
+	if scopes := s.GetSessionInfo().AvailableScopes; !slices.Contains(scopes, "staged") {
+		t.Fatalf("initial scopes = %v, want staged from startup snapshot", scopes)
+	}
+
+	scopeCacheMu.Lock()
+	scopeCacheExpiry = time.Time{}
+	scopeCacheMu.Unlock()
+	if scopes := s.GetSessionInfo().AvailableScopes; slices.Contains(scopes, "staged") {
+		t.Fatalf("refreshed scopes = %v, staged should reflect current Git state", scopes)
 	}
 }
 

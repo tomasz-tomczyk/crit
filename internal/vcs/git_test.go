@@ -82,6 +82,128 @@ func TestParseNormalUntrackedStatus(t *testing.T) {
 	})
 }
 
+func TestParseGitStatusSnapshot(t *testing.T) {
+	out := []byte("1 M. N... 100644 100644 100644 head index staged file.go\x00" +
+		"1 .D N... 100644 100644 000000 head index deleted.go\x00" +
+		"2 R. N... 100644 100644 100644 head index R100 renamed.go\x00old.go\x00" +
+		"u UU N... 100644 100644 100644 100644 one two three conflict.go\x00" +
+		"? root file.txt\x00? nested/\x00")
+
+	snapshot := parseGitStatusSnapshot(out)
+	wantStaged := []FileChange{
+		{Path: "staged file.go", Status: "modified"},
+		{Path: "renamed.go", OldPath: "old.go", Status: "renamed"},
+		{Path: "conflict.go", Status: "modified"},
+	}
+	wantUnstaged := []FileChange{
+		{Path: "deleted.go", Status: "deleted"},
+		{Path: "conflict.go", Status: "modified"},
+	}
+	wantUntracked := []FileChange{{Path: "root file.txt", Status: "untracked"}}
+	if !reflect.DeepEqual(snapshot.staged, wantStaged) {
+		t.Errorf("staged = %#v, want %#v", snapshot.staged, wantStaged)
+	}
+	if !reflect.DeepEqual(snapshot.unstaged, wantUnstaged) {
+		t.Errorf("unstaged = %#v, want %#v", snapshot.unstaged, wantUnstaged)
+	}
+	if !reflect.DeepEqual(snapshot.untracked, wantUntracked) {
+		t.Errorf("untracked = %#v, want %#v", snapshot.untracked, wantUntracked)
+	}
+	if !snapshot.needsUntrackedScan {
+		t.Error("needsUntrackedScan = false, want true")
+	}
+}
+
+func TestInitialGitChangesAndScopes(t *testing.T) {
+	dir := initTestRepo(t)
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-b", "feature/snapshot")
+
+	writeFile(t, filepath.Join(dir, "branch.go"), "package branch\n")
+	gitT(t, dir, "add", "branch.go")
+	gitT(t, dir, "commit", "-m", "branch change")
+	writeFile(t, filepath.Join(dir, "staged.go"), "package staged\n")
+	gitT(t, dir, "add", "staged.go")
+	writeFile(t, filepath.Join(dir, "README.md"), "unstaged\n")
+	writeFile(t, filepath.Join(dir, "untracked.go"), "package untracked\n")
+
+	changes, scopes, ok, err := initialGitChangesAndScopes(baseRef, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	got := make(map[string]string)
+	for _, change := range changes {
+		got[change.Path] = change.Status
+	}
+	want := map[string]string{
+		"README.md":    "modified",
+		"branch.go":    "added",
+		"staged.go":    "added",
+		"untracked.go": "untracked",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("changes = %v, want %v", got, want)
+	}
+	if wantScopes := []string{"all", "branch", "staged", "unstaged"}; !reflect.DeepEqual(scopes, wantScopes) {
+		t.Errorf("scopes = %v, want %v", scopes, wantScopes)
+	}
+}
+
+func TestInitialGitChangesAndScopesFallsBackForOverlappingLayers(t *testing.T) {
+	dir := initTestRepo(t)
+	baseRef := gitT(t, dir, "rev-parse", "HEAD")
+	original, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "checkout", "-b", "feature/overlap")
+	writeFile(t, filepath.Join(dir, "README.md"), "committed\n")
+	gitT(t, dir, "add", "README.md")
+	gitT(t, dir, "commit", "-m", "change readme")
+	writeFile(t, filepath.Join(dir, "kept.go"), "package kept\n")
+	gitT(t, dir, "add", "kept.go")
+	gitT(t, dir, "commit", "-m", "keep change")
+	writeFile(t, filepath.Join(dir, "README.md"), string(original))
+
+	changes, scopes, ok, err := initialGitChangesAndScopes(baseRef, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	want := []FileChange{{Path: "kept.go", Status: "added"}}
+	if !reflect.DeepEqual(changes, want) {
+		t.Errorf("changes = %#v, want %#v", changes, want)
+	}
+	if wantScopes := []string{"all", "branch", "unstaged"}; !reflect.DeepEqual(scopes, wantScopes) {
+		t.Errorf("scopes = %v, want %v", scopes, wantScopes)
+	}
+}
+
+func TestInitialGitChangesAndScopesPreservesStagedRename(t *testing.T) {
+	dir := initTestRepo(t)
+	gitT(t, dir, "mv", "README.md", "renamed readme.md")
+
+	changes, scopes, ok, err := initialGitChangesAndScopes("", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	want := []FileChange{{Path: "renamed readme.md", OldPath: "README.md", Status: "renamed"}}
+	if !reflect.DeepEqual(changes, want) {
+		t.Errorf("changes = %#v, want %#v", changes, want)
+	}
+	if wantScopes := []string{"all", "staged"}; !reflect.DeepEqual(scopes, wantScopes) {
+		t.Errorf("scopes = %v, want %v", scopes, wantScopes)
+	}
+}
+
 func TestUntrackedFilesInDir(t *testing.T) {
 	t.Run("returns standalone files and excludes ignored files", func(t *testing.T) {
 		dir := initTestRepo(t)
