@@ -23,6 +23,8 @@ test.describe('Settings shortcuts — Live and Preview controller', () => {
     await page.keyboard.press('x');
     await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toHaveClass(/active/);
 
+    await expect(page.locator('#liveModeShortcut')).toHaveText('X');
+
     await page.keyboard.press('?');
     await page.locator('.shortcut-reset-all').click();
   });

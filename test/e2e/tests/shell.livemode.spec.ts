@@ -100,6 +100,15 @@ test.describe('live-mode shell — Pin/Navigate toggle', () => {
     await expect(pinBtn).toBeEnabled();
     await expect(group.locator('button[data-mode="navigate"]')).toHaveClass(/active/);
   });
+
+  test('mode chrome describes browsing and how to enter Comment mode', async ({ page }) => {
+    await page.goto('/live');
+    await expect(page.locator('#liveModeToggle button[data-mode="navigate"]')).toHaveText('Browse');
+    await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toContainText('P');
+    await expect(page.locator('#liveModeToggle button[data-mode="pin"]')).toContainText('Comment');
+    await expect(page.locator('#liveModeHint')).toContainText('Browsing');
+    await expect(page.locator('#liveModeHint')).toContainText('leave feedback');
+  });
 });
 
 test.describe('live-mode shell — iframe + route detection', () => {

@@ -20,6 +20,7 @@
     PIN_RESOLUTION_RESULT: 'pin-resolution-result',
     VIEWPORT_APPLIED:   'viewport-applied',
     HOVERED_ANCESTOR_LEVEL: 'hovered-ancestor-level',
+    TOGGLE_PIN_MODE:    'toggle-pin-mode',
   };
 
   // Chrome → Agent
@@ -111,6 +112,8 @@
         return { ok: true };
       case A2C.FOCUS_STATE:
         if (!isBool(msg.in_input)) return { ok: false, reason: 'focus-state.in_input' };
+        return { ok: true };
+      case A2C.TOGGLE_PIN_MODE:
         return { ok: true };
       case A2C.ROUTE_CHANGE:
         if (!isString(msg.pathname)) return { ok: false, reason: 'route-change.pathname' };

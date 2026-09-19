@@ -660,4 +660,17 @@
   document.addEventListener('focusout', function (ev) {
     if (isInputLike(ev.target)) postToParent({ type: A2C.FOCUS_STATE, in_input: false });
   }, true);
+
+  // The live target owns focus once a reviewer clicks into it, so shortcuts
+  // registered by the review chrome cannot see this key event. Relay the
+  // default Comment shortcut to the trusted parent instead. Never steal
+  // typing or browser/application chords from the page being reviewed.
+  document.addEventListener('keydown', function (ev) {
+    if (ev.defaultPrevented || ev.repeat || ev.isComposing ||
+        ev.ctrlKey || ev.metaKey || ev.altKey ||
+        (ev.key !== 'p' && ev.key !== 'P') || isInputLike(ev.target)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    postToParent({ type: A2C.TOGGLE_PIN_MODE });
+  }, true);
 })();

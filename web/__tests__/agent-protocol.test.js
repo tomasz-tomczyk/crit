@@ -49,6 +49,10 @@ test('focus-state requires boolean in_input', () => {
   assert.equal(validateMessage({ type: 'focus-state', in_input: 'yes' }).ok, false);
 });
 
+test('toggle-pin-mode requires no payload', () => {
+  assert.deepEqual(validateMessage({ type: 'toggle-pin-mode' }), { ok: true });
+});
+
 test('request-ancestor-menu requires options array and pointer', () => {
   assert.equal(
     validateMessage({

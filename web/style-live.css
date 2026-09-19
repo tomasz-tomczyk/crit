@@ -90,6 +90,51 @@
   padding: 16px;
 }
 
+/* Keep the current interaction state next to the page being reviewed. The
+   colours deliberately do not rely on the low-contrast shared toggle tint. */
+.crit-live-mode-hint {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg-secondary);
+  font-size: 12px;
+}
+.crit-live-mode-hint strong { color: var(--crit-editor-fg); }
+.crit-live-mode-hint[data-mode="pin"] {
+  border-color: var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
+}
+.crit-live-mode-hint[data-mode="pin"] strong { color: var(--crit-brand); }
+.crit-live-mode-hint kbd,
+#liveModeToggle kbd {
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font: inherit;
+  font-weight: 700;
+}
+.crit-mode-live #liveModeToggle .toggle-btn.active {
+  background: var(--crit-brand);
+  /* In dark themes the brand is intentionally light, so use the editor
+     surface (dark there, white in light themes) for a reliable text ratio. */
+  color: var(--crit-editor-bg);
+  box-shadow: none;
+}
+.crit-mode-live #liveModeToggle .toggle-btn[data-mode="pin"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
 .crit-live-iframe-pane-inner {
   display: flex;
   justify-content: center;
