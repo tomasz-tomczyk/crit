@@ -37,11 +37,11 @@
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft Raycast lift, tinted with brand so actives sit in the same
-     periwinkle family as the branch pills — not a flat grey slab. */
+     Soft Raycast lift, tinted with brand. Active fg uses --crit-brand
+     (not editor periwinkle) so 10px file-header pills stay AA (≥4.5:1). */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
-  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 20%, rgba(255, 255, 255, 0.06));
-  --crit-seg-active-fg:  var(--crit-editor-fg);
+  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 16%, transparent);
+  --crit-seg-active-fg:  var(--crit-brand);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
@@ -507,11 +507,11 @@
   --crit-pill-fg-muted:  #8b949e;
   --crit-pill-border:    #30363d;
   /* ---- Segmented controls (scope / diff / viewport / mode) ----
-     Soft Raycast lift, tinted with brand so actives sit in the same
-     periwinkle family as the branch pills — not a flat grey slab. */
+     Soft Raycast lift, tinted with brand. Active fg uses --crit-brand
+     (not editor periwinkle) so 10px file-header pills stay AA (≥4.5:1). */
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
-  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 20%, rgba(255, 255, 255, 0.06));
-  --crit-seg-active-fg:  var(--crit-editor-fg);
+  --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 16%, transparent);
+  --crit-seg-active-fg:  var(--crit-brand);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
