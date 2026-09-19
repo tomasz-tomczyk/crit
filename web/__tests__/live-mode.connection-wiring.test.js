@@ -31,9 +31,13 @@ test('live-mode.js renders the connection banner in buildShell', () => {
   includes('id="liveConnectionHelp"');
 });
 
-test('live-mode.js starts connection tracking on iframe load', () => {
+test('live-mode.js starts connection tracking on iframe navigation', () => {
   includes('function startConnectionTracking()');
-  includes("addEventListener('load', startConnectionTracking)");
+  includes('function onIframeLoad()');
+  includes("addEventListener('load', onIframeLoad)");
+  // agent-ready usually arrives before the load event; the load handler
+  // must not blindly reset a successful ready state.
+  includes('agentReadyForCurrentLoad');
 });
 
 test('live-mode.js wires the retry button', () => {

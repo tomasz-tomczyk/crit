@@ -691,10 +691,18 @@
     return 'http://' + host + ':' + port + (pathname || '/');
   }
 
+  // Set when agent-ready arrives for the in-flight iframe navigation.
+  // The iframe `load` event fires *after* deferred/sync scripts run, so
+  // agent-ready usually beats `load`. Restarting the connection timer on
+  // every load would wipe that ready state and falsely time out.
+  var agentReadyForCurrentLoad = false;
+
   function startConnectionTracking() {
     var connMod = window.crit && window.crit.live && window.crit.live.connection;
     if (!connMod || !connMod.makeConnectionState) return;
     if (connectionCtl) connectionCtl.destroy();
+    agentReadyForCurrentLoad = false;
+    state.agentReady = false;
     state.agentConnectionState = 'connecting';
     updateConnectionUI();
     connectionCtl = connMod.makeConnectionState({
@@ -708,6 +716,10 @@
       },
       onRetry: function () {
         if (!els.iframe) return;
+        // Clear the ready-for-load latch so a successful prior connection
+        // cannot mask a failed re-injection after Retry.
+        agentReadyForCurrentLoad = false;
+        state.agentReady = false;
         // Re-set the iframe src to trigger a fresh agent injection. Route
         // changes that keep the same document (SPA navigations) are handled
         // by the agent itself and do not need retry.
@@ -716,10 +728,24 @@
     });
   }
 
+  function onIframeLoad() {
+    // Scripts (crit-agent) run before `load`. If agent-ready already landed
+    // for this document, keep Ready — do not recreate the timer.
+    if (agentReadyForCurrentLoad) {
+      if (connectionCtl) connectionCtl.setReady();
+      state.agentConnectionState = 'ready';
+      updateConnectionUI();
+      return;
+    }
+    // Load finished with no matching agent-ready (blocked injection, or an
+    // in-iframe navigation to a page where the agent could not boot).
+    startConnectionTracking();
+  }
+
   registerInstaller(function installIframe() {
     state.currentRoute = utils.normaliseRoute(state.currentRoute);
     if (!els.iframe) return;
-    els.iframe.addEventListener('load', startConnectionTracking);
+    els.iframe.addEventListener('load', onIframeLoad);
     els.iframe.src = proxyURL(state.currentRoute);
     startConnectionTracking();
   });
@@ -2102,6 +2128,7 @@
 
   function handleAgentReady() {
     state.agentReady = true;
+    agentReadyForCurrentLoad = true;
     state.agentConnectionState = 'ready';
     if (connectionCtl) connectionCtl.setReady();
     if (_sender) _sender.markReady();
