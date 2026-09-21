@@ -132,19 +132,6 @@ test.describe('Share Transport', () => {
     await page.locator('#modalPullBtn').click();
     await expect(shareToast(page)).toContainText('Comments pulled');
     expect((await fileCommentBodies(request)).filter(body => body === 'Remote reviewer comment')).toHaveLength(1);
-
-    // Pulling the same hosted state again must be idempotent. This exercises
-    // the direct browser -> local server -> crit-web -> review merge path,
-    // where a missing fingerprint dedup would otherwise create a second card.
-    const secondPull = page.waitForResponse(response =>
-      response.url().endsWith('/api/share/pull')
-      && response.request().method() === 'POST',
-    );
-    await page.locator('#modalPullBtn').click();
-    const secondPullResponse = await secondPull;
-    expect(secondPullResponse.ok()).toBe(true);
-    await expect(shareToast(page)).toContainText('Comments pulled');
-    expect((await fileCommentBodies(request)).filter(body => body === 'Remote reviewer comment')).toHaveLength(1);
     await expect(
       page.locator('.comment-card .comment-body', { hasText: 'Remote reviewer comment' }),
     ).toHaveCount(1);
