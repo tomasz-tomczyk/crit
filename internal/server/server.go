@@ -2465,7 +2465,11 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	// $CRIT_REVIEW_PATH; failures/timeouts are logged and never block finish.
 	s.runFinishHooks(sess, approved, stats)
 
-	writeJSON(w, map[string]any{
+	// Auto-close-after-approve delay travels with the finish payload so the
+	// browser does not need a second /api/config round-trip after approval.
+	// That round-trip races with killDaemonOnApproval, which stops the daemon
+	// as soon as the approved finish response has been processed.
+	finishResp := map[string]any{
 		"status":       "finished",
 		"prompt":       prompt,
 		"approved":     approved,
@@ -2473,18 +2477,27 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		"next_command": nextCommand,
 		"stats":        stats,
 		"prompt_meta":  promptMeta,
-	})
+	}
+	if ms, enabled := s.cfg.CloseOnApproveAfterMsEnabled(); enabled {
+		finishResp["close_on_approve_after_ms"] = ms
+	}
+	writeJSON(w, finishResp)
 
 	// Encode approved status into SSE event content as JSON so review-cycle
 	// clients can extract it without string matching on the prompt.
-	eventData, _ := json.Marshal(map[string]any{
+	// Mirror the finish response so review-cycle consumers see the same fields.
+	eventDataMap := map[string]any{
 		"prompt":       prompt,
 		"approved":     approved,
 		"stats":        stats,
 		"comments":     comments,
 		"next_command": nextCommand,
 		"prompt_meta":  promptMeta,
-	})
+	}
+	if ms, enabled := s.cfg.CloseOnApproveAfterMsEnabled(); enabled {
+		eventDataMap["close_on_approve_after_ms"] = ms
+	}
+	eventData, _ := json.Marshal(eventDataMap)
 	sess.Notify(SSEEvent{
 		Type:    "finish",
 		Content: string(eventData),
@@ -2607,19 +2620,20 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				sess.SetAwaitingFirstReview(false)
 				// Parse the structured finish event data
 				var finishData struct {
-					Prompt      string                  `json:"prompt"`
-					Approved    bool                    `json:"approved"`
-					Stats       map[string]any          `json:"stats"`
-					Comments    []comment.ListedComment `json:"comments"`
-					PromptMeta  *prompt.Meta            `json:"prompt_meta"`
-					NextCommand string                  `json:"next_command"`
+					Prompt                string                  `json:"prompt"`
+					Approved              bool                    `json:"approved"`
+					Stats                 map[string]any          `json:"stats"`
+					Comments              []comment.ListedComment `json:"comments"`
+					PromptMeta            *prompt.Meta            `json:"prompt_meta"`
+					NextCommand           string                  `json:"next_command"`
+					CloseOnApproveAfterMs *int                    `json:"close_on_approve_after_ms"`
 				}
 				json.Unmarshal([]byte(event.Content), &finishData)
 				nextCommand := finishData.NextCommand
 				if nextCommand == "" {
 					nextCommand = session.NextRoundCommand(sess)
 				}
-				writeJSON(w, map[string]any{
+				cycleResp := map[string]any{
 					"status":       "finished",
 					"prompt":       finishData.Prompt,
 					"approved":     finishData.Approved,
@@ -2627,7 +2641,11 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 					"stats":        finishData.Stats,
 					"next_command": nextCommand,
 					"prompt_meta":  finishData.PromptMeta,
-				})
+				}
+				if finishData.CloseOnApproveAfterMs != nil {
+					cycleResp["close_on_approve_after_ms"] = *finishData.CloseOnApproveAfterMs
+				}
+				writeJSON(w, cycleResp)
 				return
 			}
 			if event.Type == "server-shutdown" {

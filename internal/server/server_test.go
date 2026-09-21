@@ -4241,6 +4241,53 @@ func TestHandleFinish_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleFinish_CloseOnApproveAfterMs_IncludedWhenSet(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ms := 2500
+	srv.cfg = Config{CloseOnApproveAfterMs: &ms}
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["approved"] != true {
+		t.Errorf("approved = %v, want true", resp["approved"])
+	}
+	got, ok := resp["close_on_approve_after_ms"].(float64)
+	if !ok || int(got) != 2500 {
+		t.Errorf("close_on_approve_after_ms = %v, want 2500", resp["close_on_approve_after_ms"])
+	}
+}
+
+func TestHandleFinish_CloseOnApproveAfterMs_OmittedWhenUnset(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest("POST", "/api/finish", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["approved"] != true {
+		t.Errorf("approved = %v, want true", resp["approved"])
+	}
+	if _, ok := resp["close_on_approve_after_ms"]; ok {
+		t.Errorf("close_on_approve_after_ms = %v, want omitted when unset", resp["close_on_approve_after_ms"])
+	}
+}
+
 // --- handleFileComments additional tests ---
 
 func TestHandleFileComments_POST_FileScope(t *testing.T) {

@@ -565,17 +565,24 @@
 
       var closeMs;
       if (approved) {
-        // close_on_approve_after_ms is global-only and off by default; read
-        // it fresh from /api/config rather than requiring every caller to
-        // thread a cached copy through. Best-effort — a config fetch failure
-        // just means no auto-close, never blocks the approval itself.
-        try {
-          var cfgResp = await fetch('/api/config');
-          if (cfgResp && cfgResp.ok) {
-            var cfgData = await cfgResp.json();
-            closeMs = cfgData && cfgData.close_on_approve_after_ms;
-          }
-        } catch (_) { /* best effort */ }
+        // close_on_approve_after_ms is global-only and off by default. Prefer
+        // the value baked into the /api/finish response: the daemon may stop
+        // immediately after an approved finish (killDaemonOnApproval), so a
+        // separate /api/config round-trip can race and fail. Fall back to the
+        // config endpoint only when the finish payload omits the field (older
+        // daemon). Best-effort — a missing/failed config fetch just means no
+        // auto-close, never blocks the approval itself.
+        if (typeof data.close_on_approve_after_ms === 'number') {
+          closeMs = data.close_on_approve_after_ms;
+        } else {
+          try {
+            var cfgResp = await fetch('/api/config');
+            if (cfgResp && cfgResp.ok) {
+              var cfgData = await cfgResp.json();
+              closeMs = cfgData && cfgData.close_on_approve_after_ms;
+            }
+          } catch (_) { /* best effort */ }
+        }
       }
 
       if (approved && typeof o.onApproved === 'function') o.onApproved(prompt);

@@ -879,6 +879,31 @@ test('runFinishReview: a not-approved finish clears a countdown left over from a
   assert.equal(win.closeCalls, 0, 'the inherited countdown never closes the tab');
 });
 
+test('runFinishReview: finish payload close_on_approve_after_ms is enough even when /api/config fails (race regression)', async () => {
+  let configCalled = false;
+  const fetch = async (url) => {
+    if (url === '/api/finish') {
+      return {
+        ok: true,
+        json: async () => ({ approved: true, prompt: 'ok', close_on_approve_after_ms: 1500 }),
+      };
+    }
+    if (url === '/api/config') {
+      configCalled = true;
+      return { ok: false, status: 503, json: async () => ({}) };
+    }
+    throw new Error('unexpected fetch ' + url);
+  };
+  const { shared: s, win, els, flush } = makeAutoCloseSandbox(fetch);
+  const result = await s.runFinishReview({});
+  assert.equal(result.approved, true);
+  assert.equal(els.messageEl.textContent, 'Closing in 2s…');
+  flush(1000);
+  assert.equal(els.messageEl.textContent, 'Closing in 1s…');
+  flush(1000);
+  assert.equal(win.closeCalls, 1, 'auto-close runs from finish payload alone');
+});
+
 // ----- auto-close accessibility -----
 
 test('scheduleAutoClose: focuses Cancel and announces the countdown once, not per tick', () => {
