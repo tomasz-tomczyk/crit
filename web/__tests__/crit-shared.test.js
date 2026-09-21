@@ -897,6 +897,7 @@ test('runFinishReview: finish payload close_on_approve_after_ms is enough even w
   const { shared: s, win, els, flush } = makeAutoCloseSandbox(fetch);
   const result = await s.runFinishReview({});
   assert.equal(result.approved, true);
+  assert.equal(configCalled, false, 'must not fall back to /api/config when finish carries close_on_approve_after_ms');
   assert.equal(els.messageEl.textContent, 'Closing in 2s…');
   flush(1000);
   assert.equal(els.messageEl.textContent, 'Closing in 1s…');
