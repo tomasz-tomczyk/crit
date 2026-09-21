@@ -104,7 +104,7 @@ test.describe('Panel Redesign', () => {
     await expect(filterBtn(page, 'resolved')).not.toHaveClass(/active/);
   });
 
-  test('Open filter shows only unresolved comments', async ({ page, request }) => {
+  test('Open and Resolved filters show their matching comments', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
 
     // Create a comment, resolve it, then add a new unresolved one
@@ -123,22 +123,12 @@ test.describe('Panel Redesign', () => {
     await expect(filterBtn(page, 'open')).toHaveClass(/active/);
     await expect(panelCards(page)).toHaveCount(1);
     await expect(panelCards(page).first().locator('.comment-body')).toContainText('Still open');
-  });
-
-  test('Resolved filter shows only resolved comments', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-
-    await addComment(request, mdPath, 1, 'Will be resolved');
-    await finishAndResolve(request);
-    await addComment(request, mdPath, 2, 'Still open');
-
-    await loadPage(page);
-    await openPanel(page);
 
     await filterBtn(page, 'resolved').click();
     await expect(filterBtn(page, 'resolved')).toHaveClass(/active/);
     await expect(panelCards(page)).toHaveCount(1);
     await expect(panelCards(page).first()).toHaveClass(/resolved-card/);
+    await expect(panelCards(page).first().locator('.comment-body')).toContainText('Will be resolved');
   });
 
   // ----------------------------------------------------------
@@ -234,26 +224,18 @@ test.describe('Panel Redesign', () => {
     const fileGroups = page.locator('.comments-panel-file-group');
     await expect(fileGroups).toHaveCount(2);
 
-    // Each group header has a chevron and count
-    const firstHeader = fileGroups.first().locator('.comments-panel-file-name');
-    await expect(firstHeader.locator('.comments-panel-file-chevron')).toBeVisible();
-    await expect(firstHeader.locator('.comments-panel-file-count')).toBeVisible();
+    const mdHeader = fileGroups.filter({ hasText: mdPath }).locator('.comments-panel-file-name');
+    const goHeader = fileGroups.filter({ hasText: goPath! }).locator('.comments-panel-file-name');
+    await expect(mdHeader.locator('.comments-panel-file-chevron')).toBeVisible();
+    await expect(goHeader.locator('.comments-panel-file-chevron')).toBeVisible();
+    await expect(mdHeader.locator('.comments-panel-file-count')).toHaveText('2');
+    await expect(goHeader.locator('.comments-panel-file-count')).toHaveText('1');
   });
 
   // ----------------------------------------------------------
   // 5. Expand all / Collapse all toggle
   // ----------------------------------------------------------
-  test('Expand all button label starts as "Collapse all" when cards are expanded', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Test comment');
-    await loadPage(page);
-    await openPanel(page);
-
-    // Cards start expanded, so the button offers to collapse
-    await expect(expandAllBtn(page)).toHaveText('Collapse all');
-  });
-
-  test('clicking Collapse all collapses cards and label changes to Expand all', async ({ page, request }) => {
+  test('Collapse all and Expand all toggle every panel card and label', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Comment to expand');
     await loadPage(page);
@@ -270,19 +252,6 @@ test.describe('Panel Redesign', () => {
     const cards = panelCards(page);
     await expect(cards).toHaveCount(1);
     await expect(cards.first()).toHaveClass(/collapsed/);
-  });
-
-  test('clicking Expand all after collapse expands cards and label reverts', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Comment to collapse');
-    await loadPage(page);
-    await openPanel(page);
-
-    // Cards start expanded; collapse them first
-    await expect(expandAllBtn(page)).toHaveText('Collapse all');
-    await expandAllBtn(page).click();
-    await expect(expandAllBtn(page)).toHaveText('Expand all');
-    await expect(panelCards(page).first()).toHaveClass(/collapsed/);
 
     // Expand all again
     await expandAllBtn(page).click();
@@ -295,7 +264,7 @@ test.describe('Panel Redesign', () => {
   // ----------------------------------------------------------
   // 6. Expand all affects inline comments in the document body
   // ----------------------------------------------------------
-  test('Collapse all also collapses inline comment blocks in document', async ({ page, request }) => {
+  test('Collapse all and Expand all also toggle inline comment cards', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Inline test comment');
     await loadPage(page);
@@ -311,23 +280,6 @@ test.describe('Panel Redesign', () => {
     await expect(inlineCard).not.toHaveClass(/collapsed/);
 
     // Collapse all — should affect both panel and inline cards
-    await expandAllBtn(page).click();
-    await expect(expandAllBtn(page)).toHaveText('Expand all');
-    await expect(inlineCard).toHaveClass(/collapsed/);
-  });
-
-  test('Expand all expands previously collapsed inline comments', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Inline expand test');
-    await loadPage(page);
-    await switchToDocumentView(page);
-    await openPanel(page);
-
-    const inlineCard = mdSection(page).locator('.comment-card[data-comment-id]').first();
-    await expect(inlineCard).toBeVisible();
-
-    // Cards start expanded; collapse them first
-    await expect(expandAllBtn(page)).toHaveText('Collapse all');
     await expandAllBtn(page).click();
     await expect(expandAllBtn(page)).toHaveText('Expand all');
     await expect(inlineCard).toHaveClass(/collapsed/);

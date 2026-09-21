@@ -6339,6 +6339,7 @@ html[data-theme="light"] .toggle-btn.active {
   }
   .reply-actions button {
     padding: 10px 8px;
+    min-width: 44px;
     min-height: 44px;
   }
   .toc-close {

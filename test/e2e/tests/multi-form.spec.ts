@@ -253,10 +253,10 @@ test.describe('Multi-Form Comments', () => {
     const goSec = goSection(page);
     const additions = goSec.locator('.diff-split-side.right[data-diff-line-num]');
 
-    // Need at least two commentable lines
-    await expect(additions).toHaveCount(2, { timeout: 5_000 }).catch(() => {});
-    const count = await additions.count();
-    if (count < 2) return;
+    // The deterministic fixture must expose at least two commentable lines.
+    // Requiring the second row prevents this test from silently passing when
+    // fixture drift removes the behavior it promises to exercise.
+    await expect(additions.nth(1)).toBeAttached();
 
     const firstAdd = additions.first();
     const secondAdd = additions.nth(1);

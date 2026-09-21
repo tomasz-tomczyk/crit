@@ -131,7 +131,23 @@ test.describe('Share Transport', () => {
     await seedRemoteComment(request, await hostedToken(request), 'Remote reviewer comment', 7);
     await page.locator('#modalPullBtn').click();
     await expect(shareToast(page)).toContainText('Comments pulled');
-    expect(await fileCommentBodies(request)).toContain('Remote reviewer comment');
+    expect((await fileCommentBodies(request)).filter(body => body === 'Remote reviewer comment')).toHaveLength(1);
+
+    // Pulling the same hosted state again must be idempotent. This exercises
+    // the direct browser -> local server -> crit-web -> review merge path,
+    // where a missing fingerprint dedup would otherwise create a second card.
+    const secondPull = page.waitForResponse(response =>
+      response.url().endsWith('/api/share/pull')
+      && response.request().method() === 'POST',
+    );
+    await page.locator('#modalPullBtn').click();
+    const secondPullResponse = await secondPull;
+    expect(secondPullResponse.ok()).toBe(true);
+    await expect(shareToast(page)).toContainText('Comments pulled');
+    expect((await fileCommentBodies(request)).filter(body => body === 'Remote reviewer comment')).toHaveLength(1);
+    await expect(
+      page.locator('.comment-card .comment-body', { hasText: 'Remote reviewer comment' }),
+    ).toHaveCount(1);
 
     // Re-share: the local edit changes the content hash, so a PUT is required
     // (an unchanged review is a no-op upsert and would send nothing).
@@ -243,46 +259,41 @@ test.describe('Share Transport', () => {
 
   test('removing the bound target keeps the link and explains the missing instance', async ({ page, request }) => {
     const env = fixtureEnv();
+    const configPath = path.join(env.CRIT_HOME, '.crit.config.json');
+    const originalConfig = fs.readFileSync(configPath, 'utf8');
     await addComment(request, 'main.go', 3, 'Local comment before sharing');
     await loadPage(page);
     await shareToDestination(page, 'Stub A');
     const hostedURL = (await request.get('/api/config').then(r => r.json())).hosted_url as string;
     expect(hostedURL).toContain(`${STUB_ORIGIN}/r/`);
 
-    // Drop Stub A from global config; freshShareConfig reloads on the next API hit.
-    fs.writeFileSync(
-      path.join(env.CRIT_HOME, '.crit.config.json'),
-      JSON.stringify({
-        share_targets: [
-          { name: 'Stub B', url: STUB2_ORIGIN, default: true },
-          { name: 'crit.md', url: 'https://crit.md' },
-        ],
-      }, null, 2) + '\n',
-    );
+    try {
+      // Drop Stub A from global config; freshShareConfig reloads on the next API hit.
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          share_targets: [
+            { name: 'Stub B', url: STUB2_ORIGIN, default: true },
+            { name: 'crit.md', url: 'https://crit.md' },
+          ],
+        }, null, 2) + '\n',
+      );
 
-    await page.reload();
-    await loadPage(page);
-    await page.locator('#shareBtn').click();
-    await expect(page.locator('.share-dialog')).toBeVisible();
-    await expect(page.locator('.share-dialog')).toContainText('no longer configured');
-    await expect(page.locator('.share-dialog-url')).toContainText(hostedURL);
-    await expect(page.locator('#modalPullBtn')).toHaveCount(0);
-    await expect(page.locator('#modalUnpublishBtn')).toHaveText('Clear local link');
-    await page.locator('#modalUnpublishBtn').click();
-    await expect(page.locator('#shareBtn')).toHaveText('Share');
-    const cleared = await request.get('/api/config').then(r => r.json());
-    expect(cleared.hosted_url).toBe('');
-
-    // Restore multi-target config for later tests in this worker.
-    fs.writeFileSync(
-      path.join(env.CRIT_HOME, '.crit.config.json'),
-      JSON.stringify({
-        share_targets: [
-          { name: 'Stub A', url: STUB_ORIGIN, default: true },
-          { name: 'Stub B', url: STUB2_ORIGIN },
-          { name: 'crit.md', url: 'https://crit.md' },
-        ],
-      }, null, 2) + '\n',
-    );
+      await page.reload();
+      await loadPage(page);
+      await page.locator('#shareBtn').click();
+      await expect(page.locator('.share-dialog')).toBeVisible();
+      await expect(page.locator('.share-dialog')).toContainText('no longer configured');
+      await expect(page.locator('.share-dialog-url')).toContainText(hostedURL);
+      await expect(page.locator('#modalPullBtn')).toHaveCount(0);
+      await expect(page.locator('#modalUnpublishBtn')).toHaveText('Clear local link');
+      await page.locator('#modalUnpublishBtn').click();
+      await expect(page.locator('#shareBtn')).toHaveText('Share');
+      const cleared = await request.get('/api/config').then(r => r.json());
+      expect(cleared.hosted_url).toBe('');
+    } finally {
+      // Keep retries and later local runs isolated even when an assertion above fails.
+      fs.writeFileSync(configPath, originalConfig);
+    }
   });
 });

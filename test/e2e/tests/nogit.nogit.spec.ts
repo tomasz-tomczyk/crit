@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { clearAllComments, loadPage, mdSection } from './helpers';
 
 // ============================================================
 // No-Git Mode — Git-absence invariants
@@ -8,12 +8,16 @@ import { loadPage } from './helpers';
 // 1. The session API correctly reports files mode with no branch
 // 2. The page loads and renders file sections without git
 //
-// All other file-mode behaviors (no branch header, no diff toggle,
-// document view defaults, etc.) are already covered by *.filemode.spec.ts
-// tests which also run against this fixture.
+// Broader file-mode behavior is covered by *.filemode.spec.ts on its own
+// git-backed fixture. Keep one core review lifecycle here to prove that
+// storage and commenting also work when no repository exists at all.
 // ============================================================
 
 test.describe('No-Git Mode — Git-absence invariants', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
   test('session API reports files mode with no branch', async ({ request }) => {
     const res = await request.get('/api/session');
     const session = await res.json();
@@ -24,6 +28,43 @@ test.describe('No-Git Mode — Git-absence invariants', () => {
   test('page loads and file sections appear', async ({ page }) => {
     await loadPage(page);
     await expect(page.locator('.file-section')).not.toHaveCount(0);
+  });
+
+  test('creates and reloads a line comment without a repository', async ({ page, request }) => {
+    await loadPage(page);
+    const section = mdSection(page);
+    const firstBlock = section.locator('.line-block').first();
+    await firstBlock.hover();
+    await section.locator('.line-comment-gutter').first().click();
+
+    const textarea = section.locator('.comment-form textarea');
+    await expect(textarea).toBeFocused();
+    await textarea.fill('No-git persisted comment');
+    await textarea.press('Control+Enter');
+    await expect(section.locator('.comment-form')).toHaveCount(0);
+    await expect(
+      section.locator('.comment-card', { hasText: 'No-git persisted comment' }),
+    ).toHaveCount(1);
+
+    const response = await request.get('/api/file/comments?path=plan.md');
+    await expect(response).toBeOK();
+    const comments = await response.json() as Array<{
+      body: string;
+      start_line: number;
+      end_line: number;
+    }>;
+    expect(comments).toEqual([
+      expect.objectContaining({
+        body: 'No-git persisted comment',
+        start_line: 1,
+        end_line: 1,
+      }),
+    ]);
+
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    const persisted = mdSection(page).locator('.comment-card', { hasText: 'No-git persisted comment' });
+    await expect(persisted).toHaveCount(1);
   });
 
   // The stack breadcrumb and working-tree pill are VCS-aware controls. In

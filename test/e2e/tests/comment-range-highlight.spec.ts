@@ -1,6 +1,30 @@
 import { test, expect } from '@playwright/test';
 import { clearAllComments, loadPage, mdSection, goSection, switchToDocumentView } from './helpers';
 
+async function expectDocumentHighlightRange(
+  section: ReturnType<typeof mdSection>,
+  startLine: number,
+  endLine: number,
+) {
+  const states = await section.locator('.line-block[data-start-line][data-end-line]').evaluateAll(elements =>
+    elements.map((element) => {
+      const block = element as HTMLElement;
+      return {
+        range: `${block.dataset.startLine}-${block.dataset.endLine}`,
+        start: Number(block.dataset.startLine),
+        end: Number(block.dataset.endLine),
+        highlighted: block.classList.contains('has-comment'),
+      };
+    }),
+  );
+  const expected = states
+    .filter(block => block.end >= startLine && block.start <= endLine)
+    .map(block => block.range);
+  const actual = states.filter(block => block.highlighted).map(block => block.range);
+  expect(actual).toEqual(expected);
+  expect(expected.length).toBeGreaterThan(0);
+}
+
 // ============================================================
 // Document View — Comment Range Highlighting
 // ============================================================
@@ -23,7 +47,7 @@ test.describe('Comment Range Highlighting — Document View', () => {
     const section = mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
     await expect(blocks.first()).toBeVisible();
-    await expect(blocks).not.toHaveCount(1);
+    await expectDocumentHighlightRange(section, 3, 7);
   });
 
   test('single-line comment highlights only that block', async ({ page, request }) => {
@@ -38,6 +62,7 @@ test.describe('Comment Range Highlighting — Document View', () => {
     const section = mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
     await expect(blocks.first()).toBeVisible();
+    await expectDocumentHighlightRange(section, 1, 1);
   });
 
   test('deleting comment removes has-comment from all blocks', async ({ page, request }) => {
@@ -105,9 +130,28 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
     await page.locator('.toggle-btn[data-mode="unified"]').click();
 
     const section = goSection(page);
+    const allLines = section.locator('.diff-line[data-diff-visual-idx]');
+    await expect(allLines.first()).toBeVisible();
+    const states = await allLines.evaluateAll(elements => elements.map((element) => {
+      const line = element as HTMLElement;
+      return {
+        index: Number(line.dataset.diffVisualIdx),
+        number: Number(line.dataset.diffLineNum),
+        side: line.dataset.diffSide || '',
+        highlighted: line.classList.contains('has-comment'),
+      };
+    }));
+    const startIndex = states.find(line => line.number === startLine && line.side !== 'old')?.index;
+    const endIndex = states.find(line => line.number === endLine && line.side !== 'old')?.index;
+    expect(startIndex).toBeDefined();
+    expect(endIndex).toBeDefined();
+    const expectedIndexes = states
+      .filter(line => line.index >= startIndex! && line.index <= endIndex!)
+      .map(line => line.index);
+    const actualIndexes = states.filter(line => line.highlighted).map(line => line.index);
+    expect(actualIndexes).toEqual(expectedIndexes);
+
     const highlighted = section.locator('.diff-line.has-comment');
-    await expect(highlighted.first()).toBeVisible();
-    await expect(highlighted).not.toHaveCount(1);
     const count = await highlighted.count();
 
     // ALL highlighted lines should have the comment-range background, not addition/deletion bg
@@ -127,30 +171,26 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
     const hunks = diffData.hunks || [];
 
     // Find the first del line in any hunk
-    let delOldNum = 0;
     let surroundingNewStart = 0;
     let surroundingNewEnd = 0;
     for (const hunk of hunks) {
       for (let i = 0; i < hunk.Lines.length; i++) {
         if (hunk.Lines[i].Type === 'del') {
-          delOldNum = hunk.Lines[i].OldNum;
           // Find context/add lines before and after with NewNum
           const before = hunk.Lines.slice(0, i).reverse().find((l: { NewNum: number }) => l.NewNum > 0);
           const after = hunk.Lines.slice(i + 1).find((l: { NewNum: number }) => l.NewNum > 0);
           if (before && after) {
             surroundingNewStart = before.NewNum;
             surroundingNewEnd = after.NewNum;
+            break;
           }
-          break;
         }
       }
-      if (delOldNum > 0) break;
+      if (surroundingNewStart > 0) break;
     }
 
-    if (surroundingNewStart === 0 || surroundingNewEnd === 0) {
-      test.skip();
-      return;
-    }
+    expect(surroundingNewStart, 'fixture needs a deletion with a new-side line before it').toBeGreaterThan(0);
+    expect(surroundingNewEnd, 'fixture needs a deletion with a new-side line after it').toBeGreaterThan(0);
 
     // Add comment spanning from before the del to after it
     const res = await request.post('/api/file/comments?path=server.go', {
@@ -213,13 +253,18 @@ test.describe('Comment Range Highlighting — Split Diff', () => {
     // Right side (new) should have has-comment
     const rightHighlighted = section.locator('.diff-split-side.right.has-comment');
     await expect(rightHighlighted.first()).toBeVisible();
-    await expect(rightHighlighted).not.toHaveCount(0);
-    await expect(rightHighlighted).not.toHaveCount(1);
-    await expect(rightHighlighted).not.toHaveCount(2);
-    const count = await rightHighlighted.count();
+    const expectedLines = Array.from(
+      { length: endLine - startLine + 1 },
+      (_, index) => startLine + index,
+    );
+    const actualLines = await rightHighlighted.evaluateAll(elements =>
+      elements.map(element => Number((element as HTMLElement).dataset.diffLineNum)),
+    );
+    expect(actualLines).toEqual(expectedLines);
+    await expect(section.locator('.diff-split-side.left.has-comment')).toHaveCount(0);
 
     // All highlighted right-side cells should have orange bg
-    for (let i = 0; i < Math.min(count, 3); i++) {
+    for (let i = 0; i < actualLines.length; i++) {
       const bg = await rightHighlighted.nth(i).evaluate(
         el => getComputedStyle(el).backgroundColor
       );

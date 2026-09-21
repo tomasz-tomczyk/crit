@@ -13,7 +13,7 @@ test.describe('Select-to-comment (file mode) — code document view', () => {
     await page.locator('.tree-file', { hasText: 'server.go' }).click();
   });
 
-  test('selecting code text then pressing c opens comment form', async ({ page }) => {
+  test('selecting code text preserves copy selection then creates a comment with c', async ({ page }) => {
     const section = page.locator('#file-section-server\\.go');
     await expect(section).toBeVisible();
     const block = section.locator('.line-block', { hasText: 'package main' });
@@ -37,27 +37,6 @@ test.describe('Select-to-comment (file mode) — code document view', () => {
     const textarea = section.locator('.comment-form textarea');
     await expect(textarea).toBeVisible();
     await expect(textarea).toBeFocused();
-  });
-
-  test('selecting code text and submitting comment via c shortcut', async ({ page }) => {
-    const section = page.locator('#file-section-server\\.go');
-    await expect(section).toBeVisible();
-    const block = section.locator('.line-block', { hasText: 'respondJSON' }).first();
-    await block.scrollIntoViewIfNeeded();
-    await expect(block).toBeVisible();
-
-    const blockBox = await block.boundingBox();
-    expect(blockBox).toBeTruthy();
-    if (!blockBox) return;
-
-    await page.mouse.move(blockBox.x + 60, blockBox.y + blockBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
-    await page.mouse.up();
-    await page.keyboard.press('c');
-
-    const textarea = section.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
     await textarea.fill('Code comment via selection');
     await textarea.press('Control+Enter');
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page, Locator } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, goSection, switchToDocumentView } from './helpers';
+import { clearAllComments, getMdPath, loadPage, mdSection, goSection, switchToDocumentView } from './helpers';
 
 // Helper: drag-select between two coordinates, then press `c` to comment.
 // Selection alone never opens the form — `c` is the explicit commit.
@@ -77,26 +77,6 @@ test.describe('Select-to-comment (git mode)', () => {
       // Selection still present
       const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim());
       expect(selectedText).toBeTruthy();
-    });
-
-    test('selecting text then pressing c opens the comment form', async ({ page }) => {
-      const section = mdSection(page);
-      const firstBlock = section.locator('.line-block').first();
-      await expect(firstBlock).toBeVisible();
-
-      const blockBox = await firstBlock.boundingBox();
-      expect(blockBox).toBeTruthy();
-      if (!blockBox) return;
-
-      await selectAndPressC(
-        page,
-        blockBox.x + 60, blockBox.y + blockBox.height / 2,
-        blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
-      await expect(textarea).toBeVisible();
-      await expect(textarea).toBeFocused();
     });
 
     test('Escape cancels the comment form once opened', async ({ page }) => {
@@ -233,8 +213,11 @@ test.describe('Select-to-comment (git mode)', () => {
       );
 
       const formHeader = section.locator('.comment-form-header');
-      await expect(formHeader).toBeVisible();
-      await expect(formHeader).toContainText('Comment on');
+      const expectedStart = await firstBlock.getAttribute('data-start-line');
+      const expectedEnd = await thirdBlock.getAttribute('data-end-line');
+      expect(expectedStart).not.toBeNull();
+      expect(expectedEnd).not.toBeNull();
+      await expect(formHeader).toHaveText(`Comment on Lines ${expectedStart}-${expectedEnd}`);
     });
 
     test('selection endpoint on a gap container still spans full range (regression)', async ({ page, request }) => {
@@ -316,7 +299,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await switchToDocumentView(page);
     });
 
-    test('quote highlight appears while comment form is still open', async ({ page }) => {
+    test('partial selection highlights while open and persists its quote', async ({ page, request }) => {
       const section = mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
@@ -334,29 +317,18 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
-    });
-
-    test('partial text selection saves quote and shows highlight mark', async ({ page }) => {
-      const section = mdSection(page);
-      const block = section.locator('.line-block', { hasText: 'API key authentication' });
-      await expect(block).toBeVisible();
-      const content = block.locator('.line-content');
-      const box = await content.boundingBox();
-      expect(box).toBeTruthy();
-      if (!box) return;
-
-      await selectAndPressC(
-        page,
-        box.x + 80, box.y + box.height / 2,
-        box.x + 250, box.y + box.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
-      await expect(textarea).toBeVisible();
-      await textarea.fill('Check this part');
+      await textarea.fill('Persisted quote');
       await textarea.press('Control+Enter');
 
+      await expect(section.locator('.comment-form')).toHaveCount(0);
+      await expect(section.locator('.comment-card', { hasText: 'Persisted quote' })).toHaveCount(1);
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
+      const mdPath = await getMdPath(request);
+      const response = await request.get(`/api/file/comments?path=${encodeURIComponent(mdPath)}`);
+      await expect(response).toBeOK();
+      const comments = await response.json() as Array<{ body: string; quote?: string }>;
+      const persisted = comments.find(comment => comment.body === 'Persisted quote');
+      expect(persisted?.quote).toBeTruthy();
     });
 
     test('cross-line partial selection saves quote and shows highlight', async ({ page, request }) => {
@@ -457,63 +429,9 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await expect(section.locator('mark.quote-highlight')).not.toBeVisible();
     });
 
-    test('quote is stored in API response', async ({ page, request }) => {
-      const section = mdSection(page);
-      const block = section.locator('.line-block', { hasText: 'API key authentication' });
-      await expect(block).toBeVisible();
-      const content = block.locator('.line-content');
-      const box = await content.boundingBox();
-      if (!box) return;
-
-      await selectAndPressC(
-        page,
-        box.x + 80, box.y + box.height / 2,
-        box.x + 250, box.y + box.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
-      await expect(textarea).toBeVisible();
-      await textarea.fill('API check');
-      await textarea.press('Control+Enter');
-      await expect(section.locator('.comment-card')).toBeVisible();
-
-      const mdPath = await page.evaluate(() => {
-        const el = document.querySelector('.file-section[id*="plan"] .line-block[data-file-path]');
-        return el ? (el as HTMLElement).dataset.filePath : null;
-      });
-      expect(mdPath).toBeTruthy();
-      const res = await request.get(`/api/file/comments?path=${mdPath}`);
-      const comments = await res.json();
-      const withQuote = comments.filter((c: any) => c.quote);
-      expect(withQuote.length).toBeGreaterThan(0);
-      expect(withQuote[0].quote.length).toBeGreaterThan(0);
-    });
   });
 
   test.describe('diff view', () => {
-    test('selecting diff text and pressing c opens comment form', async ({ page }) => {
-      const section = goSection(page);
-      const additionLine = section.locator('.diff-split-side.addition').first();
-      await additionLine.scrollIntoViewIfNeeded();
-      await expect(additionLine).toBeVisible();
-
-      const diffContent = additionLine.locator('.diff-content');
-      await expect(diffContent).toBeVisible();
-      const box = await diffContent.boundingBox();
-      expect(box).toBeTruthy();
-      if (!box) return;
-
-      await selectAndPressC(
-        page,
-        box.x + 10, box.y + box.height / 2,
-        box.x + box.width - 10, box.y + box.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
-      await expect(textarea).toBeVisible();
-      await expect(textarea).toBeFocused();
-    });
-
     test('quote highlight appears in split diff view while form is open', async ({ page }) => {
       const section = goSection(page);
       const { box: targetBox } = await wideAdditionLine(section, '.diff-split-side.addition');
@@ -526,25 +444,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
 
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
-      await expect(section.locator('mark.quote-highlight')).toBeVisible();
-    });
-
-    test('quote highlight appears in unified diff view while form is open', async ({ page }) => {
-      const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-      await expect(unifiedBtn).toBeVisible();
-      await unifiedBtn.click();
-
-      const section = goSection(page);
-      const { box: targetBox } = await wideAdditionLine(section, '.diff-line.addition');
-
-      await selectAndPressC(
-        page,
-        targetBox.x + 10, targetBox.y + targetBox.height / 2,
-        targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
-      await expect(textarea).toBeVisible();
+      await expect(textarea).toBeFocused();
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
     });
 

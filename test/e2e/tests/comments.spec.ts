@@ -11,9 +11,13 @@ test.describe('Markdown Comments — Git Mode', () => {
     await switchToDocumentView(page);
   });
 
-  test('clicking + gutter button opens comment form', async ({ page }) => {
+  test('gutter opens a focused comment form for the exact source line', async ({ page }) => {
     const section = mdSection(page);
     const lineBlock = section.locator('.line-block').first();
+    const startLine = await lineBlock.getAttribute('data-start-line');
+    const endLine = await lineBlock.getAttribute('data-end-line');
+    expect(startLine).not.toBeNull();
+    expect(endLine).not.toBeNull();
     await lineBlock.hover();
 
     const gutterBtn = section.locator('.line-comment-gutter').first();
@@ -21,20 +25,14 @@ test.describe('Markdown Comments — Git Mode', () => {
     await gutterBtn.click();
 
     const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-  });
-
-  test('comment form textarea is focused when opened', async ({ page }) => {
-    const section = mdSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await gutterBtn.click();
-
     const textarea = page.locator('.comment-form textarea');
+    await expect(form).toBeVisible();
     await expect(textarea).toBeVisible();
     await expect(textarea).toBeFocused();
+    const lineRef = startLine === endLine
+      ? `Comment on Line ${startLine}`
+      : `Comment on Lines ${startLine}-${endLine}`;
+    await expect(form.locator('.comment-form-header')).toHaveText(lineRef);
   });
 
   test('submitting comment creates a comment card', async ({ page }) => {
@@ -202,18 +200,6 @@ test.describe('Markdown Comments — Git Mode', () => {
     await textarea.press('Escape');
 
     await expect(form).toHaveCount(0);
-  });
-
-  test('comment form header shows correct line reference', async ({ page }) => {
-    const section = mdSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const header = page.locator('.comment-form-header');
-    await expect(header).toBeVisible();
-    // Should show "Comment on Line N" or "Comment on Lines N-M"
-    await expect(header).toContainText(/Line/);
   });
 
   test('comment body renders markdown (bold, links, code)', async ({ page }) => {

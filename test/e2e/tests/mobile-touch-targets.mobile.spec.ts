@@ -1,5 +1,21 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { clearAllComments, loadPage, getMdPath } from './helpers';
+
+async function expectTouchTargets(targets: Locator, expectedCount?: number) {
+  if (expectedCount !== undefined) {
+    await expect(targets).toHaveCount(expectedCount);
+  }
+  await expect(targets.first()).toBeVisible();
+  const boxes = await targets.evaluateAll(elements => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }));
+  expect(boxes.length).toBeGreaterThan(0);
+  for (const box of boxes) {
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
+}
 
 // F2: touch target sizing + iOS textarea zoom prevention.
 // Under @media (pointer: coarse) all interactive icon buttons reach the
@@ -12,25 +28,12 @@ test.describe('Mobile touch targets (F2)', () => {
     await loadPage(page);
   });
 
-  test('header icon buttons meet 44x44 target', async ({ page }) => {
-    // .theme-toggle is the class applied to the System/Light/Dark pill
-    // buttons in the header. They're icon-only and the most-tapped header
-    // controls on mobile.
-    const themeToggle = page.locator('.theme-toggle').first();
-    await expect(themeToggle).toBeVisible();
-    const box = await themeToggle.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(44);
-    expect(box!.height).toBeGreaterThanOrEqual(44);
-  });
-
-  test('comment-count badge button meets 44x44 target', async ({ page }) => {
-    const btn = page.locator('.comment-count-btn').first();
-    await expect(btn).toBeVisible();
-    const box = await btn.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(44);
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+  test('header and file icon buttons meet 44x44 targets', async ({ page }) => {
+    // The TOC toggle is intentionally hidden below 600px; settings remains
+    // the visible header icon control at this project's 375px viewport.
+    await expectTouchTargets(page.locator('#settingsToggle'), 1);
+    await expectTouchTargets(page.locator('.comment-count-btn'), 1);
+    await expectTouchTargets(page.locator('.file-header-copy-path'));
   });
 
   test('comment-nav buttons meet 44x44 target when comments exist', async ({ page, request }) => {
@@ -44,12 +47,7 @@ test.describe('Mobile touch targets (F2)', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    const nav = page.locator('.comment-nav-btn').first();
-    await expect(nav).toBeVisible();
-    const box = await nav.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(44);
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+    await expectTouchTargets(page.locator('.comment-nav-btn'), 2);
   });
 
   test('comment textarea uses font-size >= 16px (iOS zoom prevention)', async ({ page }) => {
@@ -74,38 +72,7 @@ test.describe('Mobile touch targets (F2)', () => {
     expect(fontSize).toBeGreaterThanOrEqual(16);
   });
 
-  test('reply-actions are visible on touch without hover', async ({ page, request }) => {
-    // Reply actions are hover-revealed on desktop. On touch they must be
-    // always visible. Post a comment and a reply so .reply-actions renders.
-    const mdPath = await getMdPath(request);
-    const commentResp = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'test comment' },
-    });
-    expect(commentResp.ok()).toBeTruthy();
-    const comment = await commentResp.json();
-    const replyResp = await request.post(
-      `/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`,
-      { data: { body: 'test reply' } },
-    );
-    expect(replyResp.ok()).toBeTruthy();
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    const replyActions = page.locator('.reply-actions').first();
-    await expect(replyActions).toBeVisible();
-  });
-
-  test('file-header copy-path button meets 44x44 target', async ({ page }) => {
-    const btn = page.locator('.file-header-copy-path').first();
-    await expect(btn).toBeVisible();
-    const box = await btn.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(44);
-    expect(box!.height).toBeGreaterThanOrEqual(44);
-  });
-
-  test('reply-actions buttons meet 44x44 target', async ({ page, request }) => {
+  test('reply actions stay visible and meet 44x44 targets without hover', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     const commentResp = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
       data: { start_line: 1, end_line: 1, body: 'reply-actions size test' },
@@ -121,10 +88,9 @@ test.describe('Mobile touch targets (F2)', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    const btn = page.locator('.reply-actions button').first();
-    await expect(btn).toBeVisible();
-    const box = await btn.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+    const replyActions = page.locator('.reply-actions');
+    await expect(replyActions).toBeVisible();
+    await expect(replyActions).toHaveCSS('opacity', '1');
+    await expectTouchTargets(replyActions.locator('button'), 2);
   });
 });

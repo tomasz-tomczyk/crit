@@ -14,7 +14,8 @@ export async function getReviewFilePath(request: APIRequestContext): Promise<str
   return filePath;
 }
 export async function clearAllComments(request: APIRequestContext) {
-  await request.delete('/api/comments');
+  const response = await request.delete('/api/comments');
+  await expect(response).toBeOK();
 }
 
 /** Commit picker rows excluding the virtual working-tree entry. */
