@@ -131,7 +131,12 @@ test.describe('Share Transport', () => {
     await seedRemoteComment(request, await hostedToken(request), 'Remote reviewer comment', 7);
     await page.locator('#modalPullBtn').click();
     await expect(shareToast(page)).toContainText('Comments pulled');
-    expect((await fileCommentBodies(request)).filter(body => body === 'Remote reviewer comment')).toHaveLength(1);
+    // The pull response and browser refresh can complete before the debounced
+    // review-file write is visible to a fresh API read. Poll the persisted
+    // state instead of racing that write.
+    await expect.poll(
+      async () => (await fileCommentBodies(request)).filter(body => body === 'Remote reviewer comment'),
+    ).toHaveLength(1);
     await expect(
       page.locator('.comment-card .comment-body', { hasText: 'Remote reviewer comment' }),
     ).toHaveCount(1);
