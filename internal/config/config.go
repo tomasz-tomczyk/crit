@@ -244,6 +244,7 @@ type ConfigPresence struct {
 	Quiet              bool
 	NoIntegrationCheck bool
 	NoUpdateCheck      bool
+	DisableStats       bool
 	CleanupOnApprove   bool
 	NotifyOnRoundReady bool
 	ShareConsented     bool
@@ -275,6 +276,7 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 	_, presence.Quiet = raw["quiet"]
 	_, presence.NoIntegrationCheck = raw["no_integration_check"]
 	_, presence.NoUpdateCheck = raw["no_update_check"]
+	_, presence.DisableStats = raw["disable_stats"]
 	_, presence.CleanupOnApprove = raw["cleanup_on_approve"]
 	_, presence.NotifyOnRoundReady = raw["notify_on_round_ready"]
 	_, presence.ShareConsented = raw["share_consented"]
@@ -306,14 +308,9 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// Security: host is intentionally NOT merged from project config.
 	// A malicious repo setting host to "0.0.0.0" would disable the
 	// DNS-rebinding defense. Use --host flag or CRIT_HOST env var instead.
-	if projectPresence.NoOpen {
-		merged.NoOpen = project.NoOpen
-	}
 	// Security: proxy_auth is intentionally NOT merged from project config.
 	// It is global-only, like agent_cmd, auth_token, and share_url.
-	if projectPresence.Quiet {
-		merged.Quiet = project.Quiet
-	}
+	mergePresenceBools(&merged, &project, projectPresence)
 	if project.Output != "" {
 		merged.Output = project.Output
 	}
@@ -328,18 +325,6 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	}
 	merged.Forge = preferProjectString(project.Forge, merged.Forge)
 	merged.GitLabURL = preferProjectString(project.GitLabURL, merged.GitLabURL)
-	if projectPresence.NoIntegrationCheck {
-		merged.NoIntegrationCheck = project.NoIntegrationCheck
-	}
-	if projectPresence.NoUpdateCheck {
-		merged.NoUpdateCheck = project.NoUpdateCheck
-	}
-	if projectPresence.CleanupOnApprove {
-		merged.CleanupOnApprove = project.CleanupOnApprove
-	}
-	if projectPresence.NotifyOnRoundReady {
-		merged.NotifyOnRoundReady = project.NotifyOnRoundReady
-	}
 	if project.LiveCookie != "" {
 		merged.LiveCookie = project.LiveCookie
 	}
@@ -376,6 +361,33 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	mergeProjectPrompts(&merged, project)
 	mergeProjectHooks(&merged, project)
 	return merged
+}
+
+// mergePresenceBools copies project bool fields that use ConfigPresence so an
+// explicit false can override a global true. Pointer *bool fields are copied
+// by value (including nil) when present.
+func mergePresenceBools(merged, project *Config, presence ConfigPresence) {
+	if presence.NoOpen {
+		merged.NoOpen = project.NoOpen
+	}
+	if presence.Quiet {
+		merged.Quiet = project.Quiet
+	}
+	if presence.NoIntegrationCheck {
+		merged.NoIntegrationCheck = project.NoIntegrationCheck
+	}
+	if presence.NoUpdateCheck {
+		merged.NoUpdateCheck = project.NoUpdateCheck
+	}
+	if presence.DisableStats {
+		merged.DisableStats = project.DisableStats
+	}
+	if presence.CleanupOnApprove {
+		merged.CleanupOnApprove = project.CleanupOnApprove
+	}
+	if presence.NotifyOnRoundReady {
+		merged.NotifyOnRoundReady = project.NotifyOnRoundReady
+	}
 }
 
 // validDefaultMarkdownView reports whether v is an allowed
