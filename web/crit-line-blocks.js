@@ -84,6 +84,32 @@
     return coveredUpTo;
   }
 
+  // A blockquote line carrying only "> " markers separates paragraphs inside the
+  // quote and belongs to no child token, so it would otherwise leak as a literal ">".
+  var QUOTE_MARKER_ONLY = /^\s*>[\s>]*$/;
+
+  // Same as addGapLineBlocks, but for lines inside a blockquote's source range.
+  // Marker-only lines render as an empty quote so the quote reads as one block
+  // across the gap; truly blank lines stay blank.
+  function addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, upTo) {
+    while (coveredUpTo < upTo) {
+      var lineText = sourceLines[coveredUpTo];
+      var markerOnly = QUOTE_MARKER_ONLY.test(lineText);
+      var html;
+      if (markerOnly) html = '<blockquote></blockquote>';
+      else if (lineText === '') html = '';
+      else html = escapeHtml(lineText);
+      blocks.push({
+        startLine: coveredUpTo + 1,
+        endLine: coveredUpTo + 1,
+        html: html,
+        isEmpty: !markerOnly && lineText.trim() === ''
+      });
+      coveredUpTo++;
+    }
+    return coveredUpTo;
+  }
+
   // Handle a fence (code block) token — split into per-line blocks.
   function handleFenceToken(token, blocks, sourceLines, coveredUpTo, blockStart, blockEnd) {
     var lang = token.info.trim().split(/\s+/)[0] || '';
@@ -417,7 +443,7 @@
       var childMap = tokens[j].map;
       var childCloseIdx = j;
       if (tokens[j].nesting === 1) childCloseIdx = findCloseToken(tokens, j);
-      addGapLineBlocks(blocks, sourceLines, coveredUpTo, childMap[0]);
+      coveredUpTo = addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, childMap[0]);
       var childTokens = tokens.slice(j, childCloseIdx + 1);
       var childHtml = '<blockquote>' +
         md.renderer.render(childTokens, md.options, {}) +
@@ -440,7 +466,7 @@
       coveredUpTo = blockEnd;
     }
 
-    coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
+    coveredUpTo = addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
     return { nextIndex: bqCloseIdx + 1, coveredUpTo: coveredUpTo };
   }
 
