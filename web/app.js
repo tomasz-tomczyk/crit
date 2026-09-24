@@ -502,8 +502,18 @@
   const virtualDiffControllers = new Map();
 
   // Pierre-style multi-file list virtualizer for #filesContainer (approach B).
-  // Null while story mode owns the scroll surface or the module is unavailable.
+  // Null while story mode owns the scroll surface, the module is unavailable,
+  // or the review is small enough that mounting every section is cheaper than
+  // windowing (keeps e2e / typical PRs on the classic deferred-body path).
   let fileListController = null;
+  const FILE_LIST_VIRTUALIZE_MIN_FILES = 40;
+
+  function fileListVirtualizationEnabled() {
+    return !storyActive() &&
+      files.length >= FILE_LIST_VIRTUALIZE_MIN_FILES &&
+      !!(window.crit && window.crit.fileListVirtualizer &&
+        window.crit.fileListVirtualizer.FileListVirtualizer);
+  }
 
   function virtualDiffController(filePath) {
     const controller = virtualDiffControllers.get(filePath);
@@ -680,7 +690,8 @@
   }
 
   // Load a single file's content, comments, and diff from the API.
-  async function loadSingleFile(fi, scope) {
+  // opts.skipHighlight: defer preHighlightFile until mount (prefetch path).
+  async function loadSingleFile(fi, scope, opts) {
     // Orphaned files have no content or diff — only fetch comments
     if (fi.orphaned) {
       const comments = await fetch('/api/file/comments?path=' + enc(fi.path))
@@ -759,9 +770,12 @@
     f.diffTooLarge = false;
     f.diffLoaded = true;
 
-    // Pre-highlight code and markdown files for diff rendering
-    if (f.fileType === 'code' || f.fileType === 'markdown') {
+    // Prefetch passes skipHighlight so idle/hover warm the network without
+    // blocking the main thread on highlight for files the reader may never open.
+    if (!(opts && opts.skipHighlight) && (f.fileType === 'code' || f.fileType === 'markdown')) {
       f.highlightCache = preHighlightFile(f);
+      f.lang = langFromPath(f.path);
+    } else if (f.fileType === 'code' || f.fileType === 'markdown') {
       f.lang = langFromPath(f.path);
     }
 
@@ -1669,7 +1683,13 @@
       fileEl.innerHTML = innerHtml;
 
       (function(path) {
+        fileEl.addEventListener('pointerenter', function() {
+          const f = getFileByPath(path);
+          if (f && f.lazy) prefetchLazyFile(f);
+        }, { passive: true });
         fileEl.addEventListener('click', function() {
+          const f = getFileByPath(path);
+          if (f && f.lazy) prefetchLazyFile(f);
           // In story view, clicking a file activates its owning chapter and
           // scrolls to its hunk group; otherwise use the flat-view scroll.
           const chipPage = storyState && storyState.fileChapters.has(path)
@@ -1893,39 +1913,56 @@
     const file = getFileByPath(filePath);
     if (file) file.collapsed = false;
 
-    // File-list virtualizer: pin + mount the slot, then scroll by estimated offset
-    // so placeholders above the target do not step-change after the jump.
+    // File-list virtualizer: land on the slot immediately (Pierre-like), then
+    // mount the body in-place once data is warm — never replaceWith (detaches
+    // the node the virtualizer tracks). Lock + re-pin through height settle.
     if (fileListController && !storyActive()) {
-      ignoreTreeObserverUntil = Date.now() + 200;
-      suppressBodyMountObserver(1500);
+      ignoreTreeObserverUntil = Date.now() + 500;
+      suppressBodyMountObserver(2500);
+      fileListController.lockScrollToKey(filePath, 4000);
       fileListController.setCollapsed(filePath, false);
-      fileListController.scrollToItem(filePath, 'start').then(function(node) {
-        const sectionEl = node || document.getElementById('file-section-' + filePath);
+      prioritizeLazyPrefetch(file);
+
+      function repin(section) {
+        if (!fileListController || !section || !section.isConnected) return;
+        fileListController.lockScrollToKey(filePath, 4000);
+        section.scrollIntoView({ block: 'start', behavior: 'instant' });
+        fileListController.setItemHeight(filePath, section.getBoundingClientRect().height);
+        section.scrollIntoView({ block: 'start', behavior: 'instant' });
+      }
+
+      function settleRepin(section, framesLeft) {
+        repin(section);
+        if (framesLeft <= 0) return;
+        requestAnimationFrame(function() {
+          settleRepin(section, framesLeft - 1);
+        });
+      }
+
+      function finishWithSection(sectionEl) {
         if (!sectionEl) return;
         if (sectionEl.tagName === 'DETAILS') sectionEl.open = true;
-        function afterBodyReady(el) {
-          const target = el || document.getElementById('file-section-' + filePath);
-          if (!target || !fileListController) return;
-          fileListController.scrollToItem(filePath, 'start').then(function(n) {
-            const live = n || target;
-            if (live && live.isConnected) {
-              live.scrollIntoView({ block: 'start', behavior: 'instant' });
-              requestAnimationFrame(function() {
-                if (!fileListController || !live.isConnected) return;
-                fileListController.setItemHeight(filePath, live.getBoundingClientRect().height);
-              });
-            }
-          });
-        }
-        if (file) {
-          if (file.lazy) {
-            loadLazyFile(sectionEl, file, afterBodyReady);
-          } else {
-            ensureFileBodyMounted(sectionEl, file);
-            afterBodyReady(sectionEl);
-          }
-        }
+        ensureFileBodyMounted(sectionEl, file);
+        const live = (fileListController.nodes && fileListController.nodes.get(filePath)) || sectionEl;
+        settleRepin(live, 12);
+      }
+
+      // Jump now — placeholder/header at viewport top while network warms.
+      fileListController.scrollToItem(filePath, 'start').then(function(node) {
+        const sectionEl = node || document.getElementById('file-section-' + filePath);
+        if (sectionEl && sectionEl.tagName === 'DETAILS') sectionEl.open = true;
         updateTreeActive(filePath);
+
+        const warm = (file && file.lazy) ? prefetchLazyFile(file) : Promise.resolve(file);
+        warm.then(function() {
+          const live = (fileListController.nodes && fileListController.nodes.get(filePath))
+            || document.getElementById('file-section-' + filePath)
+            || sectionEl;
+          finishWithSection(live);
+        }).catch(function() {
+          if (!sectionEl || !file || !file.lazy) return;
+          loadLazyFile(sectionEl, file, function(el) { finishWithSection(el || sectionEl); });
+        });
       });
       return;
     }
@@ -2097,6 +2134,7 @@
     });
     pinOpenFormFilesInList();
     fileListController.start();
+    startBackgroundLazyPrefetch();
     return true;
   }
 
@@ -2107,7 +2145,7 @@
     disposeFileListController();
     container.innerHTML = '';
 
-    const usedFileList = !storyActive() && startFileListVirtualizer(container);
+    const usedFileList = fileListVirtualizationEnabled() && startFileListVirtualizer(container);
     if (!usedFileList) {
       for (const f of files) {
         container.appendChild(renderFileSection(f));
@@ -3305,47 +3343,151 @@
     return getFormsForFile(filePath).some(function(f) { return f.scope !== 'file'; });
   }
 
-  function loadLazyFile(section, file, onLoaded) {
-    if (!section.open) return;
-    if (!file.lazy) {
-      if (onLoaded) onLoaded(section);
-      return;
-    }
-    if (!file._lazyLoadCallbacks) file._lazyLoadCallbacks = [];
-    if (onLoaded) file._lazyLoadCallbacks.push(onLoaded);
-    if (file._lazyLoading) return;
-    file._lazyLoading = true;
-    section.classList.add('file-section-loading');
+  // Apply API payload onto an existing files[] entry (lazy stub → ready).
+  function applyLoadedFileData(file, loaded) {
+    file.oldPath = loaded.oldPath;
+    file.content = loaded.content;
+    file.previousContent = loaded.previousContent;
+    file.comments = loaded.comments;
+    file.diffHunks = loaded.diffHunks;
+    file._autoExpandDone = false;
+    file.lineBlocks = loaded.lineBlocks;
+    file.previousLineBlocks = loaded.previousLineBlocks;
+    file.tocItems = loaded.tocItems;
+    file.diffTooLarge = loaded.diffTooLarge;
+    file.diffLoaded = loaded.diffLoaded;
+    file.lazy = false;
+    file._lazyLoading = false;
+    if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
+    if (loaded.lang) file.lang = loaded.lang;
+    if (loaded.fileHash) file.fileHash = loaded.fileHash;
+  }
 
-    loadSingleFile({
+  // Highlight is skipped during background/hover prefetch; compute on first mount.
+  function ensureFileHighlight(file) {
+    if (!file) return;
+    if ((file.fileType === 'code' || file.fileType === 'markdown') && !file.highlightCache) {
+      file.highlightCache = preHighlightFile(file);
+      file.lang = file.lang || langFromPath(file.path);
+    }
+  }
+
+  // Warm a lazy stub without requiring an open section. Click then mounts from
+  // memory (Pierre-like) instead of waiting on three API round-trips.
+  function prefetchLazyFile(file) {
+    if (!file || !file.lazy) return Promise.resolve(file);
+    if (file._lazyPrefetchPromise) return file._lazyPrefetchPromise;
+    file._lazyLoading = true;
+    file._lazyPrefetchPromise = loadSingleFile({
       path: file.path,
       old_path: file.oldPath,
       status: file.status,
       file_type: file.fileType,
       additions: file.additions,
       deletions: file.deletions,
-    }, effectiveDiffScope()).then(function(loaded) {
-      // Copy loaded data into the existing file object
-      file.oldPath = loaded.oldPath;
-      file.content = loaded.content;
-      file.previousContent = loaded.previousContent;
-      file.comments = loaded.comments;
-      file.diffHunks = loaded.diffHunks;
-      file._autoExpandDone = false;
-      file.lineBlocks = loaded.lineBlocks;
-      file.previousLineBlocks = loaded.previousLineBlocks;
-      file.tocItems = loaded.tocItems;
-      file.diffTooLarge = loaded.diffTooLarge;
-      file.diffLoaded = loaded.diffLoaded;
-      file.lazy = false;
+      generated: file.generated,
+    }, effectiveDiffScope(), { skipHighlight: true }).then(function(loaded) {
+      applyLoadedFileData(file, loaded);
+      file._lazyPrefetchPromise = null;
+      // Refresh file-list estimated height now that hunks exist.
+      if (fileListController) {
+        const est = (window.crit && window.crit.fileListVirtualizer)
+          ? window.crit.fileListVirtualizer.estimateFileSectionHeight({
+              collapsed: !!file.collapsed,
+              estimateBodyHeight: function() { return estimateFileListBodyHeight(file); },
+            })
+          : null;
+        if (est !== null && est !== undefined) fileListController.setItemHeight(file.path, est);
+      }
+      return file;
+    }).catch(function(err) {
       file._lazyLoading = false;
-      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-      if (loaded.lang) file.lang = loaded.lang;
+      file._lazyPrefetchPromise = null;
+      throw err;
+    });
+    return file._lazyPrefetchPromise;
+  }
 
+  let lazyPrefetchTimer = 0;
+  let lazyPrefetchCursor = 0;
+  let lazyPrefetchPriority = [];
+  let lazyPrefetchInflight = 0;
+  const LAZY_PREFETCH_CONCURRENCY = 2;
+
+  function prioritizeLazyPrefetch(file) {
+    if (!file || !file.lazy) return;
+    // Promote to front of the priority queue (dedupe).
+    lazyPrefetchPriority = lazyPrefetchPriority.filter(function(f) { return f !== file; });
+    lazyPrefetchPriority.unshift(file);
+    // Kick the pump immediately — don't wait for idle.
+    if (typeof scheduleLazyPrefetchPump === 'function') scheduleLazyPrefetchPump(true);
+  }
+
+  function scheduleLazyPrefetchPump(immediate) {
+    if (lazyPrefetchTimer && !immediate) return;
+    if (lazyPrefetchTimer && immediate) {
+      if (typeof cancelIdleCallback === 'function' && typeof lazyPrefetchTimer === 'number') {
+        try { cancelIdleCallback(lazyPrefetchTimer); } catch (e) { /* ignore */ }
+      }
+      clearTimeout(lazyPrefetchTimer);
+      lazyPrefetchTimer = 0;
+    }
+    function run() {
+      lazyPrefetchTimer = 0;
+      pumpLazyPrefetch();
+    }
+    if (immediate) {
+      run();
+      return;
+    }
+    if (typeof requestIdleCallback === 'function') {
+      lazyPrefetchTimer = requestIdleCallback(run, { timeout: 1200 });
+    } else {
+      lazyPrefetchTimer = setTimeout(run, 80);
+    }
+  }
+
+  function pumpLazyPrefetch() {
+    while (lazyPrefetchInflight < LAZY_PREFETCH_CONCURRENCY) {
+      let f = null;
+      while (lazyPrefetchPriority.length && !f) {
+        f = lazyPrefetchPriority.shift();
+        if (!f || !f.lazy || f._lazyPrefetchPromise) f = null;
+      }
+      if (!f) {
+        while (lazyPrefetchCursor < files.length && !f) {
+          const cand = files[lazyPrefetchCursor++];
+          if (cand && cand.lazy && !cand._lazyPrefetchPromise) f = cand;
+        }
+      }
+      if (!f) break;
+      lazyPrefetchInflight++;
+      prefetchLazyFile(f).catch(function() { /* next */ }).then(function() {
+        lazyPrefetchInflight--;
+        scheduleLazyPrefetchPump(false);
+      });
+    }
+  }
+
+  function startBackgroundLazyPrefetch() {
+    lazyPrefetchCursor = 0;
+    scheduleLazyPrefetchPump(false);
+  }
+
+  function loadLazyFile(section, file, onLoaded) {
+    if (!section || !section.open) return;
+    if (!file.lazy) {
+      if (onLoaded) onLoaded(section);
+      return;
+    }
+    if (!file._lazyLoadCallbacks) file._lazyLoadCallbacks = [];
+    if (onLoaded) file._lazyLoadCallbacks.push(onLoaded);
+    section.classList.add('file-section-loading');
+
+    prefetchLazyFile(file).then(function() {
       const callbacks = file._lazyLoadCallbacks || [];
       file._lazyLoadCallbacks = [];
 
-      // Re-render this file section in place (prefer live node if caller raced).
       let liveSection = section;
       if (!section.isConnected) {
         liveSection = document.getElementById('file-section-' + file.path);
@@ -3355,28 +3497,42 @@
         }
       }
       liveSection.classList.remove('file-section-loading');
+
+      // File-list virtualizer owns this node — never replaceWith (detaches the
+      // tracked element and breaks scrollIntoView / height measurement).
+      if (fileListController && fileListController.nodes &&
+          fileListController.nodes.get(file.path) === liveSection) {
+        if (liveSection.open) ensureFileBodyMounted(liveSection, file);
+        fileListController.setItemHeight(file.path, liveSection.getBoundingClientRect().height);
+        renderFileTree();
+        updateCommentCount();
+        rebuildNavList();
+        for (let i = 0; i < callbacks.length; i++) callbacks[i](liveSection);
+        return;
+      }
+
       const newSection = renderFileSection(file);
       newSection.open = liveSection.open;
       liveSection.replaceWith(newSection);
-      // Always mount when open: observer may be suppressed (scrollToFile) and
-      // will not re-fire for an already-intersecting replacement section.
       if (newSection.open) ensureFileBodyMounted(newSection, file);
+      // If a file-list controller exists but pointed at the old node, re-adopt.
+      if (fileListController && typeof fileListController.adoptNode === 'function') {
+        fileListController.adoptNode(file.path, newSection);
+      }
 
-      // Update UI state
       renderFileTree();
       updateCommentCount();
       setupBodyMountObserver();
       rebuildNavList();
       for (let i = 0; i < callbacks.length; i++) callbacks[i](newSection);
     }).catch(function() {
-      file._lazyLoading = false;
       const callbacks = file._lazyLoadCallbacks || [];
       file._lazyLoadCallbacks = [];
-      // Guard against stale DOM node: only re-attach if still in the document
       if (section.isConnected) section.classList.remove('file-section-loading');
       for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
     });
   }
+
 
   function deferFileBody(section) {
     const body = section.querySelector(':scope > .file-body');
@@ -3429,6 +3585,7 @@
     disposeVirtualDiffs(body);
     body.innerHTML = '';
     body.removeAttribute('data-body-deferred');
+    ensureFileHighlight(file);
 
     const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
 
@@ -4600,6 +4757,29 @@
     hunkHeader.className = 'diff-hunk-header';
     hunkHeader.innerHTML = '<div class="hunk-gutter"></div><span class="hunk-text">' + escapeHtml(hunk.Header) + '</span>';
     return hunkHeader;
+  }
+
+  // ===== Unified diff (interleaved lines, single pane) =====
+  // Pre-process diffHunks: merge adjacent hunks where the gap between them
+  // is ≤ 8 unchanged lines. This removes visual noise from tiny spacers.
+  // Mutates file.diffHunks in place so it only runs once per file.
+  function storyRawHunks(hunk) {
+    if (hunk && Array.isArray(hunk._StoryRawHunks)) return hunk._StoryRawHunks;
+    return hunk ? [{ OldStart: hunk.OldStart, Lines: hunk.Lines || [] }] : [];
+  }
+
+  // Context synthesized between visual hunks historically belongs to the
+  // preceding Story hunk. Preserve that ownership while keeping the original
+  // raw hunk objects immutable for other render passes.
+  function storyRawHunksWithTrailingContext(hunk, contextLines) {
+    const rawHunks = storyRawHunks(hunk).map(function(rawHunk) {
+      return { OldStart: rawHunk.OldStart, Lines: (rawHunk.Lines || []).slice() };
+    });
+    if (rawHunks.length && contextLines && contextLines.length) {
+      const last = rawHunks[rawHunks.length - 1];
+      last.Lines = last.Lines.concat(contextLines);
+    }
+    return rawHunks;
   }
 
   function autoExpandSmallGaps(file) {

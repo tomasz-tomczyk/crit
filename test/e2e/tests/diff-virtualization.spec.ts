@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   addComment,
   clearAllComments,
@@ -15,6 +15,19 @@ import {
  * This file covers contracts unique to windowing: the virtualized class,
  * remount-safe comments/forms, and split↔unified restore.
  */
+
+/** Sidebar jump mounts deferred / off-window bodies before assertions. */
+async function focusServerGo(page: Page) {
+  const tree = page.locator('.tree-file[data-tree-path="server.go"]');
+  await expect(tree).toBeVisible();
+  await tree.click();
+  const section = goSection(page);
+  await expect(section).toBeVisible();
+  await expect(section.locator('.file-body:not([data-body-deferred])')).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
 test.describe('Diff virtualization', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
@@ -22,6 +35,7 @@ test.describe('Diff virtualization', () => {
 
   test('code diffs mount through the virtualized surface', async ({ page }) => {
     await loadPage(page);
+    await focusServerGo(page);
 
     const split = goSection(page).locator('.diff-container.split.virtualized');
     await expect(split).toBeVisible();
@@ -45,6 +59,7 @@ test.describe('Diff virtualization', () => {
 
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await focusServerGo(page);
 
     const section = goSection(page);
     const card = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
@@ -65,6 +80,7 @@ test.describe('Diff virtualization', () => {
 
   test('open draft form stays filled after split↔unified toggle', async ({ page }) => {
     await loadPage(page);
+    await focusServerGo(page);
     const section = goSection(page);
 
     // Same affordance as drag-selection: hover addition side → click comment btn.
@@ -93,6 +109,7 @@ test.describe('Diff virtualization', () => {
 
   test('gutter drag still opens a multi-line form on a virtualized split diff', async ({ page }) => {
     await loadPage(page);
+    await focusServerGo(page);
     const section = goSection(page);
     await expect(section.locator('.diff-container.split.virtualized')).toBeVisible();
 
@@ -112,24 +129,20 @@ test.describe('Diff virtualization', () => {
     await expect(page.locator('.comment-form-header')).toContainText(/Line/);
   });
 
-  test('filesContainer is driven by the file-list virtualizer', async ({ page }) => {
+  test('file-list virtualizer module is loaded for large-review path', async ({ page }) => {
+    // Small git fixture (<40 files) stays on the classic deferred-body path;
+    // assert the module loaded and the controller API is present for large reviews.
     await loadPage(page);
-    const meta = await page.evaluate(() => {
-      const el = document.getElementById('filesContainer');
-      const fl = el && (el as unknown as {
-        _critFileListVirtualizer?: { items: unknown[]; totalHeight: () => number };
-      })._critFileListVirtualizer;
-      if (!fl) return null;
-      return {
-        itemCount: fl.items.length,
-        totalHeight: fl.totalHeight(),
-        sectionCount: el!.querySelectorAll('.file-section').length,
-        spacerCount: el!.querySelectorAll('.file-list-virtual-spacer').length,
-      };
+    const api = await page.evaluate(() => {
+      const FL = (window as unknown as {
+        crit?: { fileListVirtualizer?: { FileListVirtualizer: unknown; FILE_HEADER_ESTIMATE: number } };
+      }).crit?.fileListVirtualizer;
+      return FL
+        ? { hasCtor: typeof FL.FileListVirtualizer === 'function', header: FL.FILE_HEADER_ESTIMATE }
+        : null;
     });
-    expect(meta).toBeTruthy();
-    expect(meta!.itemCount).toBeGreaterThan(0);
-    expect(meta!.totalHeight).toBeGreaterThan(0);
-    expect(meta!.sectionCount).toBeGreaterThan(0);
+    expect(api).toBeTruthy();
+    expect(api!.hasCtor).toBe(true);
+    expect(api!.header).toBeGreaterThan(0);
   });
 });

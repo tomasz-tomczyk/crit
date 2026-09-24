@@ -9,10 +9,27 @@
 
   var diffV = (typeof window !== 'undefined' && window.crit && window.crit.diffVirtualizer)
     ? window.crit.diffVirtualizer
-    : (typeof require === 'function' ? require('./crit-diff-virtualizer.js') : null);
+    : (typeof module === 'object' && typeof require === 'function'
+      ? require('./crit-diff-virtualizer.js')
+      : null);
 
+  // In the browser, load after crit-diff-virtualizer.js. Soft-fail so a missing
+  // dependency cannot blank the whole review UI.
   if (!diffV) {
-    throw new Error('crit-file-list-virtualizer requires crit-diff-virtualizer');
+    var emptyApi = {
+      FILE_HEADER_ESTIMATE: 40,
+      estimateFileSectionHeight: function() { return 40; },
+      getScrollAnchor: function() { return null; },
+      resolveAnchoredScrollTop: function() { return null; },
+      applyScrollFix: function() {},
+      FileListVirtualizer: null,
+    };
+    if (typeof window !== 'undefined') {
+      window.crit = window.crit || {};
+      window.crit.fileListVirtualizer = emptyApi;
+    }
+    if (typeof module === 'object' && module.exports) module.exports = emptyApi;
+    return;
   }
 
   // Approximate <summary.file-header> block (padding + one text line).
@@ -103,6 +120,8 @@
     this.pendingMeasurements = new Map();
     this._onScroll = null;
     this._onResize = null;
+    this._scrollLockKey = null;
+    this._scrollLockUntil = 0;
     var self = this;
     this.resizeObserver = typeof ResizeObserver === 'function'
       ? new ResizeObserver(function(entries) { self.handleMeasurements(entries); })
@@ -313,15 +332,84 @@
 
   FileListVirtualizer.prototype.flushMeasurements = function() {
     if (this.pendingMeasurements.size === 0) return;
-    var anchor = this.captureAnchor();
-    if (this.onBeforeHeightChange) this.onBeforeHeightChange(anchor);
+    // Pierre-style: pin a real on-screen node, not a reconstructed heightIndex
+    // offset. Index math drifts when spacer estimates disagree with DOM.
+    var domAnchor = this.captureDomAnchor();
+    if (this.onBeforeHeightChange) this.onBeforeHeightChange(domAnchor);
     var first = this.heightIndex.updateMany(this.pendingMeasurements);
     this.pendingMeasurements.clear();
     if (first < 0) return;
-    this.restoreAnchor(anchor);
-    this.scheduleUpdate();
+    // Reconcile spacers synchronously, then restore — scheduling update for
+    // next frame lets spacer heights change after restore and shove the view.
+    this.update();
+    this.restoreAfterHeightChange(domAnchor);
   };
 
+  // Prefer a mounted file section's getBoundingClientRect over heightIndex
+  // absolute offsets (Pierre Virtualizer.getScrollAnchor / scrollFix).
+  FileListVirtualizer.prototype.captureDomAnchor = function() {
+    var scrollParent = this.scrollParent || window;
+    var vpTop;
+    var vpBottom;
+    if (!scrollParent || scrollParent === window) {
+      vpTop = 0;
+      vpBottom = window.innerHeight || 0;
+    } else {
+      var parentRect = scrollParent.getBoundingClientRect();
+      vpTop = parentRect.top;
+      vpBottom = parentRect.bottom;
+    }
+    var best = null;
+    var bestFallback = null;
+    this.nodes.forEach(function(node, key) {
+      if (!node || typeof node.getBoundingClientRect !== 'function') return;
+      if (node.classList && (
+        node.classList.contains('file-list-virtual-spacer') ||
+        node.classList.contains('diff-virtual-spacer')
+      )) return;
+      var rect = node.getBoundingClientRect();
+      if (rect.bottom <= vpTop || rect.top >= vpBottom) return;
+      var candidate = { key: key, top: rect.top, scrollParent: scrollParent };
+      if (!bestFallback || rect.top < bestFallback.top) bestFallback = candidate;
+      if (rect.top < vpTop) return;
+      if (!best || rect.top < best.top) best = candidate;
+    });
+    return best || bestFallback;
+  };
+
+  FileListVirtualizer.prototype.restoreDomAnchor = function(anchor) {
+    if (!anchor || !anchor.key) return false;
+    var node = this.nodes.get(anchor.key);
+    if (!node || typeof node.getBoundingClientRect !== 'function') return false;
+    var delta = node.getBoundingClientRect().top - anchor.top;
+    if (!(Math.abs(delta) >= 1)) return true;
+    var scrollParent = anchor.scrollParent || this.scrollParent || window;
+    if (!scrollParent || scrollParent === window) {
+      window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+    } else {
+      scrollParent.scrollTop += delta;
+    }
+    return true;
+  };
+
+  FileListVirtualizer.prototype.lockScrollToKey = function(key, ms) {
+    this._scrollLockKey = key || null;
+    this._scrollLockUntil = key ? (Date.now() + (ms || 2000)) : 0;
+  };
+
+  FileListVirtualizer.prototype.restoreAfterHeightChange = function(domAnchor) {
+    if (this._scrollLockKey && Date.now() < (this._scrollLockUntil || 0)) {
+      var locked = this.nodes.get(this._scrollLockKey);
+      if (locked && typeof locked.scrollIntoView === 'function') {
+        locked.scrollIntoView({ block: 'start', behavior: 'instant' });
+        return true;
+      }
+    }
+    return this.restoreDomAnchor(domAnchor);
+  };
+
+  // heightIndex anchor — used for indexAtScroll / tests. Measurement paths use
+  // captureDomAnchor instead.
   FileListVirtualizer.prototype.captureAnchor = function() {
     if (!this.surface) {
       return getScrollAnchor(this.heightIndex, this.items, scrollParentScrollTop(this.scrollParent || window));
@@ -333,6 +421,10 @@
 
   FileListVirtualizer.prototype.restoreAnchor = function(anchor) {
     if (!anchor) return false;
+    // If this looks like a DOM anchor, use the DOM path.
+    if (anchor.key != null && anchor.top != null && anchor.index == null) {
+      return this.restoreDomAnchor(anchor);
+    }
     var target = resolveAnchoredScrollTop(this.heightIndex, this.items, anchor);
     if (target == null) return false;
     var scrollParent = this.scrollParent || window;
@@ -352,13 +444,32 @@
       ? keyOrIndex
       : this.keyToIndex.get(keyOrIndex);
     if (index === undefined || index < 0) return false;
-    var anchor = this.captureAnchor();
+    var domAnchor = this.captureDomAnchor();
     var changes = new Map();
     changes.set(index, height);
     var first = this.heightIndex.updateMany(changes);
     if (first < 0) return false;
-    this.restoreAnchor(anchor);
-    this.scheduleUpdate();
+    this.update();
+    this.restoreAfterHeightChange(domAnchor);
+    return true;
+  };
+
+  // Re-bind a key to a live DOM node after an in-place remount. Used when
+  // loadLazyFile must rebuild a section outside the virtualizer's renderItem.
+  FileListVirtualizer.prototype.adoptNode = function(key, node) {
+    if (!key || !node) return false;
+    var prev = this.nodes.get(key);
+    if (prev && prev !== node && this.resizeObserver) {
+      try { this.resizeObserver.unobserve(prev); } catch (e) { /* ignore */ }
+    }
+    this.nodes.set(key, node);
+    this.mountedKeys.add(key);
+    var index = this.keyToIndex.get(key);
+    if (index !== undefined) {
+      node.dataset.fileListIndex = String(index);
+      node.dataset.virtualKey = key;
+      if (this.resizeObserver) this.resizeObserver.observe(node);
+    }
     return true;
   };
 
@@ -382,54 +493,37 @@
   };
 
   FileListVirtualizer.prototype.ensureMounted = function(key) {
-    var self = this;
     this.pin(key);
     this.update();
-    return Promise.resolve(this.nodes.get(key)).then(function(node) {
-      // Caller may unpin after scroll settles.
-      return node || null;
-    });
+    return Promise.resolve(this.nodes.get(key) || null);
   };
 
   FileListVirtualizer.prototype.scrollToItem = function(key, alignment) {
     var index = this.keyToIndex.get(key);
     if (index === undefined) return Promise.resolve(null);
     var self = this;
-    return this.ensureMounted(key).then(function(node) {
-      // Prefer element.scrollIntoView after mount — absolute heightIndex math
-      // drifts when estimates refine, which left deep sidebar jumps off-screen.
-      if (node && typeof node.scrollIntoView === 'function') {
-        node.scrollIntoView({
-          block: alignment === 'center' ? 'center' : 'start',
-          behavior: 'instant',
-        });
+    this.lockScrollToKey(key, 2000);
+    this.pin(key);
+    // Synchronous mount + scroll before the next rAF reconcile can fight us.
+    this.update();
+    var node = this.nodes.get(key) || null;
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({
+        block: alignment === 'center' ? 'center' : 'start',
+        behavior: 'instant',
+      });
+    } else {
+      var scrollParent = self.scrollParent || window;
+      var itemTop = self.heightIndex.offset(index);
+      if (self.surface && (scrollParent === window || !scrollParent)) {
+        var rect = self.surface.getBoundingClientRect();
+        var surfaceTop = rect.top + (window.pageYOffset || document.documentElement.scrollTop || 0);
+        applyScrollFix(window, surfaceTop + Math.max(0, itemTop));
       } else {
-        var scrollParent = self.scrollParent || window;
-        var itemTop = self.heightIndex.offset(index);
-        var itemHeight = self.heightIndex.height(index);
-        var target = itemTop;
-        if (alignment === 'center') {
-          var vh = scrollParent === window
-            ? (window.innerHeight || 0)
-            : (scrollParent.clientHeight || 0);
-          target = itemTop - Math.max(0, (vh - itemHeight) / 2);
-        }
-        if (self.surface && scrollParent === window) {
-          var rect = self.surface.getBoundingClientRect();
-          var surfaceTop = rect.top + (window.pageYOffset || 0);
-          applyScrollFix(scrollParent, surfaceTop + Math.max(0, target));
-        } else if (self.surface) {
-          var metrics = diffV.viewportMetrics(scrollParent, self.surface);
-          var surfaceOffset = scrollParentScrollTop(scrollParent) +
-            (metrics.surfaceRect.top - metrics.vpTop);
-          applyScrollFix(scrollParent, surfaceOffset + Math.max(0, target));
-        } else {
-          applyScrollFix(scrollParent, Math.max(0, target));
-        }
+        applyScrollFix(scrollParent, Math.max(0, itemTop));
       }
-      self.scheduleUpdate();
-      return node;
-    });
+    }
+    return Promise.resolve(node);
   };
 
   FileListVirtualizer.prototype.indexAtScroll = function() {

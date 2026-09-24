@@ -17,4 +17,6 @@ Row virtualization (in-file) is shared. Crit-web parity is out of scope for thes
 
 - `web/crit-diff-virtualizer.js` — unified/split row windows, `HeightIndex`, `estimateDiffBodyHeight`
 - `web/crit-file-list-virtualizer.js` — multi-file list window + scroll fix
-- `web/app.js` — wires `#filesContainer` to the file-list virtualizer (flat review); story mode still owns `#storyPane`
+- `web/app.js` — wires `#filesContainer` to the file-list virtualizer when
+  `files.length >= 40` (flat review); smaller reviews keep deferred bodies.
+  Story mode still owns `#storyPane`.
