@@ -2203,8 +2203,18 @@
     const sectionAnchor = topVisibleSectionAnchor();
     const lineAnchor = readingLineAnchor();
     const listAnchor = fileListController ? fileListController.captureAnchor() : null;
+    const preservedScrollY = window.scrollY;
+    // When the reader is in the review conversation (no file line/section in
+    // view), file-list height-index restore would jump to the first file.
+    const conversationReading = isReviewConversationInView() && !lineAnchor && !sectionAnchor;
 
     renderAllFiles();
+
+    if (conversationReading) {
+      if (fileListController) fileListController.update();
+      window.scrollTo({ top: preservedScrollY, left: 0, behavior: 'instant' });
+      return;
+    }
 
     if (fileListController && listAnchor) {
       fileListController.restoreAnchor(listAnchor);
@@ -2245,6 +2255,13 @@
     const delta = section.getBoundingClientRect().top - sectionAnchor.top;
     if (Math.abs(delta) < 1) return;
     window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+  }
+
+  function isReviewConversationInView() {
+    const el = document.getElementById('reviewConversation');
+    if (!el || el.hidden) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.bottom > 0 && rect.top < (window.innerHeight || 0);
   }
 
   function remountThroughIndex(sectionAnchor, lineAnchor) {

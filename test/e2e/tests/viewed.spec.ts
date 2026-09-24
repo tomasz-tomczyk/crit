@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
-import { clearAllComments, loadPage, fileSection } from './helpers';
+import { clearAllComments, loadPage, fileSection, reviewFileOrder, treeFiles } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -36,11 +36,13 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     await loadPage(page);
   });
 
-  test('each file section has a viewed checkbox', async ({ page }) => {
-    const checkboxes = page.locator('.file-header-viewed input[type="checkbox"]');
-    const sections = page.locator('.file-section');
-    const sectionCount = await sections.count();
-    await expect(checkboxes).toHaveCount(sectionCount);
+  test('each review file has a viewed checkbox when mounted', async ({ page }) => {
+    const order = await reviewFileOrder(page);
+    expect(order.length).toBe(await treeFiles(page).count());
+    for (const path of order) {
+      const section = await fileSection(page, path);
+      await expect(section.locator('.file-header-viewed input[type="checkbox"]')).toHaveCount(1);
+    }
   });
 
   test('viewed checkbox starts unchecked', async ({ page }) => {
@@ -196,16 +198,15 @@ test.describe('Collapse/Expand All — Git Mode', () => {
 
     await page.locator('.file-tree-collapse-btn').click();
 
-    // File-list virt may only mount a window — assert the model, not DOM count.
+    // Model (every virt item) + mounted DOM must both be collapsed.
     await expect.poll(async () => page.evaluate(() => {
       const surface = document.getElementById('filesContainer') as
         (HTMLElement & { _critFileListVirtualizer?: { items: { collapsed: boolean }[] } }) | null;
       const virt = surface && surface._critFileListVirtualizer;
-      if (virt && Array.isArray(virt.items)) {
-        return virt.items.every(item => item.collapsed);
-      }
-      return document.querySelectorAll('.file-section[open]').length === 0;
+      if (!virt || !Array.isArray(virt.items)) return false;
+      return virt.items.every(item => item.collapsed);
     })).toBe(true);
+    await expect(page.locator('.file-section[open]')).toHaveCount(0);
   });
 
   test('clicking expand all after collapse opens all sections', async ({ page }) => {
@@ -214,11 +215,10 @@ test.describe('Collapse/Expand All — Git Mode', () => {
       const surface = document.getElementById('filesContainer') as
         (HTMLElement & { _critFileListVirtualizer?: { items: { collapsed: boolean }[] } }) | null;
       const virt = surface && surface._critFileListVirtualizer;
-      if (virt && Array.isArray(virt.items)) {
-        return virt.items.every(item => item.collapsed);
-      }
-      return document.querySelectorAll('.file-section[open]').length === 0;
+      if (!virt || !Array.isArray(virt.items)) return false;
+      return virt.items.every(item => item.collapsed);
     })).toBe(true);
+    await expect(page.locator('.file-section[open]')).toHaveCount(0);
 
     await page.locator('.file-tree-collapse-btn').click();
 
@@ -226,11 +226,12 @@ test.describe('Collapse/Expand All — Git Mode', () => {
       const surface = document.getElementById('filesContainer') as
         (HTMLElement & { _critFileListVirtualizer?: { items: { collapsed: boolean }[] } }) | null;
       const virt = surface && surface._critFileListVirtualizer;
-      if (virt && Array.isArray(virt.items)) {
-        return virt.items.every(item => !item.collapsed);
-      }
-      const all = document.querySelectorAll('.file-section');
-      return all.length > 0 && [...all].every(el => (el as HTMLDetailsElement).open);
+      if (!virt || !Array.isArray(virt.items)) return false;
+      return virt.items.every(item => !item.collapsed);
     })).toBe(true);
+    const mounted = page.locator('.file-section');
+    const n = await mounted.count();
+    expect(n).toBeGreaterThan(0);
+    await expect(page.locator('.file-section[open]')).toHaveCount(n);
   });
 });

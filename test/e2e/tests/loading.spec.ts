@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, treeFiles } from './helpers';
+import { loadPage, treeFiles, reviewFileOrder, expectFileListVirt } from './helpers';
 
 test.describe('Page Loading', () => {
   test('page loads without errors, loading disappears, file sections appear', async ({ page }) => {
     await loadPage(page);
     await expect(treeFiles(page)).not.toHaveCount(0);
+    await expectFileListVirt(page);
+    expect(await reviewFileOrder(page)).toHaveLength(await treeFiles(page).count());
     await expect(page.locator('#filesContainer .file-section').first()).toBeVisible();
   });
 

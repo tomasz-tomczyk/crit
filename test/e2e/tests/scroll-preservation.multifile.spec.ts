@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { clearAllComments, loadPage, addComment, getReviewFilePath, waitForScrollStable } from './helpers';
+import { clearAllComments, loadPage, addComment, getReviewFilePath, waitForScrollStable, fileSection } from './helpers';
 
 // Rebuilding every file section hands back deferred (empty) bodies, so the
 // document collapses shorter than the current offset and the browser clamps the
@@ -21,6 +21,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await loadPage(page);
 
+    await fileSection(page, lastFile);
     const card = page.locator('.comment-card').first();
     await expect(card).toBeVisible();
 
@@ -60,8 +61,9 @@ test.describe('Scroll position across comment updates', () => {
 
     await loadPage(page);
 
-    const card = page.locator('.comment-card').first();
-    const section = page.locator('.file-section').last();
+    // Pin the review last file — under file-list virt `.file-section).last()` is only the window edge.
+    const section = await fileSection(page, lastFile);
+    const card = section.locator('.comment-card').first();
     await expect(card).toBeVisible();
 
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
@@ -97,7 +99,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await loadPage(page);
 
-    const section = page.locator('.file-section').last();
+    const section = await fileSection(page, lastFile);
     await section.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
     await waitForScrollStable(page);
     const before = await section.evaluate(el => ({
@@ -133,9 +135,12 @@ test.describe('Scroll position across comment updates', () => {
     await loadPage(page);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await waitForScrollStable(page);
-    expect(await page.locator('.file-section').first().evaluate(
-      el => el.getBoundingClientRect().top >= window.innerHeight,
-    )).toBe(true);
+    // First review file must sit below the conversation (not a virt window edge).
+    const firstPath = (await (await request.get('/api/session')).json()).files[0].path as string;
+    expect(await page.evaluate((path) => {
+      const el = document.getElementById('file-section-' + path);
+      return !el || el.getBoundingClientRect().top >= window.innerHeight;
+    }, firstPath)).toBe(true);
 
     await page.locator('#finishBtn').click();
     const overlay = page.locator('#waitingOverlay');

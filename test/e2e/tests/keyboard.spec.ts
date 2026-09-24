@@ -107,6 +107,46 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
   });
 });
 
+// Boundary contracts for j/k — own beforeEach so we start from a cleared focus
+// (the split-mode suite seeds focus inside server.go).
+test.describe('Keyboard Navigation — Diff Split Mode boundaries', () => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
+    await loadPage(page);
+    await goSection(page);
+    await clearFocus(page);
+  });
+
+  test('k from first focused row stays on that row', async ({ page }) => {
+    // First j from a cleared focus lands on the first mounted .kb-nav; k must not wrap.
+    await page.keyboard.press('j');
+    await expect.poll(async () => page.locator('.kb-nav.focused').count()).toBe(1);
+    const firstId = await page.evaluate(() => {
+      const el = document.querySelector('.kb-nav.focused') as HTMLElement | null;
+      if (!el) return null;
+      return el.getAttribute('data-virtual-key')
+        || el.getAttribute('data-start-line')
+        || `idx:${[...document.querySelectorAll('.kb-nav')].indexOf(el)}`;
+    });
+    expect(firstId).toBeTruthy();
+
+    await page.keyboard.press('k');
+    await expect.poll(async () => page.evaluate(() => {
+      const el = document.querySelector('.kb-nav.focused') as HTMLElement | null;
+      if (!el) return null;
+      return el.getAttribute('data-virtual-key')
+        || el.getAttribute('data-start-line')
+        || `idx:${[...document.querySelectorAll('.kb-nav')].indexOf(el)}`;
+    })).toBe(firstId);
+  });
+
+  test('k with no focus focuses a kb-nav row', async ({ page }) => {
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
+    await page.keyboard.press('k');
+    await expect.poll(async () => page.locator('.kb-nav.focused').count()).toBe(1);
+  });
+});
+
 // ============================================================
 // j/k Navigation on Markdown Blocks (Document View)
 // ============================================================

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, clearAllComments, treeFiles, reviewFileOrder } from './helpers';
+import { loadPage, clearAllComments, treeFiles, reviewFileOrder, fileSection, expectFileListVirt } from './helpers';
 
 test.describe('Lazy loading', () => {
   test.beforeEach(async ({ request }) => {
@@ -19,15 +19,19 @@ test.describe('Lazy loading', () => {
     }
   });
 
-  test('all files render fully when under threshold', async ({ page }) => {
+  test('every review file can mount without a loading spinner', async ({ page }) => {
     await loadPage(page);
+    await expectFileListVirt(page);
 
-    // Sidebar lists every file; file-list virt mounts a window of sections.
-    await expect(treeFiles(page).first()).toBeVisible();
-    expect((await reviewFileOrder(page)).length).toBeGreaterThan(0);
-    await expect(page.locator('#filesContainer .file-section').first()).toBeVisible();
+    const order = await reviewFileOrder(page);
+    expect(order.length).toBe(await treeFiles(page).count());
+    expect(order.length).toBeGreaterThan(0);
 
-    // No file should have the loading spinner class
+    for (const path of order) {
+      const section = await fileSection(page, path);
+      await expect(section).toBeVisible();
+      await expect(section.locator('.file-section-loading')).toHaveCount(0);
+    }
     await expect(page.locator('.file-section-loading')).toHaveCount(0);
   });
 });
