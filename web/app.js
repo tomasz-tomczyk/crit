@@ -84,6 +84,23 @@
 
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
+  function flashCommentRefCard(card) {
+    if (!card) return;
+    const section = card.closest('details');
+    if (section && !section.open) section.open = true;
+    if (card.classList.contains('collapsed')) {
+      card.classList.remove('collapsed');
+      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[card.dataset.commentId] = false;
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.remove('comment-ref-flash');
+    void card.offsetWidth;
+    card.classList.add('comment-ref-flash');
+    card.addEventListener('animationend', function() {
+      card.classList.remove('comment-ref-flash');
+    }, { once: true });
+  }
+
   function scrollToCommentRef(id) {
     let card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
     if (!card) {
@@ -105,24 +122,25 @@
         }
         ensureFileBodyMounted(section, f);
         card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+        if (!card) {
+          const controller = virtualDiffController(f.path);
+          const rowKey = controller && controller.rowKeyForComment(id);
+          if (rowKey) {
+            controller.scrollToRow(rowKey, 'center').then(function(rowNode) {
+              const mountedCard = rowNode && (rowNode.matches('.comment-card')
+                ? rowNode
+                : rowNode.querySelector('.comment-card'));
+              flashCommentRefCard(mountedCard);
+              controller.unpin(rowKey);
+            });
+            return;
+          }
+        }
         break;
       }
     }
     if (!card) return;
-    // Make sure any containing <details> file section is open
-    const section = card.closest('details');
-    if (section && !section.open) section.open = true;
-    if (card.classList.contains('collapsed')) {
-      card.classList.remove('collapsed');
-      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
-    }
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    card.classList.remove('comment-ref-flash');
-    void card.offsetWidth;
-    card.classList.add('comment-ref-flash');
-    card.addEventListener('animationend', function() {
-      card.classList.remove('comment-ref-flash');
-    }, { once: true });
+    flashCommentRefCard(card);
   }
 
   document.addEventListener('click', function(e) {
@@ -479,6 +497,32 @@
   let agentName = 'agent';
   const pendingAgentRequests = new Set();
 
+  // One controller per flat-view file. Story and split renderers stay eager.
+  const virtualDiffControllers = new Map();
+
+  function virtualDiffController(filePath) {
+    const controller = virtualDiffControllers.get(filePath);
+    if (!controller || controller.disposed || !controller.surface.isConnected) return null;
+    return controller;
+  }
+
+  function disposeVirtualDiffs(root) {
+    if (!root) return;
+    const surfaces = [];
+    if (root.matches && root.matches('.diff-virtual-surface')) surfaces.push(root);
+    if (root.querySelectorAll) {
+      root.querySelectorAll('.diff-virtual-surface').forEach(function(surface) { surfaces.push(surface); });
+    }
+    surfaces.forEach(function(surface) {
+      const controller = surface._critVirtualWindow;
+      if (!controller) return;
+      controller.dispose();
+      if (virtualDiffControllers.get(surface.dataset.filePath) === controller) {
+        virtualDiffControllers.delete(surface.dataset.filePath);
+      }
+    });
+  }
+
   // Track active reply form state so it survives DOM re-renders (commentId → { text })
   const activeReplyForms = new Map();
 
@@ -553,6 +597,7 @@
   let currentChangeIdx = -1;
 
   const enc = encodeURIComponent;
+  const LARGE_DIFF_LINE_THRESHOLD = 1000;
 
   // Author color-coding for multi-reviewer comments — shared helper so
   // live-mode mounts produce matching swatch indices. The helpers module
@@ -708,7 +753,7 @@
     for (let h = 0; h < f.diffHunks.length; h++) {
       diffLineCount += (f.diffHunks[h].Lines || []).length;
     }
-    f.diffTooLarge = diffLineCount > 1000;
+    f.diffTooLarge = diffLineCount > LARGE_DIFF_LINE_THRESHOLD;
     f.diffLoaded = !f.diffTooLarge;
 
     // Pre-highlight code and markdown files for diff rendering
@@ -1844,6 +1889,7 @@
   // ===== Render All File Sections =====
   function renderAllFiles() {
     const container = document.getElementById('filesContainer');
+    disposeVirtualDiffs(container);
     container.innerHTML = '';
 
     for (const f of files) {
@@ -2003,6 +2049,20 @@
       el = document.querySelector(base + '[data-diff-side="' + CSS.escape(anchor.side) + '"]') ||
         document.querySelector(base);
     }
+    if (!el && anchor.kind === 'diff') {
+      const controller = virtualDiffController(anchor.filePath);
+      const rowKey = controller && controller.rowKeyForLine(anchor.lineNum, anchor.side);
+      if (rowKey) {
+        controller.restoreAnchor({ rowKey: rowKey, intraRowOffset: 0 }, anchor.top);
+        controller.ensureMounted(rowKey).then(function(node) {
+          if (!node) return;
+          const correction = node.getBoundingClientRect().top - anchor.top;
+          if (Math.abs(correction) >= 1) window.scrollBy({ top: correction, left: 0, behavior: 'instant' });
+          controller.unpin(rowKey);
+        });
+        return true;
+      }
+    }
     if (!el) return false;
     const delta = el.getBoundingClientRect().top - anchor.top;
     if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
@@ -2026,6 +2086,12 @@
           ? section.id.slice('file-section-'.length)
           : null);
       if (!path) continue;
+      if (!storyActive() && virtualDiffController(path)) {
+        // Resolved comments are logical rows in the virtual model. Rebuild the
+        // model so hidden offscreen threads contribute no estimated height.
+        renderFileByPath(path);
+        continue;
+      }
       syncCommentHighlightsInSection(section, getFileByPath(path));
     }
   }
@@ -2150,7 +2216,35 @@
       })());
   }
 
+  function navigateVirtualDiffRow(direction) {
+    if (!focusedElement) return false;
+    const surface = focusedElement.closest && focusedElement.closest('.diff-virtual-surface');
+    const controller = surface && surface._critVirtualWindow;
+    const rowEl = focusedElement.closest && focusedElement.closest('[data-virtual-row-index]');
+    if (!controller || !rowEl) return false;
+    const currentIndex = parseInt(rowEl.dataset.virtualRowIndex, 10);
+    for (let i = currentIndex + direction; i >= 0 && i < controller.rows.length; i += direction) {
+      const row = controller.rows[i];
+      if (row.kind !== 'line' || !row.lineNum) continue;
+      const previousKey = rowEl.dataset.virtualRowKey;
+      controller.scrollToRow(row.key, 'center').then(function(node) {
+        if (!node) return;
+        document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
+        focusedElement = node;
+        focusedFilePath = row.line && row.line.filePath ? row.line.filePath : controller.surface.dataset.filePath;
+        focusedBlockIndex = null;
+        node.classList.add('focused');
+        rememberKeyboardFocusFromNav(node);
+        if (previousKey && previousKey !== row.key) controller.unpin(previousKey);
+        if (visualMode) extendVisualSelection();
+      });
+      return true;
+    }
+    return false;
+  }
+
   function navigateBlock(direction, _mountedPath) {
+    if (navigateVirtualDiffRow(direction)) return;
     const allNav = navElements;
     if (allNav.length === 0) {
       const start = direction > 0 ? 0 : files.length - 1;
@@ -2375,6 +2469,12 @@
     const target = getKeyboardFocusTarget();
     if (!target) return;
     const match = findNavElementForFocusTarget(target);
+    if (!match && target.lineNum) {
+      const controller = virtualDiffController(target.filePath);
+      const rowKey = controller && controller.rowKeyForLine(target.lineNum, target.side);
+      if (rowKey) controller.ensureMounted(rowKey);
+      return;
+    }
     if (!match) return;
     document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
     focusedElement = match;
@@ -2602,7 +2702,11 @@
     const fileForms = getFormsForFile(filePath);
     for (let i = 0; i < fileForms.length; i++) {
       const ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
-      if (ta) fileForms[i].draftBody = ta.value;
+      if (ta) {
+        fileForms[i].draftBody = ta.value;
+        fileForms[i].draftSelectionStart = ta.selectionStart;
+        fileForms[i].draftSelectionEnd = ta.selectionEnd;
+      }
     }
     // Save expanded reply form state before DOM re-render
     const section = document.getElementById('file-section-' + filePath);
@@ -2632,14 +2736,25 @@
     }
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
+    const oldVirtual = virtualDiffController(filePath);
+    const oldVirtualRect = oldVirtual && oldVirtual.surface.getBoundingClientRect();
+    const virtualAnchor = oldVirtualRect && oldVirtualRect.bottom > 0 &&
+        oldVirtualRect.top < (window.innerHeight || 0)
+      ? oldVirtual.captureAnchor((window.innerHeight || 0) / 2)
+      : null;
     const oldBody = oldSection.querySelector(':scope > .file-body');
     const keepDeferred = !!(opts && opts.preserveDeferred) &&
       !!oldBody && oldBody.getAttribute('data-body-deferred') === '1';
+    disposeVirtualDiffs(oldSection);
     const newSection = renderFileSection(file);
     oldSection.replaceWith(newSection);
     if (newSection.open && !keepDeferred) {
       if (file.lazy) loadLazyFile(newSection, file);
       else ensureFileBodyMounted(newSection, file);
+    }
+    const newVirtual = virtualDiffController(filePath);
+    if (newVirtual && virtualAnchor) {
+      newVirtual.restoreAnchor(virtualAnchor, (window.innerHeight || 0) / 2);
     }
     renderMermaidBlocks();
     setupBodyMountObserver();
@@ -2962,6 +3077,7 @@
   function deferFileBody(section) {
     const body = section.querySelector(':scope > .file-body');
     if (!body || body.getAttribute('data-body-deferred') === '1') return;
+    disposeVirtualDiffs(body);
     body.innerHTML = '';
     body.setAttribute('data-body-deferred', '1');
     rebuildNavList();
@@ -2986,6 +3102,7 @@
   }
 
   function populateFileBody(body, file) {
+    disposeVirtualDiffs(body);
     body.innerHTML = '';
     body.removeAttribute('data-body-deferred');
 
@@ -3592,6 +3709,9 @@
   // ===== Diff Hunk View (Code Files) =====
   function renderDiffHunks(file) {
     if (diffMode === 'split') return renderDiffSplit(file);
+    if (file.diffTooLarge && file.diffLoaded && !storyActive()) {
+      return renderVirtualDiffUnified(file);
+    }
     return renderDiffUnified(file);
   }
 
@@ -3691,6 +3811,10 @@
       unifiedVisualEnd = vi;
     }
     renderFileByPath(fp);
+    const controller = virtualDiffController(fp);
+    if (controller && typeof vi === 'number') {
+      controller.pinVisualRange('gutter-drag', vi, vi);
+    }
     document.body.classList.add('dragging');
   }
 
@@ -3767,6 +3891,10 @@
       diffDragState.currentVisualIdx = hoverVisualIdx;
       unifiedVisualStart = Math.min(diffDragState.anchorVisualIdx, hoverVisualIdx);
       unifiedVisualEnd = Math.max(diffDragState.anchorVisualIdx, hoverVisualIdx);
+      const controller = virtualDiffController(diffDragState.filePath);
+      if (controller) {
+        controller.pinVisualRange('gutter-drag', unifiedVisualStart, unifiedVisualEnd);
+      }
     }
     updateDragSelectionVisuals(diffDragState.filePath);
   }
@@ -3799,8 +3927,17 @@
       const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
       const releaseVisualIdx = diffDragState.currentVisualIdx;
       const selected = [];
-      const section = currentRenderedFileSection(fp);
-      if (section) {
+      const controller = virtualDiffController(fp);
+      if (controller) {
+        for (let i = 0; i < controller.rows.length; i++) {
+          const row = controller.rows[i];
+          if (row.kind !== 'line' || row.visualIdx < vLo || row.visualIdx > vHi || !row.lineNum) continue;
+          selected.push({ visualIdx: row.visualIdx, lineNum: row.lineNum, side: row.side || '' });
+        }
+        controller.clearInterval('gutter-drag');
+      } else {
+        const section = currentRenderedFileSection(fp);
+        if (section) {
         const els = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
         for (let i = 0; i < els.length; i++) {
           const vi = parseInt(els[i].dataset.diffVisualIdx, 10);
@@ -3812,6 +3949,7 @@
             lineNum: ln,
             side: els[i].dataset.diffSide || '',
           });
+        }
         }
       }
       const resolved = resolveUnifiedDragFormRange(selected, releaseVisualIdx, {
@@ -4293,6 +4431,195 @@
         i++;
       }
     }
+  }
+
+  function renderVirtualUnifiedLine(file, row, commentVisualSet, fileForms, wordDiffMaps) {
+    const line = row.line;
+    const lineEl = document.createElement('div');
+    lineEl.className = 'diff-line';
+    if (line.Type === 'add') lineEl.classList.add('addition');
+    if (line.Type === 'del') lineEl.classList.add('deletion');
+    lineEl.dataset.diffVisualIdx = row.visualIdx;
+
+    if (commentVisualSet.has(row.visualIdx)) lineEl.classList.add('has-comment');
+    if (row.lineNum) {
+      tagDiffLine(lineEl, file.path, row.lineNum, row.side);
+      if (activeFilePath === file.path) {
+        const inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
+          row.visualIdx >= unifiedVisualStart && row.visualIdx <= unifiedVisualEnd;
+        const formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
+        const relevantNum = formSide === 'old' ? line.OldNum : line.NewNum;
+        const inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
+          relevantNum > 0 && relevantNum >= selectionStart && relevantNum <= selectionEnd;
+        const hasForm = fileForms.some(function(f) {
+          const side = f.side || '';
+          const number = side === 'old' ? line.OldNum : line.NewNum;
+          return !f.editingId && number > 0 && number >= f.startLine && number <= f.endLine;
+        });
+        if (inCurrentDrag || inCurrentForm) lineEl.classList.add('selected');
+        if (hasForm && !(inCurrentDrag || inCurrentForm)) lineEl.classList.add('form-selected');
+      }
+    }
+
+    const gutter = document.createElement('div');
+    gutter.className = 'diff-gutter';
+    const oldNum = document.createElement('div');
+    oldNum.className = 'diff-gutter-num';
+    oldNum.textContent = line.OldNum || '';
+    const newNum = document.createElement('div');
+    newNum.className = 'diff-gutter-num';
+    newNum.textContent = line.NewNum || '';
+    gutter.appendChild(oldNum);
+    gutter.appendChild(newNum);
+
+    const sign = document.createElement('div');
+    sign.className = 'diff-gutter-sign';
+    sign.textContent = line.Type === 'add' ? '+' : line.Type === 'del' ? '-' : '';
+
+    const content = document.createElement('div');
+    content.className = 'diff-content';
+    const highlighted = highlightDiffLine(
+      line.Content,
+      line.Type === 'del' ? line.OldNum : line.NewNum,
+      line.Type === 'del' ? 'old' : '',
+      file.highlightCache,
+      file.lang
+    );
+    let wordDiffMap = wordDiffMaps.get(row.hunk);
+    if (!wordDiffMap) {
+      wordDiffMap = buildHunkWordDiffs(row.hunk);
+      wordDiffMaps.set(row.hunk, wordDiffMap);
+    }
+    const wordInfo = wordDiffMap.get(row.lineIndex);
+    content.innerHTML = wordInfo
+      ? applyWordDiffToHtml(highlighted, wordInfo.ranges, wordInfo.cssClass)
+      : highlighted;
+
+    lineEl.appendChild(gutter);
+    lineEl.appendChild(makeDiffCommentGutter(file.path, row.lineNum, row.side, row.visualIdx));
+    lineEl.appendChild(sign);
+    lineEl.appendChild(content);
+    return lineEl;
+  }
+
+  function renderVirtualOutdatedComment(file, comment) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'outdated-diff-comments virtual-outdated-comment';
+    const el = comment.resolved
+      ? createResolvedElement(comment, file.path)
+      : createCommentElement(comment, file.path);
+    el.classList.add('outdated-comment');
+    const headerLeft = el.querySelector('.comment-header-left');
+    if (headerLeft) {
+      const badge = document.createElement('span');
+      badge.className = 'outdated-badge';
+      badge.textContent = 'Outdated';
+      headerLeft.appendChild(badge);
+    }
+    wrapper.appendChild(el);
+    return wrapper;
+  }
+
+  function renderVirtualDiffUnified(file) {
+    const container = document.createElement('div');
+    container.className = 'diff-container unified virtualized';
+    container.dataset.filePath = file.path;
+    attachDiffTouchHandler(container);
+    attachDiffMouseHandler(container);
+
+    expandHunksForComments(file);
+    const hunks = file.diffHunks || [];
+    if (hunks.length === 0) {
+      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
+      return container;
+    }
+    autoExpandSmallGaps(file);
+
+    const { diffCommentsMap: commentsMap } = buildCommentIndices(file.comments);
+    const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
+    const fileForms = getFormsForFile(file.path);
+    const contentLines = file.content ? file.content.split('\n') : [];
+    const totalLines = contentLines.length > 0 && contentLines[contentLines.length - 1] === ''
+      ? contentLines.length - 1
+      : contentLines.length;
+    const rows = window.crit.diffVirtualizer.buildUnifiedRows({
+      hunks: hunks,
+      commentsMap: commentsMap,
+      forms: fileForms,
+      hideResolved: isHideResolved(),
+      totalLines: totalLines,
+    });
+    const wordDiffMaps = new Map();
+    const pinnedKeys = [];
+    rows.forEach(function(row) {
+      if (row.kind === 'form') pinnedKeys.push(row.key);
+      if ((row.kind === 'comment' || row.kind === 'outdated') &&
+          (findFormForEdit(row.comment.id) || activeReplyForms.has(row.comment.id))) {
+        pinnedKeys.push(row.key);
+      }
+    });
+
+    const controller = new window.crit.diffVirtualizer.VirtualWindow({
+      surface: container,
+      rows: rows,
+      pinnedKeys: pinnedKeys,
+      estimateHeight: function(row) {
+        if (row.kind !== 'comment' && row.kind !== 'outdated') {
+          return window.crit.diffVirtualizer.estimateRowHeight(row);
+        }
+        const collapseOverride = commentCollapseOverrides[row.comment.id];
+        const collapsed = collapseOverride === undefined ? !!row.comment.resolved : collapseOverride;
+        if (collapsed) return 44;
+        return 128 + 28 * ((row.comment.replies || []).length);
+      },
+      renderRow: function(row) {
+        if (row.kind === 'line') {
+          return renderVirtualUnifiedLine(file, row, commentVisualSet, fileForms, wordDiffMaps);
+        }
+        if (row.kind === 'header') return renderDiffHunkHeader(row.hunk);
+        if (row.kind === 'gap') {
+          if (row.gapKind === 'leading') return renderLeadingSpacer(row.hunk, file);
+          if (row.gapKind === 'trailing') return renderTrailingSpacer(row.hunk, file);
+          return renderDiffSpacer(
+            row.previousHunk,
+            row.hunk,
+            file,
+            row.previousHunkIndex,
+            row.hunkIndex
+          );
+        }
+        if (row.kind === 'gap-double') {
+          return renderDiffSpacer(
+            row.previousHunk,
+            row.hunk,
+            file,
+            row.previousHunkIndex,
+            row.hunkIndex
+          );
+        }
+        if (row.kind === 'form') {
+          const formEl = createCommentForm(row.form);
+          formEl.classList.add(row.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
+          return formEl;
+        }
+        if (row.kind === 'outdated') return renderVirtualOutdatedComment(file, row.comment);
+        const commentEl = row.comment.resolved
+          ? createResolvedElement(row.comment, file.path)
+          : createCommentElement(row.comment, file.path);
+        commentEl.classList.add(row.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
+        return commentEl;
+      },
+    });
+
+    const previous = virtualDiffControllers.get(file.path);
+    if (previous && previous !== controller) previous.dispose();
+    virtualDiffControllers.set(file.path, controller);
+    controller.onRangeChange = function() {
+      refreshVirtualQuoteHighlights(container, file);
+      rebuildNavList();
+    };
+    requestAnimationFrame(function() { controller.start(); });
+    return container;
   }
 
   function renderDiffUnified(file) {
@@ -5227,7 +5554,14 @@
     requestAnimationFrame(() => {
       if (targetFormKey) {
         const ta = document.querySelector('.comment-form[data-form-key="' + targetFormKey + '"] textarea');
-        if (ta) { ta.focus(); return; }
+        if (ta) {
+          ta.focus();
+          const form = activeForms.find(function(item) { return item.formKey === targetFormKey; });
+          if (form && typeof form.draftSelectionStart === 'number') {
+            ta.setSelectionRange(form.draftSelectionStart, form.draftSelectionEnd);
+          }
+          return;
+        }
       }
       const forms = document.querySelectorAll('.comment-form textarea');
       if (forms.length > 0) forms[forms.length - 1].focus();
@@ -5711,7 +6045,18 @@
     bindSubmitCancelKeys(textarea, doSubmit, doCancelFromEsc);
 
     if (!opts.onSubmit) {
-      textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
+      const rememberMutableFormState = function() {
+        formObj.draftBody = textarea.value;
+        formObj.draftSelectionStart = textarea.selectionStart;
+        formObj.draftSelectionEnd = textarea.selectionEnd;
+      };
+      textarea.addEventListener('input', function() {
+        rememberMutableFormState();
+        debouncedSaveDraft(textarea.value, formObj);
+      });
+      textarea.addEventListener('select', rememberMutableFormState);
+      textarea.addEventListener('keyup', rememberMutableFormState);
+      textarea.addEventListener('click', rememberMutableFormState);
     }
 
     const actions = document.createElement('div');
@@ -5790,14 +6135,14 @@
       ? 'Line ' + formObj.startLine
       : 'Lines ' + formObj.startLine + '-' + formObj.endLine;
     let initialBody = '';
-    if (formObj.editingId) {
+    if (formObj.draftBody !== undefined) {
+      initialBody = formObj.draftBody;
+    } else if (formObj.editingId) {
       const file = getFileByPath(formObj.filePath);
       if (file) {
         const existing = file.comments.find(function(c) { return c.id === formObj.editingId; });
         if (existing) initialBody = existing.body;
       }
-    } else if (formObj.draftBody) {
-      initialBody = formObj.draftBody;
     }
     return createCommentFormUI({
       formObj: formObj,
@@ -6243,6 +6588,20 @@
   }
 
   // ===== Quote Highlighting in Document/Diff Body =====
+
+  function refreshVirtualQuoteHighlights(surface, file) {
+    const hasQuotes = file.comments.some(function(c) { return c.quote && !c.resolved; }) ||
+      getFormsForFile(file.path).some(function(f) { return f.quote && !f.editingId; });
+    if (!hasQuotes) return;
+    const parents = new Set();
+    surface.querySelectorAll('mark.quote-highlight').forEach(function(mark) {
+      const parent = mark.parentNode;
+      mark.replaceWith(document.createTextNode(mark.textContent));
+      if (parent) parents.add(parent);
+    });
+    parents.forEach(function(parent) { parent.normalize(); });
+    highlightQuotesInSection(surface, file);
+  }
 
   function highlightQuotesInSection(sectionEl, file) {
     const quotedComments = file.comments.filter(function(c) { return c.quote && !c.resolved; });
@@ -7086,6 +7445,15 @@
       return form.classList.contains('expanded') ? textarea : input;
     }
 
+    function setVirtualReplyPin(pinned) {
+      if (!filePath) return;
+      const controller = virtualDiffController(filePath);
+      const rowKey = controller && controller.rowKeyForComment(commentId);
+      if (!rowKey) return;
+      if (pinned) controller.pin(rowKey);
+      else controller.unpin(rowKey);
+    }
+
     function expand() {
       if (form.classList.contains('expanded')) return;
       // Set before closing: closeEmptyForms re-renders the file and detaches
@@ -7104,6 +7472,7 @@
       form.appendChild(buttons);
       textarea.focus();
       activeReplyForms.set(commentId, { text: textarea.value, expanded: true });
+      setVirtualReplyPin(true);
       // The taller textarea can push the actions off screen, and focusing it
       // does not bring them along.
       buttons.scrollIntoView({ block: 'nearest' });
@@ -7113,6 +7482,7 @@
       textarea.value = '';
       input.value = '';
       activeReplyForms.delete(commentId);
+      setVirtualReplyPin(false);
       if (!form.classList.contains('expanded')) return;
       form.classList.remove('expanded');
       textarea.replaceWith(input);
@@ -7530,6 +7900,19 @@
       if (id) commentCollapseOverrides[id] = anyExpanded;
     });
 
+    // Offscreen virtual comments have no card to toggle. Persist the same
+    // override against their logical rows so future mounts agree with the
+    // visible cards, then refresh estimated thread heights.
+    virtualDiffControllers.forEach(function(controller) {
+      if (controller.disposed) return;
+      controller.rows.forEach(function(row) {
+        if (row.kind === 'comment' || row.kind === 'outdated') {
+          commentCollapseOverrides[row.comment.id] = anyExpanded;
+        }
+      });
+      controller.resetEstimates();
+    });
+
     updateExpandAllLabel();
   }
 
@@ -7596,6 +7979,19 @@
       return;
     }
     if (file) ensureFileBodyMounted(section, file);
+    const controller = virtualDiffController(filePath);
+    const rowKey = controller && controller.rowKeyForComment(commentId);
+    if (rowKey) {
+      controller.scrollToRow(rowKey, 'center').then(function(rowNode) {
+        if (!rowNode) return;
+        const card = rowNode.matches('.comment-card')
+          ? rowNode
+          : rowNode.querySelector('.comment-card');
+        if (card) flashCommentCard(card);
+        controller.unpin(rowKey);
+      });
+      return;
+    }
     flashCardIn(section);
   }
 

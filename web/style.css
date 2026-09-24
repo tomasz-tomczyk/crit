@@ -4969,6 +4969,17 @@ html[data-theme="light"] .toggle-btn.active {
   line-height: 20px;
   border-bottom: 1px solid var(--crit-border);
 }
+.diff-virtual-surface {
+  overflow-anchor: none;
+}
+.diff-virtual-spacer {
+  width: 100%;
+  min-height: 0;
+  pointer-events: none;
+}
+.virtual-outdated-comment.outdated-diff-comments {
+  margin-top: 0;
+}
 .diff-hunk-header {
   padding: 6px 24px 6px 0;
   font-size: 12px;

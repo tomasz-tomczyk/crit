@@ -32,15 +32,15 @@ This is **product code in the worktree**, not a `spikes/` demo.
 
 - [x] Living doc + design notes (windowing / comment lifecycle) recorded below
 - [x] Fair baseline recorded; bench at `bench/large-diff/`
-- [ ] `buildDiffRows` (or equivalent) logical row model for unified code diffs
-- [ ] Height index + spacer + overscan window controller
-- [ ] Wire into mount path for large diffs (keep small diffs on eager path OK)
-- [ ] Comments / forms as logical rows with remount-safe state
-- [ ] Selection / drag / keyboard / scroll-restore still work on virtualized rows
-- [ ] Split mode (after unified) or explicit deferral in this file
+- [x] `buildDiffRows` (or equivalent) logical row model for unified code diffs
+- [x] Height index + spacer + overscan window controller
+- [x] Wire into mount path for large diffs (keep small diffs on eager path OK)
+- [x] Comments / forms as logical rows with remount-safe state
+- [x] Selection / drag / keyboard / scroll-restore implemented for virtualized rows
+- [x] Split mode explicitly deferred (remains eager)
 - [ ] Tests for windowing helpers; relevant e2e not catastrophically broken
 - [ ] Re-run fair benchmark; fill Post-implementation results
-- [ ] crit-web port (or explicit deferral note)
+- [x] crit-web port explicitly deferred until Crit browser validation
 
 ## Handoff rule
 
@@ -50,14 +50,25 @@ re-deriving context.
 
 ### Current work
 
-Implementation wave starting: ship virtualization in `web/`, not design-only.
+The first implementation is in `web/crit-diff-virtualizer.js`, with production
+wiring in `web/app.js` and `web/index.html`. Loaded large unified diffs use the
+logical row model and variable-height window; small diffs and split mode remain
+eager. Active compose/edit/reply rows are pinned. Form body and selection state
+write through before remount. Comment navigation, reading anchors, gutter drag,
+and focused-row keyboard navigation now have model-first virtual paths.
+Syntax/unit/frontend/build checks pass. Browser verification and the fair
+benchmark are blocked by sandbox restrictions, so interaction behavior remains
+implemented but not browser-validated.
 
 ### Next concrete step
 
-1. Read this whole file (windowing design + breaking assumptions below).
-2. Add row-model + window controller modules; wire unified large-diff mount.
-3. Keep comments/forms working for the happy path.
-4. Update this checklist continuously.
+1. On a host that permits Chromium and localhost listeners, run the focused
+   large-diff page/E2E interaction pass (scrollbar jumps, gutter drag, native
+   selection, j/k, comment navigation, draft editor focus/cursor).
+2. Run the fair benchmark and record the JSON/table below; confirm the normal
+   900 px viewport stays below roughly 400 mounted code rows.
+3. Fix any browser-only regressions. Then decide whether to extend the same row
+   model to split mode and port the settled implementation to crit-web.
 
 
 ## Fair benchmark (shared protocol)
@@ -84,7 +95,18 @@ Implementation wave starting: ship virtualization in `web/`, not design-only.
 
 ### Post-implementation results
 
-_Not run yet. Paste JSON summary + table here when the renderer work is measurable._
+Attempted with the required command on 2026-09-24, but this sandbox prevents
+Chromium from starting before Crit is launched:
+
+```text
+FATAL: base/apple/mach_port_rendezvous_mac.cc:159
+bootstrap_check_in ... Permission denied (1100)
+```
+
+No substitute figures are recorded. Re-run
+`mise exec -- node bench/large-diff/measure.mjs` on an unsandboxed macOS host
+using the same machine/Chromium protocol, then paste the JSON summary + table
+here.
 
 
 ---
@@ -448,6 +470,8 @@ a safe integration boundary if the prototype hits its budgets.
 | 2026-09-24 | Model comments/forms as rows; pin active editors as islands | Keeps height accounting explicit and preserves focused mutable UI without mounting intervening code |
 | 2026-09-24 | Keep navigation and anchors in the logical row model | Offscreen rows cannot be discovered or restored through DOM queries |
 | 2026-09-24 | Defer markdown virtualization | Its blocks/tables/TOC/mermaid need a separate design and estimate |
+| 2026-09-24 | Keep split mode eager in the first production slice | Unified exercises the row/comment lifecycle with less paired-row and mobile complexity; validate it before extending the model |
+| 2026-09-24 | Defer the crit-web port until Crit browser validation | Avoid copying an implementation before production interaction and benchmark results are known |
 | seed | Keep crit DOM contracts | Preserve comment UX + embed story |
 | seed | #954 out of band | File discovery ≠ row virtualization |
 
@@ -455,6 +479,46 @@ a safe integration boundary if the prototype hits its budgets.
 
 _Update this section as you work. Newest notes at the top._
 
+- (2026-09-24, commit blocker) Final commit attempt with subject
+  `feat(web): virtualize large unified diffs` was blocked. Git cannot create
+  the linked worktree administrative lock at
+  `crit/.git/worktrees/crit.spike-large-diff-virtualize/index.lock` because it
+  is outside the writable sandbox. All implementation/doc changes remain
+  uncommitted in this worktree.
+- (2026-09-24, verification) Focused virtualizer/load-order tests pass (8/8),
+  the existing frontend suite passes, ESLint and Stylelint pass, JS syntax and
+  `git diff --check` pass, a Go build succeeds with an isolated `GOCACHE`, and
+  the asset budget remains within caps. The broad Node glob reports 614/615
+  passing; the one failure is the existing `range-focus-diff-scope.test.js`
+  extraction harness missing an `initialViewMode` stub, unrelated to these
+  changes. `go test ./...` proceeds with isolated cache but packages using
+  `httptest` fail because this sandbox forbids localhost binds.
+- (2026-09-24, benchmark blocker) The required fair benchmark was attempted.
+  Playwright Chromium exits before Crit starts because macOS denies its Mach
+  rendezvous registration (`Permission denied (1100)`). No post-implementation
+  numbers were fabricated; an unsandboxed rerun is the next measurable step.
+- (2026-09-24, implementation follow-up) Active reply editors now dynamically
+  pin/unpin their logical comment row. Expand/collapse-all writes overrides for
+  offscreen logical comments and resets estimated heights while preserving a
+  visible anchor. The 900 px pure window calculation mounts 181 ordinary rows
+  at mid-file (under the roughly 400-row design budget, before browser layout).
+- (2026-09-24, implementation) Added the production logical-row/windowing
+  implementation. `web/crit-diff-virtualizer.js` owns pure unified row
+  construction, prefix heights, binary lookup, pixel overscan, keyed row
+  reconciliation, ResizeObserver measurement/anchor compensation, pinned
+  islands, native-selection pinning, and model-first scroll helpers.
+  `web/app.js` now uses it only for loaded large unified diffs. Comments/forms
+  are distinct rows; active compose/edit/reply UI is pinned; draft text and
+  cursor selection write through. Added virtual-aware comment navigation,
+  reading restore, gutter drag range resolution, keyboard row navigation,
+  quote re-highlighting, hide-resolved rebuild, and disposal on body/section
+  teardown. Verification is the next step.
+- (2026-09-24, implementation) Confirmed the worktree starts clean and mapped
+  the production seam. Virtualization will activate only for loaded large
+  unified code diffs; the 1,000-hunk-line threshold is the existing
+  `diffTooLarge` boundary. Split stays eager initially. Crit-specific row DOM
+  remains in `app.js`; a new module will own pure row construction, prefix
+  heights, overscan, keyed reconciliation, measurement, and pinning.
 - (2026-09-24, parent) Cross-stream: measure head-to-head shows Crit patch UI
   first-paint ~266–428 ms vs Pierre ~6.8 s on the same *source* fixture, but
   Crit painted ~4k patch rows while Pierre painted ~10k full-file rows. Scroll
