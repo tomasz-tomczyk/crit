@@ -598,7 +598,6 @@
   let currentChangeIdx = -1;
 
   const enc = encodeURIComponent;
-  const LARGE_DIFF_LINE_THRESHOLD = 1000;
 
   // Author color-coding for multi-reviewer comments — shared helper so
   // live-mode mounts produce matching swatch indices. The helpers module
@@ -749,13 +748,12 @@
       fileHash: fileRes.file_hash || '',
     };
 
-    // Mark large diffs for deferred rendering
-    let diffLineCount = 0;
-    for (let h = 0; h < f.diffHunks.length; h++) {
-      diffLineCount += (f.diffHunks[h].Lines || []).length;
-    }
-    f.diffTooLarge = diffLineCount > LARGE_DIFF_LINE_THRESHOLD;
-    f.diffLoaded = !f.diffTooLarge;
+    // Mark large diffs for deferred rendering.
+    // Count every hunk row (context included) — not the header +/-. With
+    // always-on row virtualization this gate is obsolete (off-screen bodies
+    // are already deferred by the mount observer), so always mark loaded.
+    f.diffTooLarge = false;
+    f.diffLoaded = true;
 
     // Pre-highlight code and markdown files for diff rendering
     if (f.fileType === 'code' || f.fileType === 'markdown') {
@@ -2812,6 +2810,9 @@
     // state, not the first event — a real toggle always flips it.
     let lastOpen = section.open;
     section.addEventListener('toggle', function() {
+      // replaceWith/disconnect fires toggle on the detached node; ignore it so
+      // remounts (hide-resolved, etc.) do not flip file.collapsed.
+      if (!section.isConnected) return;
       const readerToggled = section.open !== lastOpen;
       lastOpen = section.open;
       file.collapsed = !section.open;
@@ -3125,24 +3126,6 @@
       renamed.className = 'diff-deleted-placeholder rename-placeholder';
       renamed.textContent = 'File renamed without changes.';
       body.appendChild(renamed);
-    } else if (showDiff && file.diffTooLarge && !file.diffLoaded) {
-      let diffLineCount = 0;
-      if (file.diffHunks) {
-        for (let h = 0; h < file.diffHunks.length; h++) {
-          diffLineCount += (file.diffHunks[h].Lines || []).length;
-        }
-      }
-      const placeholder = document.createElement('div');
-      placeholder.className = 'diff-large-placeholder';
-      placeholder.innerHTML =
-        '<p>Large diff not rendered by default.</p>' +
-        '<p class="diff-large-meta">' + diffLineCount.toLocaleString() + ' lines changed</p>' +
-        '<button class="btn btn-sm">Load diff</button>';
-      placeholder.querySelector('button').addEventListener('click', function() {
-        file.diffLoaded = true;
-        renderFileByPath(file.path);
-      });
-      body.appendChild(placeholder);
     } else if (showDiff) {
       body.appendChild(renderDiffHunks(file));
     } else if (diffActive && file.previousLineBlocks && file.previousLineBlocks.length > 0) {
@@ -3708,11 +3691,10 @@
     return container;
   }
 
-  // ===== Diff Hunk View (Code Files) =====
+  // Always virtualize mounted code diffs (unified + split), including story
+  // chapter bodies (same renderer via filtered clones). Off-screen file bodies
+  // stay deferred via the mount observer; there is no per-diff Load Diff gate.
   function renderDiffHunks(file) {
-    // Always virtualize mounted code diffs (unified + split), including story
-    // chapter bodies (same renderer via filtered clones). File-body deferral
-    // (diffTooLarge && !diffLoaded) still applies above the Load Diff gate.
     return diffMode === 'split'
       ? renderVirtualDiffSplit(file)
       : renderVirtualDiffUnified(file);
