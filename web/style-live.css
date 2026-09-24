@@ -118,10 +118,6 @@ html[data-theme="light"] .crit-mode-live {
 .crit-live-context[hidden] {
   display: none;
 }
-.crit-live-context[data-kind="hint"][data-mode="navigate"] {
-  background: var(--crit-editor-bg-elevated);
-  color: var(--crit-editor-fg-secondary);
-}
 .crit-live-context[data-kind="hint"][data-mode="pin"] {
   background: var(--crit-brand-subtle);
   color: var(--crit-brand);

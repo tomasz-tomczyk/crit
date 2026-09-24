@@ -498,7 +498,7 @@
     { key: 'fit',     label: 'Fit',     w: 0,    h: 0 },
   ];
 
-  function applyViewport(vp) {
+  function applyViewport(vp, opts) {
     state.viewport = { w: vp.w, h: vp.h, key: vp.key };
     // Persist viewport key in crit-settings cookie. Skip 'custom'
     // (drag-resize) so the next session restarts at the nearest preset.
@@ -529,13 +529,22 @@
       b.classList.toggle('active', active);
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
-    announce('Viewport: ' + vp.label);
+    // Silent reflow (strip show/hide) skips the screen-reader announce.
+    if (!(opts && opts.silent)) announce('Viewport: ' + vp.label);
     // Tell agent the viewport changed; gate request-resolution on
     // viewport-applied ack.
     if (state.resolutionGate) state.resolutionGate.beginViewportChange();
     if (state.postToAgent && w > 0 && h > 0) {
       state.postToAgent({ type: 'set-viewport', width: w, height: h });
     }
+  }
+
+  // Fit subtracts visible context-strip height; ResizeObserver only watches
+  // els.pane, so strip show/hide must re-apply Fit explicitly.
+  function reflowFitViewport() {
+    if (!state.viewport || state.viewport.key !== 'fit') return;
+    if (!els.pane || !els.frame) return;
+    applyViewport({ key: 'fit', w: 0, h: 0, label: 'Fit' }, { silent: true });
   }
 
   registerInstaller(function installViewport() {
@@ -569,7 +578,7 @@
   });
 
   // ============================================================
-  // Pin/Navigate toggle activation + set-mode dispatch to agent
+  // Browse/Comment toggle activation + set-mode dispatch to agent
   // ============================================================
   function setActiveModeButton() {
     if (!els.modeToggle) return;
@@ -642,6 +651,7 @@
       commentBtn.setAttribute('aria-label', ariaLabel);
       commentBtn.setAttribute('title', ariaLabel);
     }
+    reflowFitViewport();
   }
 
   function updatePinButton() {
@@ -651,10 +661,8 @@
     var ready = state.agentConnectionState === 'ready';
     if (ready) {
       pinBtn.removeAttribute('disabled');
-      pinBtn.removeAttribute('aria-disabled');
     } else {
       pinBtn.setAttribute('disabled', '');
-      pinBtn.setAttribute('aria-disabled', 'true');
       // Keep a Loading… title while unavailable/connecting so the disabled
       // button's purpose is clear.
       if (state.agentConnectionState === 'unavailable') {
@@ -700,6 +708,7 @@
       announce('Commenting unavailable');
     }
     updatePinButton();
+    reflowFitViewport();
   }
 
   function setMode(value) {
