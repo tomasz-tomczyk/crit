@@ -859,7 +859,15 @@
     var focusEl = selection.focusNode.nodeType === 1 ? selection.focusNode : selection.focusNode.parentElement;
     var anchorRow = anchorEl && anchorEl.closest ? anchorEl.closest('[data-virtual-row-index]') : null;
     var focusRow = focusEl && focusEl.closest ? focusEl.closest('[data-virtual-row-index]') : null;
-    if (!anchorRow || !focusRow || !this.surface.contains(anchorRow) || !this.surface.contains(focusRow)) return;
+    if (!anchorRow || !focusRow || !this.surface.contains(anchorRow) || !this.surface.contains(focusRow)) {
+      // Selection moved outside this surface (or off a virtual row) — drop the
+      // pin so islands from a prior in-surface drag do not linger.
+      if (this.selectionInterval) {
+        this.selectionInterval = null;
+        this.scheduleUpdate();
+      }
+      return;
+    }
     var a = parseInt(anchorRow.dataset.virtualRowIndex, 10);
     var b = parseInt(focusRow.dataset.virtualRowIndex, 10);
     this.selectionInterval = [Math.min(a, b), Math.max(a, b)];

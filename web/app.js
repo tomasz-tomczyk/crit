@@ -3708,7 +3708,10 @@
 
   // ===== Diff Hunk View (Code Files) =====
   function renderDiffHunks(file) {
-    if (file.diffTooLarge && file.diffLoaded && !storyActive()) {
+    // Always virtualize mounted code diffs (unified + split). File-body
+    // deferral (diffTooLarge && !diffLoaded) still applies above the Load Diff
+    // gate. Story mode keeps the eager path — different document model.
+    if (!storyActive()) {
       return diffMode === 'split'
         ? renderVirtualDiffSplit(file)
         : renderVirtualDiffUnified(file);

@@ -7,12 +7,13 @@ paths:
 # Frontend JS Rules (semantic — ESLint handles syntax/style)
 
 ## Large code-diff virtualization
-- Code diffs above the large-diff gate (`LARGE_DIFF_LINE_THRESHOLD` / Load Diff) must render through `web/crit-diff-virtualizer.js` (unified **and** split). Do not reintroduce full-file line DOM for those mounts — that path was measured at ~10–40× more nodes and much slower first paint.
+- Mounted code diffs (unified **and** split) always render through `web/crit-diff-virtualizer.js`. Do not reintroduce full-file line DOM for those mounts — measured wins are ~5× fewer nodes from medium sizes up and order-of-magnitude on huge diffs.
 - Keep the virtualizer thin: logical row model + height index + viewport ± overscan + remount-safe comment/form state. Prefer extending this module over embedding a third-party diff engine (Shiki/shadow-DOM stacks cost megabytes and seconds of first paint for the same windowing idea).
-- Small diffs stay on the eager path. File-body deferral (Load Diff) and row virtualization are complementary — do not collapse them.
+- File-body deferral (Load Diff / `LARGE_DIFF_LINE_THRESHOLD`) stays separate: it skips fetching/showing huge bodies until click. Virtualization is how those (and all smaller) bodies render once mounted.
 - When changing comment create/edit/reply, gutter drag, keyboard nav, or scroll-restore on diffs, update the virtualizer’s model-first paths (`pin` / `rowKeyForLine` / rebuild) in the same change. Remounted rows must not lose draft text or selection anchors.
 - Port behavior to crit-web when the Crit path ships — review-page parity still applies (`app.js` ↔ `document-renderer.js`, shared class names).
-- If you change the large-diff gate or virtualizer windowing, add/adjust focused tests under `web/__tests__/crit-diff-virtualizer.test.js`. Prefer production-UI measurement over throwaway demos when comparing approaches.
+- Protect always-on virtualization with: focused unit tests under `web/__tests__/crit-diff-virtualizer.test.js`, e2e `diff-virtualization.spec.ts`, and the existing diff/comment/drag/draft suites (they now exercise the virtual path by default).
+- Prefer production-UI measurement over throwaway demos when comparing approaches.
 
 ## DOM & Events
 - Use `addEventListener`, not inline `onclick` handlers in new code.

@@ -165,8 +165,6 @@ test('buildSplitRows removes resolved comment rows when hide-resolved is active'
 
 test('rowKeyForLine finds split rows by left or right cell', function() {
   const rows = virtualizer.buildSplitRows(fixture());
-  const surface = { classList: { add: function() {} }, children: [], style: {}, dataset: {} };
-  // Minimal stub: only need key lookup
   const keyToIndex = new Map();
   rows.forEach(function(row, i) { keyToIndex.set(row.key, i); });
   const fake = {
@@ -186,4 +184,275 @@ test('rowKeyForLine finds split rows by left or right cell', function() {
     fake.rowKeyForLine(40, ''),
     rows.find(function(r) { return r.kind === 'line' && r.right && r.right.NewNum === 40; }).key
   );
+});
+
+test('rowKeyForLine finds unified rows by lineNum+side', function() {
+  const rows = virtualizer.buildUnifiedRows(fixture());
+  const keyToIndex = new Map();
+  rows.forEach(function(row, i) { keyToIndex.set(row.key, i); });
+  const fake = {
+    rows: rows,
+    keyToIndex: keyToIndex,
+    rowKeyForLine: virtualizer.VirtualWindow.prototype.rowKeyForLine,
+  };
+  assert.equal(
+    fake.rowKeyForLine(10, 'old'),
+    rows.find(function(r) { return r.kind === 'line' && r.lineNum === 10 && r.side === 'old'; }).key
+  );
+  assert.equal(
+    fake.rowKeyForLine(10, ''),
+    rows.find(function(r) { return r.kind === 'line' && r.lineNum === 10 && r.side === ''; }).key
+  );
+});
+
+test('pinLineRange covers split cells on the requested side', function() {
+  const rows = virtualizer.buildSplitRows(fixture());
+  const intervals = [];
+  const fake = {
+    rows: rows,
+    pinInterval: function(name, start, end) { intervals.push([name, start, end]); },
+    pinLineRange: virtualizer.VirtualWindow.prototype.pinLineRange,
+  };
+  fake.pinLineRange('drag', 10, 10, 'old');
+  assert.equal(intervals.length, 1);
+  assert.equal(intervals[0][0], 'drag');
+  const startRow = rows[intervals[0][1]];
+  assert.equal(startRow.kind, 'line');
+  assert.equal(startRow.left && startRow.left.OldNum, 10);
+});
+
+test('pinned islands stay mounted when the ordinary window moves away', function() {
+  const rows = Array.from({ length: 500 }, function(_, index) {
+    return { key: 'line:' + index, kind: 'line', lineNum: index + 1, side: '', visualIdx: index };
+  });
+  // Pin a row far below the initial viewport window.
+  const pinnedKey = 'line:400';
+  const windowRange = virtualizer.calculateWindow(
+    new virtualizer.HeightIndex(rows),
+    0,
+    900
+  );
+  assert.ok(windowRange[1] < 400, 'fixture assumes pin target is outside the first window');
+
+  const merged = virtualizer.mergeIntervals(
+    [windowRange, [400, 400]],
+    rows.length
+  );
+  const coversPin = merged.some(function(interval) {
+    return interval[0] <= 400 && interval[1] >= 400;
+  });
+  assert.equal(coversPin, true);
+});
+
+test('VirtualWindow.reconcile keeps pinned row nodes across window moves', function() {
+  // Minimal DOM surface stub — enough for reconcile/pin without jsdom.
+  function makeNode(tag) {
+    const node = {
+      tagName: String(tag || 'div').toUpperCase(),
+      nodeType: 1,
+      className: '',
+      style: {},
+      dataset: {},
+      children: [],
+      parentNode: null,
+      remove: function() {
+        if (!this.parentNode) return;
+        const kids = this.parentNode.children;
+        const idx = kids.indexOf(this);
+        if (idx >= 0) kids.splice(idx, 1);
+        this.parentNode = null;
+      },
+      setAttribute: function() {},
+      getBoundingClientRect: function() { return { top: 0, bottom: 20, height: 20 }; },
+    };
+    return node;
+  }
+
+  const surface = makeNode('div');
+  surface.classList = { add: function() {} };
+  Object.defineProperty(surface, 'children', {
+    get: function() { return this._kids || []; },
+  });
+  surface._kids = [];
+  surface.insertBefore = function(node, ref) {
+    if (node.parentNode) node.remove();
+    node.parentNode = surface;
+    if (!ref) {
+      surface._kids.push(node);
+      return node;
+    }
+    const idx = surface._kids.indexOf(ref);
+    surface._kids.splice(idx < 0 ? surface._kids.length : idx, 0, node);
+    return node;
+  };
+  Object.defineProperty(surface, 'lastElementChild', {
+    get: function() { return this._kids[this._kids.length - 1] || null; },
+  });
+  surface.contains = function(node) {
+    let cur = node;
+    while (cur) {
+      if (cur === surface) return true;
+      cur = cur.parentNode;
+    }
+    return false;
+  };
+
+  const rows = Array.from({ length: 300 }, function(_, index) {
+    return { key: 'r' + index, kind: 'line', lineNum: index + 1, side: '', visualIdx: index };
+  });
+
+  globalThis.window = globalThis.window || {};
+  globalThis.document = globalThis.document || {
+    createElement: makeNode,
+    addEventListener: function() {},
+    removeEventListener: function() {},
+  };
+  globalThis.ResizeObserver = undefined;
+
+  const vw = new virtualizer.VirtualWindow({
+    surface: surface,
+    rows: rows,
+    renderRow: function(row) {
+      const el = makeNode('div');
+      el.dataset.rowKey = row.key;
+      el.textContent = row.key;
+      return el;
+    },
+  });
+
+  assert.ok(surface._kids.length > 0);
+  assert.ok(surface._kids.length < rows.length, 'initial mount is windowed, not full');
+
+  const farKey = 'r250';
+  // Avoid pin()→update() (needs a real viewport). Drive reconcile directly
+  // with an explicit pin island, matching what pin() would request.
+  vw.pinnedKeys.add(farKey);
+  vw.reconcile(virtualizer.mergeIntervals(
+    [virtualizer.calculateWindow(vw.heightIndex, 0, 900), [250, 250]],
+    rows.length
+  ));
+  const pinnedNode = vw.nodes.get(farKey);
+  assert.ok(pinnedNode, 'pin mounts the far row');
+  assert.equal(pinnedNode.parentNode, surface);
+
+  // Move the ordinary window; pin island must keep r250 alive.
+  vw.reconcile(virtualizer.mergeIntervals(
+    [virtualizer.calculateWindow(vw.heightIndex, 0, 900), [250, 250]],
+    rows.length
+  ));
+  assert.equal(vw.nodes.get(farKey), pinnedNode);
+  assert.equal(pinnedNode.parentNode, surface);
+  assert.ok(
+    surface._kids.some(function(child) { return child.dataset.virtualKey === farKey; }),
+    'pinned row remains in the surface'
+  );
+
+  vw.pinnedKeys.delete(farKey);
+  vw.reconcile([virtualizer.calculateWindow(vw.heightIndex, 0, 900)]);
+  assert.equal(vw.nodes.has(farKey), false);
+});
+
+test('handleSelectionChange clears selectionInterval when selection leaves the surface', function() {
+  function makeNode(tag) {
+    const node = {
+      tagName: String(tag || 'div').toUpperCase(),
+      nodeType: 1,
+      className: '',
+      style: {},
+      dataset: {},
+      children: [],
+      parentNode: null,
+      closest: function(sel) {
+        if (sel === '[data-virtual-row-index]' && this.dataset.virtualRowIndex != null) return this;
+        return this.parentNode && this.parentNode.closest ? this.parentNode.closest(sel) : null;
+      },
+      remove: function() {
+        if (!this.parentNode) return;
+        const kids = this.parentNode.children;
+        const idx = kids.indexOf(this);
+        if (idx >= 0) kids.splice(idx, 1);
+        this.parentNode = null;
+      },
+      setAttribute: function() {},
+      getBoundingClientRect: function() { return { top: 0, bottom: 20, height: 20 }; },
+    };
+    return node;
+  }
+
+  const surface = makeNode('div');
+  surface.classList = { add: function() {} };
+  surface._kids = [];
+  Object.defineProperty(surface, 'children', {
+    get: function() { return this._kids; },
+  });
+  surface.insertBefore = function(node) {
+    node.parentNode = surface;
+    surface._kids.push(node);
+    return node;
+  };
+  Object.defineProperty(surface, 'lastElementChild', {
+    get: function() { return this._kids[this._kids.length - 1] || null; },
+  });
+  surface.contains = function(node) {
+    let cur = node;
+    while (cur) {
+      if (cur === surface) return true;
+      cur = cur.parentNode;
+    }
+    return false;
+  };
+
+  const rows = Array.from({ length: 40 }, function(_, index) {
+    return { key: 's' + index, kind: 'line', lineNum: index + 1, side: '', visualIdx: index };
+  });
+
+  globalThis.window = globalThis.window || {};
+  globalThis.document = {
+    createElement: makeNode,
+    addEventListener: function() {},
+    removeEventListener: function() {},
+    getSelection: function() { return globalThis.__critSelection || null; },
+  };
+  globalThis.ResizeObserver = undefined;
+
+  const vw = new virtualizer.VirtualWindow({
+    surface: surface,
+    rows: rows,
+    renderRow: function(row) {
+      const el = makeNode('div');
+      el.dataset.rowKey = row.key;
+      el.dataset.virtualRowIndex = String(row.visualIdx);
+      return el;
+    },
+  });
+  let scheduled = 0;
+  vw.scheduleUpdate = function() { scheduled += 1; };
+
+  const inRow = makeNode('div');
+  inRow.dataset.virtualRowIndex = '3';
+  inRow.parentNode = surface;
+  surface._kids.push(inRow);
+
+  const outside = makeNode('div');
+  outside.parentNode = null;
+
+  vw.selectionInterval = [2, 5];
+  globalThis.__critSelection = {
+    isCollapsed: false,
+    anchorNode: outside,
+    focusNode: outside,
+  };
+  vw.handleSelectionChange();
+  assert.equal(vw.selectionInterval, null, 'selection outside the surface clears the pin');
+  assert.equal(scheduled, 1);
+
+  vw.selectionInterval = [1, 2];
+  globalThis.__critSelection = {
+    isCollapsed: false,
+    anchorNode: inRow,
+    focusNode: inRow,
+  };
+  vw.handleSelectionChange();
+  assert.deepEqual(vw.selectionInterval, [3, 3]);
+  assert.equal(scheduled, 2);
 });
