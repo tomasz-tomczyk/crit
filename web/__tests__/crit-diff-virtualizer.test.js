@@ -456,3 +456,120 @@ test('handleSelectionChange clears selectionInterval when selection leaves the s
   assert.deepEqual(vw.selectionInterval, [3, 3]);
   assert.equal(scheduled, 2);
 });
+
+test('viewportMetrics uses scroll-parent top, not the window, for localTop', function() {
+  const surface = {
+    getBoundingClientRect: function() {
+      return { top: -200, bottom: 1800, height: 2000, left: 0, right: 100 };
+    },
+  };
+  const pane = {
+    getBoundingClientRect: function() {
+      return { top: 80, bottom: 880, height: 800, left: 0, right: 100 };
+    },
+    clientHeight: 800,
+  };
+  globalThis.window = globalThis.window || {};
+  globalThis.window.innerHeight = 900;
+  globalThis.document = globalThis.document || {};
+  globalThis.document.documentElement = { clientHeight: 900 };
+
+  const windowMetrics = virtualizer.viewportMetrics(window, surface);
+  assert.equal(windowMetrics.localTop, 200);
+  assert.equal(windowMetrics.viewportHeight, 900);
+
+  const paneMetrics = virtualizer.viewportMetrics(pane, surface);
+  assert.equal(paneMetrics.localTop, 280); // 80 - (-200)
+  assert.equal(paneMetrics.viewportHeight, 800);
+  assert.equal(paneMetrics.vpTop, 80);
+});
+
+test('VirtualWindow.start listens on an explicit scrollParent', function() {
+  function makeNode(tag) {
+    return {
+      tagName: String(tag || 'div').toUpperCase(),
+      nodeType: 1,
+      className: '',
+      style: {},
+      dataset: {},
+      children: [],
+      parentNode: null,
+      classList: { add: function() {} },
+      remove: function() {},
+      setAttribute: function() {},
+      getBoundingClientRect: function() { return { top: 0, bottom: 20, height: 20 }; },
+    };
+  }
+  const surface = makeNode('div');
+  surface._kids = [];
+  Object.defineProperty(surface, 'children', { get: function() { return this._kids; } });
+  surface.insertBefore = function(node) {
+    node.parentNode = surface;
+    surface._kids.push(node);
+    return node;
+  };
+  Object.defineProperty(surface, 'lastElementChild', {
+    get: function() { return this._kids[this._kids.length - 1] || null; },
+  });
+  surface.contains = function() { return true; };
+  surface.clientWidth = 800;
+
+  const listeners = [];
+  const pane = {
+    addEventListener: function(type, fn) { listeners.push({ type: type, fn: fn, target: 'pane' }); },
+    removeEventListener: function(type, fn) {
+      for (let i = listeners.length - 1; i >= 0; i--) {
+        if (listeners[i].type === type && listeners[i].fn === fn) listeners.splice(i, 1);
+      }
+    },
+    getBoundingClientRect: function() {
+      return { top: 60, bottom: 860, height: 800, left: 0, right: 100 };
+    },
+    clientHeight: 800,
+    scrollTop: 0,
+    scrollLeft: 0,
+    scrollTo: function() {},
+  };
+
+  globalThis.window = globalThis.window || {};
+  globalThis.window.addEventListener = function(type, fn) {
+    listeners.push({ type: type, fn: fn, target: 'window' });
+  };
+  globalThis.window.removeEventListener = function(type, fn) {
+    for (let i = listeners.length - 1; i >= 0; i--) {
+      if (listeners[i].type === type && listeners[i].fn === fn && listeners[i].target === 'window') {
+        listeners.splice(i, 1);
+      }
+    }
+  };
+  globalThis.window.innerHeight = 900;
+  globalThis.document = {
+    createElement: makeNode,
+    addEventListener: function() {},
+    removeEventListener: function() {},
+    documentElement: { clientHeight: 900 },
+  };
+  globalThis.ResizeObserver = undefined;
+  globalThis.requestAnimationFrame = function(cb) { return setTimeout(cb, 0); };
+  globalThis.cancelAnimationFrame = function(id) { clearTimeout(id); };
+
+  const rows = Array.from({ length: 20 }, function(_, index) {
+    return { key: 'p' + index, kind: 'line', lineNum: index + 1, side: '', visualIdx: index };
+  });
+  const vw = new virtualizer.VirtualWindow({
+    surface: surface,
+    rows: rows,
+    scrollParent: pane,
+    renderRow: function(row) {
+      const el = makeNode('div');
+      el.dataset.rowKey = row.key;
+      return el;
+    },
+  });
+  vw.start();
+  assert.equal(vw.scrollParent, pane);
+  assert.ok(listeners.some(function(l) { return l.type === 'scroll' && l.target === 'pane'; }));
+  assert.ok(!listeners.some(function(l) { return l.type === 'scroll' && l.target === 'window'; }));
+  vw.dispose();
+  assert.ok(!listeners.some(function(l) { return l.type === 'scroll' && l.target === 'pane'; }));
+});

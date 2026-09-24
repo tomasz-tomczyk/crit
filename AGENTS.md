@@ -31,7 +31,7 @@ crit/
 3. **Two modes**: "git" mode (auto-detect from git) and "files" mode (explicit file arguments)
 4. **markdown-it for parsing** — chosen because it provides `token.map` (source line mappings per block)
 5. **Block-level splitting** — lists, code blocks, tables, blockquotes split into per-item/per-line/per-row blocks so each source line is independently commentable
-6. **Diff hunk rendering** — code files show git diffs with dual gutters (old/new line numbers). Mounted code diffs always use row virtualization in `web/crit-diff-virtualizer.js` (unified + split); the Load Diff gate only defers fetching huge bodies.
+6. **Diff hunk rendering** — code files show git diffs with dual gutters (old/new line numbers). Mounted code diffs always use row virtualization in `web/crit-diff-virtualizer.js` (unified + split), including story chapter bodies; the Load Diff gate only defers fetching huge bodies. The virtualizer scrolls the nearest overflow parent (`#storyPane` in story mode).
 7. **Comments reference source line numbers** — stored in `~/.crit/reviews/<key>.json` with per-file sections
 8. **Real-time output** — review file written on every comment change (200ms debounce)
 9. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE

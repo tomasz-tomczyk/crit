@@ -497,7 +497,8 @@
   let agentName = 'agent';
   const pendingAgentRequests = new Set();
 
-  // One controller per flat-view file. Story mode stays eager.
+  // One controller per mounted code-diff surface (flat view and story chapters).
+  // Keyed by file path — a story page shows each path at most once.
   const virtualDiffControllers = new Map();
 
   function virtualDiffController(filePath) {
@@ -2086,9 +2087,10 @@
           ? section.id.slice('file-section-'.length)
           : null);
       if (!path) continue;
-      if (!storyActive() && virtualDiffController(path)) {
+      if (virtualDiffController(path)) {
         // Resolved comments are logical rows in the virtual model. Rebuild the
         // model so hidden offscreen threads contribute no estimated height.
+        // renderFileByPath routes to the story file group when story is active.
         renderFileByPath(path);
         continue;
       }
@@ -3708,16 +3710,12 @@
 
   // ===== Diff Hunk View (Code Files) =====
   function renderDiffHunks(file) {
-    // Always virtualize mounted code diffs (unified + split). File-body
-    // deferral (diffTooLarge && !diffLoaded) still applies above the Load Diff
-    // gate. Story mode keeps the eager path — different document model.
-    if (!storyActive()) {
-      return diffMode === 'split'
-        ? renderVirtualDiffSplit(file)
-        : renderVirtualDiffUnified(file);
-    }
-    if (diffMode === 'split') return renderDiffSplit(file);
-    return renderDiffUnified(file);
+    // Always virtualize mounted code diffs (unified + split), including story
+    // chapter bodies (same renderer via filtered clones). File-body deferral
+    // (diffTooLarge && !diffLoaded) still applies above the Load Diff gate.
+    return diffMode === 'split'
+      ? renderVirtualDiffSplit(file)
+      : renderVirtualDiffUnified(file);
   }
 
 
@@ -3728,7 +3726,6 @@
   const htmlToText = window.crit.diffRenderer.htmlToText;
   const applyWordDiffPair = window.crit.diffRenderer.applyWordDiffPair;
   const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
-  const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
   const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
   const resolveTextSelectionLineRange = window.crit.diffRenderer.resolveTextSelectionLineRange;
   const preferredSideFromNode = window.crit.diffRenderer.preferredSideFromNode;
@@ -4302,116 +4299,6 @@
     return hunkHeader;
   }
 
-  // Helper: append comments for a given line number and side
-  function appendDiffComments(container, filePath, lineNum, side, commentsMap) {
-    const key = lineNum + ':' + (side || '');
-    const lineComments = commentsMap[key] || [];
-    for (const comment of lineComments) {
-      const el = comment.resolved
-        ? createResolvedElement(comment, filePath)
-        : createCommentElement(comment, filePath);
-      if (side === 'old') el.classList.add('diff-comment-left');
-      else el.classList.add('diff-comment-right');
-      container.appendChild(el);
-    }
-  }
-
-  // Helper: append comment form if it targets this line and side.
-  // fileForms is threaded down from the top-level diff renders
-  // (renderDiffUnified/renderDiffSplit) — one filtered array per render.
-  function appendDiffForm(container, filePath, lineNum, side, fileForms) {
-    const forms = fileForms || getFormsForFile(filePath);
-    for (let fi = 0; fi < forms.length; fi++) {
-      const form = forms[fi];
-      const formSide = form.side || '';
-      if (!form.editingId && form.endLine === lineNum && formSide === (side || '')) {
-        const el = createCommentForm(form);
-        if (formSide === 'old') el.classList.add('diff-comment-left');
-        else el.classList.add('diff-comment-right');
-        container.appendChild(el);
-      }
-    }
-  }
-
-  // Helper: render comments whose line keys don't appear in any diff hunk.
-  // These are "outdated" — the comment exists but the line is gone from the current diff.
-  function appendOutdatedDiffComments(container, file, commentsMap, hunks) {
-    // Build set of all end_line:side keys present in the diff hunks
-    const renderedKeys = new Set();
-    for (const hunk of hunks) {
-      for (const line of hunk.Lines) {
-        if (line.Type === 'del' && line.OldNum) {
-          renderedKeys.add(line.OldNum + ':old');
-        }
-        if (line.Type === 'add' && line.NewNum) {
-          renderedKeys.add(line.NewNum + ':');
-        }
-        if (line.Type === 'context') {
-          if (line.OldNum) renderedKeys.add(line.OldNum + ':old');
-          if (line.NewNum) renderedKeys.add(line.NewNum + ':');
-        }
-      }
-    }
-
-    // Collect comments whose keys were not rendered
-    const outdatedComments = [];
-    for (const key of Object.keys(commentsMap)) {
-      if (!renderedKeys.has(key)) {
-        for (const comment of commentsMap[key]) {
-          if (comment.scope !== 'file') {
-            outdatedComments.push(comment);
-          }
-        }
-      }
-    }
-
-    if (outdatedComments.length === 0) return;
-
-    // Render outdated comments section at the bottom of the diff
-    const section = document.createElement('div');
-    section.className = 'outdated-diff-comments';
-
-    for (const comment of outdatedComments) {
-      const el = comment.resolved
-        ? createResolvedElement(comment, file.path)
-        : createCommentElement(comment, file.path);
-      el.classList.add('outdated-comment');
-      const headerLeft = el.querySelector('.comment-header-left');
-      if (headerLeft) {
-        const badge = document.createElement('span');
-        badge.className = 'outdated-badge';
-        badge.textContent = 'Outdated';
-        headerLeft.appendChild(badge);
-      }
-      section.appendChild(el);
-    }
-
-    container.appendChild(section);
-  }
-
-  // ===== Unified diff (interleaved lines, single pane) =====
-  // Pre-process diffHunks: merge adjacent hunks where the gap between them
-  // is ≤ 8 unchanged lines. This removes visual noise from tiny spacers.
-  // Mutates file.diffHunks in place so it only runs once per file.
-  function storyRawHunks(hunk) {
-    if (hunk && Array.isArray(hunk._StoryRawHunks)) return hunk._StoryRawHunks;
-    return hunk ? [{ OldStart: hunk.OldStart, Lines: hunk.Lines || [] }] : [];
-  }
-
-  // Context synthesized between visual hunks historically belongs to the
-  // preceding Story hunk. Preserve that ownership while keeping the original
-  // raw hunk objects immutable for other render passes.
-  function storyRawHunksWithTrailingContext(hunk, contextLines) {
-    const rawHunks = storyRawHunks(hunk).map(function(rawHunk) {
-      return { OldStart: rawHunk.OldStart, Lines: (rawHunk.Lines || []).slice() };
-    });
-    if (rawHunks.length && contextLines.length) {
-      const last = rawHunks[rawHunks.length - 1];
-      last.Lines = last.Lines.concat(contextLines);
-    }
-    return rawHunks;
-  }
-
   function autoExpandSmallGaps(file) {
     if (!file.content || !file.diffHunks || file.diffHunks.length < 2) return;
     if (file._autoExpandDone) return;
@@ -4765,260 +4652,6 @@
       rebuildNavList();
     };
     requestAnimationFrame(function() { controller.start(); });
-    return container;
-  }
-
-  function renderDiffUnified(file) {
-    const container = document.createElement('div');
-    container.className = 'diff-container unified';
-    attachDiffTouchHandler(container);
-    attachDiffMouseHandler(container);
-
-    expandHunksForComments(file);
-
-    const hunks = file.diffHunks || [];
-    if (hunks.length === 0) {
-      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
-      return container;
-    }
-
-    autoExpandSmallGaps(file);
-
-    const { diffCommentsMap: commentsMap } = buildCommentIndices(file.comments);
-    const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
-    // Hoisted: one filtered array per render instead of one per diff line.
-    const fileForms = getFormsForFile(file.path);
-    let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
-
-    // Leading spacer before first hunk (includes hunk header text)
-    const leadingSpacer = renderLeadingSpacer(hunks[0], file);
-    if (leadingSpacer) container.appendChild(leadingSpacer);
-
-    for (let hi = 0; hi < hunks.length; hi++) {
-      const hunk = hunks[hi];
-      let spacerRendered = false;
-
-      if (hi > 0) {
-        const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) {
-          container.appendChild(spacer);
-          spacerRendered = true;
-        }
-      }
-
-      // Skip standalone hunk header when:
-      // - a spacer (which embeds the header) was rendered, or
-      // - the leading spacer covers the first hunk, or
-      // - this hunk is contiguous with the previous one (e.g. bridge hunks from expand)
-      const contiguous = hi > 0 && (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
-      if (!spacerRendered && !(hi === 0 && leadingSpacer) && !contiguous) {
-        container.appendChild(renderDiffHunkHeader(hunk));
-      }
-
-      const wordDiffMap = buildHunkWordDiffs(hunk);
-
-      for (let li = 0; li < hunk.Lines.length; li++) {
-        const line = hunk.Lines[li];
-        const lineEl = document.createElement('div');
-        lineEl.className = 'diff-line';
-        if (line.Type === 'add') lineEl.classList.add('addition');
-        if (line.Type === 'del') lineEl.classList.add('deletion');
-        lineEl.dataset.diffVisualIdx = visualIdx;
-
-        const commentLineNum = line.Type === 'del' ? line.OldNum : line.NewNum;
-        const lineSide = line.Type === 'del' ? 'old' : '';
-        if (commentVisualSet.has(visualIdx)) lineEl.classList.add('has-comment');
-
-        // Tag for drag detection and selection highlighting
-        if (commentLineNum) {
-          tagDiffLine(lineEl, file.path, commentLineNum, lineSide);
-          if (activeFilePath === file.path) {
-            const inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
-                visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
-            const formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
-            // Match against the line's number in the form's space (OldNum for old-side, NewNum otherwise)
-            // so context lines participate in old-side range selections.
-            const relevantNum = formSide === 'old' ? line.OldNum : line.NewNum;
-            const inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
-                relevantNum > 0 && relevantNum >= selectionStart && relevantNum <= selectionEnd;
-            const inCurrentSelUnified = inCurrentDrag || inCurrentForm;
-            const hasFormUnified = fileForms.some(function(f) {
-              const fSide = f.side || '';
-              const fNum = fSide === 'old' ? line.OldNum : line.NewNum;
-              return !f.editingId && fNum > 0 && fNum >= f.startLine && fNum <= f.endLine;
-            });
-            if (inCurrentSelUnified) { lineEl.classList.add('selected'); }
-            if (hasFormUnified && !inCurrentSelUnified) { lineEl.classList.add('form-selected'); }
-          }
-        }
-
-        const gutter = document.createElement('div');
-        gutter.className = 'diff-gutter';
-
-        const oldNum = document.createElement('div');
-        oldNum.className = 'diff-gutter-num';
-        oldNum.textContent = line.OldNum || '';
-
-        const newNum = document.createElement('div');
-        newNum.className = 'diff-gutter-num';
-        newNum.textContent = line.NewNum || '';
-
-        gutter.appendChild(oldNum);
-        gutter.appendChild(newNum);
-
-        const commentGutter = makeDiffCommentGutter(file.path, commentLineNum, lineSide, visualIdx);
-
-        const sign = document.createElement('div');
-        sign.className = 'diff-gutter-sign';
-        sign.textContent = line.Type === 'add' ? '+' : line.Type === 'del' ? '-' : '';
-
-        const contentEl = document.createElement('div');
-        contentEl.className = 'diff-content';
-        const hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
-        const wdInfo = wordDiffMap.get(li);
-        contentEl.innerHTML = wdInfo ? applyWordDiffToHtml(hlLine, wdInfo.ranges, wdInfo.cssClass) : hlLine;
-
-        lineEl.appendChild(gutter);
-        lineEl.appendChild(commentGutter);
-        lineEl.appendChild(sign);
-        lineEl.appendChild(contentEl);
-        container.appendChild(lineEl);
-
-        appendDiffComments(container, file.path, commentLineNum, lineSide, commentsMap);
-        appendDiffForm(container, file.path, commentLineNum, lineSide, fileForms);
-        visualIdx++;
-      }
-    }
-
-    // Trailing spacer after last hunk
-    const trailingSpacerUnified = renderTrailingSpacer(hunks[hunks.length - 1], file);
-    if (trailingSpacerUnified) container.appendChild(trailingSpacerUnified);
-
-    appendOutdatedDiffComments(container, file, commentsMap, hunks);
-
-    return container;
-  }
-
-  // ===== Split diff (side-by-side: old on left, new on right) =====
-  function renderDiffSplit(file) {
-    const container = document.createElement('div');
-    container.className = 'diff-container split';
-    attachDiffTouchHandler(container);
-    attachDiffMouseHandler(container);
-
-    expandHunksForComments(file);
-
-    const hunks = file.diffHunks || [];
-    if (hunks.length === 0) {
-      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
-      return container;
-    }
-
-    autoExpandSmallGaps(file);
-
-    const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
-    // Hoisted: one filtered array per render instead of one per diff line.
-    const fileForms = getFormsForFile(file.path);
-
-    // Leading spacer before first hunk (includes hunk header text)
-    const leadingSpacerSplit = renderLeadingSpacer(hunks[0], file);
-    if (leadingSpacerSplit) container.appendChild(leadingSpacerSplit);
-
-    for (let hi = 0; hi < hunks.length; hi++) {
-      const hunk = hunks[hi];
-      let spacerRenderedSplit = false;
-
-      if (hi > 0) {
-        const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) {
-          container.appendChild(spacer);
-          spacerRenderedSplit = true;
-        }
-      }
-
-      // Skip standalone hunk header when:
-      // - a spacer (which embeds the header) was rendered, or
-      // - the leading spacer covers the first hunk, or
-      // - this hunk is contiguous with the previous one (e.g. bridge hunks from expand)
-      const contiguousSplit = hi > 0 && (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
-      if (!spacerRenderedSplit && !(hi === 0 && leadingSpacerSplit) && !contiguousSplit) {
-        container.appendChild(renderDiffHunkHeader(hunk));
-      }
-
-      // Group hunk lines into segments: runs of context, or runs of del+add (change pairs)
-      const segments = [];
-      let i = 0;
-      const lines = hunk.Lines;
-      while (i < lines.length) {
-        if (lines[i].Type === 'context') {
-          segments.push({ type: 'context', lines: [lines[i]] });
-          i++;
-        } else {
-          // Collect consecutive dels then adds
-          const dels = [];
-          const adds = [];
-          while (i < lines.length && lines[i].Type === 'del') { dels.push(lines[i]); i++; }
-          while (i < lines.length && lines[i].Type === 'add') { adds.push(lines[i]); i++; }
-          segments.push({ type: 'change', dels: dels, adds: adds });
-        }
-      }
-
-      for (const seg of segments) {
-        if (seg.type === 'context') {
-          const line = seg.lines[0];
-          const row = makeSplitRow(
-            { num: line.OldNum, content: line.Content, type: 'context' },
-            { num: line.NewNum, content: line.Content, type: 'context' },
-            file, commentRangeSet, fileForms
-          );
-          container.appendChild(row.el);
-          // Context lines: form appears where clicked (left or right),
-          // but submitted comments always render on the right, like GitHub
-          const ctxComments = [
-            ...(commentsMap[line.OldNum + ':old'] || []),
-            ...(commentsMap[line.NewNum + ':'] || [])
-          ];
-          for (let ci = 0; ci < ctxComments.length; ci++) {
-            const el = ctxComments[ci].resolved
-              ? createResolvedElement(ctxComments[ci], file.path)
-              : createCommentElement(ctxComments[ci], file.path);
-            el.classList.add('diff-comment-right');
-            container.appendChild(el);
-          }
-          appendDiffForm(container, file.path, line.OldNum, 'old', fileForms);
-          appendDiffForm(container, file.path, line.NewNum, '', fileForms);
-        } else {
-          // Positional alignment (GitHub-style): del[i] beside add[i], surplus single-sided.
-          const splitRows = buildSplitChangeRows(seg.dels, seg.adds, wordDiff);
-
-          for (let j = 0; j < splitRows.length; j++) {
-            const sr = splitRows[j];
-            const del = sr.del;
-            const add = sr.add;
-            const wd = sr.wd;
-            const row = makeSplitRow(
-              del ? { num: del.OldNum, content: del.Content, type: 'del', wordRanges: wd ? wd.oldRanges : null } : null,
-              add ? { num: add.NewNum, content: add.Content, type: 'add', wordRanges: wd ? wd.newRanges : null } : null,
-              file, commentRangeSet, fileForms
-            );
-            container.appendChild(row.el);
-            // Comments for both sides (different keys)
-            if (del) appendDiffComments(container, file.path, del.OldNum, 'old', commentsMap);
-            if (add) appendDiffComments(container, file.path, add.NewNum, '', commentsMap);
-            // Form: render for whichever side was clicked
-            if (del) appendDiffForm(container, file.path, del.OldNum, 'old', fileForms);
-            if (add) appendDiffForm(container, file.path, add.NewNum, '', fileForms);
-          }
-        }
-      }
-    }
-
-    // Trailing spacer after last hunk
-    const trailingSpacerSplit = renderTrailingSpacer(hunks[hunks.length - 1], file);
-    if (trailingSpacerSplit) container.appendChild(trailingSpacerSplit);
-
-    appendOutdatedDiffComments(container, file, commentsMap, hunks);
-
     return container;
   }
 
@@ -8101,7 +7734,22 @@
         const pane = document.getElementById('storyPane');
         if (!pane) return;
         const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-        if (card) flashCommentCard(card);
+        if (card) {
+          flashCommentCard(card);
+          return;
+        }
+        // Offscreen virtual rows: mount via the controller (same as flat view).
+        const controller = virtualDiffController(filePath);
+        const rowKey = controller && controller.rowKeyForComment(commentId);
+        if (!rowKey) return;
+        controller.scrollToRow(rowKey, 'center').then(function(rowNode) {
+          if (!rowNode) return;
+          const mounted = rowNode.matches('.comment-card')
+            ? rowNode
+            : rowNode.querySelector('.comment-card');
+          if (mounted) flashCommentCard(mounted);
+          controller.unpin(rowKey);
+        });
       };
       if (navigated) requestAnimationFrame(locate); else locate();
       return;
@@ -12322,8 +11970,22 @@
     if (!view) return false;
     const oldSection = view.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(filePath) + '"]');
     if (!oldSection) return false;
+    const oldVirtual = virtualDiffController(filePath);
+    const oldVirtualRect = oldVirtual && oldVirtual.surface.getBoundingClientRect();
+    const pane = document.getElementById('storyPane');
+    const paneRect = pane && pane.getBoundingClientRect();
+    const midY = paneRect
+      ? paneRect.top + paneRect.height / 2
+      : (window.innerHeight || 0) / 2;
+    const virtualAnchor = oldVirtualRect && paneRect &&
+        oldVirtualRect.bottom > paneRect.top && oldVirtualRect.top < paneRect.bottom
+      ? oldVirtual.captureAnchor(midY)
+      : null;
+    disposeVirtualDiffs(oldSection);
     const replacement = renderStoryFileGroup(page, filePath, page.refsByFile.get(filePath), storySupportReasonForFile(page, filePath));
     oldSection.replaceWith(replacement);
+    const newVirtual = virtualDiffController(filePath);
+    if (newVirtual && virtualAnchor) newVirtual.restoreAnchor(virtualAnchor, midY);
     renderMermaidBlocks();
     rebuildNavList();
     applyHideResolved();
@@ -12349,6 +12011,8 @@
   function renderStory() {
     if (!storyState) return;
     const inner = document.getElementById('storyPaneInner');
+    // Detach listeners before wiping — virtual surfaces listen on #storyPane.
+    disposeVirtualDiffs(inner);
     inner.innerHTML = '';
     if (storyView === 'overview' || !storyPageById(storyView)) {
       storyView = storyPageById(storyView) ? storyView : 'overview';
@@ -12707,7 +12371,17 @@
                 if (!pane || !displayAnchor) return;
                 const el = pane.querySelector('[data-diff-file-path="' + CSS.escape(anchor.filePath) + '"][data-diff-line-num="' + displayAnchor.line + '"][data-diff-side="' + displayAnchor.side + '"]') ||
                   (side !== 'old' ? pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]') : null);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  return;
+                }
+                const controller = virtualDiffController(anchor.filePath);
+                const rowKey = controller && controller.rowKeyForLine(displayAnchor.line, displayAnchor.side);
+                if (rowKey) {
+                  controller.scrollToRow(rowKey, 'center').then(function() {
+                    controller.unpin(rowKey);
+                  });
+                }
               };
               if (navigated) requestAnimationFrame(locate); else locate();
               return Promise.resolve();

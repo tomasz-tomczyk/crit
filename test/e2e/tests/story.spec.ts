@@ -363,8 +363,9 @@ test.describe('Story mode', () => {
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
     await expect(group).toBeVisible();
     await expect(group).toHaveAttribute('open', '');
-    await expect(group.locator('.diff-container.split')).toBeVisible();
+    await expect(group.locator('.diff-container.split.virtualized')).toBeVisible();
     await expect(group.locator('.file-header-toggle')).toHaveCount(0);
+    expect(await group.locator('.diff-container.split.virtualized').evaluate((el) => !!el._critVirtualWindow)).toBe(true);
 
     const firstBtn = group.locator('.diff-split-side.right .diff-comment-btn').first();
     const secondBtn = group.locator('.diff-split-side.right .diff-comment-btn').nth(1);
@@ -385,7 +386,7 @@ test.describe('Story mode', () => {
     await page.keyboard.press('Escape');
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(group.locator('.diff-container.unified')).toBeVisible();
+    await expect(group.locator('.diff-container.unified.virtualized')).toBeVisible();
 
     const firstContent = group.locator('.diff-content').first();
     await firstContent.evaluate((el) => {

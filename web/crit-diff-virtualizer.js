@@ -20,6 +20,69 @@
     return String(comment.end_line || 0) + ':' + (comment.side || '');
   }
 
+  // Story mode scrolls inside #storyPane (overflow-y: auto), not the window.
+  // Resolve the nearest scroll container so viewport math and scrollTo/By hit
+  // the element that actually moves.
+  function isScrollContainer(el) {
+    if (!el || el === document.body || el === document.documentElement) return false;
+    var style = window.getComputedStyle(el);
+    var oy = style.overflowY;
+    return oy === 'auto' || oy === 'scroll' || oy === 'overlay';
+  }
+
+  function findScrollParent(el) {
+    var node = el && el.parentElement;
+    while (node && node !== document.documentElement) {
+      if (isScrollContainer(node)) return node;
+      node = node.parentElement;
+    }
+    return window;
+  }
+
+  function viewportMetrics(scrollParent, surface) {
+    var surfaceRect = surface.getBoundingClientRect();
+    var vpTop;
+    var viewportHeight;
+    if (!scrollParent || scrollParent === window) {
+      vpTop = 0;
+      viewportHeight = window.innerHeight ||
+        (document.documentElement && document.documentElement.clientHeight) || 0;
+    } else {
+      var parentRect = scrollParent.getBoundingClientRect();
+      vpTop = parentRect.top;
+      viewportHeight = scrollParent.clientHeight || parentRect.height || 0;
+    }
+    return {
+      localTop: Math.max(0, vpTop - surfaceRect.top),
+      viewportHeight: viewportHeight,
+      surfaceRect: surfaceRect,
+      vpTop: vpTop,
+    };
+  }
+
+  function scrollParentScrollTop(scrollParent) {
+    if (!scrollParent || scrollParent === window) {
+      return window.scrollY || window.pageYOffset || 0;
+    }
+    return scrollParent.scrollTop;
+  }
+
+  function scrollParentScrollTo(scrollParent, top) {
+    if (!scrollParent || scrollParent === window) {
+      window.scrollTo({ top: top, left: window.scrollX, behavior: 'instant' });
+      return;
+    }
+    scrollParent.scrollTo({ top: top, left: scrollParent.scrollLeft, behavior: 'instant' });
+  }
+
+  function scrollParentScrollBy(scrollParent, delta) {
+    if (!scrollParent || scrollParent === window) {
+      window.scrollBy(0, delta);
+      return;
+    }
+    scrollParent.scrollTop += delta;
+  }
+
   // Flatten the unified diff into stable logical rows without creating DOM.
   // Crit-specific rendering stays in app.js; this model is also the source of
   // truth for offscreen line/comment navigation.
@@ -526,6 +589,10 @@
     this.disposed = false;
     this.started = false;
     this.widthBucket = 0;
+    // Optional override (tests / explicit story pane). Resolved in start() via
+    // findScrollParent when omitted.
+    this.scrollParent = options.scrollParent || null;
+    this._boundScrollParent = null;
     this.onRangeChange = options.onRangeChange || null;
     this._handleViewportChange = this.scheduleUpdate.bind(this);
     this._handleSelectionChange = this.handleSelectionChange.bind(this);
@@ -546,7 +613,13 @@
   VirtualWindow.prototype.start = function() {
     if (this.started || this.disposed) return;
     this.started = true;
-    window.addEventListener('scroll', this._handleViewportChange, { passive: true });
+    if (!this.scrollParent) this.scrollParent = findScrollParent(this.surface);
+    this._boundScrollParent = this.scrollParent || window;
+    if (this._boundScrollParent === window) {
+      window.addEventListener('scroll', this._handleViewportChange, { passive: true });
+    } else {
+      this._boundScrollParent.addEventListener('scroll', this._handleViewportChange, { passive: true });
+    }
     window.addEventListener('resize', this._handleViewportChange, { passive: true });
     document.addEventListener('selectionchange', this._handleSelectionChange);
     document.addEventListener('copy', this._handleCopy);
@@ -556,7 +629,11 @@
   VirtualWindow.prototype.dispose = function() {
     if (this.disposed) return;
     this.disposed = true;
-    window.removeEventListener('scroll', this._handleViewportChange);
+    if (this._boundScrollParent && this._boundScrollParent !== window) {
+      this._boundScrollParent.removeEventListener('scroll', this._handleViewportChange);
+    } else {
+      window.removeEventListener('scroll', this._handleViewportChange);
+    }
     window.removeEventListener('resize', this._handleViewportChange);
     document.removeEventListener('selectionchange', this._handleSelectionChange);
     document.removeEventListener('copy', this._handleCopy);
@@ -578,10 +655,8 @@
 
   VirtualWindow.prototype.viewportInterval = function() {
     if (this.rows.length === 0) return null;
-    var rect = this.surface.getBoundingClientRect();
-    var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    var localTop = Math.max(0, -rect.top);
-    return calculateWindow(this.heightIndex, localTop, viewportHeight);
+    var metrics = viewportMetrics(this.scrollParent || window, this.surface);
+    return calculateWindow(this.heightIndex, metrics.localTop, metrics.viewportHeight);
   };
 
   VirtualWindow.prototype.update = function() {
@@ -690,16 +765,17 @@
   VirtualWindow.prototype.flushMeasurements = function() {
     this.measureFrame = 0;
     if (this.disposed || this.pendingMeasurements.size === 0) return;
-    var rect = this.surface.getBoundingClientRect();
-    var localTop = Math.max(0, -rect.top);
-    var anchorIndex = this.heightIndex.indexAt(localTop);
+    var metrics = viewportMetrics(this.scrollParent || window, this.surface);
+    var anchorIndex = this.heightIndex.indexAt(metrics.localTop);
     var deltaAbove = 0;
     this.pendingMeasurements.forEach(function(height, index) {
       if (index < anchorIndex) deltaAbove += height - this.heightIndex.height(index);
     }, this);
     this.heightIndex.updateMany(this.pendingMeasurements);
     this.pendingMeasurements.clear();
-    if (Math.abs(deltaAbove) >= 0.5) window.scrollBy(0, deltaAbove);
+    if (Math.abs(deltaAbove) >= 0.5) {
+      scrollParentScrollBy(this.scrollParent || window, deltaAbove);
+    }
     this.update();
   };
 
@@ -716,10 +792,10 @@
   };
 
   VirtualWindow.prototype.resetEstimates = function() {
-    var rect = this.surface.getBoundingClientRect();
-    var viewportHeight = window.innerHeight || 0;
-    var anchorY = Math.max(0, rect.top);
-    var anchor = rect.bottom > 0 && rect.top < viewportHeight
+    var metrics = viewportMetrics(this.scrollParent || window, this.surface);
+    var rect = metrics.surfaceRect;
+    var anchorY = Math.max(metrics.vpTop, rect.top);
+    var anchor = rect.bottom > metrics.vpTop && rect.top < metrics.vpTop + metrics.viewportHeight
       ? this.captureAnchor(anchorY)
       : null;
     this.heightIndex.reset();
@@ -790,24 +866,29 @@
   VirtualWindow.prototype.scrollToRow = function(key, alignment) {
     var index = this.keyToIndex.get(key);
     if (index === undefined) return Promise.resolve(null);
-    var rect = this.surface.getBoundingClientRect();
-    var surfaceTop = window.scrollY + rect.top;
-    var viewportHeight = window.innerHeight || 0;
+    var scrollParent = this.scrollParent || window;
+    var metrics = viewportMetrics(scrollParent, this.surface);
+    var surfaceOffset = scrollParentScrollTop(scrollParent) +
+      (metrics.surfaceRect.top - metrics.vpTop);
     var rowHeight = this.heightIndex.height(index);
-    var target = surfaceTop + this.heightIndex.offset(index);
-    if (alignment === 'center') target -= Math.max(0, (viewportHeight - rowHeight) / 2);
-    else if (alignment === 'end') target -= Math.max(0, viewportHeight - rowHeight);
-    window.scrollTo({ top: target, left: window.scrollX, behavior: 'instant' });
+    var target = surfaceOffset + this.heightIndex.offset(index);
+    if (alignment === 'center') {
+      target -= Math.max(0, (metrics.viewportHeight - rowHeight) / 2);
+    } else if (alignment === 'end') {
+      target -= Math.max(0, metrics.viewportHeight - rowHeight);
+    }
+    scrollParentScrollTo(scrollParent, target);
     this.update();
     return this.ensureMounted(key);
   };
 
   VirtualWindow.prototype.captureAnchor = function(viewportY) {
     if (this.rows.length === 0) return null;
-    var rect = this.surface.getBoundingClientRect();
+    var metrics = viewportMetrics(this.scrollParent || window, this.surface);
+    var y = viewportY === undefined ? metrics.vpTop : viewportY;
     var local = Math.max(0, Math.min(
       this.heightIndex.total(),
-      (viewportY === undefined ? 0 : viewportY) - rect.top
+      y - metrics.surfaceRect.top
     ));
     var index = this.heightIndex.indexAt(local);
     if (index < 0) return null;
@@ -818,10 +899,14 @@
     if (!anchor) return false;
     var index = this.keyToIndex.get(anchor.rowKey);
     if (index === undefined) return false;
-    var rect = this.surface.getBoundingClientRect();
-    var surfaceTop = window.scrollY + rect.top;
-    var target = surfaceTop + this.heightIndex.offset(index) + (anchor.intraRowOffset || 0) - (viewportY || 0);
-    window.scrollTo({ top: target, left: window.scrollX, behavior: 'instant' });
+    var scrollParent = this.scrollParent || window;
+    var metrics = viewportMetrics(scrollParent, this.surface);
+    var y = viewportY === undefined ? metrics.vpTop : viewportY;
+    var surfaceOffset = scrollParentScrollTop(scrollParent) +
+      (metrics.surfaceRect.top - metrics.vpTop);
+    var target = surfaceOffset + this.heightIndex.offset(index) +
+      (anchor.intraRowOffset || 0) - (y - metrics.vpTop);
+    scrollParentScrollTo(scrollParent, target);
     this.update();
     return true;
   };
@@ -893,6 +978,8 @@
     calculateWindow: calculateWindow,
     VirtualWindow: VirtualWindow,
     commentAnchorKey: commentAnchorKey,
+    findScrollParent: findScrollParent,
+    viewportMetrics: viewportMetrics,
   };
 
   if (typeof window !== 'undefined') {
