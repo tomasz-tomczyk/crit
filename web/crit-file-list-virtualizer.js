@@ -397,6 +397,14 @@
     this._scrollLockUntil = key ? (Date.now() + (ms || 2000)) : 0;
   };
 
+  FileListVirtualizer.prototype.isScrollLocked = function() {
+    return !!(this._scrollLockKey && Date.now() < (this._scrollLockUntil || 0));
+  };
+
+  FileListVirtualizer.prototype.scrollLockKey = function() {
+    return this.isScrollLocked() ? this._scrollLockKey : null;
+  };
+
   FileListVirtualizer.prototype.restoreAfterHeightChange = function(domAnchor) {
     if (this._scrollLockKey && Date.now() < (this._scrollLockUntil || 0)) {
       var locked = this.nodes.get(this._scrollLockKey);

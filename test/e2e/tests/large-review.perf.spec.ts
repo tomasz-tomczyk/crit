@@ -144,7 +144,8 @@ test('sidebar jump to a deep file does not push the target out of view', async (
   await target.click();
   await page.waitForTimeout(100);
 
-  const section = page.locator('#file-section-' + CSS.escape(path!));
+  // CSS.escape is browser-only; paths in this fixture are simple identifiers.
+  const section = page.locator('[id="file-section-' + path + '"]');
   await expect(section).toBeVisible({ timeout: 10_000 });
 
   const top = await section.evaluate((el) => el.getBoundingClientRect().top);

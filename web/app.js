@@ -3427,7 +3427,7 @@
     if (lazyPrefetchTimer && !immediate) return;
     if (lazyPrefetchTimer && immediate) {
       if (typeof cancelIdleCallback === 'function' && typeof lazyPrefetchTimer === 'number') {
-        try { cancelIdleCallback(lazyPrefetchTimer); } catch (e) { /* ignore */ }
+        try { cancelIdleCallback(lazyPrefetchTimer); } catch { /* ignore */ }
       }
       clearTimeout(lazyPrefetchTimer);
       lazyPrefetchTimer = 0;
@@ -3470,6 +3470,7 @@
   }
 
   function startBackgroundLazyPrefetch() {
+    if (typeof window !== 'undefined' && window.__CRIT_DISABLE_LAZY_PREFETCH__) return;
     lazyPrefetchCursor = 0;
     scheduleLazyPrefetchPump(false);
   }
