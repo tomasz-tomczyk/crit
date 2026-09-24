@@ -2009,7 +2009,7 @@
     updateTreeActive(filePath);
   }
 
-  // ===== File-list virtualization (approach B) =====
+  // ===== File-list virtualization =====
   function estimateFileListBodyHeight(file) {
     if (!file) return 0;
     if (file.orphaned) return 48;
