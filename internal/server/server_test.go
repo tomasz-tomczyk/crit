@@ -54,6 +54,11 @@ func newTestServer(t *testing.T) (*Server, *Session) {
 		},
 	}
 	session.InitTestChannels()
+	// AddComment/AddReply arm a 200ms debounced disk write to RepoRoot/.crit.
+	// Quiesce before t.TempDir's cleanup so a delayed WriteFiles doesn't race
+	// with RemoveAll — on Windows that manifests as "directory is not empty"
+	// (seen on TestRunAgentCmd_IDCollisionPrefersFileComment in unit-windows).
+	t.Cleanup(session.QuiesceForTest)
 
 	s, err := NewServer(session, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
