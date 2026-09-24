@@ -54,8 +54,9 @@ Split large-diff virtualization is implemented on the same virtualizer path as
 unified: `buildSplitRows` (paired left/right cells, shared `visualIdx`),
 `pinLineRange` for gutter drag, `rowKeyForLine` aware of split cells, and
 `renderVirtualDiffSplit` in `app.js` for the existing `>1000` Load Diff gate.
-Small splits stay eager. Focused unit tests 9/9. Fair bench re-run succeeded:
-split first paint ~49 ms (was ~454), DOM ~1.5k (was ~99k), rows 52 (was 3497).
+Small splits stay eager. Focused unit tests 9/9. Fair bench re-verified on
+`85a564f`: split first paint ~29 ms (was ~454), DOM ~1.5k (was ~99k), rows 52
+(was 3497); unified still ~25 ms / 99 rows.
 
 **Parity vs unified (honest gaps):**
 - Covered: viewport ± overscan mount, comment/form pin for active edit/reply,
@@ -98,21 +99,22 @@ split first paint ~49 ms (was ~454), DOM ~1.5k (was ~99k), rows 52 (was 3497).
 
 ### Post-implementation results — recorded 2026-09-24
 
-- Revision: `1aed8a6` (unified) + pending split commit on this worktree
+- Revision: `85a564f` (split + unified virtualize)
 - Chromium: `147.0.7727.15`
 - Machine: darwin arm64 Apple M4 Max
 - Command: `mise exec -- node bench/large-diff/measure.mjs`
+- Re-verified parent (same machine) after split landed:
 
 | Layout | file_body_first_paint_ms | mount_task_ms | rendered_rows | mounted_diff_dom_nodes | scroll_p95_frame_ms | frames_over_32 |
 |--------|-------------------------:|--------------:|--------------:|-----------------------:|--------------------:|---------------:|
-| split | 49.0 | 24.4 | 52 | 1482 | 22.4 | 0 |
-| unified | 21.4 | 15.8 | 99 | 1712 | 28.2 | 0 |
+| split | 28.6 | 21.4 | 52 | 1482 | 28.4 | 0 |
+| unified | 24.6 | 15.7 | 99 | 1712 | 28.6 | 0 |
 
-**Delta vs baseline (unified):** first paint ~12.5× faster; mounted DOM nodes
-~40× fewer; rendered rows 3997 → 99 (viewport ± overscan). Scroll p95 comparable.
+**Delta vs baseline (unified):** first paint ~11× faster; DOM ~40× fewer;
+rendered rows 3997 → 99. Scroll p95 comparable.
 
-**Delta vs baseline (split):** first paint ~9× faster (453 → 49 ms); mounted DOM
-nodes ~67× fewer (99420 → 1482); rendered rows 3497 → 52. Scroll p95 comparable.
+**Delta vs baseline (split):** first paint ~16× faster (454 → 29 ms); DOM ~67×
+fewer (99420 → 1482); rendered rows 3497 → 52. Scroll p95 comparable.
 
 
 ---
