@@ -11,7 +11,7 @@
     { "path": "web/style.css", "gzipBytes": 41000, "note": "review page styles; homepage/legal pages use Tailwind, not this file" }
   ],
   "globs": [
-    { "pattern": "web/crit-*.js", "gzipBytes": 85000, "note": "shared renderer/comment/diff modules; catches module sprawl" }
+    { "pattern": "web/crit-*.js", "gzipBytes": 110000, "note": "shared renderer/comment/diff + file-list virtualizer modules; ~15–20% above measured ~91KB after dual-virt" }
   ],
   "totalJsGzipBytes": 1950000,
   "binaryBytes": 25165824
