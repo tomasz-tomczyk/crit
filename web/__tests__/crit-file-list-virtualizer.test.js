@@ -186,3 +186,45 @@ test('FileListVirtualizer.setItemHeight applies scroll fix via anchor', function
   const next = fileList.resolveAnchoredScrollTop(index, items, anchor);
   assert.equal(next, header + 500 + 10);
 });
+
+test('shouldRebaseScroll uses Pierre SCROLL_REBASE_THRESHOLD', function() {
+  assert.equal(fileList.SCROLL_REBASE_THRESHOLD, 11e6);
+  assert.equal(fileList.SCROLL_REBASE_CONTAINER_HEIGHT, 12e6);
+
+  const surface = {
+    children: [],
+    style: {},
+    insertBefore: function() {},
+    appendChild: function(n) { this.children.push(n); n.parentNode = this; return n; },
+    removeChild: function() {},
+    getBoundingClientRect: function() { return { top: 0, bottom: 800, height: 800, left: 0, right: 100 }; },
+  };
+  // Tiny review — no rebase.
+  const small = new fileList.FileListVirtualizer({
+    surface: surface,
+    items: [{ key: 'a', kind: 'file', bodyHeight: 100 }],
+    viewportHeight: 800,
+    localTop: 0,
+    renderMounted: function(item) {
+      return { dataset: {}, style: {}, classList: { contains: function() { return false; } }, getBoundingClientRect: function() { return { top: 0, height: 144, bottom: 144 }; } };
+    },
+  });
+  assert.equal(small.shouldRebaseScroll(), false);
+  assert.equal(small.getPagedScrollHeight(), small.getScrollHeight());
+
+  // Force huge content past Pierre threshold.
+  small.heightIndex = new diffV.HeightIndex(
+    Array.from({ length: 3 }, function(_, i) { return { key: 'x' + i }; }),
+    function() { return 5e6; }
+  );
+  small.items = small.heightIndex.rows;
+  // total 15e6, viewport 800 → maxScroll ≫ 11e6
+  assert.equal(small.shouldRebaseScroll(), true);
+  assert.equal(small.getPagedScrollHeight(), fileList.SCROLL_REBASE_CONTAINER_HEIGHT);
+  small.dispose();
+});
+
+test('roundToDevicePixel snaps for settle equality', function() {
+  assert.equal(fileList.roundToDevicePixel(67.4), 67);
+  assert.equal(fileList.roundToDevicePixel(67.6), 68);
+});

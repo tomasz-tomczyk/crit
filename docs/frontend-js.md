@@ -2,21 +2,34 @@
 
 Vanilla JS under `web/`, embedded via Go `embed.FS`. No bundler.
 
-## Diff virtualization spikes
+## Diff virtualization
 
-Two approaches are being compared for large multi-file reviews:
+Flat multi-file reviews use **dual virtualization**:
 
-| Branch | Shape |
+1. **File-list** (`web/crit-file-list-virtualizer.js`) — one `HeightIndex` over files; off-screen files are spacers; near-viewport slots mount a real `.file-section`.
+2. **Row** (`web/crit-diff-virtualizer.js`) — each mounted file body windows unified/split hunks.
+
+Story mode still owns `#storyPane` (row virt only; no file-list virt).
+
+### Scroll / jump contract
+
+Constants and settle semantics follow `@pierre/diffs` CodeView; Crit keeps the spacer dual-virt shape:
+
+| Concern | Behavior |
 | --- | --- |
-| `spike/large-diff-virtualize` (A+C) | Keep every `.file-section` in the DOM; defer heavy `.file-body` until near the viewport; reserve **estimated min-height** on deferred bodies; scroll-anchor when mounts refine height. |
-| `spike/large-diff-file-list-virtualize` (B, this branch) | **File-list virtualization** (`web/crit-file-list-virtualizer.js`): one HeightIndex over files; off-screen files are spacers; near-viewport slots mount a real section whose body still uses row virtualization (`web/crit-diff-virtualizer.js`). Scroll anchoring via `getScrollAnchor` / `restoreAnchor` on height refine. |
+| Tree / sidebar file jump | `stickToKey(path)` once (= pending scroll target), `scrollToItem`, mount body, one `setItemHeight` + pin. No timed settle loop. |
+| While pending | `FileListVirtualizer.update()` re-applies `pinKeyToViewportTop` until device-pixel settle (`roundToDevicePixel`), then `releasePendingScrollTarget`. |
+| User cancel | `clearStickToKey` on wheel / touchstart / touchmove / pointerdown / Page/Arrow/Home/End/Space (not every key — j/k must not clear). |
+| Height refine | `restoreAfterHeightChange`: file-top pin **only** while `_stickKey` is set; otherwise DOM/line anchor. |
+| Comment jump | `ensureFileVisibleForComment` mounts without stick-to-file-top; holds pin + scroll-lock until `scrollToRow` finishes (success or fail), then clears. |
+| Overscan | paint window overscroll **200**; keep-alive margin **4000** (`1000×4`). |
+| Header estimate | file header **44** (or measured). |
+| Paged rebase | only when `maxScroll > 11e6` (`SCROLL_REBASE_*`); dormant otherwise. |
 
-Row virtualization (in-file) is shared. Crit-web parity is out of scope for these spikes.
+Tests: `web/__tests__/crit-file-list-virtualizer.test.js`, `crit-diff-virtualizer.test.js`, `scroll-to-file-settle-stick.test.js`.
 
 ## Key modules
 
-- `web/crit-diff-virtualizer.js` — unified/split row windows, `HeightIndex`, `estimateDiffBodyHeight`
-- `web/crit-file-list-virtualizer.js` — multi-file list window + scroll fix
-- `web/app.js` — wires `#filesContainer` to the file-list virtualizer when
-  `files.length >= 40` (flat review); smaller reviews keep deferred bodies.
-  Story mode still owns `#storyPane`.
+- `web/crit-diff-virtualizer.js` — unified/split row windows, `HeightIndex`, `estimateDiffBodyHeight`, `noteChildHeightChange` → parent file-list restore
+- `web/crit-file-list-virtualizer.js` — multi-file list window, stick/settle, paged rebase, scroll anchors
+- `web/app.js` — wires `#filesContainer` when `files.length >= FILE_LIST_VIRTUALIZE_MIN_FILES` (currently `1`); `scrollToFile` / comment nav as above

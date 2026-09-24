@@ -1,15 +1,76 @@
 (function () {
   'use strict';
 
+  // Align with Pierre @pierre/diffs DEFAULT_VIRTUAL_FILE_METRICS where the
+  // concepts map (lineHeight 20, spacing 8, hunk separator "metadata" 32).
+  // Comment/form are Crit-only — prefer a live DOM measure when present.
   var DEFAULT_ESTIMATES = {
     line: 20,
-    header: 34,
-    gap: 22,
-    'gap-double': 42,
+    header: 32,
+    gap: 8,
+    'gap-double': 16,
     comment: 128,
     form: 190,
     outdated: 128,
   };
+
+  // Pierre CodeView.config.overscrollSize (multi-file paint window)
+  var OVERSCROLL_SIZE = 200;
+  // Pierre Virtualizer DEFAULT_OVERSCROLL_SIZE / INTERSECTION_OBSERVER_MARGIN
+  var VIRTUALIZER_OVERSCROLL_SIZE = 1000;
+  var KEEP_ALIVE_MARGIN = VIRTUALIZER_OVERSCROLL_SIZE * 4; // 4000
+
+  function roundToDevicePixel(value) {
+    var dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    return Math.round(value * dpr) / dpr;
+  }
+
+  // Pierre utils/createWindowFromScrollPosition.js
+  function createWindowFromScrollPosition(options) {
+    options = options || {};
+    var scrollTop = options.scrollTop || 0;
+    var height = options.height || 0;
+    var overscrollSize = options.overscrollSize != null ? options.overscrollSize : OVERSCROLL_SIZE;
+    var fitPerfectly = !!options.fitPerfectly;
+    var fitPerfectlyOverscroll = options.fitPerfectlyOverscroll || 0;
+    var windowHeight = height + overscrollSize * 2;
+    var effectiveHeight = fitPerfectly ? height + fitPerfectlyOverscroll * 2 : windowHeight;
+    var scrollHeight = Math.max(options.scrollHeight || 0, effectiveHeight);
+    if (windowHeight >= scrollHeight || fitPerfectly) {
+      var topFit = Math.max(scrollTop - fitPerfectlyOverscroll, 0);
+      var bottomFit = Math.min(scrollTop + effectiveHeight, scrollHeight);
+      return { top: topFit, bottom: Math.max(bottomFit, topFit) };
+    }
+    var top = scrollTop + height / 2 - windowHeight / 2;
+    var bottom = top + windowHeight;
+    if (top < 0) top = 0;
+    if (bottom > scrollHeight) bottom = scrollHeight;
+    top = Math.floor(Math.max(top, 0));
+    return {
+      top: top,
+      bottom: Math.ceil(Math.max(Math.min(bottom, scrollHeight), top)),
+    };
+  }
+
+  function measuredEstimate(selector, fallback) {
+    if (typeof document === 'undefined' || !selector) return fallback;
+    try {
+      var el = document.querySelector(selector);
+      if (!el || typeof el.getBoundingClientRect !== 'function') return fallback;
+      var h = el.getBoundingClientRect().height;
+      return h > 0 ? h : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function estimateCommentHeight() {
+    return measuredEstimate('.comment-thread, .line-comment, .file-comment', DEFAULT_ESTIMATES.comment);
+  }
+
+  function estimateFormHeight() {
+    return measuredEstimate('.comment-form, .inline-comment-form, .file-compose-form', DEFAULT_ESTIMATES.form);
+  }
 
   function hunkKey(hunk) {
     return String(hunk.OldStart || 0) + ':' + String(hunk.NewStart || 0) + ':' +
@@ -474,6 +535,9 @@
   }
 
   function estimateRowHeight(row) {
+    if (!row) return DEFAULT_ESTIMATES.line;
+    if (row.kind === 'comment' || row.kind === 'outdated') return estimateCommentHeight();
+    if (row.kind === 'form') return estimateFormHeight();
     return DEFAULT_ESTIMATES[row.kind] || DEFAULT_ESTIMATES.line;
   }
 
@@ -538,8 +602,11 @@
     return first;
   };
 
-  function overscanForViewport(viewportHeight) {
-    return Math.max(800, Math.min(2400, viewportHeight * 1.5));
+  function overscanForViewport(_viewportHeight, kind) {
+    // kind: 'codeview' (default) | 'virtualizer' | 'keepalive'
+    if (kind === 'keepalive') return KEEP_ALIVE_MARGIN;
+    if (kind === 'virtualizer') return VIRTUALIZER_OVERSCROLL_SIZE;
+    return OVERSCROLL_SIZE;
   }
 
   function mergeIntervals(intervals, rowCount) {
@@ -561,14 +628,26 @@
     return merged;
   }
 
-  function calculateWindow(heightIndex, localTop, viewportHeight) {
+  function calculateWindow(heightIndex, localTop, viewportHeight, options) {
     if (!heightIndex || heightIndex.rows.length === 0) return null;
-    var overscan = overscanForViewport(viewportHeight);
-    var top = Math.max(0, localTop);
-    var bottom = Math.min(heightIndex.total(), top + viewportHeight);
+    options = options || {};
+    var overscrollSize = options.overscrollSize;
+    if (overscrollSize == null) {
+      overscrollSize = options.kind === 'keepalive' ? KEEP_ALIVE_MARGIN
+        : options.kind === 'virtualizer' ? VIRTUALIZER_OVERSCROLL_SIZE
+        : OVERSCROLL_SIZE;
+    }
+    var win = createWindowFromScrollPosition({
+      scrollTop: Math.max(0, localTop || 0),
+      height: viewportHeight || 0,
+      scrollHeight: heightIndex.total(),
+      overscrollSize: overscrollSize,
+      fitPerfectly: !!options.fitPerfectly,
+      fitPerfectlyOverscroll: options.fitPerfectlyOverscroll || 0,
+    });
     return [
-      heightIndex.indexAt(Math.max(0, top - overscan)),
-      heightIndex.indexAt(Math.min(heightIndex.total(), bottom + overscan)),
+      heightIndex.indexAt(win.top),
+      heightIndex.indexAt(Math.min(heightIndex.total(), win.bottom)),
     ];
   }
 
@@ -656,7 +735,10 @@
   VirtualWindow.prototype.viewportInterval = function() {
     if (this.rows.length === 0) return null;
     var metrics = viewportMetrics(this.scrollParent || window, this.surface);
-    return calculateWindow(this.heightIndex, metrics.localTop, metrics.viewportHeight);
+    // Pierre Virtualizer keep-alive band (IO margin = overscrollSize * 4).
+    return calculateWindow(this.heightIndex, metrics.localTop, metrics.viewportHeight, {
+      kind: 'keepalive',
+    });
   };
 
   VirtualWindow.prototype.update = function() {
@@ -705,6 +787,24 @@
       });
     }
 
+    var surface = this.surface;
+    function detach(node) {
+      if (!node) return false;
+      var before = surface.children.length;
+      if (typeof node.remove === 'function') node.remove();
+      if (surface.children.length < before) return true;
+      // Test mocks sometimes stub remove() as a no-op — splice array-backed children.
+      if (surface._kids && Array.isArray(surface._kids)) {
+        var idx = surface._kids.indexOf(node);
+        if (idx >= 0) {
+          surface._kids.splice(idx, 1);
+          node.parentNode = null;
+          return true;
+        }
+      }
+      return false;
+    }
+
     var desiredKeys = new Set(desired.map(function(item) { return item.key; }));
     var children = Array.from(this.surface.children);
     for (var c = 0; c < children.length; c++) {
@@ -714,7 +814,7 @@
         this.resizeObserver.unobserve(children[c]);
       }
       if (oldKey) this.nodes.delete(oldKey);
-      children[c].remove();
+      detach(children[c]);
     }
 
     for (var di = 0; di < desired.length; di++) {
@@ -739,11 +839,13 @@
       var current = this.surface.children[di];
       if (current !== node) this.surface.insertBefore(node, current || null);
     }
-    while (this.surface.children.length > desired.length) {
+    var guard = 0;
+    while (this.surface.children.length > desired.length && guard++ < 10000) {
       var extra = this.surface.lastElementChild;
+      if (!extra) break;
       if (this.resizeObserver && extra.dataset.virtualRowIndex !== undefined) this.resizeObserver.unobserve(extra);
       this.nodes.delete(extra.dataset.virtualKey);
-      extra.remove();
+      if (!detach(extra)) break;
     }
     if (this.onRangeChange) this.onRangeChange(intervals);
   };
@@ -773,6 +875,14 @@
     }, this);
     this.heightIndex.updateMany(this.pendingMeasurements);
     this.pendingMeasurements.clear();
+    // When a file-list virtualizer owns this surface, defer scroll restore to
+    // it (Pierre coordinates file+line height in one applyScrollFix pipeline).
+    var parentList = findParentFileList(this.surface);
+    if (parentList && typeof parentList.noteChildHeightChange === 'function') {
+      this.update();
+      parentList.noteChildHeightChange(this.surface);
+      return;
+    }
     if (Math.abs(deltaAbove) >= 0.5) {
       scrollParentScrollBy(this.scrollParent || window, deltaAbove);
     }
@@ -1004,16 +1114,36 @@
     return lineRows * DEFAULT_ESTIMATES.line +
       headers * DEFAULT_ESTIMATES.header +
       gaps * DEFAULT_ESTIMATES.gap +
-      commentRows * DEFAULT_ESTIMATES.comment +
-      formRows * DEFAULT_ESTIMATES.form;
+      commentRows * estimateCommentHeight() +
+      formRows * estimateFormHeight();
+  }
+
+  function findParentFileList(surface) {
+    var node = surface;
+    while (node) {
+      if (node._critFileListVirtualizer) return node._critFileListVirtualizer;
+      node = node.parentElement || node.parentNode;
+    }
+    if (typeof document !== 'undefined') {
+      var container = document.getElementById('filesContainer');
+      if (container && container._critFileListVirtualizer) return container._critFileListVirtualizer;
+    }
+    return null;
   }
 
   var api = {
     DEFAULT_ESTIMATES: DEFAULT_ESTIMATES,
+    OVERSCROLL_SIZE: OVERSCROLL_SIZE,
+    VIRTUALIZER_OVERSCROLL_SIZE: VIRTUALIZER_OVERSCROLL_SIZE,
+    KEEP_ALIVE_MARGIN: KEEP_ALIVE_MARGIN,
+    roundToDevicePixel: roundToDevicePixel,
+    createWindowFromScrollPosition: createWindowFromScrollPosition,
     buildUnifiedRows: buildUnifiedRows,
     buildSplitRows: buildSplitRows,
     estimateRowHeight: estimateRowHeight,
     estimateDiffBodyHeight: estimateDiffBodyHeight,
+    estimateCommentHeight: estimateCommentHeight,
+    estimateFormHeight: estimateFormHeight,
     HeightIndex: HeightIndex,
     overscanForViewport: overscanForViewport,
     mergeIntervals: mergeIntervals,
@@ -1022,6 +1152,7 @@
     commentAnchorKey: commentAnchorKey,
     findScrollParent: findScrollParent,
     viewportMetrics: viewportMetrics,
+    findParentFileList: findParentFileList,
   };
 
   if (typeof window !== 'undefined') {

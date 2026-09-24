@@ -78,16 +78,16 @@ test('HeightIndex supports prefix lookup and batched measurement changes', funct
     { key: 'c', kind: 'form' },
   ];
   const index = new virtualizer.HeightIndex(rows);
-  assert.deepEqual(index.offsets, [0, 20, 54, 244]);
+  assert.deepEqual(index.offsets, [0, 20, 52, 242]);
   assert.equal(index.indexAt(0), 0);
   assert.equal(index.indexAt(19.9), 0);
   assert.equal(index.indexAt(20), 1);
-  assert.equal(index.indexAt(243), 2);
+  assert.equal(index.indexAt(241), 2);
 
   assert.equal(index.updateMany(new Map([[0, 25], [2, 200]])), 0);
-  assert.deepEqual(index.offsets, [0, 25, 59, 259]);
-  assert.equal(index.indexAt(58), 1);
-  assert.equal(index.indexAt(59), 2);
+  assert.deepEqual(index.offsets, [0, 25, 57, 257]);
+  assert.equal(index.indexAt(56), 1);
+  assert.equal(index.indexAt(57), 2);
 });
 
 test('mergeIntervals clamps, sorts, and joins adjacent pinned islands', function() {
@@ -97,21 +97,66 @@ test('mergeIntervals clamps, sorts, and joins adjacent pinned islands', function
   );
 });
 
-test('overscan follows the viewport policy bounds', function() {
-  assert.equal(virtualizer.overscanForViewport(300), 800);
-  assert.equal(virtualizer.overscanForViewport(900), 1350);
-  assert.equal(virtualizer.overscanForViewport(2000), 2400);
+test('overscan matches Pierre CodeView overscrollSize', function() {
+  assert.equal(virtualizer.overscanForViewport(300), 200);
+  assert.equal(virtualizer.overscanForViewport(900), 200);
+  assert.equal(virtualizer.overscanForViewport(2000), 200);
+  assert.equal(virtualizer.OVERSCROLL_SIZE, 200);
+  assert.equal(virtualizer.VIRTUALIZER_OVERSCROLL_SIZE, 1000);
+  assert.equal(virtualizer.KEEP_ALIVE_MARGIN, 4000);
+  assert.equal(virtualizer.overscanForViewport(900, 'virtualizer'), 1000);
+  assert.equal(virtualizer.overscanForViewport(900, 'keepalive'), 4000);
+  assert.equal(virtualizer.roundToDevicePixel(10.4), 10);
+  assert.equal(virtualizer.DEFAULT_ESTIMATES.line, 20);
+  assert.equal(virtualizer.DEFAULT_ESTIMATES.header, 32);
+  assert.equal(virtualizer.DEFAULT_ESTIMATES.gap, 8);
 });
 
-test('calculateWindow bounds the ordinary mounted code-row interval', function() {
+test('calculateWindow matches Pierre createWindowFromScrollPosition', function() {
   const rows = Array.from({ length: 1000 }, function(_, index) {
     return { key: String(index), kind: 'line' };
   });
   const heights = new virtualizer.HeightIndex(rows);
-  assert.deepEqual(virtualizer.calculateWindow(heights, 0, 900), [0, 112]);
+  // At scrollTop 0, Pierre centers then clamps top→0 without growing bottom,
+  // so bottom stays height/2 + overscroll = 450+200 = 650… wait:
+  // top=-200, bottom=1100, clamp top→0 → {0,1100} → indices [0,55]
+  assert.deepEqual(
+    virtualizer.createWindowFromScrollPosition({
+      scrollTop: 0, height: 900, scrollHeight: heights.total(), overscrollSize: 200,
+    }),
+    { top: 0, bottom: 1100 }
+  );
+  assert.deepEqual(virtualizer.calculateWindow(heights, 0, 900), [0, 55]);
+
   const middle = virtualizer.calculateWindow(heights, 10000, 900);
-  assert.deepEqual(middle, [432, 612]);
-  assert.ok(middle[1] - middle[0] + 1 < 400);
+  // top = 10000 + 450 - 650 = 9800; bottom = 9800 + 1300 = 11100
+  assert.deepEqual(middle, [490, 555]);
+
+  const jump = virtualizer.calculateWindow(heights, 10000, 900, {
+    fitPerfectly: true,
+    fitPerfectlyOverscroll: 52,
+    overscrollSize: 200,
+  });
+  assert.deepEqual(jump, [
+    heights.indexAt(Math.max(10000 - 52, 0)),
+    heights.indexAt(Math.min(heights.total(), 10000 + 900 + 52 * 2)),
+  ]);
+
+  const keep = virtualizer.calculateWindow(heights, 10000, 900, { kind: 'keepalive' });
+  assert.ok(keep[1] - keep[0] > middle[1] - middle[0]);
+});
+
+test('createWindowFromScrollPosition fitPerfectly expands around target', function() {
+  const win = virtualizer.createWindowFromScrollPosition({
+    scrollTop: 5000,
+    height: 900,
+    scrollHeight: 100000,
+    overscrollSize: 200,
+    fitPerfectly: true,
+    fitPerfectlyOverscroll: 52,
+  });
+  assert.equal(win.top, 5000 - 52);
+  assert.equal(win.bottom, 5000 + 900 + 104);
 });
 
 test('buildSplitRows pairs old/new cells on one visual row', function() {

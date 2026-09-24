@@ -17,8 +17,8 @@
   // dependency cannot blank the whole review UI.
   if (!diffV) {
     var emptyApi = {
-      FILE_HEADER_ESTIMATE: 40,
-      estimateFileSectionHeight: function() { return 40; },
+      FILE_HEADER_ESTIMATE: 44,
+      estimateFileSectionHeight: function() { return 44; },
       getScrollAnchor: function() { return null; },
       resolveAnchoredScrollTop: function() { return null; },
       applyScrollFix: function() {},
@@ -32,8 +32,42 @@
     return;
   }
 
-  // Approximate <summary.file-header> block (padding + one text line).
-  var FILE_HEADER_ESTIMATE = 40;
+  // Approximate <summary.file-header> — Pierre DEFAULT_VIRTUAL_FILE_METRICS.diffHeaderHeight.
+  // Prefer a live measure once a real header is in the DOM.
+  var FILE_HEADER_ESTIMATE = 44;
+  var _measuredFileHeader = null;
+
+  // Pierre CodeView.js scroll-rebase constants (only engage above THRESHOLD).
+  var SCROLL_REBASE_CONTAINER_HEIGHT = 12e6;
+  var SCROLL_REBASE_TRIGGER_TOP = 1e6;
+  var SCROLL_REBASE_TARGET_TOP = 2e6;
+  var SCROLL_REBASE_TARGET_BOTTOM = 1e7;
+  var SCROLL_REBASE_THRESHOLD = 11e6;
+
+  function roundToDevicePixel(value) {
+    if (diffV && typeof diffV.roundToDevicePixel === 'function') {
+      return diffV.roundToDevicePixel(value);
+    }
+    var dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    return Math.round(value * dpr) / dpr;
+  }
+
+  function fileHeaderEstimate() {
+    if (_measuredFileHeader != null) return _measuredFileHeader;
+    if (typeof document !== 'undefined') {
+      try {
+        var el = document.querySelector('.file-section > summary.file-header, summary.file-header');
+        if (el && typeof el.getBoundingClientRect === 'function') {
+          var h = el.getBoundingClientRect().height;
+          if (h > 0) {
+            _measuredFileHeader = h;
+            return h;
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+    return FILE_HEADER_ESTIMATE;
+  }
 
   function estimateFileSectionHeight(item) {
     item = item || {};
@@ -41,8 +75,9 @@
     if (typeof item.estimateBodyHeight === 'function') {
       body = item.estimateBodyHeight(item);
     }
-    if (item.collapsed) return FILE_HEADER_ESTIMATE;
-    return FILE_HEADER_ESTIMATE + Math.max(0, body);
+    var header = fileHeaderEstimate();
+    if (item.collapsed) return header;
+    return header + Math.max(0, body);
   }
 
   function getScrollAnchor(heightIndex, items, scrollTop) {
@@ -74,17 +109,47 @@
 
   function scrollParentScrollTop(scrollParent) {
     if (!scrollParent || scrollParent === window) {
-      return window.pageYOffset || document.documentElement.scrollTop || 0;
+      var se = document.scrollingElement || document.documentElement;
+      return se.scrollTop || window.pageYOffset || 0;
     }
     return scrollParent.scrollTop || 0;
   }
 
-  function scrollParentScrollTo(scrollParent, top) {
-    if (!scrollParent || scrollParent === window) {
-      window.scrollTo({ top: top, left: 0, behavior: 'instant' });
-      return;
+  // Assign scrollTop under scroll-behavior:auto. CSS `html { scroll-behavior:
+  // smooth }` (if present) animates even raw scrollTop writes in Chromium and
+  // turns deep-file pins into multi-second drifts.
+  function withInstantScroll(fn) {
+    var root = typeof document !== 'undefined' ? document.documentElement : null;
+    var prev = root ? root.style.scrollBehavior : '';
+    if (root) root.style.scrollBehavior = 'auto';
+    try {
+      fn();
+    } finally {
+      if (root) root.style.scrollBehavior = prev;
     }
-    scrollParent.scrollTop = top;
+  }
+
+  function scrollParentScrollTo(scrollParent, top) {
+    withInstantScroll(function() {
+      if (!scrollParent || scrollParent === window) {
+        var se = document.scrollingElement || document.documentElement;
+        se.scrollTop = top;
+        return;
+      }
+      scrollParent.scrollTop = top;
+    });
+  }
+
+  function scrollParentScrollBy(scrollParent, delta) {
+    if (!(Math.abs(delta) >= 0.5)) return;
+    withInstantScroll(function() {
+      if (!scrollParent || scrollParent === window) {
+        var se = document.scrollingElement || document.documentElement;
+        se.scrollTop += delta;
+        return;
+      }
+      scrollParent.scrollTop += delta;
+    });
   }
 
   function applyScrollFix(scrollParent, targetScrollTop) {
@@ -122,6 +187,13 @@
     this._onResize = null;
     this._scrollLockKey = null;
     this._scrollLockUntil = 0;
+    this._stickKey = null;
+    this._stickIgnoreScroll = false;
+    this._stickTargetTop = null;
+    this._pinPaddingPx = 0;
+    this.scrollPageOffset = 0;
+    this._lastWindowScrollTop = null;
+    this._forceFitPerfectly = false;
     var self = this;
     this.resizeObserver = typeof ResizeObserver === 'function'
       ? new ResizeObserver(function(entries) { self.handleMeasurements(entries); })
@@ -142,10 +214,50 @@
       this.scrollParent = diffV.findScrollParent(this.surface) || window;
     }
     var self = this;
-    this._onScroll = function() { self.scheduleUpdate(); };
+    // Pierre CodeView keeps pendingScrollTarget through layout; it does NOT
+    // drop the anchor when its own scrollFix writes scrollTop. Clearing stick
+    // on the generic 'scroll' event raced with pinKeyToViewportTop and left
+    // app.js unstuck while neighbor heights were still refining.
+    this._onScroll = function() {
+      if (self.shouldRebaseScroll()) {
+        var logical = scrollParentScrollTop(self.scrollParent || window) + (self.scrollPageOffset || 0);
+        if (self.needsScrollPageUpdate(logical)) {
+          var resolved = self.resolvePagedScrollPosition(logical);
+          self.scrollPageOffset = resolved.scrollPageOffset;
+          self.update();
+          scrollParentScrollTo(self.scrollParent || window, resolved.pagedScrollTop);
+          return;
+        }
+      } else if (self.scrollPageOffset) {
+        self.scrollPageOffset = 0;
+      }
+      self.scheduleUpdate();
+    };
+    this._onUserScrollIntent = function() {
+      // Always release pending target + lock + pin padding. After settle we
+      // clear stick but keep lock for max-scroll room; without clearing lock
+      // on wheel, restoreAfterHeightChange kept re-pinning and fought scroll.
+      self.clearStickToKey();
+    };
     this._onResize = function() { self.scheduleUpdate(); };
     var target = this.scrollParent === window ? window : this.scrollParent;
     target.addEventListener('scroll', this._onScroll, { passive: true });
+    // Pierre CodeView.clearPendingScroll: wheel / touchstart / pointerdown / keydown.
+    // Only real user intents release stick (not programmatic scrollTop writes).
+    // Keydown is filtered to scroll keys so Crit j/k nav does not clear stick.
+    target.addEventListener('wheel', this._onUserScrollIntent, { passive: true });
+    target.addEventListener('touchstart', this._onUserScrollIntent, { passive: true });
+    target.addEventListener('touchmove', this._onUserScrollIntent, { passive: true });
+    target.addEventListener('pointerdown', this._onUserScrollIntent, { passive: true });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', this._onUserKeyScrollIntent = function(e) {
+        var k = e.key;
+        if (k === 'PageDown' || k === 'PageUp' || k === 'Home' || k === 'End' ||
+            k === 'ArrowDown' || k === 'ArrowUp' || k === ' ') {
+          self._onUserScrollIntent();
+        }
+      }, true);
+    }
     window.addEventListener('resize', this._onResize);
     this.update();
   };
@@ -157,7 +269,18 @@
     if (this.resizeObserver) this.resizeObserver.disconnect();
     var target = this.scrollParent === window ? window : this.scrollParent;
     if (this._onScroll && target) target.removeEventListener('scroll', this._onScroll);
+    if (this._onUserScrollIntent && target) {
+      target.removeEventListener('wheel', this._onUserScrollIntent);
+      target.removeEventListener('touchstart', this._onUserScrollIntent);
+      target.removeEventListener('touchmove', this._onUserScrollIntent);
+      target.removeEventListener('pointerdown', this._onUserScrollIntent);
+    }
+    if (this._onUserKeyScrollIntent && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this._onUserKeyScrollIntent, true);
+    }
     if (this._onResize) window.removeEventListener('resize', this._onResize);
+    this._stickKey = null;
+    this.clearPinScrollRoom();
     this.nodes.clear();
     this.mountedKeys.clear();
     this.pinnedKeys.clear();
@@ -201,11 +324,135 @@
       localTop = metrics.localTop;
       viewportHeight = metrics.viewportHeight;
     }
-    return diffV.calculateWindow(this.heightIndex, localTop, viewportHeight);
+    // Pierre: windowing uses logical scroll (pagedScrollTop + scrollPageOffset).
+    if (this.shouldRebaseScroll()) {
+      localTop = localTop + (this.scrollPageOffset || 0);
+    }
+    // Pierre CodeView: overscrollSize 200; fitPerfectly on first paint or large jumps
+    // (|Δscroll| > viewport + overscroll*2), and while a pending scroll target is set.
+    var overscrollSize = diffV.OVERSCROLL_SIZE != null ? diffV.OVERSCROLL_SIZE : 200;
+    var fitPerfectly = !!this._forceFitPerfectly || !!this._stickKey;
+    if (!fitPerfectly && this._lastWindowScrollTop != null) {
+      fitPerfectly = Math.abs(localTop - this._lastWindowScrollTop) >
+        viewportHeight + overscrollSize * 2;
+    }
+    if (this._lastWindowScrollTop == null) fitPerfectly = true; // first paint
+    this._lastWindowScrollTop = localTop;
+    this._forceFitPerfectly = false;
+    // gap(8) + diffHeaderHeight(44) — Pierre getFitPerfectlyOverscroll()
+    var fitPerfectlyOverscroll = 8 + 44;
+    return diffV.calculateWindow(this.heightIndex, localTop, viewportHeight, {
+      overscrollSize: overscrollSize,
+      fitPerfectly: fitPerfectly,
+      fitPerfectlyOverscroll: fitPerfectlyOverscroll,
+    });
+  };
+
+  FileListVirtualizer.prototype.getViewportHeight = function() {
+    if (this._fixedViewportHeight != null) return this._fixedViewportHeight;
+    var scrollParent = this.scrollParent || window;
+    if (!scrollParent || scrollParent === window) {
+      return window.innerHeight ||
+        (document.documentElement && document.documentElement.clientHeight) || 0;
+    }
+    return scrollParent.getBoundingClientRect().height;
+  };
+
+  FileListVirtualizer.prototype.getScrollHeight = function() {
+    return this.heightIndex.total() + (this._pinPaddingPx || 0);
+  };
+
+  FileListVirtualizer.prototype.getMaxScrollTopForHeight = function(scrollHeight) {
+    return Math.max((scrollHeight || 0) - this.getViewportHeight(), 0);
+  };
+
+  FileListVirtualizer.prototype.getMaxScrollTop = function() {
+    return this.getMaxScrollTopForHeight(this.getScrollHeight());
+  };
+
+  // Pierre CodeView.shouldRebaseScroll — only above SCROLL_REBASE_THRESHOLD.
+  FileListVirtualizer.prototype.shouldRebaseScroll = function() {
+    return this.getMaxScrollTop() > SCROLL_REBASE_THRESHOLD;
+  };
+
+  FileListVirtualizer.prototype.getPagedScrollHeight = function() {
+    return this.shouldRebaseScroll()
+      ? Math.min(this.getScrollHeight(), SCROLL_REBASE_CONTAINER_HEIGHT)
+      : this.getScrollHeight();
+  };
+
+  FileListVirtualizer.prototype.getMaxPagedScrollTop = function() {
+    return this.getMaxScrollTopForHeight(this.getPagedScrollHeight());
+  };
+
+  FileListVirtualizer.prototype.clampPagedScrollTop = function(value) {
+    var maxScroll = this.getMaxPagedScrollTop();
+    return Math.max(0, Math.min(value, maxScroll));
+  };
+
+  FileListVirtualizer.prototype.getMaxScrollPageOffset = function() {
+    return Math.max(this.getMaxScrollTop() - this.getMaxPagedScrollTop(), 0);
+  };
+
+  FileListVirtualizer.prototype.clampScrollPageOffset = function(value) {
+    var maxOffset = this.getMaxScrollPageOffset();
+    return Math.max(0, Math.min(value, maxOffset));
+  };
+
+  FileListVirtualizer.prototype.resolveScrollPageWindow = function(scrollTop, preferredPagedScrollTop) {
+    var pagedScrollTop = roundToDevicePixel(this.clampPagedScrollTop(preferredPagedScrollTop));
+    var scrollPageOffset = this.clampScrollPageOffset(scrollTop - pagedScrollTop);
+    pagedScrollTop = roundToDevicePixel(this.clampPagedScrollTop(scrollTop - scrollPageOffset));
+    scrollPageOffset = this.clampScrollPageOffset(scrollTop - pagedScrollTop);
+    return { pagedScrollTop: pagedScrollTop, scrollPageOffset: scrollPageOffset };
+  };
+
+  FileListVirtualizer.prototype.resolvePagedScrollPosition = function(logicalScrollTop) {
+    if (!this.shouldRebaseScroll()) {
+      return {
+        pagedScrollTop: this.clampPagedScrollTop(logicalScrollTop),
+        scrollPageOffset: 0,
+      };
+    }
+    var currentPageOffset = this.clampScrollPageOffset(this.scrollPageOffset || 0);
+    var pagedScrollTop = logicalScrollTop - currentPageOffset;
+    var pagedMaxScrollTop = this.getMaxPagedScrollTop();
+    var maxRebaseOffset = this.getMaxScrollPageOffset();
+    var shouldMoveDown = pagedScrollTop > SCROLL_REBASE_THRESHOLD && currentPageOffset < maxRebaseOffset;
+    var shouldMoveUp = pagedScrollTop < SCROLL_REBASE_TRIGGER_TOP && currentPageOffset > 0;
+    if (pagedScrollTop < 0 || pagedScrollTop > pagedMaxScrollTop || shouldMoveDown || shouldMoveUp) {
+      return this.resolveScrollPageWindow(
+        logicalScrollTop,
+        shouldMoveUp ? Math.min(SCROLL_REBASE_TARGET_BOTTOM, pagedMaxScrollTop) : SCROLL_REBASE_TARGET_TOP
+      );
+    }
+    return {
+      pagedScrollTop: roundToDevicePixel(this.clampPagedScrollTop(pagedScrollTop)),
+      scrollPageOffset: currentPageOffset,
+    };
+  };
+
+  FileListVirtualizer.prototype.needsScrollPageUpdate = function(logicalScrollTop) {
+    var rounded = roundToDevicePixel(Math.max(0, Math.min(logicalScrollTop, this.getMaxScrollTop())));
+    var resolved = this.resolvePagedScrollPosition(rounded);
+    return resolved.scrollPageOffset !== (this.scrollPageOffset || 0);
+  };
+
+  FileListVirtualizer.prototype.getPagedLayoutTop = function(logicalTop) {
+    if (!this.shouldRebaseScroll()) return logicalTop;
+    return Math.max(logicalTop - (this.scrollPageOffset || 0), 0);
   };
 
   FileListVirtualizer.prototype.update = function() {
     if (this.disposed) return;
+    // Keep pin padding while stuck to a sidebar jump target — clearing it on
+    // lock expiry was shoving deep files (e.g. app.js) out of view.
+    if (!this._stickKey && !this.isScrollLocked() && this._pinPaddingPx) {
+      this.clearPinScrollRoom();
+    }
+    if (!this.shouldRebaseScroll() && this.scrollPageOffset) {
+      this.scrollPageOffset = 0;
+    }
     var interval = this.viewportInterval();
     var intervals = interval ? [interval] : [];
     this.pinnedKeys.forEach(function(key) {
@@ -213,6 +460,17 @@
       if (index !== undefined) intervals.push([index, index]);
     }, this);
     this.reconcile(diffV.mergeIntervals(intervals, this.items.length));
+    // Pierre: after every layout pass while a scroll target is pending, re-apply
+    // scrollFix so height refine cannot leave the clicked file mid-viewport.
+    if (this._stickKey) {
+      this.pinKeyToViewportTop(this._stickKey);
+      if (this.isPendingTargetSettled()) {
+        // Drop pending target only (Pierre clears pendingScrollTarget). Keep pin
+        // padding / lock until user scroll — clearing padding early re-clamps
+        // max-scroll and parks deep files mid-viewport.
+        this.releasePendingScrollTarget();
+      }
+    }
   };
 
   FileListVirtualizer.prototype.reconcile = function(intervals) {
@@ -244,6 +502,44 @@
         spacer: true,
         height: this.heightIndex.total() - this.heightIndex.offset(cursor),
       });
+    }
+
+    // Pierre paged scaffold: when rebasing, DOM height is capped — leading
+    // spacer is layout-top within the page; trailing fills paged height.
+    if (this.shouldRebaseScroll() && desired.length > 0) {
+      var firstLogical = null;
+      for (var fi = 0; fi < desired.length; fi++) {
+        if (!desired[fi].spacer && desired[fi].index !== undefined) {
+          firstLogical = this.heightIndex.offset(desired[fi].index);
+          break;
+        }
+      }
+      if (firstLogical != null) {
+        var lead = this.getPagedLayoutTop(firstLogical);
+        if (desired[0].spacer) {
+          desired[0].height = lead;
+        } else if (lead > 0) {
+          desired.unshift({
+            key: 'spacer:page-lead',
+            spacer: true,
+            height: lead,
+          });
+        }
+      }
+      // Drop the full-logical trailing spacer (if any); replace with page trail.
+      var lastDes = desired[desired.length - 1];
+      if (lastDes && lastDes.spacer && lastDes.key !== 'spacer:page-lead') {
+        desired.pop();
+      }
+      var sum = 0;
+      for (var si = 0; si < desired.length; si++) {
+        if (desired[si].spacer) sum += Math.max(0, desired[si].height || 0);
+        else if (desired[si].index !== undefined) sum += this.heightIndex.height(desired[si].index);
+      }
+      var trail = Math.max(0, this.getPagedScrollHeight() - sum);
+      if (trail > 0) {
+        desired.push({ key: 'spacer:page-trail', spacer: true, height: trail });
+      }
     }
 
     var desiredKeys = new Set(desired.map(function(d) { return d.key; }));
@@ -347,6 +643,8 @@
 
   // Prefer a mounted file section's getBoundingClientRect over heightIndex
   // absolute offsets (Pierre Virtualizer.getScrollAnchor / scrollFix).
+  // When scrolled into a file (header above viewport), prefer a line/row anchor
+  // — Pierre CodeView getScrollAnchor → getNumericScrollAnchor.
   FileListVirtualizer.prototype.captureDomAnchor = function() {
     var scrollParent = this.scrollParent || window;
     var vpTop;
@@ -369,32 +667,124 @@
       )) return;
       var rect = node.getBoundingClientRect();
       if (rect.bottom <= vpTop || rect.top >= vpBottom) return;
-      var candidate = { key: key, top: rect.top, scrollParent: scrollParent };
+      var candidate = { key: key, top: rect.top, scrollParent: scrollParent, node: node };
       if (!bestFallback || rect.top < bestFallback.top) bestFallback = candidate;
       if (rect.top < vpTop) return;
       if (!best || rect.top < best.top) best = candidate;
     });
-    return best || bestFallback;
+    var picked = best || bestFallback;
+    if (!picked) return null;
+
+    // File header still in view → item-level anchor (Pierre type: "item").
+    if (picked.top >= vpTop - 0.5) {
+      return {
+        type: 'item',
+        key: picked.key,
+        top: picked.top,
+        scrollParent: picked.scrollParent,
+      };
+    }
+
+    // Scrolled into the file → line/row anchor (Pierre type: "line").
+    var lineAnchor = this.captureLineAnchorInSection(picked.node, vpTop);
+    if (lineAnchor) {
+      return {
+        type: 'line',
+        key: picked.key,
+        top: picked.top,
+        rowKey: lineAnchor.rowKey,
+        rowTop: lineAnchor.rowTop,
+        scrollParent: picked.scrollParent,
+      };
+    }
+    return {
+      type: 'item',
+      key: picked.key,
+      top: picked.top,
+      scrollParent: picked.scrollParent,
+    };
+  };
+
+  FileListVirtualizer.prototype.captureLineAnchorInSection = function(section, vpTop) {
+    if (!section) return null;
+    var surface = section.querySelector
+      ? section.querySelector('.diff-virtual-surface')
+      : null;
+    var vw = surface && surface._critVirtualWindow;
+    if (vw && vw.nodes) {
+      var bestRow = null;
+      var bestTop = Infinity;
+      vw.nodes.forEach(function(rowNode, rowKey) {
+        if (!rowNode || typeof rowNode.getBoundingClientRect !== 'function') return;
+        if (rowNode.classList && rowNode.classList.contains('diff-virtual-spacer')) return;
+        var top = rowNode.getBoundingClientRect().top;
+        if (top < vpTop) return;
+        if (top < bestTop) {
+          bestTop = top;
+          bestRow = { rowKey: rowKey, rowTop: top };
+        }
+      });
+      if (bestRow) return bestRow;
+    }
+    // Fallback: first [data-virtual-row-key] at or below viewport top.
+    if (!section.querySelectorAll) return null;
+    var rows = section.querySelectorAll('[data-virtual-row-key]');
+    var fallback = null;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (r.classList && r.classList.contains('diff-virtual-spacer')) continue;
+      var rt = r.getBoundingClientRect().top;
+      if (rt < vpTop) continue;
+      if (!fallback || rt < fallback.rowTop) {
+        fallback = { rowKey: r.dataset.virtualRowKey, rowTop: rt };
+      }
+    }
+    return fallback;
   };
 
   FileListVirtualizer.prototype.restoreDomAnchor = function(anchor) {
     if (!anchor || !anchor.key) return false;
+    var scrollParent = anchor.scrollParent || this.scrollParent || window;
+
+    if (anchor.type === 'line' && anchor.rowKey) {
+      var section = this.nodes.get(anchor.key);
+      var rowNode = null;
+      if (section) {
+        var surface = section.querySelector
+          ? section.querySelector('.diff-virtual-surface')
+          : null;
+        var vw = surface && surface._critVirtualWindow;
+        if (vw && vw.nodes) rowNode = vw.nodes.get(anchor.rowKey) || null;
+        if (!rowNode && section.querySelector) {
+          var nodes = section.querySelectorAll('[data-virtual-row-key]');
+          for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].dataset.virtualRowKey === anchor.rowKey) {
+              rowNode = nodes[i];
+              break;
+            }
+          }
+        }
+      }
+      if (rowNode && typeof rowNode.getBoundingClientRect === 'function' &&
+          anchor.rowTop != null) {
+        var rowDelta = rowNode.getBoundingClientRect().top - anchor.rowTop;
+        if (Math.abs(rowDelta) >= 1) scrollParentScrollBy(scrollParent, rowDelta);
+        return true;
+      }
+    }
+
     var node = this.nodes.get(anchor.key);
     if (!node || typeof node.getBoundingClientRect !== 'function') return false;
     var delta = node.getBoundingClientRect().top - anchor.top;
     if (!(Math.abs(delta) >= 1)) return true;
-    var scrollParent = anchor.scrollParent || this.scrollParent || window;
-    if (!scrollParent || scrollParent === window) {
-      window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
-    } else {
-      scrollParent.scrollTop += delta;
-    }
+    scrollParentScrollBy(scrollParent, delta);
     return true;
   };
 
   FileListVirtualizer.prototype.lockScrollToKey = function(key, ms) {
     this._scrollLockKey = key || null;
     this._scrollLockUntil = key ? (Date.now() + (ms || 2000)) : 0;
+    if (key) this.ensurePinScrollRoom(key);
   };
 
   FileListVirtualizer.prototype.isScrollLocked = function() {
@@ -402,16 +792,154 @@
   };
 
   FileListVirtualizer.prototype.scrollLockKey = function() {
+    if (this._stickKey) return this._stickKey;
     return this.isScrollLocked() ? this._scrollLockKey : null;
   };
 
-  FileListVirtualizer.prototype.restoreAfterHeightChange = function(domAnchor) {
-    if (this._scrollLockKey && Date.now() < (this._scrollLockUntil || 0)) {
-      var locked = this.nodes.get(this._scrollLockKey);
-      if (locked && typeof locked.scrollIntoView === 'function') {
-        locked.scrollIntoView({ block: 'start', behavior: 'instant' });
-        return true;
+  // Keep the clicked file stuck under the header across height refine (neighbor
+  // mounts, row-virtualizer measure, prefetch estimate updates) — same role as
+  // Pierre CodeView.pendingScrollTarget. Cleared when device-pixel settled
+  // (Pierre isPendingTargetSettled) or via wheel/touch/page keys.
+  FileListVirtualizer.prototype.stickToKey = function(key) {
+    if (!key) {
+      this.clearStickToKey();
+      return;
+    }
+    if (this._stickKey && this._stickKey !== key) {
+      this.unpin(this._stickKey);
+    }
+    this._stickKey = key;
+    this._stickTargetTop = null;
+    this._stickSince = Date.now();
+    this._forceFitPerfectly = true;
+    this.pin(key);
+    this.lockScrollToKey(key, 60000);
+    this.ensurePinScrollRoom(key);
+  };
+
+  FileListVirtualizer.prototype.clearStickToKey = function() {
+    var prev = this._stickKey;
+    this._stickKey = null;
+    this._stickTargetTop = null;
+    this._scrollLockKey = null;
+    this._scrollLockUntil = 0;
+    this.clearPinScrollRoom();
+    if (prev) this.unpin(prev);
+  };
+
+  // Pierre: pendingScrollTarget = undefined after settle — stop forcing scrollFix.
+  FileListVirtualizer.prototype.releasePendingScrollTarget = function() {
+    var prev = this._stickKey;
+    this._stickKey = null;
+    this._stickTargetTop = null;
+    if (prev) this.unpin(prev);
+  };
+
+  FileListVirtualizer.prototype.stickKey = function() {
+    return this._stickKey || null;
+  };
+
+  FileListVirtualizer.prototype.stickTargetTop = function(node) {
+    var headerH = 49;
+    try {
+      if (typeof getComputedStyle === 'function' && typeof document !== 'undefined') {
+        var raw = getComputedStyle(document.documentElement).getPropertyValue('--header-height');
+        var parsed = parseFloat(raw);
+        if (!isNaN(parsed) && parsed > 0) headerH = parsed;
       }
+    } catch (e) { /* ignore */ }
+    var targetTop = headerH + 8;
+    try {
+      if (node) {
+        var margin = parseFloat(getComputedStyle(node).scrollMarginTop);
+        if (!isNaN(margin) && margin > 0 && margin < 200) targetTop = margin;
+      }
+    } catch (e2) { /* ignore */ }
+    return targetTop;
+  };
+
+  // Pierre CodeView.isPendingTargetSettled — device-pixel equality.
+  FileListVirtualizer.prototype.isPendingTargetSettled = function() {
+    if (!this._stickKey) return true;
+    var node = this.nodes.get(this._stickKey);
+    if (!node || typeof node.getBoundingClientRect !== 'function') return false;
+    var targetTop = this.stickTargetTop(node);
+    this._stickTargetTop = targetTop;
+    var top = node.getBoundingClientRect().top;
+    return roundToDevicePixel(top) === roundToDevicePixel(targetTop);
+  };
+
+  // Row-virtualizer height refine inside a mounted file — remeasure the section
+  // and restore via stick / DOM anchor (Pierre's single applyScrollFix pipeline).
+  FileListVirtualizer.prototype.noteChildHeightChange = function(surfaceOrSection) {
+    if (this.disposed) return;
+    var section = surfaceOrSection;
+    if (section && section.classList && !section.classList.contains('file-section')) {
+      section = section.closest ? section.closest('.file-section') : null;
+    }
+    if (!section) return;
+    var key = section.dataset && (section.dataset.filePath || section.dataset.fileKey || section.dataset.virtualKey);
+    if (!key) {
+      // id="file-section-<path>"
+      var id = section.id || '';
+      if (id.indexOf('file-section-') === 0) key = id.slice('file-section-'.length);
+    }
+    if (!key || !this.keyToIndex.has(key)) return;
+    if (this.nodes.get(key) !== section) this.adoptNode(key, section);
+    var height = section.getBoundingClientRect().height;
+    this.setItemHeight(key, height);
+  };
+
+  // Guarantee enough document height below `key` that it can sit under the
+  // sticky app header. Without this, accurate (short) estimates for trailing
+  // files leave max-scroll with the target parked mid-viewport — common after
+  // background prefetch replaces oversized lazy stubs with real heights.
+  FileListVirtualizer.prototype.ensurePinScrollRoom = function(key) {
+    if (!this.surface) return;
+    var viewportHeight = 0;
+    if (this._fixedViewportHeight != null) {
+      viewportHeight = this._fixedViewportHeight;
+    } else {
+      var scrollParent = this.scrollParent || window;
+      if (!scrollParent || scrollParent === window) {
+        viewportHeight = window.innerHeight || 0;
+      } else {
+        viewportHeight = scrollParent.getBoundingClientRect().height;
+      }
+    }
+    var pad = Math.max(0, Math.round(viewportHeight));
+    if (this._pinPaddingPx === pad) return;
+    this._pinPaddingPx = pad;
+    this.surface.style.paddingBottom = pad ? pad + 'px' : '';
+  };
+
+  FileListVirtualizer.prototype.clearPinScrollRoom = function() {
+    this._pinPaddingPx = 0;
+    if (this.surface) this.surface.style.paddingBottom = '';
+  };
+
+  // Pin a mounted file so its top sits just under the sticky app header
+  // (matches .file-section scroll-margin-top). Prefer this over scrollIntoView
+  // during height refine — absolute scrollTop adjustments fight less with
+  // spacer reflow.
+  FileListVirtualizer.prototype.pinKeyToViewportTop = function(key) {
+    var node = this.nodes.get(key);
+    if (!node || typeof node.getBoundingClientRect !== 'function') return false;
+    this.ensurePinScrollRoom(key);
+    var targetTop = this.stickTargetTop(node);
+    var top = node.getBoundingClientRect().top;
+    var delta = top - targetTop;
+    if (!(Math.abs(delta) >= 0.5)) return true;
+    scrollParentScrollBy(this.scrollParent || window, delta);
+    return true;
+  };
+
+  FileListVirtualizer.prototype.restoreAfterHeightChange = function(domAnchor) {
+    // Only force file-top pin while a pending scroll target is active (Pierre
+    // pendingScrollTarget). A leftover scroll-lock must NOT re-pin — that
+    // fought the user when they tried to scroll away after a sidebar jump.
+    if (this._stickKey) {
+      if (this.pinKeyToViewportTop(this._stickKey)) return true;
     }
     return this.restoreDomAnchor(domAnchor);
   };
@@ -420,11 +948,15 @@
   // captureDomAnchor instead.
   FileListVirtualizer.prototype.captureAnchor = function() {
     if (!this.surface) {
-      return getScrollAnchor(this.heightIndex, this.items, scrollParentScrollTop(this.scrollParent || window));
+      var top = scrollParentScrollTop(this.scrollParent || window);
+      if (this.shouldRebaseScroll()) top += (this.scrollPageOffset || 0);
+      return getScrollAnchor(this.heightIndex, this.items, top);
     }
     var scrollParent = this.scrollParent || window;
     var metrics = diffV.viewportMetrics(scrollParent, this.surface);
-    return getScrollAnchor(this.heightIndex, this.items, metrics.localTop);
+    var localTop = metrics.localTop;
+    if (this.shouldRebaseScroll()) localTop += (this.scrollPageOffset || 0);
+    return getScrollAnchor(this.heightIndex, this.items, localTop);
   };
 
   FileListVirtualizer.prototype.restoreAnchor = function(anchor) {
@@ -510,12 +1042,15 @@
     var index = this.keyToIndex.get(key);
     if (index === undefined) return Promise.resolve(null);
     var self = this;
+    this._forceFitPerfectly = true;
     this.lockScrollToKey(key, 2000);
     this.pin(key);
     // Synchronous mount + scroll before the next rAF reconcile can fight us.
     this.update();
     var node = this.nodes.get(key) || null;
-    if (node && typeof node.scrollIntoView === 'function') {
+    if (node && alignment !== 'center' && typeof this.pinKeyToViewportTop === 'function') {
+      this.pinKeyToViewportTop(key);
+    } else if (node && typeof node.scrollIntoView === 'function') {
       node.scrollIntoView({
         block: alignment === 'center' ? 'center' : 'start',
         behavior: 'instant',
@@ -540,15 +1075,19 @@
   };
 
   FileListVirtualizer.prototype.totalHeight = function() {
-    return this.heightIndex.total();
+    return this.shouldRebaseScroll() ? this.getPagedScrollHeight() : this.heightIndex.total();
   };
 
   var api = {
     FILE_HEADER_ESTIMATE: FILE_HEADER_ESTIMATE,
+    fileHeaderEstimate: fileHeaderEstimate,
     estimateFileSectionHeight: estimateFileSectionHeight,
     getScrollAnchor: getScrollAnchor,
     resolveAnchoredScrollTop: resolveAnchoredScrollTop,
     applyScrollFix: applyScrollFix,
+    roundToDevicePixel: roundToDevicePixel,
+    SCROLL_REBASE_THRESHOLD: SCROLL_REBASE_THRESHOLD,
+    SCROLL_REBASE_CONTAINER_HEIGHT: SCROLL_REBASE_CONTAINER_HEIGHT,
     FileListVirtualizer: FileListVirtualizer,
   };
 

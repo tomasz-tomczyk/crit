@@ -102,9 +102,10 @@
   }
 
   function scrollToCommentRef(id) {
-    let card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
     if (!card) {
-      // Line cards live in deferred .file-body — mount the owning file and retry.
+      // Line cards live in deferred / virtualized .file-body — mount the
+      // owning file (file-list window may only have a spacer) and retry.
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
         const comments = f.comments || [];
@@ -113,30 +114,10 @@
           if (comments[j].id === id) { found = true; break; }
         }
         if (!found) continue;
-        const section = document.getElementById('file-section-' + f.path);
-        if (!section) continue;
-        section.open = true;
-        if (f.lazy) {
-          loadLazyFile(section, f, function() { scrollToCommentRef(id); });
-          return;
-        }
-        ensureFileBodyMounted(section, f);
-        card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
-        if (!card) {
-          const controller = virtualDiffController(f.path);
-          const rowKey = controller && controller.rowKeyForComment(id);
-          if (rowKey) {
-            controller.scrollToRow(rowKey, 'center').then(function(rowNode) {
-              const mountedCard = rowNode && (rowNode.matches('.comment-card')
-                ? rowNode
-                : rowNode.querySelector('.comment-card'));
-              flashCommentRefCard(mountedCard);
-              controller.unpin(rowKey);
-            });
-            return;
-          }
-        }
-        break;
+        ensureFileVisibleForComment(f.path, function() {
+          scrollToComment(id, f.path);
+        });
+        return;
       }
     }
     if (!card) return;
@@ -502,11 +483,12 @@
   const virtualDiffControllers = new Map();
 
   // Pierre-style multi-file list virtualizer for #filesContainer (approach B).
-  // Null while story mode owns the scroll surface, the module is unavailable,
-  // or the review is small enough that mounting every section is cheaper than
-  // windowing (keeps e2e / typical PRs on the classic deferred-body path).
+  // Always-on for flat reviews when the module is present — Pierre CodeView
+  // windowing is not gated on file count. The old MIN=40 left typical spike
+  // branches (e.g. 14 files) on the deferred-body path where sibling mounts
+  // shove the clicked file (app.js) thousands of px down after scrollIntoView.
   let fileListController = null;
-  const FILE_LIST_VIRTUALIZE_MIN_FILES = 40;
+  const FILE_LIST_VIRTUALIZE_MIN_FILES = 1;
 
   function fileListVirtualizationEnabled() {
     return !storyActive() &&
@@ -1915,36 +1897,36 @@
 
     // File-list virtualizer: land on the slot immediately (Pierre-like), then
     // mount the body in-place once data is warm — never replaceWith (detaches
-    // the node the virtualizer tracks). Lock + re-pin through height settle.
+    // the node the virtualizer tracks). Stick once; the virtualizer re-applies
+    // scrollFix while pending (like Pierre CodeView) until device-pixel settle
+    // or user clear — no Crit settleRepin rAF/deadline loop.
     if (fileListController && !storyActive()) {
-      ignoreTreeObserverUntil = Date.now() + 500;
-      suppressBodyMountObserver(2500);
-      fileListController.lockScrollToKey(filePath, 4000);
+      // Stick until settle or user scroll — fixed-duration locks expired while
+      // neighbor bodies / row virt were still refining and shoved app.js away.
+      ignoreTreeObserverUntil = Date.now() + 15000;
+      suppressBodyMountObserver(5000);
+      if (typeof fileListController.stickToKey === 'function') {
+        fileListController.stickToKey(filePath);
+      } else {
+        fileListController.lockScrollToKey(filePath, 15000);
+      }
       fileListController.setCollapsed(filePath, false);
       prioritizeLazyPrefetch(file);
 
-      function repin(section) {
-        if (!fileListController || !section || !section.isConnected) return;
-        fileListController.lockScrollToKey(filePath, 4000);
-        section.scrollIntoView({ block: 'start', behavior: 'instant' });
-        fileListController.setItemHeight(filePath, section.getBoundingClientRect().height);
-        section.scrollIntoView({ block: 'start', behavior: 'instant' });
-      }
-
-      function settleRepin(section, framesLeft) {
-        repin(section);
-        if (framesLeft <= 0) return;
-        requestAnimationFrame(function() {
-          settleRepin(section, framesLeft - 1);
-        });
-      }
-
+      // Mount body, then one height/pin pass. Ongoing stick is FileListVirtualizer
+      // update() → pinKeyToViewportTop while _stickKey (Pierre pendingScrollTarget).
       function finishWithSection(sectionEl) {
         if (!sectionEl) return;
         if (sectionEl.tagName === 'DETAILS') sectionEl.open = true;
         ensureFileBodyMounted(sectionEl, file);
         const live = (fileListController.nodes && fileListController.nodes.get(filePath)) || sectionEl;
-        settleRepin(live, 12);
+        if (!live || !live.isConnected) return;
+        fileListController.setItemHeight(filePath, live.getBoundingClientRect().height);
+        if (typeof fileListController.pinKeyToViewportTop === 'function') {
+          fileListController.pinKeyToViewportTop(filePath);
+        } else {
+          live.scrollIntoView({ block: 'start', behavior: 'instant' });
+        }
       }
 
       // Jump now — placeholder/header at viewport top while network warms.
@@ -1971,26 +1953,64 @@
     if (!sectionEl) return;
     // Uncollapse if collapsed
     sectionEl.open = true;
-    // toggle handler mounts deferred bodies; call explicitly so layout exists before scroll
+    // Classic deferred-body path (no file-list controller): sibling bodies
+    // mounting above the target grow the document without changing scrollY and
+    // shove the clicked file off-screen. Re-pin under the sticky header until
+    // layout settles — same idea as Pierre scrollFix / stickToKey.
+    function pinSectionUnderHeader(el) {
+      if (!el || !el.isConnected) return;
+      const headerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-height')) || 49;
+      let target = headerH + 8;
+      try {
+        const margin = parseFloat(getComputedStyle(el).scrollMarginTop);
+        if (!isNaN(margin) && margin > 0 && margin < 200) target = margin;
+      } catch { /* ignore */ }
+      const delta = el.getBoundingClientRect().top - target;
+      if (Math.abs(delta) < 0.5) return;
+      const se = document.scrollingElement || document.documentElement;
+      const prev = se.style.scrollBehavior;
+      se.style.scrollBehavior = 'auto';
+      se.scrollTop += delta;
+      se.style.scrollBehavior = prev;
+    }
+    function settlePin(deadline) {
+      const el = document.getElementById('file-section-' + filePath);
+      if (!el) return;
+      pinSectionUnderHeader(el);
+      const headerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-height')) || 49;
+      let target = headerH + 8;
+      try {
+        const margin = parseFloat(getComputedStyle(el).scrollMarginTop);
+        if (!isNaN(margin) && margin > 0 && margin < 200) target = margin;
+      } catch { /* ignore */ }
+      const dpr = window.devicePixelRatio || 1;
+      const round = function(v) { return Math.round(v * dpr) / dpr; };
+      if (round(el.getBoundingClientRect().top) === round(target)) return;
+      if (Date.now() >= deadline) return;
+      requestAnimationFrame(function() { settlePin(deadline); });
+    }
+
     if (file) {
       if (file.lazy) {
-        // Scroll to header immediately while loading; re-scroll to the loaded section once
-        // the body mounts so the user lands reliably on the requested file.
-        sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+        pinSectionUnderHeader(sectionEl);
         loadLazyFile(sectionEl, file, function onLoaded(newSection) {
           const el = newSection || document.getElementById('file-section-' + filePath);
-          if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
+          if (el) {
+            pinSectionUnderHeader(el);
+            settlePin(Date.now() + 3000);
+          }
         });
       } else {
         ensureFileBodyMounted(sectionEl, file);
       }
     }
-    // Suppress observers briefly so adjacent bodies mounting don't push the
-    // requested file out of view after we scroll to it.
-    ignoreTreeObserverUntil = Date.now() + 200;
-    suppressBodyMountObserver(500);
+    // Suppress adjacent mounts through the settle window — 500ms was too short
+    // (live repro shoved app.js at ~580ms when suppress expired).
+    ignoreTreeObserverUntil = Date.now() + 3000;
+    suppressBodyMountObserver(3000);
     if (!file || !file.lazy) {
-      sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
+      pinSectionUnderHeader(sectionEl);
+      settlePin(Date.now() + 3000);
     }
     updateTreeActive(filePath);
   }
@@ -3389,15 +3409,22 @@
     }, effectiveDiffScope(), { skipHighlight: true }).then(function(loaded) {
       applyLoadedFileData(file, loaded);
       file._lazyPrefetchPromise = null;
-      // Refresh file-list estimated height now that hunks exist.
+      // Refresh file-list estimated height now that hunks exist. Skip while a
+      // deep-click scroll lock is active on another file — background estimate
+      // churn delays land and fights the pin.
       if (fileListController) {
-        const est = (window.crit && window.crit.fileListVirtualizer)
-          ? window.crit.fileListVirtualizer.estimateFileSectionHeight({
-              collapsed: !!file.collapsed,
-              estimateBodyHeight: function() { return estimateFileListBodyHeight(file); },
-            })
+        const locked = typeof fileListController.scrollLockKey === 'function'
+          ? fileListController.scrollLockKey()
           : null;
-        if (est !== null && est !== undefined) fileListController.setItemHeight(file.path, est);
+        if (!locked || locked === file.path) {
+          const est = (window.crit && window.crit.fileListVirtualizer)
+            ? window.crit.fileListVirtualizer.estimateFileSectionHeight({
+                collapsed: !!file.collapsed,
+                estimateBodyHeight: function() { return estimateFileListBodyHeight(file); },
+              })
+            : null;
+          if (est !== null && est !== undefined) fileListController.setItemHeight(file.path, est);
+        }
       }
       return file;
     }).catch(function(err) {
@@ -8180,6 +8207,66 @@
   }
 
 
+  // Mount a file that may only exist as a file-list spacer, then run `done`
+  // with a live section. Does not stickToKey (file-top pin fights comment
+  // centering) — but keeps pin + scroll-lock until the caller clears, so
+  // neighbor setItemHeight cannot shove during async scrollToRow.
+  function ensureFileVisibleForComment(filePath, done) {
+    done = done || function noopDone() { return; };
+    const file = getFileByPath(filePath);
+
+    function afterSection(section) {
+      if (!section) { done(null); return; }
+      if (section.tagName === 'DETAILS') section.open = true;
+      if (file && file.lazy) {
+        loadLazyFile(section, file, function(el) {
+          const live = el || document.getElementById('file-section-' + filePath) || section;
+          if (live && fileListController && typeof fileListController.adoptNode === 'function') {
+            fileListController.adoptNode(filePath, live);
+          }
+          done(live);
+        });
+        return;
+      }
+      if (file) ensureFileBodyMounted(section, file);
+      done(section);
+    }
+
+    if (fileListController && !storyActive()) {
+      if (typeof fileListController.setCollapsed === 'function') {
+        fileListController.setCollapsed(filePath, false);
+      }
+      // Pin so the slot stays mounted while we scroll to the comment row;
+      // do not stickToKey (that pins file top under the header).
+      fileListController.pin(filePath);
+      fileListController.ensureMounted(filePath).then(function(node) {
+        let section = node;
+        if (!section || (section.classList && section.classList.contains('file-section-placeholder'))) {
+          section = document.getElementById('file-section-' + filePath);
+        }
+        // Jump the list window to the file so the section is on-screen enough
+        // to mount a real body (placeholders don't have comment cards).
+        const jump = (fileListController.scrollToItem
+          ? fileListController.scrollToItem(filePath, 'start')
+          : Promise.resolve(section));
+        jump.then(function(jumped) {
+          // scrollToItem only locks 2s — extend until comment land clears.
+          if (typeof fileListController.lockScrollToKey === 'function') {
+            fileListController.lockScrollToKey(filePath, 60000);
+          }
+          fileListController.pin(filePath);
+          const live = (fileListController.nodes && fileListController.nodes.get(filePath))
+            || jumped
+            || document.getElementById('file-section-' + filePath);
+          afterSection(live);
+        });
+      });
+      return;
+    }
+
+    afterSection(document.getElementById('file-section-' + filePath));
+  }
+
   function flashCommentCard(commentCard) {
     commentCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
     commentCard.classList.remove('comment-card-highlight');
@@ -8239,38 +8326,52 @@
       return;
     }
 
-    // Flat view: original behavior.
-    const section = document.getElementById('file-section-' + filePath);
-    if (!section) return;
-    if (!section.open) section.open = true;
-    const file = getFileByPath(filePath);
-    const flashCardIn = function(el) {
-      if (!el) return;
-      const commentCard = el.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-      if (commentCard) flashCommentCard(commentCard);
-    };
-    // Line comment cards live inside .file-body — mount (or lazy-load) first.
-    if (file && file.lazy) {
-      loadLazyFile(section, file, function onLoaded(newSection) {
-        flashCardIn(newSection || document.getElementById('file-section-' + filePath));
-      });
-      return;
-    }
-    if (file) ensureFileBodyMounted(section, file);
-    const controller = virtualDiffController(filePath);
-    const rowKey = controller && controller.rowKeyForComment(commentId);
-    if (rowKey) {
-      controller.scrollToRow(rowKey, 'center').then(function(rowNode) {
-        if (!rowNode) return;
-        const card = rowNode.matches('.comment-card')
-          ? rowNode
-          : rowNode.querySelector('.comment-card');
-        if (card) flashCommentCard(card);
-        controller.unpin(rowKey);
-      });
-      return;
-    }
-    flashCardIn(section);
+    // Flat view: file-list virt may only have a spacer — mount first.
+    ensureFileVisibleForComment(filePath, function(section) {
+      if (!section) {
+        if (fileListController) {
+          fileListController.unpin(filePath);
+          if (typeof fileListController.clearStickToKey === 'function') {
+            fileListController.clearStickToKey();
+          }
+        }
+        return;
+      }
+      function releaseFileListHold() {
+        if (!fileListController) return;
+        fileListController.unpin(filePath);
+        if (typeof fileListController.clearStickToKey === 'function') {
+          fileListController.clearStickToKey();
+        }
+      }
+      const flashCardIn = function(el) {
+        if (!el) return;
+        const commentCard = el.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+        if (commentCard) flashCommentCard(commentCard);
+      };
+      const controller = virtualDiffController(filePath);
+      const rowKey = controller && controller.rowKeyForComment(commentId);
+      if (rowKey) {
+        controller.scrollToRow(rowKey, 'center').then(function(rowNode) {
+          try {
+            if (rowNode) {
+              const card = rowNode.matches('.comment-card')
+                ? rowNode
+                : rowNode.querySelector('.comment-card');
+              if (card) flashCommentCard(card);
+            }
+          } finally {
+            if (controller && rowKey) controller.unpin(rowKey);
+            releaseFileListHold();
+          }
+        }, function() {
+          releaseFileListHold();
+        });
+        return;
+      }
+      flashCardIn(section);
+      releaseFileListHold();
+    });
   }
 
   // ===== PR Overview Panel =====
