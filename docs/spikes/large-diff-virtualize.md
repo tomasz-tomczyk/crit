@@ -38,8 +38,8 @@ This is **product code in the worktree**, not a `spikes/` demo.
 - [x] Comments / forms as logical rows with remount-safe state
 - [x] Selection / drag / keyboard / scroll-restore implemented for virtualized rows
 - [x] Split mode explicitly deferred (remains eager)
-- [ ] Tests for windowing helpers; relevant e2e not catastrophically broken
-- [ ] Re-run fair benchmark; fill Post-implementation results
+- [x] Tests for windowing helpers (`web/__tests__/crit-diff-virtualizer.test.js` 8/8); browser E2E interaction still open
+- [x] Re-run fair benchmark; fill Post-implementation results
 - [x] crit-web port explicitly deferred until Crit browser validation
 
 ## Handoff rule
@@ -50,24 +50,18 @@ re-deriving context.
 
 ### Current work
 
-The first implementation is in `web/crit-diff-virtualizer.js`, with production
-wiring in `web/app.js` and `web/index.html`. Loaded large unified diffs use the
-logical row model and variable-height window; small diffs and split mode remain
-eager. Active compose/edit/reply rows are pinned. Form body and selection state
-write through before remount. Comment navigation, reading anchors, gutter drag,
-and focused-row keyboard navigation now have model-first virtual paths.
-Syntax/unit/frontend/build checks pass. Browser verification and the fair
-benchmark are blocked by sandbox restrictions, so interaction behavior remains
-implemented but not browser-validated.
+Unified large-diff virtualization is implemented and committed (`1aed8a6`).
+Fair post-impl bench is recorded below: unified first paint ~21 ms (was ~268),
+DOM nodes ~1.7k (was ~69k), rendered rows 99 (was 3997). Split remains eager
+(unchanged). Focused unit/frontend checks pass. Browser interaction validation
+(gutter drag, selection, j/k, comment nav, draft focus) is still open.
 
 ### Next concrete step
 
-1. On a host that permits Chromium and localhost listeners, run the focused
-   large-diff page/E2E interaction pass (scrollbar jumps, gutter drag, native
-   selection, j/k, comment navigation, draft editor focus/cursor).
-2. Run the fair benchmark and record the JSON/table below; confirm the normal
-   900 px viewport stays below roughly 400 mounted code rows.
-3. Fix any browser-only regressions. Then decide whether to extend the same row
+1. Focused browser/E2E interaction pass on a large unified diff (scrollbar
+   jumps, gutter drag, native selection, j/k, comment navigation, draft editor
+   focus/cursor).
+2. Fix any browser-only regressions. Then decide whether to extend the same row
    model to split mode and port the settled implementation to crit-web.
 
 
@@ -93,20 +87,21 @@ implemented but not browser-validated.
 | split | 453.6 | 390.3 | 3497 | 99420 | 24.3 | 0 |
 | unified | 267.9 | 232.4 | 3997 | 68953 | 26.2 | 2 |
 
-### Post-implementation results
+### Post-implementation results — recorded 2026-09-24
 
-Attempted with the required command on 2026-09-24, but this sandbox prevents
-Chromium from starting before Crit is launched:
+- Revision: `1aed8a6`
+- Chromium: `147.0.7727.15`
+- Machine: darwin arm64 Apple M4 Max
+- Command: `mise exec -- node bench/large-diff/measure.mjs`
 
-```text
-FATAL: base/apple/mach_port_rendezvous_mac.cc:159
-bootstrap_check_in ... Permission denied (1100)
-```
+| Layout | file_body_first_paint_ms | mount_task_ms | rendered_rows | mounted_diff_dom_nodes | scroll_p95_frame_ms | frames_over_32 |
+|--------|-------------------------:|--------------:|--------------:|-----------------------:|--------------------:|---------------:|
+| split | 439.8 | 379.9 | 3497 | 99420 | 29.1 | 2 |
+| unified | 21.4 | 15.8 | 99 | 1712 | 28.2 | 0 |
 
-No substitute figures are recorded. Re-run
-`mise exec -- node bench/large-diff/measure.mjs` on an unsandboxed macOS host
-using the same machine/Chromium protocol, then paste the JSON summary + table
-here.
+**Delta vs baseline (unified):** first paint ~12.5× faster; mounted DOM nodes
+~40× fewer; rendered rows 3997 → 99 (viewport ± overscan). Split unchanged
+(still eager). Scroll p95 comparable.
 
 
 ---
