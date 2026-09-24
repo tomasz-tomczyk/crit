@@ -17,11 +17,12 @@ Constants and settle semantics follow `@pierre/diffs` CodeView; Crit keeps the s
 
 | Concern | Behavior |
 | --- | --- |
-| Tree / sidebar file jump | `stickToKey(path)` once (= pending scroll target), `scrollToItem`, mount body, one `setItemHeight` + pin. No timed settle loop. |
-| While pending | `FileListVirtualizer.update()` re-applies `pinKeyToViewportTop` until device-pixel settle (`roundToDevicePixel`), then `releasePendingScrollTarget`. |
-| User cancel | `clearStickToKey` on wheel / touchstart / touchmove / pointerdown / Page/Arrow/Home/End/Space (not every key — j/k must not clear). |
-| Height refine | `restoreAfterHeightChange`: file-top pin **only** while `_stickKey` is set; otherwise DOM/line anchor. |
-| Comment jump | `ensureFileVisibleForComment` mounts without stick-to-file-top; holds pin + scroll-lock until `scrollToRow` finishes (success or fail), then clears. |
+| Tree / sidebar file jump | `stickToKey(path)` once, `scrollToItem(..., 'start')`, mount body, one height/pin pass. |
+| While pending | `update()` re-pins; releases pending only when already at target *before* that pin (so settle spans a layout frame). Lock + pin padding kept until user scroll. |
+| `scrollToItem` lock | Default 2s; never shortens an existing longer lock (stick uses 60s). |
+| User cancel | `pointerdown` clears pending stick only. Wheel / touchstart / touchmove / Page/Arrow/Home/End/Space call `clearStickToKey` (pending + lock + padding). |
+| Height refine | File-top pin only while `_stickKey` is set; otherwise DOM/line anchor. |
+| Comment jump | `scrollToItem(..., 'nearest')` (no file-top pin); pin + scroll-lock until `scrollToRow` finishes, then clear. |
 | Overscan | paint window overscroll **200**; keep-alive margin **4000** (`1000×4`). |
 | Header estimate | file header **44** (or measured). |
 | Paged rebase | only when `maxScroll > 11e6` (`SCROLL_REBASE_*`); dormant otherwise. |

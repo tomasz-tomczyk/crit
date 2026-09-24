@@ -233,22 +233,25 @@
       }
       self.scheduleUpdate();
     };
+    this._onClearPendingOnly = function() {
+      // pointerdown: drop pending file-top stick only. Keep lock + pin padding
+      // so deep jumps retain max-scroll room until a real scroll gesture.
+      self.releasePendingScrollTarget();
+    };
     this._onUserScrollIntent = function() {
-      // Always release pending target + lock + pin padding. After settle we
-      // clear stick but keep lock for max-scroll room; without clearing lock
-      // on wheel, restoreAfterHeightChange kept re-pinning and fought scroll.
+      // wheel / touchmove / scroll keys: full release (pending + lock + padding).
       self.clearStickToKey();
     };
     this._onResize = function() { self.scheduleUpdate(); };
     var target = this.scrollParent === window ? window : this.scrollParent;
     target.addEventListener('scroll', this._onScroll, { passive: true });
-    // Pierre CodeView.clearPendingScroll: wheel / touchstart / pointerdown / keydown.
-    // Only real user intents release stick (not programmatic scrollTop writes).
-    // Keydown is filtered to scroll keys so Crit j/k nav does not clear stick.
+    // User intents: wheel/touchmove/keys fully clear; pointerdown only clears
+    // pending stick (Pierre clearPendingScroll is pending-only).
+    // Keydown is filtered to scroll keys so Crit j/k nav does not clear.
     target.addEventListener('wheel', this._onUserScrollIntent, { passive: true });
     target.addEventListener('touchstart', this._onUserScrollIntent, { passive: true });
     target.addEventListener('touchmove', this._onUserScrollIntent, { passive: true });
-    target.addEventListener('pointerdown', this._onUserScrollIntent, { passive: true });
+    target.addEventListener('pointerdown', this._onClearPendingOnly, { passive: true });
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this._onUserKeyScrollIntent = function(e) {
         var k = e.key;
@@ -273,7 +276,9 @@
       target.removeEventListener('wheel', this._onUserScrollIntent);
       target.removeEventListener('touchstart', this._onUserScrollIntent);
       target.removeEventListener('touchmove', this._onUserScrollIntent);
-      target.removeEventListener('pointerdown', this._onUserScrollIntent);
+    }
+    if (this._onClearPendingOnly && target) {
+      target.removeEventListener('pointerdown', this._onClearPendingOnly);
     }
     if (this._onUserKeyScrollIntent && typeof window !== 'undefined') {
       window.removeEventListener('keydown', this._onUserKeyScrollIntent, true);
@@ -445,8 +450,7 @@
 
   FileListVirtualizer.prototype.update = function() {
     if (this.disposed) return;
-    // Keep pin padding while stuck to a sidebar jump target — clearing it on
-    // lock expiry was shoving deep files (e.g. app.js) out of view.
+    // Keep pin padding while stuck or scroll-locked.
     if (!this._stickKey && !this.isScrollLocked() && this._pinPaddingPx) {
       this.clearPinScrollRoom();
     }
@@ -459,15 +463,19 @@
       var index = this.keyToIndex.get(key);
       if (index !== undefined) intervals.push([index, index]);
     }, this);
+    // Keep a scroll-locked jump target mounted even after pending stick settles.
+    if (this.isScrollLocked() && this._scrollLockKey) {
+      var lockIdx = this.keyToIndex.get(this._scrollLockKey);
+      if (lockIdx !== undefined) intervals.push([lockIdx, lockIdx]);
+    }
     this.reconcile(diffV.mergeIntervals(intervals, this.items.length));
-    // Pierre: after every layout pass while a scroll target is pending, re-apply
-    // scrollFix so height refine cannot leave the clicked file mid-viewport.
+    // Re-apply file-top pin while a pending target is active. Only release when
+    // already at target *before* this pin — otherwise a just-written scroll
+    // would settle in the same frame and drop stick before height refine.
     if (this._stickKey) {
+      var settledBefore = this.isPendingTargetSettled();
       this.pinKeyToViewportTop(this._stickKey);
-      if (this.isPendingTargetSettled()) {
-        // Drop pending target only (Pierre clears pendingScrollTarget). Keep pin
-        // padding / lock until user scroll — clearing padding early re-clamps
-        // max-scroll and parks deep files mid-viewport.
+      if (settledBefore && this.isPendingTargetSettled()) {
         this.releasePendingScrollTarget();
       }
     }
@@ -782,9 +790,20 @@
   };
 
   FileListVirtualizer.prototype.lockScrollToKey = function(key, ms) {
-    this._scrollLockKey = key || null;
-    this._scrollLockUntil = key ? (Date.now() + (ms || 2000)) : 0;
-    if (key) this.ensurePinScrollRoom(key);
+    if (!key) {
+      this._scrollLockKey = null;
+      this._scrollLockUntil = 0;
+      return;
+    }
+    var until = Date.now() + (ms || 2000);
+    // Never shorten an existing lock (scrollToItem's 2s must not clobber stick's 60s).
+    if (this._scrollLockKey === key && this._scrollLockUntil > until) {
+      this.ensurePinScrollRoom(key);
+      return;
+    }
+    this._scrollLockKey = key;
+    this._scrollLockUntil = until;
+    this.ensurePinScrollRoom(key);
   };
 
   FileListVirtualizer.prototype.isScrollLocked = function() {
@@ -796,10 +815,8 @@
     return this.isScrollLocked() ? this._scrollLockKey : null;
   };
 
-  // Keep the clicked file stuck under the header across height refine (neighbor
-  // mounts, row-virtualizer measure, prefetch estimate updates) — same role as
-  // Pierre CodeView.pendingScrollTarget. Cleared when device-pixel settled
-  // (Pierre isPendingTargetSettled) or via wheel/touch/page keys.
+  // Pending file-top jump target across height refine. Cleared on device-pixel
+  // settle or user scroll intent.
   FileListVirtualizer.prototype.stickToKey = function(key) {
     if (!key) {
       this.clearStickToKey();
@@ -819,20 +836,21 @@
 
   FileListVirtualizer.prototype.clearStickToKey = function() {
     var prev = this._stickKey;
+    var lockKey = this._scrollLockKey;
     this._stickKey = null;
     this._stickTargetTop = null;
     this._scrollLockKey = null;
     this._scrollLockUntil = 0;
     this.clearPinScrollRoom();
     if (prev) this.unpin(prev);
+    else if (lockKey) this.unpin(lockKey);
   };
 
-  // Pierre: pendingScrollTarget = undefined after settle — stop forcing scrollFix.
+  // Drop pending file-top force only. Keep pin + lock + padding so the jump
+  // target stays mounted and scrollable until clearStickToKey (user scroll).
   FileListVirtualizer.prototype.releasePendingScrollTarget = function() {
-    var prev = this._stickKey;
     this._stickKey = null;
     this._stickTargetTop = null;
-    if (prev) this.unpin(prev);
   };
 
   FileListVirtualizer.prototype.stickKey = function() {
@@ -935,9 +953,7 @@
   };
 
   FileListVirtualizer.prototype.restoreAfterHeightChange = function(domAnchor) {
-    // Only force file-top pin while a pending scroll target is active (Pierre
-    // pendingScrollTarget). A leftover scroll-lock must NOT re-pin — that
-    // fought the user when they tried to scroll away after a sidebar jump.
+    // File-top pin only while a pending scroll target is active.
     if (this._stickKey) {
       if (this.pinKeyToViewportTop(this._stickKey)) return true;
     }
@@ -1043,16 +1059,19 @@
     if (index === undefined) return Promise.resolve(null);
     var self = this;
     this._forceFitPerfectly = true;
+    // Default short lock; never shortens an existing longer lock (e.g. stick 60s).
     this.lockScrollToKey(key, 2000);
     this.pin(key);
     // Synchronous mount + scroll before the next rAF reconcile can fight us.
     this.update();
     var node = this.nodes.get(key) || null;
-    if (node && alignment !== 'center' && typeof this.pinKeyToViewportTop === 'function') {
+    // 'start' pins under the sticky header. 'nearest' / 'center' only bring
+    // the slot into view (comment jumps must not file-top-pin then re-center).
+    if (node && alignment === 'start' && typeof this.pinKeyToViewportTop === 'function') {
       this.pinKeyToViewportTop(key);
     } else if (node && typeof node.scrollIntoView === 'function') {
       node.scrollIntoView({
-        block: alignment === 'center' ? 'center' : 'start',
+        block: alignment === 'center' ? 'center' : (alignment === 'nearest' ? 'nearest' : 'start'),
         behavior: 'instant',
       });
     } else {

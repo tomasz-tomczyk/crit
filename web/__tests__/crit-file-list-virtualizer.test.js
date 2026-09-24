@@ -228,3 +228,66 @@ test('roundToDevicePixel snaps for settle equality', function() {
   assert.equal(fileList.roundToDevicePixel(67.4), 67);
   assert.equal(fileList.roundToDevicePixel(67.6), 68);
 });
+
+test('lockScrollToKey never shortens an existing longer lock', function() {
+  const surface = {
+    children: [],
+    style: {},
+    insertBefore: function() {},
+    appendChild: function(n) { this.children.push(n); n.parentNode = this; return n; },
+    removeChild: function() {},
+    getBoundingClientRect: function() { return { top: 0, bottom: 800, height: 800, left: 0, right: 100 }; },
+  };
+  const fl = new fileList.FileListVirtualizer({
+    surface: surface,
+    items: [{ key: 'a', kind: 'file', bodyHeight: 100 }],
+    viewportHeight: 800,
+    localTop: 0,
+    renderMounted: function() {
+      return {
+        dataset: {},
+        style: {},
+        classList: { contains: function() { return false; } },
+        getBoundingClientRect: function() { return { top: 57, height: 144, bottom: 201 }; },
+      };
+    },
+  });
+  fl.stickToKey('a');
+  const untilAfterStick = fl._scrollLockUntil;
+  fl.lockScrollToKey('a', 2000);
+  assert.equal(fl._scrollLockUntil, untilAfterStick, '2s lock must not clobber stick 60s');
+  assert.ok(fl.isScrollLocked());
+  fl.dispose();
+});
+
+test('releasePendingScrollTarget keeps pin and lock', function() {
+  const surface = {
+    children: [],
+    style: {},
+    insertBefore: function() {},
+    appendChild: function(n) { this.children.push(n); n.parentNode = this; return n; },
+    removeChild: function() {},
+    getBoundingClientRect: function() { return { top: 0, bottom: 800, height: 800, left: 0, right: 100 }; },
+  };
+  const fl = new fileList.FileListVirtualizer({
+    surface: surface,
+    items: [{ key: 'a', kind: 'file', bodyHeight: 100 }],
+    viewportHeight: 800,
+    localTop: 0,
+    renderMounted: function() {
+      return {
+        dataset: {},
+        style: {},
+        classList: { contains: function() { return false; } },
+        getBoundingClientRect: function() { return { top: 57, height: 144, bottom: 201 }; },
+      };
+    },
+  });
+  fl.stickToKey('a');
+  assert.ok(fl.pinnedKeys.has('a'));
+  fl.releasePendingScrollTarget();
+  assert.equal(fl.stickKey(), null);
+  assert.ok(fl.pinnedKeys.has('a'), 'pin retained after pending release');
+  assert.ok(fl.isScrollLocked(), 'lock retained after pending release');
+  fl.dispose();
+});

@@ -12,8 +12,7 @@
 /* ===== Base ===== */
 html {
   font-size: 16px;
-  /* Do NOT set scroll-behavior: smooth here. It animates CSSOM scrollTop
-     writes too, turning file-list pin/restore into multi-second drifts. */
+  /* Instant CSSOM scrollTop (file-list pin/restore); avoid smooth animation. */
 }
 
 body {

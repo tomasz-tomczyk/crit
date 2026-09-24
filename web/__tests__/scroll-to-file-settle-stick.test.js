@@ -1,7 +1,6 @@
 'use strict';
-// Pierre-aligned scrollToFile stick: arm pending once, let FileListVirtualizer
-// re-apply scrollFix until device-pixel settle / user clear. No Crit settleRepin
-// rAF/deadline loop (that re-armed stickToKey and fought scroll).
+// scrollToFile stick contract: arm pending once; FileListVirtualizer owns
+// settle. Must not define a timed settleRepin loop.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -37,42 +36,30 @@ function stickToKeyCallCount(body) {
   return matches.length;
 }
 
-function assertScrollToFilePierreStick(src) {
+function assertScrollToFileStick(src) {
   const scrollToFile = extractFunctionBody(src, 'scrollToFile');
   assert.ok(scrollToFile, 'scrollToFile must exist');
 
-  // Pierre: one pendingScrollTarget arm — not a timed settleRepin loop.
   assert.equal(
     scrollToFile.includes('function settleRepin('),
     false,
-    'scrollToFile must not define settleRepin (Crit deadline loop removed)',
+    'scrollToFile must not define settleRepin',
   );
   assert.equal(
     scrollToFile.includes('function repin('),
     false,
     'scrollToFile must not define nested repin',
   );
-  assert.doesNotMatch(
-    scrollToFile,
-    /Date\.now\(\)\s*\+\s*4000/,
-    'no 4s settle deadline',
-  );
+  assert.doesNotMatch(scrollToFile, /Date\.now\(\)\s*\+\s*4000/);
 
   const finish = extractFunctionBody(scrollToFile, 'finishWithSection');
   assert.ok(finish, 'finishWithSection must exist');
-  assert.equal(
-    stickToKeyCallCount(finish),
-    0,
-    'finishWithSection must not call stickToKey (virt owns pending target)',
-  );
+  assert.equal(stickToKeyCallCount(finish), 0, 'finishWithSection must not call stickToKey');
   assert.match(finish, /setItemHeight/);
   assert.match(finish, /pinKeyToViewportTop|scrollIntoView/);
-
-  // Initial arm once at scrollToFile entry.
   assert.match(scrollToFile, /\.stickToKey\(\s*filePath\s*\)/);
 }
 
-// Old buggy shape — detector must still reject it.
 const BUGGY_SCROLL_TO_FILE = `
 function scrollToFile(filePath) {
   if (fileListController && !storyActive()) {
@@ -93,54 +80,31 @@ function scrollToFile(filePath) {
 }
 `;
 
-test('detector rejects the old settleRepin stickToKey re-arm loop', function() {
+test('detector rejects a settleRepin stick re-arm loop', function() {
   assert.throws(
-    function() { assertScrollToFilePierreStick(BUGGY_SCROLL_TO_FILE); },
+    function() { assertScrollToFileStick(BUGGY_SCROLL_TO_FILE); },
     /settleRepin|repin|4000/,
   );
 });
 
-test('app.js scrollToFile uses Pierre-style stick without settleRepin', function() {
-  assertScrollToFilePierreStick(appSrc);
+test('app.js scrollToFile sticks without settleRepin', function() {
+  assertScrollToFileStick(appSrc);
 });
 
-test('FileListVirtualizer clears stick on Pierre user intents', function() {
-  // Pierre: wheel, touchstart, pointerdown, keydown → clearPendingScroll.
+test('FileListVirtualizer intent listeners: pending-only vs full clear', function() {
   assert.match(flSrc, /addEventListener\(\s*'wheel'/);
-  assert.match(flSrc, /addEventListener\(\s*'touchstart'/);
   assert.match(flSrc, /addEventListener\(\s*'pointerdown'/);
-  assert.match(flSrc, /clearStickToKey\s*\(/);
-  assert.match(flSrc, /removeEventListener\(\s*'pointerdown'/);
-  assert.match(flSrc, /removeEventListener\(\s*'touchstart'/);
+  assert.match(flSrc, /_onClearPendingOnly/);
+  assert.match(flSrc, /releasePendingScrollTarget/);
+  // pointerdown uses pending-only clear, not clearStickToKey
+  const start = extractFunctionBody(flSrc, 'start') || flSrc;
+  assert.match(start, /pointerdown['"],\s*this\._onClearPendingOnly/);
+  assert.match(flSrc, /Never shorten an existing lock/);
 });
 
-// Behavioral: clear must leave stick cleared (no re-arm from a settle frame).
-test('clearStick leaves stick cleared without settle re-arm', function() {
-  let stick = 'web/app.js';
-  const ctrl = {
-    stickToKey: function(key) { stick = key; },
-    stickKey: function() { return stick; },
-    clearStickToKey: function() { stick = null; },
-    pinKeyToViewportTop: function() {},
-  };
-
-  // Old Crit settle frame re-armed after clear.
-  function oldSettleFrame(key) {
-    ctrl.stickToKey(key);
-    ctrl.pinKeyToViewportTop(key);
-  }
-  // Pierre / fixed: after clear, only pin if still pending — and finishWithSection
-  // never calls stickToKey.
-  function virtStyleFrame(key) {
-    if (ctrl.stickKey() !== key) return;
-    ctrl.pinKeyToViewportTop(key);
-  }
-
-  ctrl.clearStickToKey();
-  oldSettleFrame('web/app.js');
-  assert.equal(ctrl.stickKey(), 'web/app.js', 'old settle re-armed (the bug)');
-
-  ctrl.clearStickToKey();
-  virtStyleFrame('web/app.js');
-  assert.equal(ctrl.stickKey(), null, 'Pierre-style frame leaves stick cleared');
+test('comment jump uses nearest alignment (no file-top pin)', function() {
+  const ensure = extractFunctionBody(appSrc, 'ensureFileVisibleForComment');
+  assert.ok(ensure);
+  assert.match(ensure, /scrollToItem\(\s*filePath\s*,\s*'nearest'\s*\)/);
+  assert.doesNotMatch(ensure, /scrollToItem\(\s*filePath\s*,\s*'start'\s*\)/);
 });

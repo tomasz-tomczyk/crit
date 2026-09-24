@@ -482,11 +482,8 @@
   // Keyed by file path — a story page shows each path at most once.
   const virtualDiffControllers = new Map();
 
-  // Pierre-style multi-file list virtualizer for #filesContainer (approach B).
-  // Always-on for flat reviews when the module is present — Pierre CodeView
-  // windowing is not gated on file count. The old MIN=40 left typical spike
-  // branches (e.g. 14 files) on the deferred-body path where sibling mounts
-  // shove the clicked file (app.js) thousands of px down after scrollIntoView.
+  // Multi-file list virtualizer for #filesContainer. Enabled for flat reviews
+  // whenever the module is present (not gated on file count).
   let fileListController = null;
   const FILE_LIST_VIRTUALIZE_MIN_FILES = 1;
 
@@ -1895,14 +1892,12 @@
     const file = getFileByPath(filePath);
     if (file) file.collapsed = false;
 
-    // File-list virtualizer: land on the slot immediately (Pierre-like), then
-    // mount the body in-place once data is warm — never replaceWith (detaches
-    // the node the virtualizer tracks). Stick once; the virtualizer re-applies
-    // scrollFix while pending (like Pierre CodeView) until device-pixel settle
-    // or user clear — no Crit settleRepin rAF/deadline loop.
+    // File-list virtualizer: land on the slot, mount the body in-place once
+    // data is warm — never replaceWith (detaches the node the virtualizer
+    // tracks). Stick once; the virtualizer re-applies pin while pending until
+    // device-pixel settle or user clear.
     if (fileListController && !storyActive()) {
-      // Stick until settle or user scroll — fixed-duration locks expired while
-      // neighbor bodies / row virt were still refining and shoved app.js away.
+      // Hold stick across height refine until settle or user scroll.
       ignoreTreeObserverUntil = Date.now() + 15000;
       suppressBodyMountObserver(5000);
       if (typeof fileListController.stickToKey === 'function') {
@@ -1913,8 +1908,8 @@
       fileListController.setCollapsed(filePath, false);
       prioritizeLazyPrefetch(file);
 
-      // Mount body, then one height/pin pass. Ongoing stick is FileListVirtualizer
-      // update() → pinKeyToViewportTop while _stickKey (Pierre pendingScrollTarget).
+      // Mount body, then one height/pin pass. Ongoing pin is
+      // FileListVirtualizer.update() while _stickKey is set.
       function finishWithSection(sectionEl) {
         if (!sectionEl) return;
         if (sectionEl.tagName === 'DETAILS') sectionEl.open = true;
@@ -1954,9 +1949,8 @@
     // Uncollapse if collapsed
     sectionEl.open = true;
     // Classic deferred-body path (no file-list controller): sibling bodies
-    // mounting above the target grow the document without changing scrollY and
-    // shove the clicked file off-screen. Re-pin under the sticky header until
-    // layout settles — same idea as Pierre scrollFix / stickToKey.
+    // mounting above the target grow the document without changing scrollY.
+    // Re-pin under the sticky header until layout settles.
     function pinSectionUnderHeader(el) {
       if (!el || !el.isConnected) return;
       const headerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-height')) || 49;
@@ -3410,8 +3404,8 @@
       applyLoadedFileData(file, loaded);
       file._lazyPrefetchPromise = null;
       // Refresh file-list estimated height now that hunks exist. Skip while a
-      // deep-click scroll lock is active on another file — background estimate
-      // churn delays land and fights the pin.
+      // scroll lock is active on another file — background estimate updates
+      // would move spacers under an in-flight jump.
       if (fileListController) {
         const locked = typeof fileListController.scrollLockKey === 'function'
           ? fileListController.scrollLockKey()
@@ -8208,9 +8202,8 @@
 
 
   // Mount a file that may only exist as a file-list spacer, then run `done`
-  // with a live section. Does not stickToKey (file-top pin fights comment
-  // centering) — but keeps pin + scroll-lock until the caller clears, so
-  // neighbor setItemHeight cannot shove during async scrollToRow.
+  // with a live section. Uses pin + scroll-lock (not stickToKey — that pins
+  // the file top and fights comment centering) until the caller releases.
   function ensureFileVisibleForComment(filePath, done) {
     done = done || function noopDone() { return; };
     const file = getFileByPath(filePath);
@@ -8236,21 +8229,18 @@
       if (typeof fileListController.setCollapsed === 'function') {
         fileListController.setCollapsed(filePath, false);
       }
-      // Pin so the slot stays mounted while we scroll to the comment row;
-      // do not stickToKey (that pins file top under the header).
+      // Keep the slot mounted while scrolling to the comment row.
       fileListController.pin(filePath);
       fileListController.ensureMounted(filePath).then(function(node) {
         let section = node;
         if (!section || (section.classList && section.classList.contains('file-section-placeholder'))) {
           section = document.getElementById('file-section-' + filePath);
         }
-        // Jump the list window to the file so the section is on-screen enough
-        // to mount a real body (placeholders don't have comment cards).
+        // Bring the file into the list window so a real body can mount.
         const jump = (fileListController.scrollToItem
-          ? fileListController.scrollToItem(filePath, 'start')
+          ? fileListController.scrollToItem(filePath, 'nearest')
           : Promise.resolve(section));
         jump.then(function(jumped) {
-          // scrollToItem only locks 2s — extend until comment land clears.
           if (typeof fileListController.lockScrollToKey === 'function') {
             fileListController.lockScrollToKey(filePath, 60000);
           }
