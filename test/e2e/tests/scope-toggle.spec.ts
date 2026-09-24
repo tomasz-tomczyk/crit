@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments, treeFiles, fileSectionByName } from './helpers';
+import { loadPage, clearAllComments, treeFiles, fileSectionByName, reviewFileOrder } from './helpers';
 
 async function switchScope(page: Page, scope: string) {
   const responsePromise = page.waitForResponse(resp =>
@@ -45,6 +45,7 @@ test.describe('Scope Toggle', () => {
     await switchScope(page, 'branch');
     // Branch: server.go, deleted.txt, plan.md, skill.md, handler.js, routes.go, legacy.go (7 committed)
     await expect(treeFiles(page)).toHaveCount(7);
+    expect(await reviewFileOrder(page)).toHaveLength(7);
     await expect(await fileSectionByName(page, 'server.go')).toBeVisible();
     await expect(await fileSectionByName(page, 'plan.md')).toBeVisible();
   });
@@ -56,6 +57,7 @@ test.describe('Scope Toggle', () => {
     await expect(async () => {
       await expect(treeFiles(page)).toHaveCount(2);
     }).toPass({ timeout: 5000 });
+    expect(await reviewFileOrder(page)).toHaveLength(2);
     await expect(await fileSectionByName(page, 'utils.go')).toBeVisible();
   });
 
@@ -66,6 +68,7 @@ test.describe('Scope Toggle', () => {
     await expect(async () => {
       await expect(treeFiles(page)).toHaveCount(1);
     }).toPass({ timeout: 5000 });
+    expect(await reviewFileOrder(page)).toHaveLength(1);
     await expect(await fileSectionByName(page, 'config.yaml')).toBeVisible();
   });
 

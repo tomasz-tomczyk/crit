@@ -53,7 +53,7 @@ test.describe('Desktop chrome invariants', () => {
     // so they can shrink independently with ellipsis. The rule is universal
     // (not media-gated). Asserting on desktop guards against the JS template
     // regressing the markup.
-    const section = page.locator('.file-section').first();
+    const section = await fileSection(page, 'server.go');
     await expect(section.locator('.file-header-name .filename')).toHaveCount(1);
   });
 

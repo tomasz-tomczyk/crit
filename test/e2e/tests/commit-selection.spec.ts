@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, realCommitItems } from './helpers';
+import { clearAllComments, loadPage, realCommitItems, reviewFileOrder } from './helpers';
 
 async function openCommitPicker(page: Page) {
   await page.click('#commitDropdownBtn');
@@ -60,12 +60,12 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdownLabel')).toContainText('only');
     await expect(commitItem).toHaveClass(/is-from/);
 
-    const fileSections = page.locator('.file-section');
+    // Under file-list virt, mounted .file-section count is the window — use the model.
     await expect(async () => {
-      const count = await fileSections.count();
+      const order = await reviewFileOrder(page);
       // Auth commit touches several files; skill.md is included (branch fixture).
-      expect(count).toBeLessThanOrEqual(6);
-      expect(count).toBeGreaterThan(0);
+      expect(order.length).toBeLessThanOrEqual(6);
+      expect(order.length).toBeGreaterThan(0);
     }).toPass();
   });
 

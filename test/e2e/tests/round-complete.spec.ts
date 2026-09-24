@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, getReviewFilePath, loadPage, switchToDocumentView, fileSectionByName } from './helpers';
+import { clearAllComments, getReviewFilePath, loadPage, switchToDocumentView, fileSectionByName, reviewFileOrder, fileSection } from './helpers';
 
 // Find a file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -473,8 +473,8 @@ test.describe('Multi-Round — Frontend', () => {
   });
 
   test('viewed state persists across round-complete', async ({ page, request }) => {
-    // Mark the first file as viewed
-    const section = page.locator('.file-section').first();
+    // Mark a known mounted file as viewed (not .file-section).first() under virt).
+    const section = await fileSectionByName(page, 'plan.md');
     const viewedCheckbox = section.locator('.file-header-viewed input');
     await viewedCheckbox.check();
     await expect(viewedCheckbox).toBeChecked();
@@ -486,13 +486,12 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
     // Viewed checkbox should still be checked after the round transition
-    await expect(section.locator('.file-header-viewed input')).toBeChecked();
+    const after = await fileSectionByName(page, 'plan.md');
+    await expect(after.locator('.file-header-viewed input')).toBeChecked();
   });
 
   test('file sections are re-rendered after round-complete', async ({ page, request }) => {
-    // Count file sections before
-    const sections = page.locator('.file-section');
-    const sectionsBefore = await sections.count();
+    const before = await reviewFileOrder(page);
 
     // Trigger round-complete
     await page.locator('#finishBtn').click();
@@ -500,8 +499,8 @@ test.describe('Multi-Round — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Same number of file sections after
-    await expect(sections).toHaveCount(sectionsBefore);
+    // Same logical file list after rebuild (not mounted-window DOM count).
+    expect(await reviewFileOrder(page)).toEqual(before);
   });
 
   test('finish button shows Approve when all comments are resolved', async ({ page, request }) => {
@@ -551,9 +550,10 @@ test.describe('Multi-Round — Frontend', () => {
     });
 
     await loadPage(page);
-    await switchToDocumentView(page);
+    const section = await fileSection(page, filePath);
+    if (filePath.endsWith('.md')) await switchToDocumentView(page);
 
-    const badge = page.locator('.comment-round-badge');
+    const badge = section.locator('.comment-round-badge');
     await expect(badge.first()).toBeVisible();
     await expect(badge.first()).toHaveText(/^R\d+$/);
   });
@@ -573,9 +573,10 @@ test.describe('Multi-Round — Frontend', () => {
     await waitForRound(request, round1);
 
     await loadPage(page);
-    await switchToDocumentView(page);
+    const section = await fileSection(page, filePath);
+    if (filePath.endsWith('.md')) await switchToDocumentView(page);
 
-    const badge = page.locator('.comment-round-badge');
+    const badge = section.locator('.comment-round-badge');
     await expect(badge.first()).toBeVisible();
     await expect(badge.first()).toHaveText('R' + round1);
   });
@@ -595,11 +596,12 @@ test.describe('Multi-Round — Frontend', () => {
     await waitForRound(request, round1);
 
     await loadPage(page);
-    await switchToDocumentView(page);
+    const section = await fileSection(page, filePath);
+    if (filePath.endsWith('.md')) await switchToDocumentView(page);
 
     // The carried-forward comment from round1 should have round-latest class
     // since current round is round1+1, and round1 === current_round - 1
-    const badge = page.locator('.comment-round-badge.round-latest');
+    const badge = section.locator('.comment-round-badge.round-latest');
     await expect(badge.first()).toBeVisible();
     await expect(badge.first()).toHaveText('R' + round1);
   });

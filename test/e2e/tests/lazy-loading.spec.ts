@@ -26,6 +26,11 @@ test.describe('Lazy loading', () => {
     const order = await reviewFileOrder(page);
     expect(order.length).toBe(await treeFiles(page).count());
     expect(order.length).toBeGreaterThan(0);
+    const session = await (await page.request.get('/api/session')).json();
+    const sessionPaths = new Set(session.files.map((f: { path: string }) => f.path));
+    // Virt order is the review list; every key must be a session file (session may
+    // also list paths filtered out of the current tree/scope).
+    expect(order.every(p => sessionPaths.has(p))).toBe(true);
 
     for (const path of order) {
       const section = await fileSection(page, path);

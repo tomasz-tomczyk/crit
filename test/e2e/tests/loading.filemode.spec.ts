@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, treeFiles } from './helpers';
+import { loadPage, treeFiles, reviewFileOrder, expectFileListVirt, fileSection } from './helpers';
 
 test.describe('File Mode — Page Loading', () => {
   test.beforeEach(async ({ page }) => {
@@ -8,6 +8,10 @@ test.describe('File Mode — Page Loading', () => {
 
   test('page loads and shows file sections', async ({ page }) => {
     await expect(treeFiles(page)).toHaveCount(3);
+    await expectFileListVirt(page);
+    const order = await reviewFileOrder(page);
+    expect(order).toHaveLength(3);
+    await expect(await fileSection(page, order[0])).toBeVisible();
   });
 
   test('no branch name shown in header (file mode)', async ({ page }) => {
@@ -40,5 +44,7 @@ test.describe('File Mode — Scope Cookie Resilience', () => {
     await page.goto('/');
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
     await expect(treeFiles(page)).toHaveCount(3);
+    await expectFileListVirt(page);
+    expect(await reviewFileOrder(page)).toHaveLength(3);
   });
 });
