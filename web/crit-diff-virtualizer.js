@@ -166,6 +166,250 @@
     return rows;
   }
 
+  function pushCommentAndFormRows(rows, options) {
+    var commentsMap = options.commentsMap;
+    var forms = options.forms;
+    var hideResolved = options.hideResolved;
+    var renderedCommentAnchors = options.renderedCommentAnchors;
+    var lineKey = options.lineKey;
+    var lineNum = options.lineNum;
+    var side = options.side || '';
+    var align = options.align; // optional CSS override ('left' | 'right')
+    if (!lineNum) return;
+    var anchor = String(lineNum) + ':' + side;
+    renderedCommentAnchors.add(anchor);
+    var lineComments = commentsMap[anchor] || [];
+    for (var ci = 0; ci < lineComments.length; ci++) {
+      var comment = lineComments[ci];
+      if (comment.scope === 'file' || (hideResolved && comment.resolved)) continue;
+      rows.push({
+        key: 'comment:' + comment.id,
+        kind: 'comment',
+        comment: comment,
+        lineKey: lineKey,
+        lineNum: lineNum,
+        side: side,
+        align: align || (side === 'old' ? 'left' : 'right'),
+      });
+    }
+    for (var fi = 0; fi < forms.length; fi++) {
+      var form = forms[fi];
+      if (form.editingId) continue;
+      if (form.endLine === lineNum && (form.side || '') === side) {
+        rows.push({
+          key: 'form:' + form.formKey,
+          kind: 'form',
+          form: form,
+          lineKey: lineKey,
+          lineNum: lineNum,
+          side: side,
+          align: side === 'old' ? 'left' : 'right',
+        });
+      }
+    }
+  }
+
+  function pairSplitChangeLines(dels, adds) {
+    var pairs = [];
+    var minLen = Math.min(dels.length, adds.length);
+    for (var i = 0; i < minLen; i++) pairs.push({ left: dels[i], right: adds[i] });
+    for (var d = minLen; d < dels.length; d++) pairs.push({ left: dels[d], right: null });
+    for (var a = minLen; a < adds.length; a++) pairs.push({ left: null, right: adds[a] });
+    return pairs;
+  }
+
+  // Flatten a split (side-by-side) diff into logical rows. One visual row owns
+  // paired left/right cells and a shared vertical index; comments/forms remain
+  // adjacent rows after their anchor line (same as unified).
+  function buildSplitRows(options) {
+    var hunks = options.hunks || [];
+    var commentsMap = options.commentsMap || {};
+    var forms = options.forms || [];
+    var hideResolved = !!options.hideResolved;
+    var rows = [];
+    var renderedCommentAnchors = new Set();
+    var visualIdx = 0;
+
+    if (hunks.length === 0) return rows;
+
+    var first = hunks[0];
+    var firstNewGap = first.NewCount > 0 ? first.NewStart - 1 : Infinity;
+    var firstOldGap = first.OldCount > 0 ? first.OldStart - 1 : Infinity;
+    var leadingGap = Math.min(firstNewGap, firstOldGap);
+    var hasLeadingGap = leadingGap > 0 && leadingGap !== Infinity;
+    if (hasLeadingGap) {
+      rows.push({
+        key: 'gap:leading:' + hunkKey(first),
+        kind: 'gap',
+        gapKind: 'leading',
+        hunk: first,
+        hunkIndex: 0,
+        gap: leadingGap,
+      });
+    }
+
+    for (var hi = 0; hi < hunks.length; hi++) {
+      var hunk = hunks[hi];
+      var hk = hunkKey(hunk);
+      var spacerRendered = false;
+      if (hi > 0) {
+        var previous = hunks[hi - 1];
+        var gap = hunk.NewStart - (previous.NewStart + previous.NewCount);
+        if (gap > 0) {
+          rows.push({
+            key: 'gap:' + hunkKey(previous) + ':' + hk,
+            kind: gap > 20 ? 'gap-double' : 'gap',
+            gapKind: 'between',
+            previousHunk: previous,
+            hunk: hunk,
+            previousHunkIndex: hi - 1,
+            hunkIndex: hi,
+            gap: gap,
+          });
+          spacerRendered = true;
+        }
+      }
+
+      var contiguous = hi > 0 &&
+        (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
+      if (!spacerRendered && !(hi === 0 && hasLeadingGap) && !contiguous) {
+        rows.push({ key: 'header:' + hk, kind: 'header', hunk: hunk, hunkIndex: hi });
+      }
+
+      var lines = hunk.Lines || [];
+      var pairIdx = 0;
+      var i = 0;
+      while (i < lines.length) {
+        if (lines[i].Type === 'context') {
+          var ctx = lines[i];
+          var ctxRow = {
+            key: 'line:s:' + hk + ':' + pairIdx + ':' +
+              String(ctx.OldNum || 0) + ':' + String(ctx.NewNum || 0),
+            kind: 'line',
+            layout: 'split',
+            hunk: hunk,
+            hunkIndex: hi,
+            left: ctx,
+            right: ctx,
+            lineIndex: i,
+            // Prefer right/new for nav/scroll like readingLineAnchor.
+            lineNum: ctx.NewNum || ctx.OldNum,
+            side: ctx.NewNum ? '' : 'old',
+            visualIdx: visualIdx,
+          };
+          rows.push(ctxRow);
+          // Eager split renders context comments on the right for both sides.
+          pushCommentAndFormRows(rows, {
+            commentsMap: commentsMap,
+            forms: forms,
+            hideResolved: hideResolved,
+            renderedCommentAnchors: renderedCommentAnchors,
+            lineKey: ctxRow.key,
+            lineNum: ctx.OldNum,
+            side: 'old',
+            align: 'right',
+          });
+          pushCommentAndFormRows(rows, {
+            commentsMap: commentsMap,
+            forms: forms,
+            hideResolved: hideResolved,
+            renderedCommentAnchors: renderedCommentAnchors,
+            lineKey: ctxRow.key,
+            lineNum: ctx.NewNum,
+            side: '',
+            align: 'right',
+          });
+          pairIdx++;
+          visualIdx++;
+          i++;
+          continue;
+        }
+
+        var dels = [];
+        var adds = [];
+        while (i < lines.length && lines[i].Type === 'del') { dels.push(lines[i]); i++; }
+        while (i < lines.length && lines[i].Type === 'add') { adds.push(lines[i]); i++; }
+        var pairs = pairSplitChangeLines(dels, adds);
+        for (var pi = 0; pi < pairs.length; pi++) {
+          var left = pairs[pi].left;
+          var right = pairs[pi].right;
+          var changeRow = {
+            key: 'line:s:' + hk + ':' + pairIdx + ':' +
+              String(left ? left.OldNum || 0 : 0) + ':' +
+              String(right ? right.NewNum || 0 : 0),
+            kind: 'line',
+            layout: 'split',
+            hunk: hunk,
+            hunkIndex: hi,
+            left: left,
+            right: right,
+            lineNum: right ? right.NewNum : (left ? left.OldNum : 0),
+            side: right ? '' : 'old',
+            visualIdx: visualIdx,
+          };
+          rows.push(changeRow);
+          if (left) {
+            pushCommentAndFormRows(rows, {
+              commentsMap: commentsMap,
+              forms: forms,
+              hideResolved: hideResolved,
+              renderedCommentAnchors: renderedCommentAnchors,
+              lineKey: changeRow.key,
+              lineNum: left.OldNum,
+              side: 'old',
+            });
+          }
+          if (right) {
+            pushCommentAndFormRows(rows, {
+              commentsMap: commentsMap,
+              forms: forms,
+              hideResolved: hideResolved,
+              renderedCommentAnchors: renderedCommentAnchors,
+              lineKey: changeRow.key,
+              lineNum: right.NewNum,
+              side: '',
+            });
+          }
+          pairIdx++;
+          visualIdx++;
+        }
+      }
+    }
+
+    var last = hunks[hunks.length - 1];
+    var totalLines = options.totalLines || 0;
+    var trailingGap = totalLines - (last.NewStart + last.NewCount) + 1;
+    if (trailingGap > 0) {
+      rows.push({
+        key: 'gap:trailing:' + hunkKey(last),
+        kind: 'gap',
+        gapKind: 'trailing',
+        hunk: last,
+        hunkIndex: hunks.length - 1,
+        gap: trailingGap,
+      });
+    }
+
+    Object.keys(commentsMap).forEach(function(anchor) {
+      if (renderedCommentAnchors.has(anchor)) return;
+      var comments = commentsMap[anchor] || [];
+      for (var oi = 0; oi < comments.length; oi++) {
+        var outdated = comments[oi];
+        if (outdated.scope === 'file' || (hideResolved && outdated.resolved)) continue;
+        rows.push({
+          key: 'outdated:' + outdated.id,
+          kind: 'outdated',
+          comment: outdated,
+          lineNum: outdated.end_line,
+          side: outdated.side || '',
+          align: (outdated.side || '') === 'old' ? 'left' : 'right',
+        });
+      }
+    });
+
+    return rows;
+  }
+
   function estimateRowHeight(row) {
     return DEFAULT_ESTIMATES[row.kind] || DEFAULT_ESTIMATES.line;
   }
@@ -503,6 +747,31 @@
     if (first >= 0) this.pinInterval(name, first, last);
   };
 
+  // Pin split (or unified) rows whose left/right cell line numbers fall in
+  // [startLine, endLine] on the given side. Used for gutter drag in split mode.
+  VirtualWindow.prototype.pinLineRange = function(name, startLine, endLine, side) {
+    var first = -1;
+    var last = -1;
+    var low = Math.min(startLine, endLine);
+    var high = Math.max(startLine, endLine);
+    var wantOld = (side || '') === 'old';
+    for (var i = 0; i < this.rows.length; i++) {
+      var row = this.rows[i];
+      if (row.kind !== 'line') continue;
+      var match = false;
+      if (row.layout === 'split') {
+        if (wantOld && row.left && row.left.OldNum >= low && row.left.OldNum <= high) match = true;
+        if (!wantOld && row.right && row.right.NewNum >= low && row.right.NewNum <= high) match = true;
+      } else if (row.lineNum >= low && row.lineNum <= high && (row.side || '') === (side || '')) {
+        match = true;
+      }
+      if (!match) continue;
+      if (first < 0) first = i;
+      last = i;
+    }
+    if (first >= 0) this.pinInterval(name, first, last);
+  };
+
   VirtualWindow.prototype.clearInterval = function(name) {
     if (!this.interactionIntervals.delete(name)) return;
     this.scheduleUpdate();
@@ -558,9 +827,16 @@
   };
 
   VirtualWindow.prototype.rowKeyForLine = function(lineNum, side) {
+    var wantOld = (side || '') === 'old';
     for (var i = 0; i < this.rows.length; i++) {
       var row = this.rows[i];
-      if (row.kind === 'line' && row.lineNum === lineNum && (row.side || '') === (side || '')) return row.key;
+      if (row.kind !== 'line') continue;
+      if (row.layout === 'split') {
+        if (wantOld && row.left && row.left.OldNum === lineNum) return row.key;
+        if (!wantOld && row.right && row.right.NewNum === lineNum) return row.key;
+        continue;
+      }
+      if (row.lineNum === lineNum && (row.side || '') === (side || '')) return row.key;
     }
     return null;
   };
@@ -601,6 +877,7 @@
   var api = {
     DEFAULT_ESTIMATES: DEFAULT_ESTIMATES,
     buildUnifiedRows: buildUnifiedRows,
+    buildSplitRows: buildSplitRows,
     estimateRowHeight: estimateRowHeight,
     HeightIndex: HeightIndex,
     overscanForViewport: overscanForViewport,

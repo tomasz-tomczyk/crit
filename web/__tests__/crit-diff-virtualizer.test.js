@@ -113,3 +113,77 @@ test('calculateWindow bounds the ordinary mounted code-row interval', function()
   assert.deepEqual(middle, [432, 612]);
   assert.ok(middle[1] - middle[0] + 1 < 400);
 });
+
+test('buildSplitRows pairs old/new cells on one visual row', function() {
+  const rows = virtualizer.buildSplitRows(fixture());
+  assert.equal(rows[0].kind, 'gap');
+  assert.equal(rows[0].gapKind, 'leading');
+
+  const lineRows = rows.filter(function(row) { return row.kind === 'line'; });
+  assert.equal(lineRows.length, 3);
+  assert.deepEqual(lineRows.map(function(row) { return row.visualIdx; }), [0, 1, 2]);
+
+  // First change: del 10 beside add 10
+  assert.equal(lineRows[0].left && lineRows[0].left.Type, 'del');
+  assert.equal(lineRows[0].left.OldNum, 10);
+  assert.equal(lineRows[0].right && lineRows[0].right.Type, 'add');
+  assert.equal(lineRows[0].right.NewNum, 10);
+  assert.equal(lineRows[0].layout, 'split');
+
+  // Context shares both sides on one row
+  assert.equal(lineRows[1].left && lineRows[1].left.Type, 'context');
+  assert.equal(lineRows[1].right && lineRows[1].right.Type, 'context');
+  assert.equal(lineRows[1].left.OldNum, 11);
+  assert.equal(lineRows[1].right.NewNum, 11);
+
+  // Later hunk: surplus add with empty left
+  assert.equal(lineRows[2].left, null);
+  assert.equal(lineRows[2].right && lineRows[2].right.NewNum, 40);
+
+  // Comments/forms follow the paired add/del row (old then new)
+  const changeRowIndex = rows.findIndex(function(row) {
+    return row.kind === 'line' && row.left && row.left.OldNum === 10;
+  });
+  assert.equal(rows[changeRowIndex + 1].key, 'comment:c_old');
+  assert.equal(rows[changeRowIndex + 2].key, 'comment:c_new');
+  assert.equal(rows[changeRowIndex + 3].key, 'form:file:10:10:');
+
+  assert.ok(rows.some(function(row) { return row.key === 'outdated:c_outdated'; }));
+  assert.ok(rows.some(function(row) { return row.key === 'outdated:c_resolved'; }));
+
+  const rebuiltKeys = virtualizer.buildSplitRows(fixture()).map(function(row) { return row.key; });
+  assert.deepEqual(rebuiltKeys, rows.map(function(row) { return row.key; }));
+});
+
+test('buildSplitRows removes resolved comment rows when hide-resolved is active', function() {
+  const options = fixture();
+  options.hideResolved = true;
+  const rows = virtualizer.buildSplitRows(options);
+  assert.equal(rows.some(function(row) { return row.key === 'outdated:c_resolved'; }), false);
+  assert.equal(rows.some(function(row) { return row.key === 'outdated:c_outdated'; }), true);
+});
+
+test('rowKeyForLine finds split rows by left or right cell', function() {
+  const rows = virtualizer.buildSplitRows(fixture());
+  const surface = { classList: { add: function() {} }, children: [], style: {}, dataset: {} };
+  // Minimal stub: only need key lookup
+  const keyToIndex = new Map();
+  rows.forEach(function(row, i) { keyToIndex.set(row.key, i); });
+  const fake = {
+    rows: rows,
+    keyToIndex: keyToIndex,
+    rowKeyForLine: virtualizer.VirtualWindow.prototype.rowKeyForLine,
+  };
+  assert.equal(
+    fake.rowKeyForLine(10, 'old'),
+    rows.find(function(r) { return r.kind === 'line' && r.left && r.left.OldNum === 10; }).key
+  );
+  assert.equal(
+    fake.rowKeyForLine(10, ''),
+    rows.find(function(r) { return r.kind === 'line' && r.right && r.right.NewNum === 10; }).key
+  );
+  assert.equal(
+    fake.rowKeyForLine(40, ''),
+    rows.find(function(r) { return r.kind === 'line' && r.right && r.right.NewNum === 40; }).key
+  );
+});

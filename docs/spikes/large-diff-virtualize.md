@@ -37,9 +37,9 @@ This is **product code in the worktree**, not a `spikes/` demo.
 - [x] Wire into mount path for large diffs (keep small diffs on eager path OK)
 - [x] Comments / forms as logical rows with remount-safe state
 - [x] Selection / drag / keyboard / scroll-restore implemented for virtualized rows
-- [x] Split mode explicitly deferred (remains eager)
-- [x] Tests for windowing helpers (`web/__tests__/crit-diff-virtualizer.test.js` 8/8); browser E2E interaction still open
-- [x] Re-run fair benchmark; fill Post-implementation results
+- [x] Split mode virtualized (`buildSplitRows` + `renderVirtualDiffSplit`); small splits remain eager
+- [x] Tests for windowing helpers (`web/__tests__/crit-diff-virtualizer.test.js` 9/9); browser E2E interaction still open
+- [x] Re-run fair benchmark; fill Post-implementation results (split + unified)
 - [x] crit-web port explicitly deferred until Crit browser validation
 
 ## Handoff rule
@@ -50,19 +50,28 @@ re-deriving context.
 
 ### Current work
 
-Unified large-diff virtualization is implemented and committed (`1aed8a6`).
-Fair post-impl bench is recorded below: unified first paint ~21 ms (was ~268),
-DOM nodes ~1.7k (was ~69k), rendered rows 99 (was 3997). Split remains eager
-(unchanged). Focused unit/frontend checks pass. Browser interaction validation
-(gutter drag, selection, j/k, comment nav, draft focus) is still open.
+Split large-diff virtualization is implemented on the same virtualizer path as
+unified: `buildSplitRows` (paired left/right cells, shared `visualIdx`),
+`pinLineRange` for gutter drag, `rowKeyForLine` aware of split cells, and
+`renderVirtualDiffSplit` in `app.js` for the existing `>1000` Load Diff gate.
+Small splits stay eager. Focused unit tests 9/9. Fair bench re-run succeeded:
+split first paint ~49 ms (was ~454), DOM ~1.5k (was ~99k), rows 52 (was 3497).
+
+**Parity vs unified (honest gaps):**
+- Covered: viewport ± overscan mount, comment/form pin for active edit/reply,
+  gutter-drag pin via line range, `rowKeyForLine` / scroll-to / reading restore
+  through semantic keys, keyboard j/k over mounted logical line rows, hide-resolved
+  rebuild (same remount path).
+- Still open (same as unified): full browser/E2E interaction pass (native
+  Selection across remounts, draft cursor after remount, change-group nav from
+  logical rows only, quote highlight edge cases).
 
 ### Next concrete step
 
-1. Focused browser/E2E interaction pass on a large unified diff (scrollbar
-   jumps, gutter drag, native selection, j/k, comment navigation, draft editor
+1. Focused browser/E2E interaction pass on large **split and unified** diffs
+   (scrollbar jumps, gutter drag, native selection, j/k, comment nav, draft
    focus/cursor).
-2. Fix any browser-only regressions. Then decide whether to extend the same row
-   model to split mode and port the settled implementation to crit-web.
+2. Fix browser-only regressions; then port settled implementation to crit-web.
 
 
 ## Fair benchmark (shared protocol)
@@ -89,19 +98,21 @@ DOM nodes ~1.7k (was ~69k), rendered rows 99 (was 3997). Split remains eager
 
 ### Post-implementation results — recorded 2026-09-24
 
-- Revision: `1aed8a6`
+- Revision: `1aed8a6` (unified) + pending split commit on this worktree
 - Chromium: `147.0.7727.15`
 - Machine: darwin arm64 Apple M4 Max
 - Command: `mise exec -- node bench/large-diff/measure.mjs`
 
 | Layout | file_body_first_paint_ms | mount_task_ms | rendered_rows | mounted_diff_dom_nodes | scroll_p95_frame_ms | frames_over_32 |
 |--------|-------------------------:|--------------:|--------------:|-----------------------:|--------------------:|---------------:|
-| split | 439.8 | 379.9 | 3497 | 99420 | 29.1 | 2 |
+| split | 49.0 | 24.4 | 52 | 1482 | 22.4 | 0 |
 | unified | 21.4 | 15.8 | 99 | 1712 | 28.2 | 0 |
 
 **Delta vs baseline (unified):** first paint ~12.5× faster; mounted DOM nodes
-~40× fewer; rendered rows 3997 → 99 (viewport ± overscan). Split unchanged
-(still eager). Scroll p95 comparable.
+~40× fewer; rendered rows 3997 → 99 (viewport ± overscan). Scroll p95 comparable.
+
+**Delta vs baseline (split):** first paint ~9× faster (453 → 49 ms); mounted DOM
+nodes ~67× fewer (99420 → 1482); rendered rows 3497 → 52. Scroll p95 comparable.
 
 
 ---
@@ -474,6 +485,13 @@ a safe integration boundary if the prototype hits its budgets.
 
 _Update this section as you work. Newest notes at the top._
 
+- (2026-09-24, split virtualize) Extended `web/crit-diff-virtualizer.js` with
+  `buildSplitRows` (paired left/right cells, shared `visualIdx`), `pinLineRange`,
+  and split-aware `rowKeyForLine`. `web/app.js` mounts `renderVirtualDiffSplit`
+  for large loaded diffs (same `>1000` gate); small splits stay eager. Context
+  comments keep eager right-align; change-pair comments keep left/right by side.
+  Unit tests 9/9. Fair bench: split first paint ~49 ms / ~1.5k DOM / 52 rows
+  (was ~454 / ~99k / 3497). Browser E2E interaction still open for both layouts.
 - (2026-09-24, commit blocker) Final commit attempt with subject
   `feat(web): virtualize large unified diffs` was blocked. Git cannot create
   the linked worktree administrative lock at

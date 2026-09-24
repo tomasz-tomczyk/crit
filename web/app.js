@@ -497,7 +497,7 @@
   let agentName = 'agent';
   const pendingAgentRequests = new Set();
 
-  // One controller per flat-view file. Story and split renderers stay eager.
+  // One controller per flat-view file. Story mode stays eager.
   const virtualDiffControllers = new Map();
 
   function virtualDiffController(filePath) {
@@ -2231,7 +2231,7 @@
         if (!node) return;
         document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
         focusedElement = node;
-        focusedFilePath = row.line && row.line.filePath ? row.line.filePath : controller.surface.dataset.filePath;
+        focusedFilePath = controller.surface.dataset.filePath;
         focusedBlockIndex = null;
         node.classList.add('focused');
         rememberKeyboardFocusFromNav(node);
@@ -3708,10 +3708,12 @@
 
   // ===== Diff Hunk View (Code Files) =====
   function renderDiffHunks(file) {
-    if (diffMode === 'split') return renderDiffSplit(file);
     if (file.diffTooLarge && file.diffLoaded && !storyActive()) {
-      return renderVirtualDiffUnified(file);
+      return diffMode === 'split'
+        ? renderVirtualDiffSplit(file)
+        : renderVirtualDiffUnified(file);
     }
+    if (diffMode === 'split') return renderDiffSplit(file);
     return renderDiffUnified(file);
   }
 
@@ -3812,8 +3814,12 @@
     }
     renderFileByPath(fp);
     const controller = virtualDiffController(fp);
-    if (controller && typeof vi === 'number') {
-      controller.pinVisualRange('gutter-drag', vi, vi);
+    if (controller) {
+      if (diffMode === 'split') {
+        controller.pinLineRange('gutter-drag', ln, ln, s);
+      } else if (typeof vi === 'number') {
+        controller.pinVisualRange('gutter-drag', vi, vi);
+      }
     }
     document.body.classList.add('dragging');
   }
@@ -3895,6 +3901,16 @@
       if (controller) {
         controller.pinVisualRange('gutter-drag', unifiedVisualStart, unifiedVisualEnd);
       }
+    } else if (diffMode === 'split') {
+      const controller = virtualDiffController(diffDragState.filePath);
+      if (controller) {
+        controller.pinLineRange(
+          'gutter-drag',
+          selectionStart,
+          selectionEnd,
+          diffDragState.side
+        );
+      }
     }
     updateDragSelectionVisuals(diffDragState.filePath);
   }
@@ -3960,6 +3976,9 @@
       rangeStart = resolved.startLine;
       rangeEnd = resolved.endLine;
       side = resolved.side;
+    } else {
+      const controller = virtualDiffController(fp);
+      if (controller) controller.clearInterval('gutter-drag');
     }
 
     diffDragState = null;
@@ -4607,6 +4626,130 @@
           ? createResolvedElement(row.comment, file.path)
           : createCommentElement(row.comment, file.path);
         commentEl.classList.add(row.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
+        return commentEl;
+      },
+    });
+
+    const previous = virtualDiffControllers.get(file.path);
+    if (previous && previous !== controller) previous.dispose();
+    virtualDiffControllers.set(file.path, controller);
+    controller.onRangeChange = function() {
+      refreshVirtualQuoteHighlights(container, file);
+      rebuildNavList();
+    };
+    requestAnimationFrame(function() { controller.start(); });
+    return container;
+  }
+
+  function renderVirtualSplitLine(file, row, commentRangeSet, fileForms) {
+    let left = null;
+    let right = null;
+    if (row.left && row.left.Type === 'context') {
+      left = { num: row.left.OldNum, content: row.left.Content, type: 'context' };
+      right = { num: row.right.NewNum, content: row.right.Content, type: 'context' };
+    } else {
+      if (row.left) {
+        left = { num: row.left.OldNum, content: row.left.Content, type: 'del' };
+      }
+      if (row.right) {
+        right = { num: row.right.NewNum, content: row.right.Content, type: 'add' };
+      }
+      if (left && right) {
+        const wd = wordDiff(left.content, right.content);
+        if (wd) {
+          left.wordRanges = wd.oldRanges;
+          right.wordRanges = wd.newRanges;
+        }
+      }
+    }
+    return makeSplitRow(left, right, file, commentRangeSet, fileForms).el;
+  }
+
+  function renderVirtualDiffSplit(file) {
+    const container = document.createElement('div');
+    container.className = 'diff-container split virtualized';
+    container.dataset.filePath = file.path;
+    attachDiffTouchHandler(container);
+    attachDiffMouseHandler(container);
+
+    expandHunksForComments(file);
+    const hunks = file.diffHunks || [];
+    if (hunks.length === 0) {
+      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
+      return container;
+    }
+    autoExpandSmallGaps(file);
+
+    const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const fileForms = getFormsForFile(file.path);
+    const contentLines = file.content ? file.content.split('\n') : [];
+    const totalLines = contentLines.length > 0 && contentLines[contentLines.length - 1] === ''
+      ? contentLines.length - 1
+      : contentLines.length;
+    const rows = window.crit.diffVirtualizer.buildSplitRows({
+      hunks: hunks,
+      commentsMap: commentsMap,
+      forms: fileForms,
+      hideResolved: isHideResolved(),
+      totalLines: totalLines,
+    });
+    const pinnedKeys = [];
+    rows.forEach(function(row) {
+      if (row.kind === 'form') pinnedKeys.push(row.key);
+      if ((row.kind === 'comment' || row.kind === 'outdated') &&
+          (findFormForEdit(row.comment.id) || activeReplyForms.has(row.comment.id))) {
+        pinnedKeys.push(row.key);
+      }
+    });
+
+    const controller = new window.crit.diffVirtualizer.VirtualWindow({
+      surface: container,
+      rows: rows,
+      pinnedKeys: pinnedKeys,
+      estimateHeight: function(row) {
+        if (row.kind !== 'comment' && row.kind !== 'outdated') {
+          return window.crit.diffVirtualizer.estimateRowHeight(row);
+        }
+        const collapseOverride = commentCollapseOverrides[row.comment.id];
+        const collapsed = collapseOverride === undefined ? !!row.comment.resolved : collapseOverride;
+        if (collapsed) return 44;
+        return 128 + 28 * ((row.comment.replies || []).length);
+      },
+      renderRow: function(row) {
+        if (row.kind === 'line') {
+          return renderVirtualSplitLine(file, row, commentRangeSet, fileForms);
+        }
+        if (row.kind === 'header') return renderDiffHunkHeader(row.hunk);
+        if (row.kind === 'gap') {
+          if (row.gapKind === 'leading') return renderLeadingSpacer(row.hunk, file);
+          if (row.gapKind === 'trailing') return renderTrailingSpacer(row.hunk, file);
+          return renderDiffSpacer(
+            row.previousHunk,
+            row.hunk,
+            file,
+            row.previousHunkIndex,
+            row.hunkIndex
+          );
+        }
+        if (row.kind === 'gap-double') {
+          return renderDiffSpacer(
+            row.previousHunk,
+            row.hunk,
+            file,
+            row.previousHunkIndex,
+            row.hunkIndex
+          );
+        }
+        if (row.kind === 'form') {
+          const formEl = createCommentForm(row.form);
+          formEl.classList.add(row.align === 'left' ? 'diff-comment-left' : 'diff-comment-right');
+          return formEl;
+        }
+        if (row.kind === 'outdated') return renderVirtualOutdatedComment(file, row.comment);
+        const commentEl = row.comment.resolved
+          ? createResolvedElement(row.comment, file.path)
+          : createCommentElement(row.comment, file.path);
+        commentEl.classList.add(row.align === 'left' ? 'diff-comment-left' : 'diff-comment-right');
         return commentEl;
       },
     });
