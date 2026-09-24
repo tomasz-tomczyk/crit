@@ -1824,7 +1824,7 @@
         rebuildNavList();
         applyHideResolved();
       }
-    }, { rootMargin: '100% 0px 100% 0px', threshold: [0, 0.01] });
+    }, { rootMargin: '0px 0px 100% 0px', threshold: [0, 0.01] });
 
     for (let i = 0; i < sections.length; i++) {
       bodyMountObserver.observe(sections[i]);
@@ -1843,7 +1843,10 @@
       const section = sections[i];
       if (!section.open) continue;
       const rect = section.getBoundingClientRect();
-      if (rect.bottom < -windowHeight || rect.top > windowHeight * 2) continue;
+      // Never mount bodies that sit entirely above the viewport — growing them
+      // pushes the reading position down (sidebar jump to a deep file).
+      // Preload only in-view and below.
+      if (rect.bottom <= 0 || rect.top > windowHeight * 2) continue;
       const path = section.id.replace('file-section-', '');
       const file = getFileByPath(path);
       if (!file) continue;
@@ -3123,8 +3126,14 @@
       if (body.childElementCount > 0) return;
       body.setAttribute('data-body-deferred', '1');
     }
-    populateFileBody(body, file);
-    highlightQuotesInSection(section, file);
+    try {
+      populateFileBody(body, file);
+      highlightQuotesInSection(section, file);
+    } catch (err) {
+      console.error('crit: failed to populate file body for', file.path, err);
+      if (body.childElementCount === 0) body.setAttribute('data-body-deferred', '1');
+      throw err;
+    }
   }
 
   function ensureFileBodyMounted(section, file) {
