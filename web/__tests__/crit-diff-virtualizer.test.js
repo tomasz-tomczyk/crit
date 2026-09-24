@@ -573,3 +573,25 @@ test('VirtualWindow.start listens on an explicit scrollParent', function() {
   vw.dispose();
   assert.ok(!listeners.some(function(l) { return l.type === 'scroll' && l.target === 'pane'; }));
 });
+
+test('estimateDiffBodyHeight sums row estimates without mounting DOM', function() {
+  const options = fixture();
+  const height = virtualizer.estimateDiffBodyHeight(options);
+  const rows = virtualizer.buildUnifiedRows(options);
+  const expected = rows.reduce(function(sum, row) {
+    return sum + virtualizer.estimateRowHeight(row);
+  }, 0);
+  assert.equal(height, expected);
+  assert.ok(height > 0);
+});
+
+test('estimateDiffBodyHeight uses split rows when mode is split', function() {
+  const options = fixture();
+  options.mode = 'split';
+  const height = virtualizer.estimateDiffBodyHeight(options);
+  const rows = virtualizer.buildSplitRows(options);
+  const expected = rows.reduce(function(sum, row) {
+    return sum + virtualizer.estimateRowHeight(row);
+  }, 0);
+  assert.equal(height, expected);
+});

@@ -967,11 +967,24 @@
     }, 0);
   };
 
+  // Sum estimated row heights for a diff body without mounting DOM. Used by
+  // deferred-body spacers (approach A+C) and file-list placeholders (approach B).
+  function estimateDiffBodyHeight(options) {
+    options = options || {};
+    var rows = (options.mode === 'split' ? buildSplitRows : buildUnifiedRows)(options);
+    if (rows.length === 0) return 0;
+    var estimate = options.estimateHeight || estimateRowHeight;
+    var total = 0;
+    for (var i = 0; i < rows.length; i++) total += estimate(rows[i]);
+    return total;
+  }
+
   var api = {
     DEFAULT_ESTIMATES: DEFAULT_ESTIMATES,
     buildUnifiedRows: buildUnifiedRows,
     buildSplitRows: buildSplitRows,
     estimateRowHeight: estimateRowHeight,
+    estimateDiffBodyHeight: estimateDiffBodyHeight,
     HeightIndex: HeightIndex,
     overscanForViewport: overscanForViewport,
     mergeIntervals: mergeIntervals,
