@@ -1840,11 +1840,15 @@
       const path = section.id.replace('file-section-', '');
       const file = getFileByPath(path);
       if (!file) continue;
-      if (file.lazy) {
-        loadLazyFile(section, file);
-      } else {
-        mountDeferredBody(section, file);
-        mountedAny = true;
+      try {
+        if (file.lazy) {
+          loadLazyFile(section, file);
+        } else {
+          mountDeferredBody(section, file);
+          mountedAny = true;
+        }
+      } catch (err) {
+        console.error('crit: failed to mount visible body for', path, err);
       }
     }
     if (mountedAny) {
@@ -2817,13 +2821,15 @@
       lastOpen = section.open;
       file.collapsed = !section.open;
       if (section.open) {
-        // Eager files mount either way — under the threshold the whole
-        // review is meant to render.
-        if (file.lazy) {
-          if (readerToggled) loadLazyFile(section, file);
-        } else {
-          ensureFileBodyMounted(section, file);
-        }
+        // Only mount on a real user expand. The synthetic toggle from inserting
+        // an already-open <details> must leave the body deferred so first paint
+        // can virtualize only near-viewport files (mountVisibleDeferredBodies /
+        // IntersectionObserver). Mounting every open file here used to be cheap
+        // when large diffs were a Load Diff placeholder; always-virtual makes it
+        // freeze or leave empty open sections.
+        if (!readerToggled) return;
+        if (file.lazy) loadLazyFile(section, file);
+        else ensureFileBodyMounted(section, file);
       } else if (!fileHasOpenLineForms(file.path)) {
         deferFileBody(section);
       }
@@ -3098,7 +3104,18 @@
     const body = section.querySelector(':scope > .file-body');
     if (!body) return;
     if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount > 0) return;
-    mountDeferredBody(section, file);
+    // Failed/partial populate clears deferred and leaves an empty open section.
+    // Re-arm deferred so mountDeferredBody will run again.
+    if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount === 0) {
+      body.setAttribute('data-body-deferred', '1');
+    }
+    try {
+      mountDeferredBody(section, file);
+    } catch (err) {
+      console.error('crit: failed to mount file body for', file.path, err);
+      if (body.childElementCount === 0) body.setAttribute('data-body-deferred', '1');
+      return;
+    }
     renderMermaidBlocks();
     rebuildNavList();
     applyHideResolved();
