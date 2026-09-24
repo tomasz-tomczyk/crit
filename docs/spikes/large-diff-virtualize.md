@@ -1,30 +1,95 @@
 # Approach B — Virtualize crit’s own renderer
 
-> **Living state document.** This file is the source of truth for this stream.
-> Multiple agents may work in this worktree. Whenever you learn something,
-> change a decision, finish a probe, or hit a blocker — **update this file in
-> the same turn** so the next agent (or human) sees current reality. Do not
-> leave contradictory notes in chat-only memory.
+> **Living state document — SOURCE OF TRUTH.**
+> Agents (and humans) pick up unfinished work **from this file**. Whenever you
+> learn something, finish a step, hit a blocker, or change a decision — **update
+> this file in the same turn**. Chat memory is not durable across token limits
+> or agent switches.
 
-## Goal
+## Goal (implementation)
 
-Keep crit’s light-DOM, CSS, and comment model. Make large **code** (and later
-markdown) file bodies cheap by mounting only viewport ± overscan rows, with
-spacers for correct scroll height — stealing the *recipe* from Pierre/diffs.com
-without taking the dependency.
+**Implement** row virtualization for crit’s **own** code-diff renderer in
+**this worktree** (`web/`). Keep light-DOM, CSS, and comment model. Mount only
+viewport ± overscan rows for large code diffs. Markdown virtualization is
+out of scope for the first slice unless this file says otherwise.
+
+This is **product code in the worktree**, not a `spikes/` demo.
 
 ## Non-goals
 
 - Adopting `@pierre/diffs` in this stream
-- Full production ship in the first probe (design + throwaway OK)
+- Design-only updates without shipping windowing in `web/`
+- Depending on PR #954 (orthogonal)
 
 ## Worktree
 
 - Path: `crit.spike-large-diff-virtualize`
 - Branch: `spike/large-diff-virtualize`
-- Hot paths today: `web/app.js` (`renderFileSection`, deferred body mount),
-  `web/crit-diff-renderer.js`, `web/crit-line-blocks.js`; crit-web mirror
-  `assets/js/document-renderer.js`
+- Hot paths: `web/app.js`, `web/crit-diff-renderer.js`, `web/crit-line-blocks.js`
+- crit-web parity later — note if deferred
+
+## Implementation status
+
+- [x] Living doc + design notes (windowing / comment lifecycle) recorded below
+- [x] Fair baseline recorded; bench at `bench/large-diff/`
+- [ ] `buildDiffRows` (or equivalent) logical row model for unified code diffs
+- [ ] Height index + spacer + overscan window controller
+- [ ] Wire into mount path for large diffs (keep small diffs on eager path OK)
+- [ ] Comments / forms as logical rows with remount-safe state
+- [ ] Selection / drag / keyboard / scroll-restore still work on virtualized rows
+- [ ] Split mode (after unified) or explicit deferral in this file
+- [ ] Tests for windowing helpers; relevant e2e not catastrophically broken
+- [ ] Re-run fair benchmark; fill Post-implementation results
+- [ ] crit-web port (or explicit deferral note)
+
+## Handoff rule
+
+If you run out of tokens or stop mid-task: leave **Current work** and
+**Next concrete step** updated below so the next agent continues without
+re-deriving context.
+
+### Current work
+
+Implementation wave starting: ship virtualization in `web/`, not design-only.
+
+### Next concrete step
+
+1. Read this whole file (windowing design + breaking assumptions below).
+2. Add row-model + window controller modules; wire unified large-diff mount.
+3. Keep comments/forms working for the happy path.
+4. Update this checklist continuously.
+
+
+## Fair benchmark (shared protocol)
+
+**Source of truth for comparison.** Do not invent alternate harnesses.
+
+- Harness in this worktree: `bench/large-diff/` (same script as measure stream).
+- Run: `cd test/e2e && npm ci && npx playwright install chromium; cd ../.. && mise exec -- node bench/large-diff/measure.mjs`
+- Fixture: 10k-line TS file / side, every 20th line changed (500 hunks), split + unified, 1440×900 Chromium, 180-frame scroll.
+- Compare against the **baseline** below (crit with no Pierre/virtualize changes). When this implementation is done, re-run the **same** command in this worktree and paste results here under “Post-implementation results”.
+- Fairness rule: measure the **production Crit UI** in this worktree (whatever renderer this branch ships). Do not compare against the old standalone `@pierre/diffs` Vite demo.
+
+### Baseline (crit, no renderer changes) — recorded 2026-09-24
+
+- Revision: `ddbcb87`
+- Chromium: `147.0.7727.15`
+- Machine: `{'platform': 'darwin', 'arch': 'arm64', 'cpu': 'Apple M4 Max'}`
+- Discovery (small disposable repo): first clickable row ~1219 ms
+
+| Layout | file_body_first_paint_ms | mount_task_ms | rendered_rows | mounted_diff_dom_nodes | scroll_p95_frame_ms | frames_over_32 |
+|--------|-------------------------:|--------------:|--------------:|-----------------------:|--------------------:|---------------:|
+| split | 453.6 | 390.3 | 3497 | 99420 | 24.3 | 0 |
+| unified | 267.9 | 232.4 | 3997 | 68953 | 26.2 | 2 |
+
+### Post-implementation results
+
+_Not run yet. Paste JSON summary + table here when the renderer work is measurable._
+
+
+---
+
+## Reference notes (from earlier research — still useful)
 
 ## Related work — does PR #954 change this?
 
