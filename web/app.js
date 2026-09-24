@@ -1808,11 +1808,15 @@
         const path = section.id.replace('file-section-', '');
         const file = getFileByPath(path);
         if (!file) continue;
-        if (file.lazy) {
-          loadLazyFile(section, file);
-        } else {
-          mountDeferredBody(section, file);
-          mountedAny = true;
+        try {
+          if (file.lazy) {
+            loadLazyFile(section, file);
+          } else {
+            ensureFileBodyMounted(section, file);
+            mountedAny = true;
+          }
+        } catch (err) {
+          console.error('crit: failed to mount intersecting body for', path, err);
         }
       }
       if (mountedAny) {
@@ -1820,11 +1824,14 @@
         rebuildNavList();
         applyHideResolved();
       }
-    }, { rootMargin: '100% 0px 100% 0px' });
+    }, { rootMargin: '100% 0px 100% 0px', threshold: [0, 0.01] });
 
     for (let i = 0; i < sections.length; i++) {
       bodyMountObserver.observe(sections[i]);
     }
+
+    window.removeEventListener('scroll', scheduleMountVisibleDeferredBodies);
+    window.addEventListener('scroll', scheduleMountVisibleDeferredBodies, { passive: true });
   }
 
   function mountVisibleDeferredBodies() {
@@ -1844,7 +1851,7 @@
         if (file.lazy) {
           loadLazyFile(section, file);
         } else {
-          mountDeferredBody(section, file);
+          ensureFileBodyMounted(section, file);
           mountedAny = true;
         }
       } catch (err) {
@@ -1856,6 +1863,19 @@
       rebuildNavList();
       applyHideResolved();
     }
+  }
+
+  // Belt-and-suspenders: IO may not re-fire while a section stays inside the
+  // expanded rootMargin after a failed first mount. Re-check on scroll.
+  let bodyMountScrollQueued = false;
+  function scheduleMountVisibleDeferredBodies() {
+    if (bodyMountScrollQueued) return;
+    bodyMountScrollQueued = true;
+    requestAnimationFrame(function() {
+      bodyMountScrollQueued = false;
+      if (Date.now() < ignoreBodyMountObserverUntil) return;
+      mountVisibleDeferredBodies();
+    });
   }
 
   function scrollToFile(filePath) {
@@ -3094,7 +3114,15 @@
 
   function mountDeferredBody(section, file) {
     const body = section.querySelector(':scope > .file-body');
-    if (!body || body.getAttribute('data-body-deferred') !== '1') return;
+    if (!body) return;
+    // Recover empty open sections left by a failed/partial populate (deferred
+    // cleared, no children). IntersectionObserver will not re-fire while the
+    // section stays within rootMargin, so scroll-into-view would otherwise
+    // leave the file blank until sidebar click → ensureFileBodyMounted.
+    if (body.getAttribute('data-body-deferred') !== '1') {
+      if (body.childElementCount > 0) return;
+      body.setAttribute('data-body-deferred', '1');
+    }
     populateFileBody(body, file);
     highlightQuotesInSection(section, file);
   }
@@ -3104,11 +3132,6 @@
     const body = section.querySelector(':scope > .file-body');
     if (!body) return;
     if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount > 0) return;
-    // Failed/partial populate clears deferred and leaves an empty open section.
-    // Re-arm deferred so mountDeferredBody will run again.
-    if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount === 0) {
-      body.setAttribute('data-body-deferred', '1');
-    }
     try {
       mountDeferredBody(section, file);
     } catch (err) {
