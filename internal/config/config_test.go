@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -913,6 +914,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.NotifyOnRoundReady {
 		t.Error("NotifyOnRoundReady should be false")
 	}
+	if cfg.StaleReviewDays != DefaultStaleReviewDays {
+		t.Errorf("StaleReviewDays = %d, want %d", cfg.StaleReviewDays, DefaultStaleReviewDays)
+	}
 	if len(cfg.IgnorePatterns) != 4 {
 		t.Fatalf("IgnorePatterns has %d entries, want 4", len(cfg.IgnorePatterns))
 	}
@@ -1138,6 +1142,19 @@ func TestDefaultConfig_DoesNotIncludeCloseOnApproveAfterMs(t *testing.T) {
 	s := DefaultConfigString()
 	if strings.Contains(s, "close_on_approve_after_ms") {
 		t.Errorf("DefaultConfigString() contains close_on_approve_after_ms, want omitted:\n%s", s)
+	}
+}
+
+func TestDefaultConfig_IncludesStaleReviewDays(t *testing.T) {
+	// Unlike close_on_approve_after_ms, scaffolding stale_review_days with the
+	// default is safe — the background sweep already uses 14 when unset.
+	s := DefaultConfigString()
+	if !strings.Contains(s, `"stale_review_days"`) {
+		t.Errorf("DefaultConfigString() missing stale_review_days:\n%s", s)
+	}
+	want := fmt.Sprintf(`"stale_review_days": %d`, DefaultStaleReviewDays)
+	if !strings.Contains(s, want) {
+		t.Errorf("DefaultConfigString() missing %q:\n%s", want, s)
 	}
 }
 

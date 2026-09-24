@@ -58,6 +58,9 @@ func TestRunConfig_Generate(t *testing.T) {
 	if !strings.Contains(out, `"port"`) {
 		t.Errorf("generate output should contain port key, got: %s", out[:min(200, len(out))])
 	}
+	if !strings.Contains(out, `"stale_review_days"`) {
+		t.Errorf("generate output should contain stale_review_days key, got: %s", out[:min(200, len(out))])
+	}
 }
 
 func TestRunConfig_ShowResolved(t *testing.T) {

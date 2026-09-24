@@ -190,6 +190,7 @@ func defaultConfig() generatedConfig {
 		PlanApproveMode:     "",
 		CleanupOnApprove:    true,
 		NotifyOnRoundReady:  false,
+		StaleReviewDays:     DefaultStaleReviewDays,
 		VCS:                 "",
 		Forge:               "auto",
 		GitLabURL:           "https://gitlab.com",
@@ -209,28 +210,33 @@ type generatedConfig struct {
 	OpenCmd   string `json:"open_cmd"`
 	// Deprecated singleton fields remain in generated output for one release;
 	// share_targets is authoritative when present.
-	ShareURL            string            `json:"share_url"`
-	ProxyAuth           bool              `json:"proxy_auth"`
-	ShareTargets        []ShareTarget     `json:"share_targets"`
-	Quiet               bool              `json:"quiet"`
-	Output              string            `json:"output"`
-	Author              string            `json:"author"`
-	BaseBranch          string            `json:"base_branch"`
-	IgnorePatterns      []string          `json:"ignore_patterns"`
-	AutoViewedPatterns  []string          `json:"auto_viewed_patterns"`
-	DefaultMarkdownView string            `json:"default_markdown_view"`
-	NoIntegrationCheck  bool              `json:"no_integration_check"`
-	NoUpdateCheck       bool              `json:"no_update_check"`
-	DisableStats        bool              `json:"disable_stats"`
-	AgentCmd            string            `json:"agent_cmd"`
-	PlanApproveMode     string            `json:"plan_approve_mode"`
-	CleanupOnApprove    bool              `json:"cleanup_on_approve"`
-	NotifyOnRoundReady  bool              `json:"notify_on_round_ready"`
-	VCS                 string            `json:"vcs"`
-	Forge               string            `json:"forge"`
-	GitLabURL           string            `json:"gitlab_url"`
-	Prompts             map[string]string `json:"prompts"`
-	Hooks               map[string]string `json:"hooks"`
+	ShareURL            string        `json:"share_url"`
+	ProxyAuth           bool          `json:"proxy_auth"`
+	ShareTargets        []ShareTarget `json:"share_targets"`
+	Quiet               bool          `json:"quiet"`
+	Output              string        `json:"output"`
+	Author              string        `json:"author"`
+	BaseBranch          string        `json:"base_branch"`
+	IgnorePatterns      []string      `json:"ignore_patterns"`
+	AutoViewedPatterns  []string      `json:"auto_viewed_patterns"`
+	DefaultMarkdownView string        `json:"default_markdown_view"`
+	NoIntegrationCheck  bool          `json:"no_integration_check"`
+	NoUpdateCheck       bool          `json:"no_update_check"`
+	DisableStats        bool          `json:"disable_stats"`
+	AgentCmd            string        `json:"agent_cmd"`
+	PlanApproveMode     string        `json:"plan_approve_mode"`
+	CleanupOnApprove    bool          `json:"cleanup_on_approve"`
+	NotifyOnRoundReady  bool          `json:"notify_on_round_ready"`
+	// StaleReviewDays is included (unlike close_on_approve_after_ms) because
+	// scaffolding the default 14 is safe — the sweep already uses that value
+	// when the key is unset. close_on_approve_after_ms is omitted because a
+	// scaffolded 0 would enable auto-close.
+	StaleReviewDays int               `json:"stale_review_days"`
+	VCS             string            `json:"vcs"`
+	Forge           string            `json:"forge"`
+	GitLabURL       string            `json:"gitlab_url"`
+	Prompts         map[string]string `json:"prompts"`
+	Hooks           map[string]string `json:"hooks"`
 }
 
 func (c generatedConfig) String() string {

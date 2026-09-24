@@ -737,7 +737,6 @@ func NewSessionFromGit(ignorePatterns []string) (*Session, error) {
 }
 
 // DetectVCSChanges resolves the base ref and returns the list of changed files using the vcs.VCS interface.
-// DetectVCSChanges resolves the base ref and returns changed files using the vcs.VCS interface.
 func DetectVCSChanges(vc vcs.VCS, root string, ignorePatterns []string) (branch, baseRef, resolvedBase string, changes []vcs.FileChange, err error) {
 	branch, baseRef, resolvedBase, changes, _, err = detectVCSChangesAndScopes(vc, root, ignorePatterns)
 	return branch, baseRef, resolvedBase, changes, err
