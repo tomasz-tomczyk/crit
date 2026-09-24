@@ -4538,6 +4538,16 @@ body.file-tree-anim #fileTreeResizer { transition: flex-basis 0.22s ease; }
 .file-section {
   scroll-margin-top: calc(var(--header-height, 49px) + 8px); /* accounts for sticky app header + gap */
 }
+.file-section-placeholder {
+  box-sizing: border-box;
+  /* Height set inline from estimateFileSectionHeight. */
+  background: transparent;
+  pointer-events: none;
+}
+.file-list-virtual-spacer {
+  width: 100%;
+  pointer-events: none;
+}
 .file-header {
   /* stylelint-disable-next-line declaration-block-no-duplicate-properties */
   position: -webkit-sticky;

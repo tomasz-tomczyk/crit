@@ -501,6 +501,10 @@
   // Keyed by file path — a story page shows each path at most once.
   const virtualDiffControllers = new Map();
 
+  // Pierre-style multi-file list virtualizer for #filesContainer (approach B).
+  // Null while story mode owns the scroll surface or the module is unavailable.
+  let fileListController = null;
+
   function virtualDiffController(filePath) {
     const controller = virtualDiffControllers.get(filePath);
     if (!controller || controller.disposed || !controller.surface.isConnected) return null;
@@ -1476,9 +1480,13 @@
         }
         const sections = document.querySelectorAll('.file-section');
         for (let i = 0; i < sections.length; i++) {
-          sections[i].open = !anyExpanded;
+          if (sections[i].tagName === 'DETAILS') sections[i].open = !anyExpanded;
         }
-        if (!anyExpanded) {
+        if (fileListController) {
+          // Rebuild estimates (header-only vs header+body) with scroll anchoring.
+          fileListController.setItems(buildFileListItems());
+          pinOpenFormFilesInList();
+        } else if (!anyExpanded) {
           // Re-attach observer so it fires for newly visible sections and mounts their bodies.
           setupBodyMountObserver();
         }
@@ -1882,11 +1890,49 @@
   }
 
   function scrollToFile(filePath) {
+    const file = getFileByPath(filePath);
+    if (file) file.collapsed = false;
+
+    // File-list virtualizer: pin + mount the slot, then scroll by estimated offset
+    // so placeholders above the target do not step-change after the jump.
+    if (fileListController && !storyActive()) {
+      ignoreTreeObserverUntil = Date.now() + 200;
+      suppressBodyMountObserver(1500);
+      fileListController.setCollapsed(filePath, false);
+      fileListController.scrollToItem(filePath, 'start').then(function(node) {
+        const sectionEl = node || document.getElementById('file-section-' + filePath);
+        if (!sectionEl) return;
+        if (sectionEl.tagName === 'DETAILS') sectionEl.open = true;
+        function afterBodyReady(el) {
+          const target = el || document.getElementById('file-section-' + filePath);
+          if (!target || !fileListController) return;
+          fileListController.scrollToItem(filePath, 'start').then(function(n) {
+            const live = n || target;
+            if (live && live.isConnected) {
+              live.scrollIntoView({ block: 'start', behavior: 'instant' });
+              requestAnimationFrame(function() {
+                if (!fileListController || !live.isConnected) return;
+                fileListController.setItemHeight(filePath, live.getBoundingClientRect().height);
+              });
+            }
+          });
+        }
+        if (file) {
+          if (file.lazy) {
+            loadLazyFile(sectionEl, file, afterBodyReady);
+          } else {
+            ensureFileBodyMounted(sectionEl, file);
+            afterBodyReady(sectionEl);
+          }
+        }
+        updateTreeActive(filePath);
+      });
+      return;
+    }
+
     const sectionEl = document.getElementById('file-section-' + filePath);
     if (!sectionEl) return;
     // Uncollapse if collapsed
-    const file = getFileByPath(filePath);
-    if (file) file.collapsed = false;
     sectionEl.open = true;
     // toggle handler mounts deferred bodies; call explicitly so layout exists before scroll
     if (file) {
@@ -1912,14 +1958,160 @@
     updateTreeActive(filePath);
   }
 
+  // ===== File-list virtualization (approach B) =====
+  function estimateFileListBodyHeight(file) {
+    if (!file) return 0;
+    if (file.orphaned) return 48;
+    if (file.status === 'deleted' && (!file.diffHunks || file.diffHunks.length === 0)) return 48;
+    if (file.status === 'renamed' && (!file.diffHunks || file.diffHunks.length === 0)) return 48;
+
+    const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
+    const V = window.crit && window.crit.diffVirtualizer;
+    if (showDiff && V && typeof V.estimateDiffBodyHeight === 'function') {
+      const hunks = file.diffHunks || [];
+      if (hunks.length === 0) {
+        const adds = file.additions || 0;
+        const dels = file.deletions || 0;
+        if (adds + dels > 0) {
+          const E = V.DEFAULT_ESTIMATES || { line: 20, header: 34, gap: 22 };
+          return (adds + dels) * E.line + E.header + 2 * E.gap;
+        }
+        return 40;
+      }
+      const comments = file.comments || [];
+      let commentCount = 0;
+      const hideResolved = isHideResolved();
+      for (let i = 0; i < comments.length; i++) {
+        if (hideResolved && comments[i].resolved) continue;
+        commentCount++;
+      }
+      return V.estimateDiffBodyHeight({
+        hunks: hunks,
+        commentCount: commentCount,
+        formCount: getFormsForFile(file.path).length,
+        hideResolved: hideResolved,
+      });
+    }
+
+    if (diffActive && file.previousLineBlocks && file.previousLineBlocks.length > 0) {
+      const blocks = (diffMode === 'split')
+        ? (file.previousLineBlocks.length + (file.lineBlocks || []).length)
+        : Math.max(file.previousLineBlocks.length, (file.lineBlocks || []).length);
+      return blocks * 72;
+    }
+    if (file.lineBlocks && file.lineBlocks.length > 0) {
+      return file.lineBlocks.length * 72;
+    }
+    if (file.content) {
+      const n = Math.max(1, Math.ceil(file.content.length / 40));
+      return Math.min(n * 20, 100000);
+    }
+    return 0;
+  }
+
+  function buildFileListItems() {
+    return files.map(function(f) {
+      return {
+        key: f.path,
+        kind: 'file',
+        collapsed: !!f.collapsed,
+        file: f,
+        estimateBodyHeight: function() {
+          return estimateFileListBodyHeight(f);
+        },
+      };
+    });
+  }
+
+  function disposeFileListController() {
+    if (!fileListController) return;
+    fileListController.dispose();
+    fileListController = null;
+  }
+
+  function syncTreeActiveFromFileList() {
+    if (!fileListController || storyActive()) return;
+    if (Date.now() < ignoreTreeObserverUntil) return;
+    const idx = fileListController.indexAtScroll();
+    if (idx < 0) return;
+    const item = fileListController.items[idx];
+    if (item && item.key) updateTreeActive(item.key);
+  }
+
+  function pinOpenFormFilesInList() {
+    if (!fileListController) return;
+    for (let i = 0; i < files.length; i++) {
+      if (fileHasOpenLineForms(files[i].path)) {
+        fileListController.pin(files[i].path);
+      }
+    }
+  }
+
+  function notifyFileListCollapse(filePath, collapsed) {
+    if (!fileListController) return;
+    const file = getFileByPath(filePath);
+    if (file) file.collapsed = !!collapsed;
+    fileListController.setCollapsed(filePath, collapsed);
+  }
+
+  function startFileListVirtualizer(container) {
+    const FL = window.crit && window.crit.fileListVirtualizer;
+    if (!FL || typeof FL.FileListVirtualizer !== 'function') return false;
+
+    disposeFileListController();
+    fileListController = new FL.FileListVirtualizer({
+      surface: container,
+      items: buildFileListItems(),
+      estimateHeight: function(item) {
+        return FL.estimateFileSectionHeight(item);
+      },
+      renderPlaceholder: function(item) {
+        const el = document.createElement('div');
+        el.className = 'file-section file-section-placeholder';
+        el.id = 'file-section-' + item.key;
+        el.dataset.filePath = item.key;
+        el.setAttribute('aria-hidden', 'true');
+        const h = FL.estimateFileSectionHeight(item);
+        el.style.height = Math.max(0, Math.round(h)) + 'px';
+        el.dataset.fileListEstimate = String(Math.round(h));
+        return el;
+      },
+      renderMounted: function(item) {
+        const section = renderFileSection(item.file);
+        // File-list window owns deferred mounting: populate as soon as the slot
+        // enters the window (estimates already reserved the space).
+        if (section.open) {
+          if (item.file.lazy) loadLazyFile(section, item.file);
+          else ensureFileBodyMounted(section, item.file);
+        }
+        return section;
+      },
+      onRangeChange: function() {
+        pinOpenFormFilesInList();
+        syncTreeActiveFromFileList();
+        rebuildNavList();
+      },
+      onUnmount: function(_key, node) {
+        disposeVirtualDiffs(node);
+      },
+    });
+    pinOpenFormFilesInList();
+    fileListController.start();
+    return true;
+  }
+
   // ===== Render All File Sections =====
   function renderAllFiles() {
     const container = document.getElementById('filesContainer');
     disposeVirtualDiffs(container);
+    disposeFileListController();
     container.innerHTML = '';
 
-    for (const f of files) {
-      container.appendChild(renderFileSection(f));
+    const usedFileList = !storyActive() && startFileListVirtualizer(container);
+    if (!usedFileList) {
+      for (const f of files) {
+        container.appendChild(renderFileSection(f));
+      }
     }
 
     // Render mermaid diagrams
@@ -1931,10 +2123,17 @@
     // Re-attach intersection observers for file tree active tracking and
     // deferred body mounting (keeps large reviews fast while leaving files open).
     setupTreeObserver();
-    setupBodyMountObserver();
-    // Mount bodies that are already visible so first paint doesn't show empty
-    // open sections while the observer fires.
-    mountVisibleDeferredBodies();
+    if (!usedFileList) {
+      setupBodyMountObserver();
+      // Mount bodies that are already visible so first paint doesn't show empty
+      // open sections while the observer fires.
+      mountVisibleDeferredBodies();
+    } else {
+      if (bodyMountObserver) bodyMountObserver.disconnect();
+      bodyMountObserver = null;
+      window.removeEventListener('scroll', scheduleMountVisibleDeferredBodies);
+      window.addEventListener('scroll', syncTreeActiveFromFileList, { passive: true });
+    }
     rebuildNavList();
     applyHideResolved();
   }
@@ -1952,8 +2151,22 @@
     const mounted = mountedFilePaths();
     const sectionAnchor = topVisibleSectionAnchor();
     const lineAnchor = readingLineAnchor();
+    const listAnchor = fileListController ? fileListController.captureAnchor() : null;
 
     renderAllFiles();
+
+    if (fileListController && listAnchor) {
+      fileListController.restoreAnchor(listAnchor);
+      // Ensure the reading file is in the window so line-anchor restore can find DOM.
+      if (lineAnchor && lineAnchor.filePath) {
+        fileListController.pin(lineAnchor.filePath);
+        fileListController.update();
+      } else if (sectionAnchor) {
+        const path = sectionAnchor.id.replace('file-section-', '');
+        fileListController.pin(path);
+        fileListController.update();
+      }
+    }
 
     const remountThrough = remountThroughIndex(sectionAnchor, lineAnchor);
     let remounted = false;
@@ -1963,7 +2176,8 @@
       if (remountThrough >= 0 && idx > remountThrough) continue;
       const file = getFileByPath(path);
       const section = document.getElementById('file-section-' + path);
-      if (!file || !section || !section.open || file.lazy) continue;
+      if (!file || !section || section.classList.contains('file-section-placeholder')) continue;
+      if (!section.open || file.lazy) continue;
       mountDeferredBody(section, file);
       remounted = true;
     }
@@ -2177,7 +2391,11 @@
   function fileSectionNeedsMount(file) {
     if (!file) return false;
     const section = document.getElementById('file-section-' + file.path);
-    if (!section) return false;
+    if (!section) {
+      // Off-window file-list slot — must pin/mount via the list virtualizer.
+      return !!(fileListController && fileListController.keyToIndex.has(file.path));
+    }
+    if (section.classList.contains('file-section-placeholder')) return true;
     if (file.lazy) return true;
     const body = section.querySelector(':scope > .file-body');
     return !!(body && body.getAttribute('data-body-deferred') === '1');
@@ -2220,6 +2438,24 @@
   }
 
   function mountFileForNav(file, onReady) {
+    if (fileListController && !storyActive()) {
+      file.collapsed = false;
+      fileListController.setCollapsed(file.path, false);
+      fileListController.ensureMounted(file.path).then(function(section) {
+        if (!section) {
+          if (onReady) onReady(false);
+          return;
+        }
+        if (section.tagName === 'DETAILS') section.open = true;
+        if (file.lazy) {
+          loadLazyFile(section, file, function() { if (onReady) onReady(true); });
+          return;
+        }
+        ensureFileBodyMounted(section, file);
+        if (onReady) onReady(true);
+      });
+      return;
+    }
     const section = document.getElementById('file-section-' + file.path);
     if (!section) {
       if (onReady) onReady(false);
@@ -2761,6 +2997,13 @@
       if (!renderStoryFileByPath(filePath)) renderStory();
       return;
     }
+    // Placeholder slots have no real body — pin+mount before in-place replace.
+    if (fileListController) {
+      const existing = fileListController.nodes.get(file.path);
+      if (!existing || existing.classList.contains('file-section-placeholder')) {
+        fileListController.ensureMounted(file.path);
+      }
+    }
     const oldSection = document.getElementById('file-section-' + file.path);
     if (!oldSection) { renderAllFiles(); return; }
     const oldVirtual = virtualDiffController(filePath);
@@ -2775,6 +3018,20 @@
     disposeVirtualDiffs(oldSection);
     const newSection = renderFileSection(file);
     oldSection.replaceWith(newSection);
+    if (fileListController) {
+      const key = file.path;
+      newSection.dataset.virtualKey = key;
+      const idx = fileListController.keyToIndex.get(key);
+      if (idx !== undefined) newSection.dataset.fileListIndex = String(idx);
+      fileListController.nodes.set(key, newSection);
+      fileListController.mountedKeys.add(key);
+      if (fileListController.resizeObserver) {
+        if (oldSection.dataset && oldSection.dataset.fileListIndex !== undefined) {
+          try { fileListController.resizeObserver.unobserve(oldSection); } catch { /* ignore */ }
+        }
+        fileListController.resizeObserver.observe(newSection);
+      }
+    }
     if (newSection.open && !keepDeferred) {
       if (file.lazy) loadLazyFile(newSection, file);
       else ensureFileBodyMounted(newSection, file);
@@ -2783,9 +3040,17 @@
     if (newVirtual && virtualAnchor) {
       newVirtual.restoreAnchor(virtualAnchor, (window.innerHeight || 0) / 2);
     }
+    if (fileListController && newSection.isConnected) {
+      requestAnimationFrame(function() {
+        if (!fileListController || !newSection.isConnected) return;
+        fileListController.setItemHeight(file.path, newSection.getBoundingClientRect().height);
+      });
+    }
     renderMermaidBlocks();
-    setupBodyMountObserver();
-    mountVisibleDeferredBodies();
+    if (!fileListController) {
+      setupBodyMountObserver();
+      mountVisibleDeferredBodies();
+    }
     rebuildNavList();
     applyHideResolved();
   }
@@ -2843,6 +3108,7 @@
       const readerToggled = section.open !== lastOpen;
       lastOpen = section.open;
       file.collapsed = !section.open;
+      if (fileListController) notifyFileListCollapse(file.path, file.collapsed);
       if (section.open) {
         // Only mount on a real user expand. The synthetic toggle from inserting
         // an already-open <details> must leave the body deferred so first paint
@@ -2853,6 +3119,12 @@
         if (!readerToggled) return;
         if (file.lazy) loadLazyFile(section, file);
         else ensureFileBodyMounted(section, file);
+        if (fileListController && section.isConnected) {
+          requestAnimationFrame(function() {
+            if (!fileListController || !section.isConnected) return;
+            fileListController.setItemHeight(file.path, section.getBoundingClientRect().height);
+          });
+        }
       } else if (!fileHasOpenLineForms(file.path)) {
         deferFileBody(section);
       }

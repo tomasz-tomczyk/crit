@@ -149,6 +149,9 @@ From external review of this branch; each needs its own PR with measurements:
    stubs soften it, but nothing asserts files past the threshold stay
    `lazy: true` after round-complete. A Go unit test on the refresh path
    (no new browser minutes) is the cheap guardrail.
+6. **File-list vs deferred-body virtualization.** This monorepo explores two
+   large-diff shapes — see `docs/frontend-js.md`. Perf E2E
+   (`large-review.perf.spec.ts`) asserts the active branch's invariants.
 
 ## Recalibration
 

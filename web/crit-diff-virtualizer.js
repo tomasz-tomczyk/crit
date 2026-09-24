@@ -967,16 +967,45 @@
     }, 0);
   };
 
-  // Sum estimated row heights for a diff body without mounting DOM. Used by
-  // deferred-body spacers (approach A+C) and file-list placeholders (approach B).
+  // Cheap height reservation for deferred / file-list estimates. Must stay O(hunks)
+  // — never build the full row model here.
   function estimateDiffBodyHeight(options) {
     options = options || {};
-    var rows = (options.mode === 'split' ? buildSplitRows : buildUnifiedRows)(options);
-    if (rows.length === 0) return 0;
-    var estimate = options.estimateHeight || estimateRowHeight;
-    var total = 0;
-    for (var i = 0; i < rows.length; i++) total += estimate(rows[i]);
-    return total;
+    var hunks = options.hunks || [];
+    if (hunks.length === 0) return 0;
+
+    var lineRows = 0;
+    for (var i = 0; i < hunks.length; i++) {
+      var lines = hunks[i].Lines;
+      if (lines && lines.length) lineRows += lines.length;
+      else lineRows += (hunks[i].OldCount || 0) + (hunks[i].NewCount || 0);
+    }
+
+    var gaps = hunks.length + 1;
+    var headers = hunks.length;
+    var commentRows = 0;
+    var hideResolved = !!options.hideResolved;
+    if (typeof options.commentCount === 'number') {
+      commentRows = options.commentCount;
+    } else {
+      var map = options.commentsMap || {};
+      for (var key in map) {
+        if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
+        var arr = map[key];
+        if (!arr) continue;
+        for (var c = 0; c < arr.length; c++) {
+          if (hideResolved && arr[c] && arr[c].resolved) continue;
+          commentRows++;
+        }
+      }
+    }
+    var formRows = options.forms ? options.forms.length : (options.formCount || 0);
+
+    return lineRows * DEFAULT_ESTIMATES.line +
+      headers * DEFAULT_ESTIMATES.header +
+      gaps * DEFAULT_ESTIMATES.gap +
+      commentRows * DEFAULT_ESTIMATES.comment +
+      formRows * DEFAULT_ESTIMATES.form;
   }
 
   var api = {

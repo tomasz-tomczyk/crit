@@ -477,6 +477,8 @@
       var df = document.createElement('script'); df.src = 'crit-diff-renderer.js'; df.async = false; document.body.appendChild(df);
       // Logical rows + variable-height windowing for loaded large code diffs.
       var dv = document.createElement('script'); dv.src = 'crit-diff-virtualizer.js'; dv.async = false; document.body.appendChild(dv);
+      // Multi-file list virtualization (Pierre CodeView-style placeholders).
+      var fl = document.createElement('script'); fl.src = 'crit-file-list-virtualizer.js'; fl.async = false; document.body.appendChild(fl);
       // SVG icon constants used by app.js. Must load before app.js.
       var ic = document.createElement('script'); ic.src = 'crit-icons.js'; ic.async = false; document.body.appendChild(ic);
       // Shared Share flow (window.crit.share). Must load before app.js.

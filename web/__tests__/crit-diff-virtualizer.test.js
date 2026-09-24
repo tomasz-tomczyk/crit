@@ -574,24 +574,38 @@ test('VirtualWindow.start listens on an explicit scrollParent', function() {
   assert.ok(!listeners.some(function(l) { return l.type === 'scroll' && l.target === 'pane'; }));
 });
 
-test('estimateDiffBodyHeight sums row estimates without mounting DOM', function() {
+test('estimateDiffBodyHeight is a cheap O(hunks) reservation (not a full row build)', function() {
   const options = fixture();
   const height = virtualizer.estimateDiffBodyHeight(options);
-  const rows = virtualizer.buildUnifiedRows(options);
-  const expected = rows.reduce(function(sum, row) {
-    return sum + virtualizer.estimateRowHeight(row);
-  }, 0);
+  const E = virtualizer.DEFAULT_ESTIMATES;
+  let lineRows = 0;
+  for (let i = 0; i < options.hunks.length; i++) {
+    lineRows += options.hunks[i].Lines.length;
+  }
+  const expected =
+    lineRows * E.line +
+    options.hunks.length * E.header +
+    (options.hunks.length + 1) * E.gap +
+    4 * E.comment + // c_old, c_new, c_outdated, c_resolved
+    1 * E.form;
   assert.equal(height, expected);
   assert.ok(height > 0);
 });
 
-test('estimateDiffBodyHeight uses split rows when mode is split', function() {
+test('estimateDiffBodyHeight respects hideResolved for comment counts', function() {
   const options = fixture();
-  options.mode = 'split';
+  options.hideResolved = true;
   const height = virtualizer.estimateDiffBodyHeight(options);
-  const rows = virtualizer.buildSplitRows(options);
-  const expected = rows.reduce(function(sum, row) {
-    return sum + virtualizer.estimateRowHeight(row);
-  }, 0);
+  const E = virtualizer.DEFAULT_ESTIMATES;
+  let lineRows = 0;
+  for (let i = 0; i < options.hunks.length; i++) {
+    lineRows += options.hunks[i].Lines.length;
+  }
+  const expected =
+    lineRows * E.line +
+    options.hunks.length * E.header +
+    (options.hunks.length + 1) * E.gap +
+    3 * E.comment + // c_resolved skipped
+    1 * E.form;
   assert.equal(height, expected);
 });

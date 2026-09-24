@@ -86,6 +86,7 @@
     this.renderMounted = options.renderMounted;
     this.onRangeChange = options.onRangeChange || null;
     this.onBeforeHeightChange = options.onBeforeHeightChange || null;
+    this.onUnmount = options.onUnmount || null;
     this.scrollParent = options.scrollParent || null;
     // Test hooks: when set, skip live viewportMetrics.
     this._fixedLocalTop = options.localTop;
@@ -234,6 +235,10 @@
       if (this.resizeObserver && children[c].dataset.fileListIndex !== undefined) {
         this.resizeObserver.unobserve(children[c]);
       }
+      // Drop row-virtualizer controllers before detaching the section.
+      if (typeof this.onUnmount === 'function' && this.mountedKeys.has(oldKey)) {
+        try { this.onUnmount(oldKey, children[c]); } catch (err) { /* ignore */ }
+      }
       this.nodes.delete(oldKey);
       this.mountedKeys.delete(oldKey);
       children[c].remove();
@@ -318,22 +323,12 @@
   };
 
   FileListVirtualizer.prototype.captureAnchor = function() {
-    var scrollParent = this.scrollParent || window;
-    var scrollTop = scrollParentScrollTop(scrollParent);
-    // When the surface is not at document top (e.g. review conversation above
-    // files), convert page scroll into a surface-local offset.
-    if (this.surface && scrollParent === window) {
-      var rect = this.surface.getBoundingClientRect();
-      var pageOffset = (window.pageYOffset || 0) + rect.top;
-      scrollTop = Math.max(0, (window.pageYOffset || 0) - pageOffset + rect.top);
-      // Simpler: local offset into the height index is pageYOffset - surfaceOffsetTop
-      var surfaceTop = rect.top + (window.pageYOffset || 0);
-      scrollTop = Math.max(0, (window.pageYOffset || 0) - surfaceTop);
-    } else if (this.surface && scrollParent !== window) {
-      var metrics = diffV.viewportMetrics(scrollParent, this.surface);
-      scrollTop = metrics.localTop;
+    if (!this.surface) {
+      return getScrollAnchor(this.heightIndex, this.items, scrollParentScrollTop(this.scrollParent || window));
     }
-    return getScrollAnchor(this.heightIndex, this.items, scrollTop);
+    var scrollParent = this.scrollParent || window;
+    var metrics = diffV.viewportMetrics(scrollParent, this.surface);
+    return getScrollAnchor(this.heightIndex, this.items, metrics.localTop);
   };
 
   FileListVirtualizer.prototype.restoreAnchor = function(anchor) {
@@ -341,18 +336,14 @@
     var target = resolveAnchoredScrollTop(this.heightIndex, this.items, anchor);
     if (target == null) return false;
     var scrollParent = this.scrollParent || window;
-    if (this.surface && scrollParent === window) {
-      var rect = this.surface.getBoundingClientRect();
-      var surfaceTop = rect.top + (window.pageYOffset || 0);
-      applyScrollFix(scrollParent, surfaceTop + target);
-    } else if (this.surface && scrollParent !== window) {
-      var metrics = diffV.viewportMetrics(scrollParent, this.surface);
-      var surfaceOffset = scrollParentScrollTop(scrollParent) +
-        (metrics.surfaceRect.top - metrics.vpTop);
-      applyScrollFix(scrollParent, surfaceOffset + target);
-    } else {
+    if (!this.surface) {
       applyScrollFix(scrollParent, target);
+      return true;
     }
+    var metrics = diffV.viewportMetrics(scrollParent, this.surface);
+    var surfaceOffset = scrollParentScrollTop(scrollParent) +
+      (metrics.surfaceRect.top - metrics.vpTop);
+    applyScrollFix(scrollParent, surfaceOffset + target);
     return true;
   };
 
@@ -405,27 +396,36 @@
     if (index === undefined) return Promise.resolve(null);
     var self = this;
     return this.ensureMounted(key).then(function(node) {
-      var scrollParent = self.scrollParent || window;
-      var itemTop = self.heightIndex.offset(index);
-      var itemHeight = self.heightIndex.height(index);
-      var target = itemTop;
-      if (alignment === 'center') {
-        var vh = scrollParent === window
-          ? (window.innerHeight || 0)
-          : (scrollParent.clientHeight || 0);
-        target = itemTop - Math.max(0, (vh - itemHeight) / 2);
-      }
-      if (self.surface && scrollParent === window) {
-        var rect = self.surface.getBoundingClientRect();
-        var surfaceTop = rect.top + (window.pageYOffset || 0);
-        applyScrollFix(scrollParent, surfaceTop + Math.max(0, target));
-      } else if (self.surface) {
-        var metrics = diffV.viewportMetrics(scrollParent, self.surface);
-        var surfaceOffset = scrollParentScrollTop(scrollParent) +
-          (metrics.surfaceRect.top - metrics.vpTop);
-        applyScrollFix(scrollParent, surfaceOffset + Math.max(0, target));
+      // Prefer element.scrollIntoView after mount — absolute heightIndex math
+      // drifts when estimates refine, which left deep sidebar jumps off-screen.
+      if (node && typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({
+          block: alignment === 'center' ? 'center' : 'start',
+          behavior: 'instant',
+        });
       } else {
-        applyScrollFix(scrollParent, Math.max(0, target));
+        var scrollParent = self.scrollParent || window;
+        var itemTop = self.heightIndex.offset(index);
+        var itemHeight = self.heightIndex.height(index);
+        var target = itemTop;
+        if (alignment === 'center') {
+          var vh = scrollParent === window
+            ? (window.innerHeight || 0)
+            : (scrollParent.clientHeight || 0);
+          target = itemTop - Math.max(0, (vh - itemHeight) / 2);
+        }
+        if (self.surface && scrollParent === window) {
+          var rect = self.surface.getBoundingClientRect();
+          var surfaceTop = rect.top + (window.pageYOffset || 0);
+          applyScrollFix(scrollParent, surfaceTop + Math.max(0, target));
+        } else if (self.surface) {
+          var metrics = diffV.viewportMetrics(scrollParent, self.surface);
+          var surfaceOffset = scrollParentScrollTop(scrollParent) +
+            (metrics.surfaceRect.top - metrics.vpTop);
+          applyScrollFix(scrollParent, surfaceOffset + Math.max(0, target));
+        } else {
+          applyScrollFix(scrollParent, Math.max(0, target));
+        }
       }
       self.scheduleUpdate();
       return node;

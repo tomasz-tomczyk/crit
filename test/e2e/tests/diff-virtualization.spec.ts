@@ -111,4 +111,25 @@ test.describe('Diff virtualization', () => {
     await expect(form).toBeVisible();
     await expect(page.locator('.comment-form-header')).toContainText(/Line/);
   });
+
+  test('filesContainer is driven by the file-list virtualizer', async ({ page }) => {
+    await loadPage(page);
+    const meta = await page.evaluate(() => {
+      const el = document.getElementById('filesContainer');
+      const fl = el && (el as unknown as {
+        _critFileListVirtualizer?: { items: unknown[]; totalHeight: () => number };
+      })._critFileListVirtualizer;
+      if (!fl) return null;
+      return {
+        itemCount: fl.items.length,
+        totalHeight: fl.totalHeight(),
+        sectionCount: el!.querySelectorAll('.file-section').length,
+        spacerCount: el!.querySelectorAll('.file-list-virtual-spacer').length,
+      };
+    });
+    expect(meta).toBeTruthy();
+    expect(meta!.itemCount).toBeGreaterThan(0);
+    expect(meta!.totalHeight).toBeGreaterThan(0);
+    expect(meta!.sectionCount).toBeGreaterThan(0);
+  });
 });
