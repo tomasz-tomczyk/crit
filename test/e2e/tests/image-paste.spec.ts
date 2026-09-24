@@ -52,7 +52,7 @@ test.describe('Image paste & drag-drop', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await section.locator('.line-block').first().hover();
     await section.locator('.line-comment-gutter').first().click();
 
@@ -72,7 +72,7 @@ test.describe('Image paste & drag-drop', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -90,7 +90,7 @@ test.describe('Image paste & drag-drop', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await section.locator('.line-block').first().hover();
     await section.locator('.line-comment-gutter').first().click();
 
@@ -108,7 +108,7 @@ test.describe('Image paste & drag-drop', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -130,7 +130,7 @@ test.describe('Image paste & drag-drop', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const reply = section.locator('.comment-reply').first();
     await expect(reply).toBeVisible();
 

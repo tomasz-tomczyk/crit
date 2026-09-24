@@ -17,7 +17,7 @@ test.describe('Mobile add-comment affordance (F3)', () => {
     // on touch. We assert content is set (not the default 'none') AND that
     // it contains a "+". A computed `content: none` means no pseudo-element
     // exists at all, regardless of opacity.
-    const lineNum = goSection(page).locator('.diff-gutter-num').first();
+    const lineNum = (await goSection(page)).locator('.diff-gutter-num').first();
     await expect(lineNum).toBeAttached();
     const beforeStyle = await lineNum.evaluate((el) => {
       const cs = getComputedStyle(el, '::before');

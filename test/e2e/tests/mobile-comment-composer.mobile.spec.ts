@@ -2,7 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { clearAllComments, goSection, loadPage } from './helpers';
 
 async function tapFirstAdditionGutter(page: Page): Promise<Locator> {
-  const addition = goSection(page).locator('.diff-container.unified .diff-line.addition').first();
+  const addition = (await goSection(page)).locator('.diff-container.unified .diff-line.addition').first();
   await addition.scrollIntoViewIfNeeded();
   const gutter = addition.locator('.diff-gutter-num').last();
   await expect(gutter).toBeVisible();
@@ -55,7 +55,7 @@ test.describe('Mobile comment composer', () => {
 
     await expect(form).toBeHidden();
     await expect(
-      goSection(page).locator('.comment-card .comment-body', { hasText: 'Submitted from mobile' }),
+      (await goSection(page)).locator('.comment-card .comment-body', { hasText: 'Submitted from mobile' }),
     ).toBeVisible();
     await expect(page.locator('#commentCount .comment-count-number')).toHaveText('1');
 

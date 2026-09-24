@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSectionByName } from './helpers';
 
 test.describe('File Tree — File Mode', () => {
   test.beforeEach(async ({ page }) => {
@@ -30,7 +30,7 @@ test.describe('File Tree Comment Badges — File Mode', () => {
   });
 
   test('comment badge appears after adding a comment on markdown', async ({ page }) => {
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = await fileSectionByName(page, 'plan.md');
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();

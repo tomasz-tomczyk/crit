@@ -33,7 +33,7 @@ test.describe('Comment tables', () => {
 
   test('a table in a diff comment draws a border on every cell', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const additionSide = section.locator('.diff-split-side.addition').first();
     await additionSide.hover();
@@ -63,7 +63,7 @@ test.describe('Comment tables', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const table = mdSection(page).locator('.reply-body table');
+    const table = (await mdSection(page)).locator('.reply-body table');
     await expect(table).toBeVisible();
     await expect(table.locator('th')).toHaveCount(3);
 

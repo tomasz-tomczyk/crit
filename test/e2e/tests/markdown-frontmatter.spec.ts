@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { addComment, clearAllComments, loadPage } from './helpers';
+import { addComment, clearAllComments, loadPage, fileSectionByName } from './helpers';
 
-function skillSection(page: Parameters<typeof loadPage>[0]) {
-  return page.locator('.file-section').filter({ hasText: 'skill.md' });
+async function skillSection(page: Parameters<typeof loadPage>[0]) {
+  return fileSectionByName(page, 'skill.md');
 }
 
 async function switchSkillToDocumentView(page: Parameters<typeof loadPage>[0]) {
-  const section = skillSection(page);
+  const section = await skillSection(page);
   await expect(section).toBeVisible();
   await section.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
   await expect(section.locator('.document-wrapper')).toBeVisible();

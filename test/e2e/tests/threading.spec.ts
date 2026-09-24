@@ -24,7 +24,7 @@ test.describe('Comment Threading', () => {
     // Load page, switch to document view, verify reply renders
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.comment-card')).toBeVisible();
     await expect(section.locator('.comment-reply')).toHaveCount(1);
     await expect(section.locator('.reply-body')).toContainText('Done, fixed it');
@@ -36,7 +36,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -65,7 +65,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -90,7 +90,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -109,7 +109,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -129,7 +129,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -154,7 +154,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const firstCard = section.locator('.comment-card').filter({ hasText: 'First comment' });
     const secondCard = section.locator('.comment-card').filter({ hasText: 'Second comment' });
     await expect(firstCard).toBeVisible();
@@ -180,7 +180,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const firstCard = section.locator('.comment-card').filter({ hasText: 'First comment' });
     const secondCard = section.locator('.comment-card').filter({ hasText: 'Second comment' });
 
@@ -201,7 +201,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -222,7 +222,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const reply = section.locator('.comment-reply').first();
     await expect(reply).toBeVisible();
 
@@ -247,7 +247,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -272,7 +272,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -319,7 +319,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -363,7 +363,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Verify reply exists
     await expect(section.locator('.comment-reply')).toHaveCount(1);
@@ -382,7 +382,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -408,7 +408,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Expand the resolved card
     await section.locator('.comment-collapse-btn').click();
@@ -429,7 +429,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toBeVisible();
@@ -459,7 +459,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
 
     // Collapsed by default with Unresolve button
@@ -488,7 +488,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -510,7 +510,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 

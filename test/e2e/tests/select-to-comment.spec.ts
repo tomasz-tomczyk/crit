@@ -58,7 +58,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('selecting text alone does not open form; selection preserved for copying', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
 
@@ -80,7 +80,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('Escape cancels the comment form once opened', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       const blockBox = await firstBlock.boundingBox();
       expect(blockBox).toBeTruthy();
@@ -99,7 +99,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('full comment lifecycle via text selection', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       const blockBox = await firstBlock.boundingBox();
       expect(blockBox).toBeTruthy();
@@ -122,7 +122,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('selecting alone does not open a second form when one is already open', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
 
       // Open a comment form via gutter click first
       const firstBlock = section.locator('.line-block').first();
@@ -149,7 +149,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('pressing c with a new selection opens a second form (multi-form workflow)', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const blocks = section.locator('.line-block');
 
       // First form: select-and-c on first block
@@ -192,7 +192,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('multi-block selection spans correct line range', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const blocks = section.locator('.line-block');
       const firstBlock = blocks.first();
       const thirdBlock = blocks.nth(2);
@@ -221,7 +221,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('selection endpoint on a gap container still spans full range (regression)', async ({ page, request }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
       const paraBlock = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(overviewBlock).toBeVisible();
@@ -279,7 +279,7 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
 test('single click (no drag) does not open a form', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
 
@@ -300,7 +300,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('partial selection highlights while open and persists its quote', async ({ page, request }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -332,7 +332,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('cross-line partial selection saves quote and shows highlight', async ({ page, request }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
       const authBlock = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(overviewBlock).toBeVisible();
@@ -374,7 +374,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('quote highlight inherits text color (not black)', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -400,7 +400,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('full-line selection does NOT produce a quote highlight', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -433,7 +433,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
 
   test.describe('diff view', () => {
     test('quote highlight appears in split diff view while form is open', async ({ page }) => {
-      const section = goSection(page);
+      const section = await goSection(page);
       const { box: targetBox } = await wideAdditionLine(section, '.diff-split-side.addition');
 
       await selectAndPressC(
@@ -453,7 +453,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await expect(unifiedBtn).toBeVisible();
       await unifiedBtn.click();
 
-      const section = goSection(page);
+      const section = await goSection(page);
       const { box: targetBox } = await wideAdditionLine(section, '.diff-line.addition');
 
       await selectAndPressC(
@@ -473,7 +473,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {
-      const section = mdSection(page);
+      const section = await mdSection(page);
       const additionLine = section.locator('.diff-split-side.addition').first();
       await additionLine.scrollIntoViewIfNeeded();
       await expect(additionLine).toBeVisible();

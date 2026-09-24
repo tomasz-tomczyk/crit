@@ -19,7 +19,7 @@ test.describe('Mobile file-header layout (F6)', () => {
   });
 
   test('filename has positive visible width on mobile', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
     const filename = section.locator('.file-header-name').first();
     const box = await filename.boundingBox();
@@ -75,7 +75,7 @@ test.describe('Mobile file-header layout (F6)', () => {
     // The full assertion that was deferred from F1 and F5. With F6's
     // .file-header-viewed hide, no remaining element should push the page
     // past the viewport.
-    await expect(goSection(page).locator('.diff-container')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container')).toBeVisible();
     const widths = await page.evaluate(() => ({
       scroll: document.documentElement.scrollWidth,
       client: document.documentElement.clientWidth,

@@ -12,7 +12,7 @@ test.describe('Markdown Drag Selection — Git Mode', () => {
   });
 
   test('dragging across gutter elements opens comment form with multi-line header', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Get the first and third line-comment-gutter elements
     const gutters = section.locator('.line-comment-gutter');
@@ -33,7 +33,7 @@ test.describe('Markdown Drag Selection — Git Mode', () => {
   });
 
   test('after drag, selected line blocks have .selected class', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
@@ -51,7 +51,7 @@ test.describe('Markdown Drag Selection — Git Mode', () => {
   });
 
   test('single click on gutter opens single-line comment form', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
@@ -82,7 +82,7 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
   });
 
   test('drag-select then submit clears selected class and keeps keyboard focus', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);
@@ -105,7 +105,7 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
   });
 
   test('drag-select then cancel clears selected class and keeps keyboard focus', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);
@@ -126,7 +126,7 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
   });
 
   test('single-line click then submit clears selected class and keeps keyboard focus', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -157,7 +157,7 @@ test.describe('Diff Drag Selection — Split Mode', () => {
   });
 
   test('dragging across diff comment buttons opens multi-line comment form', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Find addition-side diff comment buttons in server.go
@@ -184,7 +184,7 @@ test.describe('Diff Drag Selection — Split Mode', () => {
   });
 
   test('single click on diff-comment-btn opens single-line comment form', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     const additionSide = section.locator('.diff-split-side.addition').first();
@@ -204,7 +204,7 @@ test.describe('Diff Drag Selection — Split Mode', () => {
   });
 
   test('dragging selects lines with .selected class on diff sides', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     const additionSides = section.locator('.diff-split-side.addition');
@@ -235,11 +235,11 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
     // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('dragging across diff lines in unified mode opens comment form', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Find addition lines in the unified diff
@@ -262,7 +262,7 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
   });
 
   test('drag works across add/del lines in unified mode (no side restriction)', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // In unified mode, find any diff lines with comment buttons (mix of add/del)
@@ -292,7 +292,7 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
   });
 
   test('unified drag selects lines with .selected class', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     const additionLines = section.locator('.diff-container.unified .diff-line.addition');
@@ -316,7 +316,7 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
     // Regression: dragging from a deletion anchor across context + another deletion
     // should keep the full old-side range highlighted after mouseup, not collapse
     // to only the deletion lines.
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Find two deletion lines separated by at least one context line in between.

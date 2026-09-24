@@ -15,7 +15,7 @@ test.describe('Draft Autosave', () => {
   test('typing in comment form saves draft to localStorage', async ({ page }) => {
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
@@ -48,7 +48,7 @@ test.describe('Draft Autosave', () => {
   test('draft is restored on page reload with toast notification', async ({ page }) => {
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Open comment form and type
     const lineBlock = section.locator('.line-block').first();
@@ -83,7 +83,7 @@ test.describe('Draft Autosave', () => {
   test('submitting comment clears the draft', async ({ page }) => {
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
@@ -120,7 +120,7 @@ test.describe('Draft Autosave', () => {
   test('cancelling comment clears the draft', async ({ page }) => {
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
@@ -149,7 +149,7 @@ test.describe('Draft Autosave', () => {
   test('pressing Escape clears the draft', async ({ page }) => {
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();

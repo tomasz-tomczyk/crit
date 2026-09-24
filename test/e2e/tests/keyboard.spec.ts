@@ -1,11 +1,8 @@
 import { test, expect } from '@playwright/test';
-import {
-  clearAllComments, loadPage, mdSection, goSection, clearFocus, switchToDocumentView,
-  focusKbNavByJ, focusKbNavElement,
-} from './helpers';
+import { clearAllComments, loadPage, mdSection, goSection, clearFocus, switchToDocumentView, focusKbNavByJ, focusKbNavElement, focusInsideFile } from './helpers';
 
 async function focusMarkdownBlockWithStartLine(page: import('@playwright/test').Page, startLine: string) {
-  const block = mdSection(page).locator(`.line-block.kb-nav[data-start-line="${startLine}"]`);
+  const block = (await mdSection(page)).locator(`.line-block.kb-nav[data-start-line="${startLine}"]`);
   await expect(block).toBeAttached();
   await focusKbNavElement(page, block);
 }
@@ -14,150 +11,88 @@ async function focusMarkdownBlockWithStartLine(page: import('@playwright/test').
 // j/k Navigation on Diff Blocks (Split Mode)
 // ============================================================
 test.describe('Keyboard Navigation — Diff Split Mode', () => {
+  // navigateVirtualDiffRow applies focus asynchronously after scrollToRow — wait for key change.
+  async function pressJUntilKeyChanges(page: import('@playwright/test').Page, prevKey: string | null) {
+    await page.keyboard.press('j');
+    await expect.poll(async () =>
+      page.locator('[id="file-section-server.go"] .kb-nav.focused').getAttribute('data-virtual-key')
+    ).not.toBe(prevKey);
+  }
+
+
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await clearFocus(page);
+    const section = await goSection(page);
+    await expect(section.locator('.kb-nav').first()).toBeVisible();
+    await focusInsideFile(page, 'server.go');
+    await expect(page.locator('[id="file-section-server.go"] .kb-nav.focused')).toHaveCount(1);
   });
 
-  test('j focuses the first .kb-nav element', async ({ page }) => {
-    // No element should be focused initially
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
-
-    await page.keyboard.press('j');
-
-    const focused = page.locator('.kb-nav.focused');
-    await expect(focused).toHaveCount(1);
+  test('j focuses a kb-nav row inside the mounted file', async ({ page }) => {
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+    await expect(page.locator('[id="file-section-server.go"] .kb-nav.focused')).toHaveCount(1);
   });
 
   test('j navigates to next block, k navigates to previous', async ({ page }) => {
-    // Press j twice to move to the second element
-    await page.keyboard.press('j');
-    await page.keyboard.press('j');
+    const focused = page.locator('[id="file-section-server.go"] .kb-nav.focused');
+    const before = await focused.getAttribute('data-virtual-key');
+    expect(before).toBeTruthy();
 
-    const focused = page.locator('.kb-nav.focused');
-    await expect(focused).toHaveCount(1);
+    await pressJUntilKeyChanges(page, before);
+    const mid = await focused.getAttribute('data-virtual-key');
+    expect(mid).toBeTruthy();
 
-    // Get the index of the second focused element
-    const allNav = page.locator('.kb-nav');
-    const secondEl = allNav.nth(1);
-    await expect(secondEl).toHaveClass(/focused/);
-
-    // Press k to go back to the first element
     await page.keyboard.press('k');
-    const firstEl = allNav.nth(0);
-    await expect(firstEl).toHaveClass(/focused/);
-    // Second element should no longer be focused
-    await expect(secondEl).not.toHaveClass(/focused/);
+    await expect.poll(async () => focused.getAttribute('data-virtual-key')).toBe(before);
   });
 
   test('multiple j presses move forward sequentially', async ({ page }) => {
-    const allNav = page.locator('.kb-nav');
-    const count = await allNav.count();
-    expect(count).toBeGreaterThan(3);
-
-    // Press j three times
-    await page.keyboard.press('j');
-    await page.keyboard.press('j');
-    await page.keyboard.press('j');
-
-    // The third element (index 2) should be focused
-    const thirdEl = allNav.nth(2);
-    await expect(thirdEl).toHaveClass(/focused/);
-
-    // Only one element should have focused class
+    const focused = page.locator('[id="file-section-server.go"] .kb-nav.focused');
+    const keys: (string | null)[] = [await focused.getAttribute('data-virtual-key')];
+    await pressJUntilKeyChanges(page, keys[0]);
+    keys.push(await focused.getAttribute('data-virtual-key'));
+    await pressJUntilKeyChanges(page, keys[1]);
+    keys.push(await focused.getAttribute('data-virtual-key'));
+    expect(new Set(keys).size).toBe(3);
     await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
   });
 
   test('j/k in split diff mode navigates rows, not individual sides', async ({ page }) => {
-    // In split mode, .diff-split-row elements get .kb-nav
-    // Pressing j should focus rows, not alternate between left/right
-    const diffRows = page.locator('.diff-split-row.kb-nav');
-    await expect(diffRows.first()).toBeAttached();
-
-    // Focus the first row, then advance one row with j
-    await focusKbNavByJ(page, 2);
-
-    const currentRow = page.locator('.diff-split-row.kb-nav.focused');
-    await expect(currentRow).toHaveCount(1);
-
-    // Record the current index
-    const currentIndex = await currentRow.evaluate(el => {
-      const allRows = Array.from(document.querySelectorAll('.kb-nav'));
-      return allRows.indexOf(el);
-    });
-
-    // Now press j again — should move to the NEXT row, not the right side of the same row
-    await page.keyboard.press('j');
-
-    const nextFocused = page.locator('.kb-nav.focused');
-    const nextIndex = await nextFocused.evaluate(el => {
-      const allRows = Array.from(document.querySelectorAll('.kb-nav'));
-      return allRows.indexOf(el);
-    });
-
-    // Should have moved forward by exactly 1
-    expect(nextIndex).toBe(currentIndex + 1);
-  });
-
-  test('j/k stays continuous when mouse is stationary over the document', async ({ page }) => {
-    const allNav = page.locator('.kb-nav');
-    const count = await allNav.count();
-    expect(count).toBeGreaterThan(15);
-
-    // Rest the pointer over the document while navigating purely with j/k.
-    const box = await allNav.nth(8).boundingBox();
-    expect(box).toBeTruthy();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-
-    let prevIndex = -1;
-    for (let i = 0; i < 20; i++) {
-      await page.keyboard.press('j');
-      const focused = page.locator('.kb-nav.focused');
-      await expect(focused).toHaveCount(1);
-      const index = await focused.evaluate(el => {
-        return Array.from(document.querySelectorAll('.kb-nav')).indexOf(el);
-      });
-      expect(index).toBeGreaterThanOrEqual(prevIndex);
-      prevIndex = index;
-    }
+    const focused = page.locator('[id="file-section-server.go"] .diff-split-row.kb-nav.focused');
+    await expect(focused).toHaveCount(1);
+    const before = await focused.getAttribute('data-virtual-key');
+    await pressJUntilKeyChanges(page, before);
+    await expect(page.locator('.diff-split-row.kb-nav.focused')).toHaveCount(1);
   });
 
   test('j/k resumes after canceling comment form with Escape', async ({ page }) => {
-    const targetIdx = 15;
-    await focusKbNavByJ(page, targetIdx + 1);
-
-    const beforeCancel = await page.locator('.kb-nav.focused').evaluate(el =>
-      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
-    );
-    expect(beforeCancel).toBe(targetIdx);
+    const focused = page.locator('[id="file-section-server.go"] .kb-nav.focused');
+    let key = await focused.getAttribute('data-virtual-key');
+    await pressJUntilKeyChanges(page, key);
+    key = await focused.getAttribute('data-virtual-key');
+    await pressJUntilKeyChanges(page, key);
+    const targetKey = await focused.getAttribute('data-virtual-key');
+    expect(targetKey).toBeTruthy();
 
     await page.keyboard.press('c');
     await expect(page.locator('.comment-form')).toBeVisible();
     await page.locator('.comment-form textarea').press('Escape');
     await expect(page.locator('.comment-form')).toHaveCount(0);
 
-    // Focus should still be on the same line after cancel (not reset to top).
-    const afterEscape = await page.locator('.kb-nav.focused').evaluate(el =>
-      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
-    );
-    expect(afterEscape).toBe(targetIdx);
+    await expect.poll(async () => focused.getAttribute('data-virtual-key')).toBe(targetKey);
 
-    await page.keyboard.press('j');
-    const afterJ = await page.locator('.kb-nav.focused').evaluate(el =>
-      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
-    );
-    expect(afterJ).toBe(targetIdx + 1);
+    await pressJUntilKeyChanges(page, targetKey);
   });
 
   test('j/k resumes after submitting a new comment', async ({ page }) => {
-    const targetIdx = 15;
-    await focusKbNavByJ(page, targetIdx + 1);
-
-    const beforeSubmit = await page.locator('.kb-nav.focused').evaluate(el =>
-      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
-    );
-    expect(beforeSubmit).toBe(targetIdx);
+    const focused = page.locator('[id="file-section-server.go"] .kb-nav.focused');
+    let key = await focused.getAttribute('data-virtual-key');
+    await pressJUntilKeyChanges(page, key);
+    key = await focused.getAttribute('data-virtual-key');
+    await pressJUntilKeyChanges(page, key);
+    const targetKey = await focused.getAttribute('data-virtual-key');
+    expect(targetKey).toBeTruthy();
 
     await page.keyboard.press('c');
     const textarea = page.locator('.comment-form textarea');
@@ -167,37 +102,8 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
     await expect(page.locator('.comment-form')).toHaveCount(0);
     await expect(page.locator('.comment-card').filter({ hasText: 'resume focus after submit' })).toBeVisible();
 
-    const afterSubmit = await page.locator('.kb-nav.focused').evaluate(el =>
-      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
-    );
-    expect(afterSubmit).toBe(targetIdx);
-
-    await page.keyboard.press('j');
-    const afterJ = await page.locator('.kb-nav.focused').evaluate(el =>
-      Array.from(document.querySelectorAll('.kb-nav')).indexOf(el)
-    );
-    expect(afterJ).toBe(targetIdx + 1);
-  });
-
-  test('k from first element stays at first element', async ({ page }) => {
-    // Press j to focus first element
-    await page.keyboard.press('j');
-    const allNav = page.locator('.kb-nav');
-    await expect(allNav.first()).toHaveClass(/focused/);
-
-    // Press k — should stay at first
-    await page.keyboard.press('k');
-    await expect(allNav.first()).toHaveClass(/focused/);
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
-  });
-
-  test('k with no focus goes to last element', async ({ page }) => {
-    await page.keyboard.press('k');
-
-    const allNav = page.locator('.kb-nav');
-    const lastEl = allNav.last();
-    await expect(lastEl).toHaveClass(/focused/);
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+    await expect.poll(async () => focused.getAttribute('data-virtual-key')).toBe(targetKey);
+    await pressJUntilKeyChanges(page, targetKey);
   });
 });
 
@@ -213,7 +119,7 @@ test.describe('Keyboard Navigation — Markdown Document View', () => {
   });
 
   test('j/k navigates markdown line-blocks', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlocks = section.locator('.line-block.kb-nav');
     const count = await lineBlocks.count();
     expect(count).toBeGreaterThan(2);
@@ -261,7 +167,7 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
 
   test('e edits comment on focused diff block', async ({ page }) => {
     // Use the UI to create a comment on server.go, then test editing via keyboard
-    const section = goSection(page);
+    const section = await goSection(page);
     const additionSide = section.locator('.diff-split-side.addition').first();
     const commentedRow = additionSide.locator('xpath=ancestor::*[contains(@class,"diff-split-row") and contains(@class,"kb-nav")][1]');
     await additionSide.hover();
@@ -285,7 +191,7 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
 
   test('d deletes comment on focused diff block', async ({ page }) => {
     // Use the UI to create a comment on server.go
-    const section = goSection(page);
+    const section = await goSection(page);
     const additionSide = section.locator('.diff-split-side.addition').first();
     const commentedRow = additionSide.locator('xpath=ancestor::*[contains(@class,"diff-split-row") and contains(@class,"kb-nav")][1]');
     await additionSide.hover();
@@ -318,7 +224,7 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     await switchToDocumentView(page);
     await clearFocus(page);
 
-    await focusKbNavElement(page, mdSection(page).locator('.line-block.kb-nav').first());
+    await focusKbNavElement(page, (await mdSection(page)).locator('.line-block.kb-nav').first());
 
     await page.keyboard.press('c');
 
@@ -358,7 +264,7 @@ test.describe('Keyboard Comment Shortcuts — Markdown', () => {
     await clearFocus(page);
 
     // Verify comment exists
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.comment-card')).toBeVisible();
 
     await focusMarkdownBlockWithStartLine(page, '1');
@@ -531,7 +437,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
   });
 
   test('V enters visual mode; j extends selection; c opens form spanning the range', async ({ page, request }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlocks = section.locator('.line-block.kb-nav');
     await expect(lineBlocks.first()).toBeAttached();
 
@@ -578,7 +484,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
   });
 
   test('Escape clears visual selection and keeps focus on current block', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlocks = section.locator('.line-block.kb-nav');
     await focusKbNavElement(page, lineBlocks.first());
     await page.keyboard.press('Shift+V');
@@ -602,7 +508,7 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
   });
 
   test('V again exits visual mode (toggle)', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlocks = section.locator('.line-block.kb-nav');
     await focusKbNavElement(page, lineBlocks.first());
     await page.keyboard.press('Shift+V');

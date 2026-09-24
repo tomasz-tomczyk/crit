@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
 // File mode renders code files as document view (not diff), which is a unique
 // rendering path not covered by git-mode tests.  Markdown document view tests
@@ -14,7 +14,7 @@ test.describe('Select-to-comment (file mode) — code document view', () => {
   });
 
   test('selecting code text preserves copy selection then creates a comment with c', async ({ page }) => {
-    const section = page.locator('#file-section-server\\.go');
+    const section = await fileSection(page, 'server.go');
     await expect(section).toBeVisible();
     const block = section.locator('.line-block', { hasText: 'package main' });
     await block.scrollIntoViewIfNeeded();

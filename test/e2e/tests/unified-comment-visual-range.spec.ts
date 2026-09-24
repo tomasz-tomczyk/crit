@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
 // Regression: in unified diff, a single-line comment on a new-side context line
 // below a deletion block must NOT highlight deletion lines further up just
@@ -38,7 +38,7 @@ test.describe('Unified diff — comment range scoping', () => {
 
     await loadPage(page);
 
-    const section = page.locator('#file-section-legacy\\.go');
+    const section = await fileSection(page, 'legacy.go');
     await expect(section).toBeVisible();
 
     // Switch to unified mode (toggle is in the page header, not per-file).

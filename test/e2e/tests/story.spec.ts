@@ -195,7 +195,7 @@ test.describe('Story mode', () => {
     await loadPage(page);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('#storyRoot')).toBeHidden();
-    await expect(goSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
   });
 
   test('ingesting a story activates the overview with prologue and chapter TOC', async ({ page, request }) => {
@@ -533,7 +533,7 @@ test.describe('Story mode', () => {
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
     await expect(page.locator('#storyRoot')).toBeHidden();
-    await expect(goSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
     await expect(page.locator('.tree-file .crit-story-chip')).toHaveCount(0);
     await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]')).toHaveClass(/active/);
 
@@ -711,7 +711,7 @@ test.describe('Story mode', () => {
     await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('#storyViewToggle')).toBeHidden();
-    await expect(goSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
   });
 
   test('a fresh story via SSE brings the story back live and un-hides after Hide', async ({ page }) => {

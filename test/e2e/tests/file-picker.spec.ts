@@ -15,7 +15,7 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
 
   /** Helper: open a comment form on the first markdown line block and return the textarea. */
   async function openCommentForm(page: import('@playwright/test').Page) {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     const gutterBtn = section.locator('.line-comment-gutter').first();

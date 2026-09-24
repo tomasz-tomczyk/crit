@@ -1,9 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
 // routes.go has a large gap (>20 lines) between hunks, ideal for incremental expansion testing.
-function routesSection(page: Page) {
-  return page.locator('#file-section-routes\\.go');
+async function routesSection(page: Page) {
+  return fileSection(page, 'routes.go');
 }
 
 test.describe('Incremental Expand — Split Mode (default)', () => {
@@ -16,7 +16,7 @@ test.describe('Incremental Expand — Split Mode (default)', () => {
   });
 
   test('large gap spacer shows expand-down and expand-up controls', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     // The spacer between hunks with a gap > 20 should show directional controls
@@ -30,7 +30,7 @@ test.describe('Incremental Expand — Split Mode (default)', () => {
   });
 
   test('clicking expand-down reveals 20 lines below previous hunk', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     // Count rows before expansion
@@ -56,7 +56,7 @@ test.describe('Incremental Expand — Split Mode (default)', () => {
   });
 
   test('clicking expand-up reveals 20 lines above next hunk', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     const rowsBefore = await section.locator('.diff-split-row').count();
@@ -85,7 +85,7 @@ test.describe('Incremental Expand — Split Mode (default)', () => {
   });
 
   test('after partial expansion, spacer still shows expand controls', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     const rowsBefore = await section.locator('.diff-split-row').count();
@@ -121,11 +121,11 @@ test.describe('Incremental Expand — Unified Mode', () => {
     // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(routesSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect((await routesSection(page)).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('large gap spacer shows expand-down and expand-up controls in unified mode', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     const spacer = section.locator('.diff-spacer').first();
@@ -138,7 +138,7 @@ test.describe('Incremental Expand — Unified Mode', () => {
   });
 
   test('clicking expand-down in unified mode adds context lines', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     const linesBefore = await section.locator('.diff-line').count();
@@ -160,7 +160,7 @@ test.describe('Incremental Expand — Unified Mode', () => {
   });
 
   test('clicking expand-up in unified mode adds context lines', async ({ page }) => {
-    const section = routesSection(page);
+    const section = await routesSection(page);
     await expect(section).toBeVisible();
 
     const linesBefore = await section.locator('.diff-line').count();

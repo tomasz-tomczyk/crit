@@ -44,7 +44,7 @@ test.describe('Comment Range Highlighting — Document View', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
     await expect(blocks.first()).toBeVisible();
     await expectDocumentHighlightRange(section, 3, 7);
@@ -59,7 +59,7 @@ test.describe('Comment Range Highlighting — Document View', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
     await expect(blocks.first()).toBeVisible();
     await expectDocumentHighlightRange(section, 1, 1);
@@ -76,7 +76,7 @@ test.describe('Comment Range Highlighting — Document View', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const blocks = section.locator('.line-block.has-comment');
     await expect(blocks).toHaveCount(0);
   });
@@ -129,7 +129,7 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
     await loadPage(page);
     await page.locator('.toggle-btn[data-mode="unified"]').click();
 
-    const section = goSection(page);
+    const section = await goSection(page);
     const allLines = section.locator('.diff-line[data-diff-visual-idx]');
     await expect(allLines.first()).toBeVisible();
     const states = await allLines.evaluateAll(elements => elements.map((element) => {
@@ -201,7 +201,7 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
     await loadPage(page);
     await page.locator('.toggle-btn[data-mode="unified"]').click();
 
-    const section = goSection(page);
+    const section = await goSection(page);
     // The deletion line should also have has-comment
     const delLines = section.locator('.diff-line.deletion.has-comment');
     await expect(delLines.first()).toBeVisible();
@@ -249,7 +249,7 @@ test.describe('Comment Range Highlighting — Split Diff', () => {
       await page.locator('.toggle-btn[data-mode="split"]').click();
     }
 
-    const section = goSection(page);
+    const section = await goSection(page);
     // Right side (new) should have has-comment
     const rightHighlighted = section.locator('.diff-split-side.right.has-comment');
     await expect(rightHighlighted.first()).toBeVisible();
@@ -291,7 +291,7 @@ test.describe('Comment Range Highlighting — Split Diff', () => {
 
     await loadPage(page);
 
-    const section = goSection(page);
+    const section = await goSection(page);
     // In split mode, find the right-side has-comment cell's gutter
     const gutterNum = section.locator('.diff-split-side.right.has-comment .diff-gutter-num').first();
     await expect(gutterNum).toBeVisible();

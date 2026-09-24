@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, goSection, jsSection } from './helpers';
+import { loadPage, goSection, jsSection, fileSection } from './helpers';
 
 // ============================================================
 // Syntax Highlighting in Diff Views
@@ -7,7 +7,7 @@ import { loadPage, goSection, jsSection } from './helpers';
 test.describe('Syntax Highlighting — Split Mode', () => {
   test('Go file has syntax-highlighted code in split diff', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Addition side should have hljs spans for Go keywords/strings
@@ -20,7 +20,7 @@ test.describe('Syntax Highlighting — Split Mode', () => {
 
   test('JavaScript file has syntax-highlighted code in split diff', async ({ page }) => {
     await loadPage(page);
-    const section = jsSection(page);
+    const section = await jsSection(page);
     await expect(section).toBeVisible();
 
     const rightSide = section.locator('.diff-split-side.addition .diff-content').first();
@@ -31,7 +31,7 @@ test.describe('Syntax Highlighting — Split Mode', () => {
 
   test('old side (deletion) lines also have syntax highlighting', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Deletion side (old code) should also be highlighted
     const leftSide = section.locator('.diff-split-side.deletion .diff-content').first();
@@ -42,7 +42,7 @@ test.describe('Syntax Highlighting — Split Mode', () => {
 
   test('context lines have syntax highlighting', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Context lines (no addition/deletion) should also be highlighted.
     // Use toPass() so the DOM is stable before counting rows.
@@ -69,7 +69,7 @@ test.describe('Syntax Highlighting — Split Mode', () => {
 test.describe('Syntax Highlighting — hljs alias resolution', () => {
   test('Gherkin .feature file gets syntax highlighting (hljs alias)', async ({ page }) => {
     await loadPage(page);
-    const section = page.locator('#file-section-login\\.feature');
+    const section = await fileSection(page, 'login.feature');
     await expect(section).toBeVisible();
 
     const additionLine = section.locator('.diff-split-side.addition .diff-content').first();
@@ -87,9 +87,9 @@ test.describe('Syntax Highlighting — Unified Mode', () => {
   test('Go file has syntax-highlighted code in unified diff', async ({ page }) => {
     await loadPage(page);
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container.unified')).toBeVisible();
 
-    const section = goSection(page);
+    const section = await goSection(page);
     const additionLine = section.locator('.diff-container.unified .diff-line.addition .diff-content').first();
     await expect(additionLine).toBeVisible();
 
@@ -100,7 +100,7 @@ test.describe('Syntax Highlighting — Unified Mode', () => {
     await loadPage(page);
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
-    const section = goSection(page);
+    const section = await goSection(page);
     const deletionLine = section.locator('.diff-container.unified .diff-line.deletion .diff-content').first();
     await expect(deletionLine).toBeVisible();
 
@@ -111,7 +111,7 @@ test.describe('Syntax Highlighting — Unified Mode', () => {
 test.describe('Syntax Highlighting — Expanded Context', () => {
   test('expanded context lines get syntax highlighting', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // server.go's small gaps are auto-expanded, so context lines are already
     // visible without clicking a spacer. Find a context line and check for spans.

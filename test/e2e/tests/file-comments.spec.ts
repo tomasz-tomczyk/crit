@@ -69,7 +69,7 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.file-comments .comment-card').first();
     await expect(card).toBeVisible();
 

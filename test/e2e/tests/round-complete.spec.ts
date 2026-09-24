@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, getReviewFilePath, loadPage, switchToDocumentView } from './helpers';
+import { clearAllComments, getReviewFilePath, loadPage, switchToDocumentView, fileSectionByName } from './helpers';
 
 // Find a file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -310,7 +310,7 @@ test.describe('Multi-Round — Frontend', () => {
 
   test('unresolved comments persist in UI after round-complete', async ({ page, request }) => {
     // Switch plan.md to document view for commenting
-    const mdSection = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const mdSection = await fileSectionByName(page, 'plan.md');
     const docBtn = mdSection.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
     await docBtn.click();
     await expect(mdSection.locator('.document-wrapper')).toBeVisible();

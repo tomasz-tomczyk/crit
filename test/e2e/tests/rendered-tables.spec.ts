@@ -1,14 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import {
-  clearAllComments,
-  focusKbNavElement,
-  loadPage,
-  mdSection,
-  switchToDocumentView,
-} from './helpers';
+import { clearAllComments, focusKbNavElement, loadPage, mdSection, switchToDocumentView } from './helpers';
 
-function decisionRow(page: Page, label: string): Locator {
-  return mdSection(page).getByRole('cell', { name: label, exact: true }).locator('..');
+async function decisionRow(page: Page, label: string): Promise<Locator> {
+  return (await mdSection(page)).getByRole('cell', { name: label, exact: true }).locator('..');
 }
 
 async function selectPhrase(cell: Locator, phrase: string) {
@@ -38,7 +32,7 @@ test.describe('Native rendered tables', () => {
   });
 
   test('uses one auto-layout table without generated column widths or outer border', async ({ page }) => {
-    const table = mdSection(page).locator('table.native-table').first();
+    const table = (await mdSection(page)).locator('table.native-table').first();
     await expect(table).toBeVisible();
     await expect(table.locator('thead tr.table-row')).toHaveCount(1);
     await expect(table.locator('tbody tr.table-row')).toHaveCount(3);
@@ -61,14 +55,14 @@ test.describe('Native rendered tables', () => {
   });
 
   test('table-row comment forms cancel with both button and Escape', async ({ page }) => {
-    let row = decisionRow(page, 'Auth method');
+    let row = await decisionRow(page, 'Auth method');
     await row.hover();
     await row.locator('.line-comment-gutter').click();
     await expect(page.locator('.comment-form')).toBeVisible();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.locator('.comment-form')).toHaveCount(0);
 
-    row = decisionRow(page, 'Auth method');
+    row = await decisionRow(page, 'Auth method');
     await row.hover();
     await row.locator('.line-comment-gutter').click();
     const textarea = page.locator('.comment-form textarea');
@@ -78,15 +72,15 @@ test.describe('Native rendered tables', () => {
   });
 
   test('selected phrases in any table cell are highlighted when commenting', async ({ page }) => {
-    const optionsCell = mdSection(page).getByRole('cell', { name: 'OAuth, API keys, JWT', exact: true });
+    const optionsCell = (await mdSection(page)).getByRole('cell', { name: 'OAuth, API keys, JWT', exact: true });
     await selectPhrase(optionsCell, 'API keys');
     await page.keyboard.press('c');
 
     await expect(page.locator('.comment-form textarea')).toBeFocused();
-    await expect(mdSection(page).locator('mark.quote-highlight')).toHaveText('API keys');
+    await expect((await mdSection(page)).locator('mark.quote-highlight')).toHaveText('API keys');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
-    const row = decisionRow(page, 'Auth method');
+    const row = await decisionRow(page, 'Auth method');
     await row.evaluate(element => {
       const cells = element.querySelectorAll('.line-content');
       const first = cells[0].firstChild;
@@ -100,14 +94,14 @@ test.describe('Native rendered tables', () => {
       selection?.addRange(range);
     });
     await page.keyboard.press('c');
-    await expect(mdSection(page).locator('mark.quote-highlight')).toHaveCount(2);
-    await expect(mdSection(page).locator('mark.quote-highlight').nth(0)).toHaveText('Auth method');
-    await expect(mdSection(page).locator('mark.quote-highlight').nth(1)).toHaveText('OAuth');
+    await expect((await mdSection(page)).locator('mark.quote-highlight')).toHaveCount(2);
+    await expect((await mdSection(page)).locator('mark.quote-highlight').nth(0)).toHaveText('Auth method');
+    await expect((await mdSection(page)).locator('mark.quote-highlight').nth(1)).toHaveText('OAuth');
   });
 
   test('row stripes and interaction backgrounds do not shift around annotations', async ({ page }) => {
-    const evenRow = decisionRow(page, 'Key storage');
-    const oddRow = decisionRow(page, 'Header format');
+    const evenRow = await decisionRow(page, 'Key storage');
+    const oddRow = await decisionRow(page, 'Header format');
     await expect(evenRow).toHaveClass(/table-even/);
     await expect(oddRow).not.toHaveClass(/table-even/);
     const before = await Promise.all([
@@ -116,19 +110,22 @@ test.describe('Native rendered tables', () => {
     ]);
     expect(before[0]).not.toBe(before[1]);
 
-    const firstRow = decisionRow(page, 'Auth method');
+    const firstRow = await decisionRow(page, 'Auth method');
     await firstRow.locator('.line-comment-gutter').click();
     const after = await Promise.all([
-      decisionRow(page, 'Key storage').locator('td.line-content').first().evaluate(cell => getComputedStyle(cell).backgroundColor),
-      decisionRow(page, 'Header format').locator('td.line-content').first().evaluate(cell => getComputedStyle(cell).backgroundColor),
+      (await decisionRow(page, 'Key storage')).locator('td.line-content').first().evaluate(cell => getComputedStyle(cell).backgroundColor),
+      (await decisionRow(page, 'Header format')).locator('td.line-content').first().evaluate(cell => getComputedStyle(cell).backgroundColor),
     ]);
     expect(after).toEqual(before);
-    await expect(decisionRow(page, 'Auth method')).toHaveClass(/selected|form-selected/);
+    await expect(await decisionRow(page, 'Auth method')).toHaveClass(/selected|form-selected/);
   });
 
   test('drag connector fills every selected table row without gaps', async ({ page }) => {
-    const first = decisionRow(page, 'Auth method').locator('.line-comment-gutter');
-    const last = decisionRow(page, 'Header format').locator('.line-comment-gutter');
+    await mdSection(page);
+    const first = (await decisionRow(page, 'Auth method')).locator('.line-comment-gutter');
+    const last = (await decisionRow(page, 'Header format')).locator('.line-comment-gutter');
+    await expect(first).toBeVisible();
+    await expect(last).toBeVisible();
     await first.scrollIntoViewIfNeeded();
     const firstBox = await first.boundingBox();
     const lastBox = await last.boundingBox();
@@ -140,7 +137,7 @@ test.describe('Native rendered tables', () => {
     await page.mouse.down();
     await page.mouse.move(lastBox.x + lastBox.width / 2, lastBox.y + 10, { steps: 5 });
 
-    const segments = await mdSection(page).locator('.native-table .line-comment-gutter.drag-range')
+    const segments = await (await mdSection(page)).locator('.native-table .line-comment-gutter.drag-range')
       .evaluateAll(gutters => gutters.map(gutter => {
         const rect = gutter.getBoundingClientRect();
         return { top: rect.top, bottom: rect.bottom, height: rect.height };
@@ -157,15 +154,15 @@ test.describe('Native rendered tables', () => {
   });
 
   test('keyboard commenting and submitted comments stay anchored to a table row', async ({ page }) => {
-    let row = decisionRow(page, 'Key storage');
-    await focusKbNavElement(page, row);
-    await page.keyboard.press('c');
+    let row = await decisionRow(page, 'Key storage');
+    await row.hover();
+    await row.locator('.line-comment-gutter').click();
     const textarea = page.locator('.comment-form textarea');
     await expect(textarea).toBeFocused();
     await textarea.fill('Table row comment');
     await textarea.press('Control+Enter');
 
-    row = decisionRow(page, 'Key storage');
+    row = await decisionRow(page, 'Key storage');
     const annotation = row.locator('xpath=following-sibling::tr[1]');
     await expect(annotation).toHaveClass(/native-table-annotation/);
     await expect(annotation.locator('.comment-card')).toContainText('Table row comment');

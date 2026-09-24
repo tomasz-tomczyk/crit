@@ -128,6 +128,7 @@ test('scrolling a large review windows the file list and leaves the tail unmount
   expect(scrollTBT).toBeLessThan(8000);
 
   // Tail file stays out of the mounted window (spacer / not in DOM).
+  // Intentionally unmounted (off-window) — do not call fileSection (that mounts).
   await expect(page.locator('#file-section-plan-big\\.md')).toHaveCount(0);
 });
 

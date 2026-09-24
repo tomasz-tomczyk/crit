@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { clearAllComments, loadPage, mdSection, treeFiles } from './helpers';
 
 // ============================================================
 // No-Git Mode — Git-absence invariants
@@ -27,12 +27,13 @@ test.describe('No-Git Mode — Git-absence invariants', () => {
 
   test('page loads and file sections appear', async ({ page }) => {
     await loadPage(page);
-    await expect(page.locator('.file-section')).not.toHaveCount(0);
+    await expect(treeFiles(page)).not.toHaveCount(0);
+    await expect(page.locator('#filesContainer .file-section').first()).toBeVisible();
   });
 
   test('creates and reloads a line comment without a repository', async ({ page, request }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const firstBlock = section.locator('.line-block').first();
     await firstBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -63,7 +64,7 @@ test.describe('No-Git Mode — Git-absence invariants', () => {
 
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-    const persisted = mdSection(page).locator('.comment-card', { hasText: 'No-git persisted comment' });
+    const persisted = (await mdSection(page)).locator('.comment-card', { hasText: 'No-git persisted comment' });
     await expect(persisted).toHaveCount(1);
   });
 

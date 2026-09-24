@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSectionByName } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -33,8 +33,8 @@ async function switchScope(page: Page, scope: string) {
 // It exists before the server starts, so its diff renders correctly.
 const FIXTURE_UNSTAGED_FILE = 'config.yaml';
 
-function configSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: FIXTURE_UNSTAGED_FILE });
+async function configSection(page: Page) {
+  return fileSectionByName(page, FIXTURE_UNSTAGED_FILE);
 }
 
 // unstaged-test.py is created at runtime AFTER the server is already running.
@@ -52,8 +52,8 @@ if __name__ == "__main__":
     goodbye()
 `;
 
-function runtimeSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: RUNTIME_UNSTAGED_FILE });
+async function runtimeSection(page: Page) {
+  return fileSectionByName(page, RUNTIME_UNSTAGED_FILE);
 }
 
 // ============================================================
@@ -74,7 +74,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('can add a comment on a pre-existing unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
+    const section = await configSection(page);
     await expect(section).toBeVisible();
 
     // config.yaml is untracked, shown as all-addition diff
@@ -102,7 +102,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('comment count badge updates for unstaged file comment', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
+    const section = await configSection(page);
     await expect(section).toBeVisible();
 
     const countEl = page.locator('#commentCount');
@@ -125,7 +125,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('file tree shows comment badge for unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
+    const section = await configSection(page);
     await expect(section).toBeVisible();
 
     const additionSide = section.locator('.diff-split-side.addition').first();
@@ -146,7 +146,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('unstaged comment persists after page reload', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
+    const section = await configSection(page);
     await expect(section).toBeVisible();
 
     const additionSide = section.locator('.diff-split-side.addition').first();
@@ -166,7 +166,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
     // Scope persists via cookie
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="unstaged"]')).toHaveClass(/active/);
 
-    const reloadedSection = configSection(page);
+    const reloadedSection = await configSection(page);
     await expect(reloadedSection).toBeVisible();
     await expect(reloadedSection.locator('.comment-card')).toBeVisible();
     await expect(reloadedSection.locator('.comment-body')).toContainText('Persistent unstaged comment');
@@ -213,7 +213,7 @@ test.describe('Unstaged File Comments — runtime-created file (bug reproduction
   test('runtime-created unstaged file renders diff with addition lines (not "No changes")', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = runtimeSection(page);
+    const section = await runtimeSection(page);
     await expect(section).toBeVisible();
 
     // BUG: The file shows "No changes" instead of an all-addition diff.
@@ -225,7 +225,7 @@ test.describe('Unstaged File Comments — runtime-created file (bug reproduction
   test('can comment on runtime-created unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = runtimeSection(page);
+    const section = await runtimeSection(page);
     await expect(section).toBeVisible();
 
     // BUG: Cannot comment because no diff lines are rendered.

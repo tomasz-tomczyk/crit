@@ -9,7 +9,7 @@ test.describe('Multi-Form Comments', () => {
 
   test('opening a new comment form does not close existing form', async ({ page }) => {
     // Open form on server.go diff
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
     await goAddition.hover();
     await goAddition.locator('.diff-comment-btn').click();
@@ -22,7 +22,7 @@ test.describe('Multi-Form Comments', () => {
     await firstTextarea.fill('Comment on server.go');
 
     // Open form on handler.js diff
-    const jsSec = jsSection(page);
+    const jsSec = await jsSection(page);
     const jsAddition = jsSec.locator('.diff-split-side.addition').first();
     await jsAddition.scrollIntoViewIfNeeded();
     await jsAddition.hover();
@@ -43,14 +43,14 @@ test.describe('Multi-Form Comments', () => {
 
   test('opening a new comment form closes existing empty form', async ({ page }) => {
     // Open form on server.go (leave empty)
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
     await goAddition.hover();
     await goAddition.locator('.diff-comment-btn').click();
     await expect(goSec.locator('.comment-form')).toBeVisible();
 
     // Open form on handler.js without filling first
-    const jsSec = jsSection(page);
+    const jsSec = await jsSection(page);
     const jsAddition = jsSec.locator('.diff-split-side.addition').first();
     await jsAddition.scrollIntoViewIfNeeded();
     await jsAddition.hover();
@@ -64,7 +64,7 @@ test.describe('Multi-Form Comments', () => {
 
   test('submitting one form does not affect other open forms', async ({ page }) => {
     // Open form on server.go
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
     await goAddition.hover();
     await goAddition.locator('.diff-comment-btn').click();
@@ -72,7 +72,7 @@ test.describe('Multi-Form Comments', () => {
     await firstForm.locator('textarea').fill('Keep this open');
 
     // Open form on handler.js
-    const jsSec = jsSection(page);
+    const jsSec = await jsSection(page);
     const jsAddition = jsSec.locator('.diff-split-side.addition').first();
     await jsAddition.scrollIntoViewIfNeeded();
     await jsAddition.hover();
@@ -94,7 +94,7 @@ test.describe('Multi-Form Comments', () => {
 
   test('cancelling one form does not affect other open forms', async ({ page }) => {
     // Open form on server.go
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
     await goAddition.hover();
     await goAddition.locator('.diff-comment-btn').click();
@@ -102,7 +102,7 @@ test.describe('Multi-Form Comments', () => {
     await firstForm.locator('textarea').fill('Keep this open');
 
     // Open form on handler.js
-    const jsSec = jsSection(page);
+    const jsSec = await jsSection(page);
     const jsAddition = jsSec.locator('.diff-split-side.addition').first();
     await jsAddition.scrollIntoViewIfNeeded();
     await jsAddition.hover();
@@ -123,7 +123,7 @@ test.describe('Multi-Form Comments', () => {
 
   test('Escape in textarea cancels only that form', async ({ page }) => {
     // Open form on server.go
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
     await goAddition.hover();
     await goAddition.locator('.diff-comment-btn').click();
@@ -131,7 +131,7 @@ test.describe('Multi-Form Comments', () => {
     await firstForm.locator('textarea').fill('Keep this open');
 
     // Open form on handler.js
-    const jsSec = jsSection(page);
+    const jsSec = await jsSection(page);
     const jsAddition = jsSec.locator('.diff-split-side.addition').first();
     await jsAddition.scrollIntoViewIfNeeded();
     await jsAddition.hover();
@@ -152,7 +152,7 @@ test.describe('Multi-Form Comments', () => {
 
   test('Ctrl+Enter in textarea submits only that form', async ({ page }) => {
     // Open form on server.go
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
     await goAddition.hover();
     await goAddition.locator('.diff-comment-btn').click();
@@ -160,7 +160,7 @@ test.describe('Multi-Form Comments', () => {
     await firstForm.locator('textarea').fill('Keep this open');
 
     // Open form on handler.js
-    const jsSec = jsSection(page);
+    const jsSec = await jsSection(page);
     const jsAddition = jsSec.locator('.diff-split-side.addition').first();
     await jsAddition.scrollIntoViewIfNeeded();
     await jsAddition.hover();
@@ -181,7 +181,7 @@ test.describe('Multi-Form Comments', () => {
   });
 
   test('clicking same gutter line twice does not duplicate form', async ({ page }) => {
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const goAddition = goSec.locator('.diff-split-side.addition').first();
 
     // Open form
@@ -206,7 +206,7 @@ test.describe('Multi-Form Comments', () => {
     // Switch to document view for markdown file
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Open form on first gutter
     const firstLineBlock = section.locator('.line-block').first();
@@ -228,7 +228,7 @@ test.describe('Multi-Form Comments', () => {
 
   test('first form range gets form-selected highlight when second form opens on same file (document view)', async ({ page }) => {
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     const firstLineBlock = section.locator('.line-block').first();
     await firstLineBlock.hover();
@@ -250,7 +250,7 @@ test.describe('Multi-Form Comments', () => {
   });
 
   test('first form range gets form-selected highlight when second form opens on same file (split diff)', async ({ page }) => {
-    const goSec = goSection(page);
+    const goSec = await goSection(page);
     const additions = goSec.locator('.diff-split-side.right[data-diff-line-num]');
 
     // The deterministic fixture must expose at least two commentable lines.

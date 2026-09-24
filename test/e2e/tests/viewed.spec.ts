@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -49,14 +49,14 @@ test.describe('Viewed Checkbox — Git Mode', () => {
   });
 
   test('clicking viewed checkbox marks file as viewed', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
     await checkbox.click();
     await expect(checkbox).toBeChecked();
   });
 
   test('checking viewed collapses the file section', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     await expect(section).toHaveAttribute('open', '');
 
     const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
@@ -67,7 +67,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
 
   test('clicking viewed checkbox does not toggle section open/close on its own', async ({ page }) => {
     // First collapse the section manually
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     const header = section.locator('summary.file-header');
     await header.click();
     await expect(section).not.toHaveAttribute('open', '');
@@ -94,7 +94,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
   });
 
   test('viewed checkbox updates the tree indicator', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
 
     const treeFile = page.locator('.tree-file', {
@@ -116,7 +116,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     await expect(viewedCount).toContainText('0 /');
 
     // Check one file
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
     await checkbox.click();
 
@@ -124,7 +124,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
   });
 
   test('viewed state persists across page reload', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
     await checkbox.click();
     await expect(checkbox).toBeChecked();
@@ -132,7 +132,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    const reloadedCheckbox = page.locator('#file-section-plan\\.md .file-header-viewed input[type="checkbox"]');
+    const reloadedCheckbox = (await fileSection(page, 'plan.md')).locator('.file-header-viewed input[type="checkbox"]');
     await expect(reloadedCheckbox).toBeChecked();
   });
   test('viewed state resets when file content changes between rounds', async ({ page, request }) => {
@@ -144,7 +144,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     const { fixtureDir } = readFixtureState();
 
     // Mark plan.md as viewed
-    const section = page.locator('#file-section-plan\\.md');
+    const section = await fileSection(page, 'plan.md');
     const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
     await checkbox.click();
     await expect(checkbox).toBeChecked();
@@ -191,28 +191,46 @@ test.describe('Collapse/Expand All — Git Mode', () => {
   });
 
   test('clicking collapse all closes all expanded file sections', async ({ page }) => {
-    // Verify at least some sections are open
     const openSections = page.locator('.file-section[open]');
-    const initialOpen = await openSections.count();
-    expect(initialOpen).toBeGreaterThan(0);
+    expect(await openSections.count()).toBeGreaterThan(0);
 
     await page.locator('.file-tree-collapse-btn').click();
 
-    // All sections should be closed
-    await expect(page.locator('.file-section[open]')).toHaveCount(0);
+    // File-list virt may only mount a window — assert the model, not DOM count.
+    await expect.poll(async () => page.evaluate(() => {
+      const surface = document.getElementById('filesContainer') as
+        (HTMLElement & { _critFileListVirtualizer?: { items: { collapsed: boolean }[] } }) | null;
+      const virt = surface && surface._critFileListVirtualizer;
+      if (virt && Array.isArray(virt.items)) {
+        return virt.items.every(item => item.collapsed);
+      }
+      return document.querySelectorAll('.file-section[open]').length === 0;
+    })).toBe(true);
   });
 
   test('clicking expand all after collapse opens all sections', async ({ page }) => {
-    // Collapse all first
     await page.locator('.file-tree-collapse-btn').click();
-    await expect(page.locator('.file-section[open]')).toHaveCount(0);
+    await expect.poll(async () => page.evaluate(() => {
+      const surface = document.getElementById('filesContainer') as
+        (HTMLElement & { _critFileListVirtualizer?: { items: { collapsed: boolean }[] } }) | null;
+      const virt = surface && surface._critFileListVirtualizer;
+      if (virt && Array.isArray(virt.items)) {
+        return virt.items.every(item => item.collapsed);
+      }
+      return document.querySelectorAll('.file-section[open]').length === 0;
+    })).toBe(true);
 
-    // Now expand all
     await page.locator('.file-tree-collapse-btn').click();
 
-    // All sections should be open
-    const allSections = page.locator('.file-section');
-    const totalCount = await allSections.count();
-    await expect(page.locator('.file-section[open]')).toHaveCount(totalCount);
+    await expect.poll(async () => page.evaluate(() => {
+      const surface = document.getElementById('filesContainer') as
+        (HTMLElement & { _critFileListVirtualizer?: { items: { collapsed: boolean }[] } }) | null;
+      const virt = surface && surface._critFileListVirtualizer;
+      if (virt && Array.isArray(virt.items)) {
+        return virt.items.every(item => !item.collapsed);
+      }
+      const all = document.querySelectorAll('.file-section');
+      return all.length > 0 && [...all].every(el => (el as HTMLDetailsElement).open);
+    })).toBe(true);
   });
 });

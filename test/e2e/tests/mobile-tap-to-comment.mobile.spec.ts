@@ -23,7 +23,7 @@ test.describe('Mobile tap-to-comment (F4)', () => {
   });
 
   test('tap on a diff gutter line number opens a comment form', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // In unified mode (forced on mobile by F5), .diff-gutter-num is the
@@ -54,7 +54,7 @@ test.describe('Mobile tap-to-comment (F4)', () => {
     // The structural fix: .diff-comment-btn is display:none by default
     // and only display:flex inside @media (pointer: fine). On touch the
     // element never renders, regardless of the .drag-endpoint state.
-    const section = goSection(page);
+    const section = await goSection(page);
     const additionLine = section.locator('.diff-container.unified .diff-line.addition').first();
     await additionLine.scrollIntoViewIfNeeded();
     const gutter = additionLine.locator('.diff-gutter-num').first();
@@ -77,7 +77,7 @@ test.describe('Mobile tap-to-comment (F4)', () => {
     // CAN verify the CSS property is applied. If this regresses, real
     // hardware will start dropping taps even though the JS tests still
     // pass.
-    const gutter = goSection(page).locator('.diff-gutter-num').first();
+    const gutter = (await goSection(page)).locator('.diff-gutter-num').first();
     await expect(gutter).toBeAttached();
     const touchAction = await gutter.evaluate((el) =>
       getComputedStyle(el).touchAction
@@ -90,7 +90,7 @@ test.describe('Mobile tap-to-comment (F4)', () => {
     // (pointercancel before pointerup). This test taps the same gutter
     // line repeatedly, with form-cancel between each, and asserts at
     // least 9 of 10 attempts open the form.
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
     const additionLine = section.locator('.diff-container.unified .diff-line.addition').first();
     await additionLine.scrollIntoViewIfNeeded();

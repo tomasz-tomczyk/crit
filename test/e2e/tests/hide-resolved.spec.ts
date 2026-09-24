@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath } from './helpers';
+import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath, fileSectionByName, mdSection } from './helpers';
 
 // Create a resolved comment by finishing a round, marking resolved, and round-completing.
 async function setupResolvedComment(request: APIRequestContext, line = 1) {
@@ -49,6 +49,7 @@ test.describe('Hide Resolved', () => {
   test('toggle hides resolved inline comments', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+    await mdSection(page);
 
     // Wait for resolved card to render
     await expect(page.locator('.comment-card.resolved-card').first()).toBeVisible();
@@ -69,6 +70,7 @@ test.describe('Hide Resolved', () => {
   test('h keyboard shortcut toggles resolved inline comment visibility', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+    await mdSection(page);
 
     const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
       has: page.locator('.resolved-card'),
@@ -88,10 +90,10 @@ test.describe('Hide Resolved', () => {
   test('toggling hide-resolved drops has-comment on resolved ranges without rebuilding', async ({ page, request }) => {
     await setupResolvedComment(request, 1);
     await loadPage(page);
-    await page.locator('.file-section').filter({ hasText: 'plan.md' }).locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+    await (await fileSectionByName(page, 'plan.md')).locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
     await expect(page.locator('.document-wrapper')).toBeVisible();
 
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = await fileSectionByName(page, 'plan.md');
     await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
 
     await section.evaluate(el => { (el as HTMLElement).dataset.critPreserveProbe = '1'; });
@@ -115,6 +117,7 @@ test.describe('Hide Resolved', () => {
     await addComment(request, mdPath, 1, 'Open A');
     await addComment(request, mdPath, 5, 'Open C');
     await loadPage(page);
+    await mdSection(page);
 
     const openA = page.locator('.comment-card:not(.resolved-card)').filter({ hasText: 'Open A' });
     const resolvedCard = page.locator('.comment-card.resolved-card').first();
@@ -131,7 +134,8 @@ test.describe('Hide Resolved', () => {
     await page.locator('#commentNavPrev').click();
     await expect(openA).toHaveClass(/comment-nav-highlight/);
     await expect(openC).not.toHaveClass(/comment-nav-highlight/);
-    await expect(resolvedCard).not.toHaveClass(/comment-nav-highlight/);
+    // Hidden resolved cards are unmounted / not visible — don't assert class on a missing node.
+    await expect(resolvedCard).toBeHidden();
 
     await page.keyboard.press('h');
     await page.locator('#commentNavNext').click();
@@ -140,12 +144,13 @@ test.describe('Hide Resolved', () => {
     await page.keyboard.press('h');
     await page.locator('#commentNavNext').click();
     await expect(openC).toHaveClass(/comment-nav-highlight/);
-    await expect(resolvedCard).not.toHaveClass(/comment-nav-highlight/);
+    await expect(resolvedCard).toBeHidden();
   });
 
   test('hide resolved persists via localStorage across reload', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+    await mdSection(page);
 
     const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
       has: page.locator('.resolved-card'),
@@ -157,6 +162,7 @@ test.describe('Hide Resolved', () => {
 
     // Reload
     await loadPage(page);
+    await mdSection(page);
 
     // Should still be hidden after reload
     const resolvedBlockAfter = page.locator('.comment-block:not(.panel-comment-block)').filter({

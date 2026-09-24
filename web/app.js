@@ -482,14 +482,13 @@
   // Keyed by file path — a story page shows each path at most once.
   const virtualDiffControllers = new Map();
 
-  // Multi-file list virtualizer for #filesContainer. Enabled for flat reviews
-  // whenever the module is present (not gated on file count).
+  // Multi-file list virtualizer for #filesContainer. Always-on for flat
+  // reviews when the module is present (Pierre CodeView is not gated on
+  // file count). Story mode keeps row virt only on #storyPane.
   let fileListController = null;
-  const FILE_LIST_VIRTUALIZE_MIN_FILES = 1;
 
   function fileListVirtualizationEnabled() {
     return !storyActive() &&
-      files.length >= FILE_LIST_VIRTUALIZE_MIN_FILES &&
       !!(window.crit && window.crit.fileListVirtualizer &&
         window.crit.fileListVirtualizer.FileListVirtualizer);
   }

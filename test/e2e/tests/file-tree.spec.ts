@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection, fileSectionByName } from './helpers';
 
 // ============================================================
 // File Tree Panel — Git Mode
@@ -134,7 +134,7 @@ test.describe('File Tree — Git Mode', () => {
     });
     await treeFile.click();
 
-    const section = page.locator('#file-section-handler\\.js');
+    const section = await fileSection(page, 'handler.js');
     await expect(section).toBeInViewport();
   });
 
@@ -149,7 +149,7 @@ test.describe('File Tree — Git Mode', () => {
     await treeFile.click();
 
     // The file header should be near the top of the viewport (below the sticky header)
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = await fileSectionByName(page, 'plan.md');
     const header = section.locator('.file-header');
     await expect(async () => {
       const box = await header.boundingBox();
@@ -215,7 +215,7 @@ test.describe('File Tree Comment Badges — Git Mode', () => {
 
   test('comment badge appears after adding a comment', async ({ page }) => {
     // Add a comment on server.go (diff file)
-    const section = page.locator('#file-section-server\\.go');
+    const section = await fileSection(page, 'server.go');
     const additionSide = section.locator('.diff-split-side.addition').first();
     await additionSide.hover();
     await additionSide.locator('.diff-comment-btn').click();
@@ -234,7 +234,7 @@ test.describe('File Tree Comment Badges — Git Mode', () => {
 
   test('comment badge updates when comment is deleted', async ({ page }) => {
     // Add a comment on server.go
-    const section = page.locator('#file-section-server\\.go');
+    const section = await fileSection(page, 'server.go');
     const additionSide = section.locator('.diff-split-side.addition').first();
     await additionSide.hover();
     await additionSide.locator('.diff-comment-btn').click();

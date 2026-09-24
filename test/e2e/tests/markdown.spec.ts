@@ -9,7 +9,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders h1 and h2 headings', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // h1: "Authentication Plan"
     const h1 = section.locator('h1', { hasText: 'Authentication Plan' });
@@ -28,7 +28,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders tables with th and td elements', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Table elements should be present
     const tables = section.locator('table');
@@ -53,7 +53,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders code blocks with syntax highlighting', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Code lines should be visible (per-line rendering of code blocks)
     const codeLines = section.locator('.line-content.code-line');
@@ -68,7 +68,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders ordered lists', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Ordered list elements
     const olElements = section.locator('ol');
@@ -84,7 +84,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders task list items with checked and unchecked markers', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // markdown-it renders task list items as <li> with literal [ ] and [x] text
     // At least one unchecked item: "[ ] Create migration..."
@@ -97,7 +97,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders blockquotes', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Blockquote element should be visible
     const blockquotes = section.locator('blockquote');
@@ -108,7 +108,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('nested bullet items are split into individually-commentable line blocks', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Each nested bullet from the "Nested Tasks" fixture should produce its own
     // .line-block with a unique data-start-line, so users can comment on each
@@ -144,7 +144,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('line gutters exist in DOM with visible line numbers', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Line gutters exist in the DOM (needed for comment interaction)
     const lineGutters = section.locator('.line-gutter');

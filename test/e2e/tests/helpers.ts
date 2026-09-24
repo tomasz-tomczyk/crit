@@ -47,24 +47,70 @@ export async function loadPage(page: Page) {
   await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 }
 
-// Scope selectors to the plan.md file section.
-export function mdSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'plan.md' });
+/** Sidebar file rows — always fully present under file-list virtualization. */
+export function treeFiles(page: Page): Locator {
+  return page.locator('.tree-file');
+}
+
+/** Logical file order from the file-list virtualizer (or DOM fallback). */
+export async function reviewFileOrder(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const surface = document.getElementById('filesContainer') as
+      (HTMLElement & { _critFileListVirtualizer?: { items: { key: string }[] } }) | null;
+    const virt = surface && surface._critFileListVirtualizer;
+    if (virt && Array.isArray(virt.items) && virt.items.length > 0) {
+      return virt.items.map(item => item.key);
+    }
+    return Array.from(document.querySelectorAll('.file-section[id]')).map(el =>
+      el.id.replace(/^file-section-/, '')
+    );
+  });
+}
+
+/**
+ * Mount (via tree click / scrollToFile) and return a file section.
+ * File-list virt only keeps a window of .file-section nodes in the DOM.
+ */
+export async function fileSection(page: Page, filePath: string): Promise<Locator> {
+  const section = page.locator(`[id="file-section-${filePath}"]`);
+  if (await section.count() === 0) {
+    const tree = page.locator(`.tree-file[data-tree-path="${cssAttr(filePath)}"]`);
+    await expect(tree).toBeVisible({ timeout: 10_000 });
+    await tree.click();
+    await expect(section).toBeVisible({ timeout: 15_000 });
+  }
+  return section;
+}
+
+/** Mount by sidebar basename (e.g. plan.md). */
+export async function fileSectionByName(page: Page, fileName: string): Promise<Locator> {
+  const tree = page.locator('.tree-file').filter({
+    has: page.locator('.tree-file-name', { hasText: new RegExp(`^${escapeRegExp(fileName)}$`) }),
+  });
+  await expect(tree.first()).toBeVisible({ timeout: 10_000 });
+  const filePath = await tree.first().getAttribute('data-tree-path');
+  expect(filePath).toBeTruthy();
+  return fileSection(page, filePath!);
+}
+
+// Scope selectors to the plan.md file section (mounts if off-window).
+export async function mdSection(page: Page): Promise<Locator> {
+  return fileSectionByName(page, 'plan.md');
 }
 
 // Scope selectors to the server.go file section.
-export function goSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+export async function goSection(page: Page): Promise<Locator> {
+  return fileSection(page, 'server.go');
 }
 
 // Scope selectors to the handler.js file section.
-export function jsSection(page: Page) {
-  return page.locator('#file-section-handler\\.js');
+export async function jsSection(page: Page): Promise<Locator> {
+  return fileSection(page, 'handler.js');
 }
 
 // In git mode, markdown defaults to diff view. Click the Document toggle to switch.
 export async function switchToDocumentView(page: Page) {
-  const section = mdSection(page);
+  const section = await mdSection(page);
   await expect(section).toBeVisible();
   const docBtn = section.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
   await expect(docBtn).toBeVisible();
@@ -110,6 +156,21 @@ export async function focusKbNavElement(page: Page, locator: ReturnType<Page['lo
   await focusKbNavByJ(page, index + 1);
 }
 
+/** Press j until focus lands inside a mounted file section (file-list virt safe). */
+export async function focusInsideFile(page: Page, filePath: string, { maxPresses = 80 } = {}) {
+  await clearFocus(page);
+  for (let i = 0; i < maxPresses; i++) {
+    await page.keyboard.press('j');
+    const inside = await page.evaluate((path) => {
+      const focused = document.querySelector('.kb-nav.focused');
+      const section = document.getElementById('file-section-' + path);
+      return !!(focused && section && section.contains(focused));
+    }, filePath);
+    if (inside) return;
+  }
+  throw new Error('focusInsideFile: could not land focus in ' + filePath);
+}
+
 // Add a comment via API and return the created comment object.
 export async function addComment(request: APIRequestContext, path: string, line: number, body: string) {
   const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(path)}`, {
@@ -148,4 +209,12 @@ export async function waitForScrollStable(page: Page, { timeout = 5000 } = {}) {
       requestAnimationFrame(check);
     });
   }, { timeout });
+}
+
+function cssAttr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

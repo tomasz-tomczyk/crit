@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, addComment, switchToDocumentView, clearFocus, focusKbNavElement } from './helpers';
+import { clearAllComments, loadPage, addComment, switchToDocumentView, clearFocus, focusKbNavElement, fileSectionByName } from './helpers';
 
 // ============================================================
 // Comment Navigation — ] / [ shortcuts and prev/next buttons
@@ -198,7 +198,7 @@ test.describe('Comment Navigation — disabled in textarea', () => {
     await clearFocus(page);
 
     // Open a new comment form on a line block
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = await fileSectionByName(page, 'plan.md');
     const lineBlock = section.locator('.line-block.kb-nav').first();
     await focusKbNavElement(page, lineBlock);
     await page.keyboard.press('c');
@@ -219,7 +219,7 @@ test.describe('Comment Navigation — disabled in textarea', () => {
     await clearFocus(page);
 
     // Open a new comment form on a line block
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = await fileSectionByName(page, 'plan.md');
     const lineBlock = section.locator('.line-block.kb-nav').first();
     await focusKbNavElement(page, lineBlock);
     await page.keyboard.press('c');

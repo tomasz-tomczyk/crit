@@ -33,4 +33,4 @@ Tests: `web/__tests__/crit-file-list-virtualizer.test.js`, `crit-diff-virtualize
 
 - `web/crit-diff-virtualizer.js` — unified/split row windows, `HeightIndex`, `estimateDiffBodyHeight`, `noteChildHeightChange` → parent file-list restore
 - `web/crit-file-list-virtualizer.js` — multi-file list window, stick/settle, paged rebase, scroll anchors
-- `web/app.js` — wires `#filesContainer` when `files.length >= FILE_LIST_VIRTUALIZE_MIN_FILES` (currently `1`); `scrollToFile` / comment nav as above
+- `web/app.js` — wires `#filesContainer` for flat reviews whenever the module is present (not gated on file count); `scrollToFile` / comment nav as above. E2e mounts off-window files via tree click (`fileSection` / `mdSection` helpers) rather than asserting on a fully populated DOM.

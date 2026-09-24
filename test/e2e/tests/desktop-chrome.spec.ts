@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
 // Desktop invariants — guards against mobile chrome work (F1) bleeding into
 // the desktop layout. Runs in the git-mode project at default viewport.
@@ -37,7 +37,7 @@ test.describe('Desktop chrome invariants', () => {
 
   test('diff defaults to split on desktop', async ({ page }) => {
     // F5 forces unified mode on mobile only; desktop must still default to split.
-    const goSec = page.locator('#file-section-server\\.go');
+    const goSec = await fileSection(page, 'server.go');
     await expect(goSec).toBeVisible();
     await expect(goSec.locator('.diff-container.split')).toBeVisible();
   });
@@ -53,8 +53,8 @@ test.describe('Desktop chrome invariants', () => {
     // so they can shrink independently with ellipsis. The rule is universal
     // (not media-gated). Asserting on desktop guards against the JS template
     // regressing the markup.
-    const fileSection = page.locator('.file-section').first();
-    await expect(fileSection.locator('.file-header-name .filename')).toHaveCount(1);
+    const section = page.locator('.file-section').first();
+    await expect(section.locator('.file-header-name .filename')).toHaveCount(1);
   });
 
   test('header icon buttons stay compact on desktop', async ({ page }) => {
@@ -86,7 +86,7 @@ test.describe('Desktop chrome invariants', () => {
     // F3 must not break the existing desktop diff affordance:
     // .diff-comment-btn becomes visible when its parent diff line / split
     // side is hovered.
-    const splitSide = page.locator('#file-section-server\\.go .diff-split-side.addition').first();
+    const splitSide = (await fileSection(page, 'server.go')).locator('.diff-split-side.addition').first();
     await expect(splitSide).toBeAttached();
     await splitSide.scrollIntoViewIfNeeded();
     await splitSide.hover();
@@ -96,7 +96,7 @@ test.describe('Desktop chrome invariants', () => {
 
   test('desktop click on diff + button opens comment form', async ({ page }) => {
     // F4 must not break the existing desktop click path.
-    const splitSide = page.locator('#file-section-server\\.go .diff-split-side.addition').first();
+    const splitSide = (await fileSection(page, 'server.go')).locator('.diff-split-side.addition').first();
     await splitSide.scrollIntoViewIfNeeded();
     await splitSide.hover();
     const btn = splitSide.locator('.diff-comment-btn');

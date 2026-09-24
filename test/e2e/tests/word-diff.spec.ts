@@ -8,7 +8,7 @@ import { loadPage, goSection } from './helpers';
 test.describe('Word Diff — Split Mode', () => {
   test('paired del/add lines show word-diff highlights', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Deletion sides should have word-diff-del spans
@@ -22,7 +22,7 @@ test.describe('Word Diff — Split Mode', () => {
 
   test('word-diff spans contain expected changed tokens', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // The fixture has: fmt.Println("Server starting on :8080") → log.Printf("Server starting on :%s", port)
     // diff-match-patch highlights precisely: "fmt" → "log", "Println" suffix → "Printf" suffix, etc.
@@ -47,7 +47,7 @@ test.describe('Word Diff — Split Mode', () => {
 
   test('context lines do not have word-diff spans', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Context rows (no .deletion or .addition class) should NOT have word-diff spans
     const contextRows = section.locator('.diff-split-row').filter({
@@ -63,7 +63,7 @@ test.describe('Word Diff — Split Mode', () => {
 
   test('unpaired add-only lines have no word-diff spans', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // authMiddleware is entirely new — additions without matching deletions
     const addOnlyRows = section.locator('.diff-split-row').filter({
@@ -77,7 +77,7 @@ test.describe('Word Diff — Split Mode', () => {
 
   test('word-diff highlights use correct CSS variable colors', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const wordAdd = section.locator('.diff-split-side.addition .diff-word-add').first();
     await expect(wordAdd).toBeVisible();
@@ -92,7 +92,7 @@ test.describe('Word Diff — Split Mode', () => {
 test.describe('Word Diff — Unified Mode', () => {
   test('paired del/add lines show word-diff highlights', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
@@ -107,7 +107,7 @@ test.describe('Word Diff — Unified Mode', () => {
 
   test('word-diff spans contain expected tokens in unified mode', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
@@ -123,7 +123,7 @@ test.describe('Word Diff — Unified Mode', () => {
 
   test('context lines in unified mode have no word-diff spans', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
@@ -140,7 +140,7 @@ test.describe('Word Diff — Unified Mode', () => {
 test.describe('Word Diff — Theme Integration', () => {
   test('word-diff colors change when switching themes', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Force light theme first via settings panel
     await page.click('#settingsToggle');
@@ -179,7 +179,7 @@ test.describe('Word Diff — Edge Cases', () => {
 
   test('spacer-expanded context lines have no word-diff spans', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Click a spacer to expand context lines between hunks
     const spacer = section.locator('.diff-spacer').first();
@@ -196,7 +196,7 @@ test.describe('Word Diff — Edge Cases', () => {
 test.describe('Word Diff — LCS quality', () => {
   test('word-diff highlights only the changed tokens, not shared prefixes', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // The fixture has paired del/add lines — word-diff spans should cover
     // only the differing tokens, leaving shared text unhighlighted.
@@ -211,7 +211,7 @@ test.describe('Word Diff — LCS quality', () => {
 
   test('highly dissimilar paired lines have no word-diff highlights', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Completely new lines (add-only, no paired deletion) should not have word-diff spans.
     // This validates the LCS similarity threshold — unrelated lines are skipped.
@@ -226,7 +226,7 @@ test.describe('Word Diff — LCS quality', () => {
 
   test('word-diff spans are whole tokens, not character fragments', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // LCS-based word diff should produce whole-word highlights.
     // Verify that highlighted spans contain complete tokens (no mid-word splits).

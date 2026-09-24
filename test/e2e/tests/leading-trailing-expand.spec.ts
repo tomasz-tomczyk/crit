@@ -1,31 +1,31 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
 // utils.go has a staged change that appends a Reverse function at the end.
 // The diff hunk starts mid-file (OldStart=8, NewStart=8), NOT at line 1,
 // so a leading spacer should appear before the first hunk.
-function utilsSection(page: Page) {
-  return page.locator('#file-section-utils\\.go');
+async function utilsSection(page: Page) {
+  return fileSection(page, 'utils.go');
 }
 
 // server.go has multi-hunk diffs. The first hunk starts at line 2 (imports),
 // so a leading spacer should appear (gap=1 for the package declaration).
 // The last hunk ends at EOF, so NO trailing spacer should appear.
-function serverSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+async function serverSection(page: Page) {
+  return fileSection(page, 'server.go');
 }
 
 // handler.js is a newly added file — its single hunk starts at NewStart=1.
 // No leading spacer should appear for new files.
-function handlerSection(page: Page) {
-  return page.locator('#file-section-handler\\.js');
+async function handlerSection(page: Page) {
+  return fileSection(page, 'handler.js');
 }
 
 async function switchToUnified(page: Page) {
   const btn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
   await expect(btn).toBeVisible();
   await btn.click();
-  await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
+  await expect((await serverSection(page)).locator('.diff-container.unified')).toBeVisible();
 }
 
 // ============================================================
@@ -38,7 +38,7 @@ test.describe('Leading Spacer — Split Mode', () => {
   });
 
   test('leading spacer appears before first hunk when it does not start at line 1', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
@@ -48,7 +48,7 @@ test.describe('Leading Spacer — Split Mode', () => {
   });
 
   test('no leading spacer when first hunk starts at line 1 (new file)', async ({ page }) => {
-    const section = handlerSection(page);
+    const section = await handlerSection(page);
     await expect(section).toBeVisible();
 
     // handler.js is a new file; its hunk starts at line 1, so no leading spacer
@@ -57,7 +57,7 @@ test.describe('Leading Spacer — Split Mode', () => {
   });
 
   test('clicking leading spacer reveals context lines above the first hunk', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     // Count rows before clicking
@@ -77,7 +77,7 @@ test.describe('Leading Spacer — Split Mode', () => {
   });
 
   test('leading spacer disappears after expanding all lines to line 1', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
@@ -91,7 +91,7 @@ test.describe('Leading Spacer — Split Mode', () => {
   });
 
   test('server.go leading spacer shows for 1-line gap', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // server.go hunk starts at line 2, so there's a 1-line gap (package main)
@@ -113,7 +113,7 @@ test.describe('Trailing Spacer — Split Mode', () => {
   });
 
   test('no trailing spacer when last hunk reaches EOF (server.go)', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     const trailingSpacer = section.locator('.diff-spacer-trailing');
@@ -121,7 +121,7 @@ test.describe('Trailing Spacer — Split Mode', () => {
   });
 
   test('no trailing spacer when last hunk reaches EOF (utils.go)', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const trailingSpacer = section.locator('.diff-spacer-trailing');
@@ -140,7 +140,7 @@ test.describe('Leading Spacer — Unified Mode', () => {
   });
 
   test('leading spacer appears in unified mode', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
@@ -150,7 +150,7 @@ test.describe('Leading Spacer — Unified Mode', () => {
   });
 
   test('clicking leading spacer in unified mode reveals context lines', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const linesBefore = section.locator('.diff-line');
@@ -168,7 +168,7 @@ test.describe('Leading Spacer — Unified Mode', () => {
   });
 
   test('no leading spacer in unified mode for new file', async ({ page }) => {
-    const section = handlerSection(page);
+    const section = await handlerSection(page);
     await expect(section).toBeVisible();
 
     const leadingSpacer = section.locator('.diff-spacer-leading');
@@ -187,7 +187,7 @@ test.describe('Trailing Spacer — Unified Mode', () => {
   });
 
   test('no trailing spacer in unified mode when last hunk reaches EOF', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const trailingSpacer = section.locator('.diff-spacer-trailing');
@@ -205,7 +205,7 @@ test.describe('Leading Spacer — Expanded Lines Are Commentable', () => {
   });
 
   test('expanded leading context lines have comment gutter buttons', async ({ page }) => {
-    const section = utilsSection(page);
+    const section = await utilsSection(page);
     await expect(section).toBeVisible();
 
     const leadingSpacer = section.locator('.diff-spacer-leading');

@@ -1,17 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSectionByName, reviewFileOrder, treeFiles } from './helpers';
 
-// Helpers scoped to this fixture's files
-function planSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'plan.md' });
+// Helpers scoped to this fixture's files (mount via tree — file-list virt)
+async function planSection(page: Page) {
+  return fileSectionByName(page, 'plan.md');
 }
 
-function goSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'main.go' });
+async function goSection(page: Page) {
+  return fileSectionByName(page, 'main.go');
 }
 
-function exSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'handler.ex' });
+async function exSection(page: Page) {
+  return fileSectionByName(page, 'handler.ex');
 }
 
 test.describe('Multi-File Mode — Loading', () => {
@@ -33,12 +33,11 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('displays all file sections', async ({ page }) => {
-    await expect(planSection(page)).toBeVisible();
-    await expect(goSection(page)).toBeVisible();
-    await expect(exSection(page)).toBeVisible();
-    // Nested files too
-    await expect(page.locator('.file-section').filter({ hasText: 'utils.ex' })).toBeVisible();
-    await expect(page.locator('.file-section').filter({ hasText: 'config.ex' })).toBeVisible();
+    await expect(await planSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
+    await expect(await exSection(page)).toBeVisible();
+    await expect(await fileSectionByName(page, 'utils.ex')).toBeVisible();
+    await expect(await fileSectionByName(page, 'config.ex')).toBeVisible();
   });
 
   test('session mode is "files"', async ({ request }) => {
@@ -55,11 +54,8 @@ test.describe('Multi-File Mode — Loading', () => {
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
     // Fixture passes: plan.md main.go handler.ex lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
-    await expect(page.locator('.file-section')).toHaveCount(5);
-    const sectionIds = await page.locator('.file-section').evaluateAll(els =>
-      els.map(el => (el as HTMLElement).id.replace('file-section-', ''))
-    );
-    expect(sectionIds).toEqual([
+    await expect(treeFiles(page)).toHaveCount(5);
+    expect(await reviewFileOrder(page)).toEqual([
       'plan.md',
       'main.go',
       'handler.ex',
@@ -76,7 +72,7 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
   });
 
   test('Go file renders with syntax-highlighted code', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
     // Code files in file mode default to document view
     const codeBlock = section.locator('code');
@@ -84,7 +80,7 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
   });
 
   test('Elixir file renders with code content', async ({ page }) => {
-    const section = exSection(page);
+    const section = await exSection(page);
     await expect(section).toBeVisible();
     // Should contain Elixir keywords
     await expect(section).toContainText('defmodule');
@@ -92,7 +88,7 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
   });
 
   test('markdown file renders in document view by default', async ({ page }) => {
-    const section = planSection(page);
+    const section = await planSection(page);
     await expect(section).toBeVisible();
     const docWrapper = section.locator('.document-wrapper');
     await expect(docWrapper).toBeVisible();
@@ -107,7 +103,7 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
   });
 
   test('can add a comment on a Go file line', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -125,7 +121,7 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
   });
 
   test('can add a comment on an Elixir file line', async ({ page }) => {
-    const section = exSection(page);
+    const section = await exSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -143,7 +139,7 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
   });
 
   test('can add a comment on a nested directory file', async ({ page }) => {
-    const section = page.locator('.file-section').filter({ hasText: 'utils.ex' });
+    const section = await fileSectionByName(page, 'utils.ex');
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -191,7 +187,7 @@ test.describe('Multi-File Mode — File Tree Interaction', () => {
     const treeFile = page.locator('.tree-file-name', { hasText: 'config.ex' });
     await treeFile.click();
 
-    const section = page.locator('.file-section').filter({ hasText: 'config.ex' });
+    const section = await fileSectionByName(page, 'config.ex');
     await expect(section).toBeInViewport();
   });
 

@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, getMdPath } from './helpers';
+import { clearAllComments, loadPage, getMdPath, fileSectionByName } from './helpers';
 
 async function expectTouchTargets(targets: Locator, expectedCount?: number) {
   if (expectedCount !== undefined) {
@@ -55,7 +55,7 @@ test.describe('Mobile touch targets (F2)', () => {
     // gives us a known file; we tap a line gutter to open a form.
     // Actually simpler: post a comment so a reply input renders, OR open
     // the review-conversation form. Easiest is to tap a markdown line.
-    const fileSec = page.locator('.file-section').filter({ hasText: '.md' }).first();
+    const fileSec = (await fileSectionByName(page, '.md')).first();
     await expect(fileSec).toBeVisible();
     // Switch to document view so .line-comment-gutter is the affordance.
     const docBtn = fileSec.locator('.file-header-toggle .toggle-btn[data-mode="document"]');

@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath, fileSection } from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -111,7 +111,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await expect(page.locator('.comments-panel-empty')).toBeVisible();
 
     // Add a comment through the UI
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -135,7 +135,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await expect(panelCards(page)).toHaveCount(1);
 
     // Delete through UI
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const deleteBtn = section.locator('.comment-card .delete-btn');
     await deleteBtn.click();
 
@@ -153,7 +153,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await panelCards(page).first().click();
 
     // The inline comment card should get the highlight animation class
-    const inlineCard = mdSection(page).locator('.comment-card[data-comment-id]').first();
+    const inlineCard = (await mdSection(page)).locator('.comment-card[data-comment-id]').first();
     await expect(inlineCard).toBeVisible();
     await expect(inlineCard).toHaveClass(/comment-card-highlight/);
   });
@@ -262,7 +262,7 @@ test.describe('Comments Panel — Git Mode', () => {
 
     // After round-complete, the review file appears in session, so mdSection helper
     // can match multiple sections. Use the plan.md section by ID directly.
-    const mdSectionById = page.locator('#file-section-plan\\.md');
+    const mdSectionById = await fileSection(page, 'plan.md');
     const docBtn = mdSectionById.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
     await expect(docBtn).toBeVisible();
     await docBtn.click();

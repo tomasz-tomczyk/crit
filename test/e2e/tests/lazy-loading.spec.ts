@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, clearAllComments } from './helpers';
+import { loadPage, clearAllComments, treeFiles, reviewFileOrder } from './helpers';
 
 test.describe('Lazy loading', () => {
   test.beforeEach(async ({ request }) => {
@@ -22,9 +22,10 @@ test.describe('Lazy loading', () => {
   test('all files render fully when under threshold', async ({ page }) => {
     await loadPage(page);
 
-    // All file sections should be present and expandable
-    const sections = page.locator('.file-section');
-    await expect(sections.first()).toBeVisible();
+    // Sidebar lists every file; file-list virt mounts a window of sections.
+    await expect(treeFiles(page).first()).toBeVisible();
+    expect((await reviewFileOrder(page)).length).toBeGreaterThan(0);
+    await expect(page.locator('#filesContainer .file-section').first()).toBeVisible();
 
     // No file should have the loading spinner class
     await expect(page.locator('.file-section-loading')).toHaveCount(0);

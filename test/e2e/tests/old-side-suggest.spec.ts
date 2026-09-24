@@ -8,7 +8,7 @@ test.describe('Old-side suggest button', () => {
 
   test('suggest on old-side deletion line inserts old content', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // server.go split diff: find a deletion line on the left side
     const deletionSide = section.locator('.diff-split-side.deletion[data-diff-line-num]').first();
@@ -33,7 +33,7 @@ test.describe('Old-side suggest button', () => {
 
   test('suggest on new-side addition line still inserts new content', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // server.go split diff: find an addition line on the right side
     const additionSide = section.locator('.diff-split-side.addition[data-diff-line-num]').first();

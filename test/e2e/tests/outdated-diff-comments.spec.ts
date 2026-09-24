@@ -62,7 +62,7 @@ test.describe('Outdated Diff Comments', () => {
     await addComment(request, filePath, nonHunkLine, 'This line was removed from the diff');
 
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // The comment should appear with an Outdated badge
@@ -81,7 +81,7 @@ test.describe('Outdated Diff Comments', () => {
     const comment = await addComment(request, filePath, nonHunkLine, 'Resolve me after outdated');
 
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Verify outdated badge appears
     await expect(section.locator('.outdated-badge')).toBeVisible({ timeout: 5_000 });
@@ -93,7 +93,7 @@ test.describe('Outdated Diff Comments', () => {
 
     // Reload and verify resolved state with outdated badge
     await loadPage(page);
-    const sectionAfter = goSection(page);
+    const sectionAfter = await goSection(page);
     await expect(sectionAfter.locator('.outdated-badge')).toBeVisible();
     await expect(sectionAfter.locator('.comment-card.resolved-card')).toBeVisible();
   });
@@ -136,7 +136,7 @@ test.describe('Outdated Diff Comments', () => {
     await addComment(request, filePath, inHunkLine, 'Normal diff comment');
 
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Comment should appear WITHOUT Outdated badge
@@ -152,7 +152,7 @@ test.describe('Outdated Diff Comments', () => {
     const comment = await addComment(request, filePath, nonHunkLine, 'Editable outdated comment');
 
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Verify outdated badge appears
     await expect(section.locator('.outdated-badge')).toBeVisible({ timeout: 5_000 });
@@ -164,14 +164,14 @@ test.describe('Outdated Diff Comments', () => {
     });
 
     await loadPage(page);
-    await expect(goSection(page).locator('.comment-body')).toContainText('Edited outdated comment');
-    await expect(goSection(page).locator('.outdated-badge')).toBeVisible();
+    await expect((await goSection(page)).locator('.comment-body')).toContainText('Edited outdated comment');
+    await expect((await goSection(page)).locator('.outdated-badge')).toBeVisible();
 
     // Delete the comment via API
     await request.delete(`/api/comment/${comment.id}?path=${encodeURIComponent(filePath)}`);
 
     await loadPage(page);
-    await expect(goSection(page).locator('.outdated-badge')).toHaveCount(0);
-    await expect(goSection(page).locator('.comment-card')).toHaveCount(0);
+    await expect((await goSection(page)).locator('.outdated-badge')).toHaveCount(0);
+    await expect((await goSection(page)).locator('.comment-card')).toHaveCount(0);
   });
 });

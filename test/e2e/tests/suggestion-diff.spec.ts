@@ -8,7 +8,7 @@ test.describe('Suggestion diff rendering', () => {
 
   test('renders suggestion block as inline diff', async ({ page, request }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await switchToDocumentView(page);
 
     // Add a comment with a suggestion block on a known line range
@@ -37,7 +37,7 @@ test.describe('Suggestion diff rendering', () => {
 
   test('renders suggestion without original lines as addition-only', async ({ page, request }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await switchToDocumentView(page);
 
     const gutter = section.locator('.line-comment-gutter').first();
@@ -55,7 +55,7 @@ test.describe('Suggestion diff rendering', () => {
 
   test('regular code blocks still render normally', async ({ page, request }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await switchToDocumentView(page);
 
     const gutter = section.locator('.line-comment-gutter').first();
@@ -76,7 +76,7 @@ test.describe('Suggestion diff rendering', () => {
 
   test('empty suggestion renders as deletion-only', async ({ page, request }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await switchToDocumentView(page);
 
     const gutter = section.locator('.line-comment-gutter').first();

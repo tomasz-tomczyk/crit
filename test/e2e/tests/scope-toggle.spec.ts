@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments } from './helpers';
+import { loadPage, clearAllComments, treeFiles, fileSectionByName } from './helpers';
 
 async function switchScope(page: Page, scope: string) {
   const responsePromise = page.waitForResponse(resp =>
@@ -44,9 +44,9 @@ test.describe('Scope Toggle', () => {
     await loadPage(page);
     await switchScope(page, 'branch');
     // Branch: server.go, deleted.txt, plan.md, skill.md, handler.js, routes.go, legacy.go (7 committed)
-    await expect(page.locator('.file-section')).toHaveCount(7);
-    await expect(page.locator('.file-section', { hasText: 'server.go' })).toBeVisible();
-    await expect(page.locator('.file-section', { hasText: 'plan.md' })).toBeVisible();
+    await expect(treeFiles(page)).toHaveCount(7);
+    await expect(await fileSectionByName(page, 'server.go')).toBeVisible();
+    await expect(await fileSectionByName(page, 'plan.md')).toBeVisible();
   });
 
   test('switching to staged scope shows only staged files', async ({ page }) => {
@@ -54,9 +54,9 @@ test.describe('Scope Toggle', () => {
     await switchScope(page, 'staged');
     // Staged: utils.go, login.feature
     await expect(async () => {
-      await expect(page.locator('.file-section')).toHaveCount(2);
+      await expect(treeFiles(page)).toHaveCount(2);
     }).toPass({ timeout: 5000 });
-    await expect(page.locator('.file-section', { hasText: 'utils.go' })).toBeVisible();
+    await expect(await fileSectionByName(page, 'utils.go')).toBeVisible();
   });
 
   test('switching to unstaged scope shows only unstaged files', async ({ page }) => {
@@ -64,18 +64,18 @@ test.describe('Scope Toggle', () => {
     await switchScope(page, 'unstaged');
     // Unstaged: config.yaml only
     await expect(async () => {
-      await expect(page.locator('.file-section')).toHaveCount(1);
+      await expect(treeFiles(page)).toHaveCount(1);
     }).toPass({ timeout: 5000 });
-    await expect(page.locator('.file-section', { hasText: 'config.yaml' })).toBeVisible();
+    await expect(await fileSectionByName(page, 'config.yaml')).toBeVisible();
   });
 
   test('switching back to all scope restores full file list', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.file-section')).toHaveCount(2);
+    await expect(treeFiles(page)).toHaveCount(2);
     await switchScope(page, 'all');
     await expect(async () => {
-      const count = await page.locator('.file-section').count();
+      const count = await treeFiles(page).count();
       expect(count).toBeGreaterThanOrEqual(5);
     }).toPass({ timeout: 5000 });
   });
@@ -90,11 +90,11 @@ test.describe('Scope Toggle', () => {
   test('scope persists across page reload', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.file-section')).toHaveCount(2);
+    await expect(treeFiles(page)).toHaveCount(2);
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).toHaveClass(/active/);
-    await expect(page.locator('.file-section')).toHaveCount(2);
+    await expect(treeFiles(page)).toHaveCount(2);
   });
 
   test('file tree updates when scope changes', async ({ page }) => {
@@ -177,7 +177,7 @@ test.describe('Scope Toggle', () => {
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).not.toHaveClass(/active/);
     await expect(async () => {
-      const count = await page.locator('.file-section').count();
+      const count = await treeFiles(page).count();
       expect(count).toBeGreaterThanOrEqual(1);
     }).toPass({ timeout: 5000 });
     // Must have made at least 2 session requests: initial (branch) + corrected (all)

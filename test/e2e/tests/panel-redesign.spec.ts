@@ -162,7 +162,7 @@ test.describe('Panel Redesign', () => {
     await expect(filterCount(page, 'open')).toHaveText('1');
 
     // Add a comment via UI
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').nth(2);
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').nth(2).click();
@@ -272,7 +272,7 @@ test.describe('Panel Redesign', () => {
     await openPanel(page);
 
     // Ensure inline comment card exists and is visible
-    const inlineCard = mdSection(page).locator('.comment-card[data-comment-id]').first();
+    const inlineCard = (await mdSection(page)).locator('.comment-card[data-comment-id]').first();
     await expect(inlineCard).toBeVisible();
 
     // Cards start expanded; button says "Collapse all"

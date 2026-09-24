@@ -29,7 +29,7 @@ async function syncPlanWithMermaid(
 }
 
 async function expandButton(page: Page): Promise<Locator> {
-  const section = mdSection(page);
+  const section = await mdSection(page);
   const block = section.locator('.line-content.mermaid-block').first();
   await expect(block).toBeVisible();
   // Desktop Expand is opacity:0 / pointer-events:none until hover or focus.

@@ -1,8 +1,8 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
-function serverSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+async function serverSection(page: Page) {
+  return fileSection(page, 'server.go');
 }
 
 // Find a new-side line number that falls inside a spacer gap between two
@@ -45,7 +45,7 @@ test.describe('Comments in folded code (#317)', () => {
 
     await loadPage(page);
 
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // The comment should NOT be in the outdated section
@@ -83,7 +83,7 @@ test.describe('Comments in folded code (#317)', () => {
     await panelCards.first().click();
 
     // The inline comment card should be visible and highlighted at its correct position
-    const section = serverSection(page);
+    const section = await serverSection(page);
     const inlineCard = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
     await expect(inlineCard).toBeVisible();
     await expect(inlineCard).toHaveClass(/comment-card-highlight/);

@@ -11,7 +11,7 @@ test.describe('Mobile diff layout (F5)', () => {
   });
 
   test('code file renders in unified diff mode, not split', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Unified diff container should be present
@@ -29,7 +29,7 @@ test.describe('Mobile diff layout (F5)', () => {
     // max-width:100% overflow:hidden on .diff-content span) constrains each
     // span's reported width to its container. This test catches a regression
     // of that fix more reliably than asserting CSS properties.
-    await expect(goSection(page).locator('.diff-container')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container')).toBeVisible();
     const widths = await page.evaluate(() => {
       const sec = document.querySelector('.diff-container');
       if (!sec) return null;

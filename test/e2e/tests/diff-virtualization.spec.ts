@@ -1,11 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import {
-  addComment,
-  clearAllComments,
-  dragBetween,
-  goSection,
-  loadPage,
-} from './helpers';
+import { addComment, clearAllComments, dragBetween, goSection, loadPage } from './helpers';
 
 /**
  * Always-on code-diff virtualization safety net.
@@ -21,7 +15,7 @@ async function focusServerGo(page: Page) {
   const tree = page.locator('.tree-file[data-tree-path="server.go"]');
   await expect(tree).toBeVisible();
   await tree.click();
-  const section = goSection(page);
+  const section = await goSection(page);
   await expect(section).toBeVisible();
   await expect(section.locator('.file-body:not([data-body-deferred])')).toBeVisible({
     timeout: 10_000,
@@ -37,7 +31,7 @@ test.describe('Diff virtualization', () => {
     await loadPage(page);
     await focusServerGo(page);
 
-    const split = goSection(page).locator('.diff-container.split.virtualized');
+    const split = (await goSection(page)).locator('.diff-container.split.virtualized');
     await expect(split).toBeVisible();
     await expect(split).toHaveClass(/diff-virtual-surface|virtualized/);
 
@@ -46,7 +40,7 @@ test.describe('Diff virtualization', () => {
     expect(hasController).toBe(true);
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    const unified = goSection(page).locator('.diff-container.unified.virtualized');
+    const unified = (await goSection(page)).locator('.diff-container.unified.virtualized');
     await expect(unified).toBeVisible();
     expect(await unified.evaluate((el) => !!el._critVirtualWindow)).toBe(true);
   });
@@ -61,7 +55,7 @@ test.describe('Diff virtualization', () => {
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
     await focusServerGo(page);
 
-    const section = goSection(page);
+    const section = await goSection(page);
     const card = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
     await expect(card).toBeVisible({ timeout: 5_000 });
 
@@ -81,7 +75,7 @@ test.describe('Diff virtualization', () => {
   test('open draft form stays filled after split↔unified toggle', async ({ page }) => {
     await loadPage(page);
     await focusServerGo(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
     // Same affordance as drag-selection: hover addition side → click comment btn.
     const additionSide = section.locator('.diff-split-side.addition').first();
@@ -96,21 +90,21 @@ test.describe('Diff virtualization', () => {
     await textarea.fill('Pinned draft across remount');
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(goSection(page).locator('.diff-container.unified.virtualized')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container.unified.virtualized')).toBeVisible();
 
     const restored = page.locator('.comment-form textarea');
     await expect(restored).toBeVisible({ timeout: 5_000 });
     await expect(restored).toHaveValue('Pinned draft across remount');
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="split"]').click();
-    await expect(goSection(page).locator('.diff-container.split.virtualized')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container.split.virtualized')).toBeVisible();
     await expect(page.locator('.comment-form textarea')).toHaveValue('Pinned draft across remount');
   });
 
   test('gutter drag still opens a multi-line form on a virtualized split diff', async ({ page }) => {
     await loadPage(page);
     await focusServerGo(page);
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section.locator('.diff-container.split.virtualized')).toBeVisible();
 
     const additionSides = section.locator('.diff-split-side.addition');

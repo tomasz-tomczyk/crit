@@ -5,12 +5,12 @@ test.describe('File Picker Autocomplete — File Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
   });
 
   test('file picker opens and shows files in file mode', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     const gutterBtn = section.locator('.line-comment-gutter').first();

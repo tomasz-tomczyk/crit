@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileSection } from './helpers';
 
-function serverSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+async function serverSection(page: Page) {
+  return await fileSection(page, 'server.go');
 }
 
 // ============================================================
@@ -15,7 +15,7 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
   });
 
   test('small gaps between hunks are auto-expanded (no spacer visible)', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // server.go has gaps of 8 and 5 lines between its 3 hunks — both ≤ 8,
@@ -24,7 +24,7 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
   });
 
   test('auto-expanded context lines render with correct line numbers', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // After auto-expansion, the context lines between hunks should be visible
@@ -56,7 +56,7 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
   });
 
   test('auto-expanded context lines are commentable (gutter + button works)', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // Find a context line in the expanded gap area and verify commenting works
@@ -93,7 +93,7 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
   });
 
   test('only one hunk header remains after merging all small gaps', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // With all gaps ≤ 8, all hunks merge into one contiguous block.
@@ -113,18 +113,18 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
     // Wait for the unified container inside server.go (which is always expanded).
     // deleted.txt also has a .diff-container.unified but is inside a collapsed
     // <details> (status=deleted), so .first() would pick the hidden one.
-    await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect((await serverSection(page)).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('small gaps are auto-expanded in unified mode (no spacer)', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     await expect(section.locator('.diff-spacer:not(.diff-spacer-leading):not(.diff-spacer-trailing)')).toHaveCount(0);
   });
 
   test('auto-expanded context lines in unified mode have correct line numbers', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // Find a context line (not addition, not deletion)
@@ -140,7 +140,7 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
   });
 
   test('auto-expanded context lines are commentable in unified mode', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
@@ -175,7 +175,7 @@ test.describe('Large gaps still show spacer', () => {
     const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
     await treeEntry.click();
 
-    const routesSection = page.locator('#file-section-routes\\.go');
+    const routesSection = await fileSection(page, 'routes.go');
     const spacer = routesSection.locator('.diff-spacer').first();
     await expect(spacer).toBeVisible();
     // Spacer now embeds the @@ hunk header instead of "unchanged line" text
@@ -190,7 +190,7 @@ test.describe('Auto-expand does not break other files', () => {
   });
 
   test('handler.js (new file, single hunk) renders correctly', async ({ page }) => {
-    const handlerSection = page.locator('#file-section-handler\\.js');
+    const handlerSection = await fileSection(page, 'handler.js');
     await expect(handlerSection).toBeVisible();
 
     // New file should have all addition lines, no spacers
@@ -200,7 +200,7 @@ test.describe('Auto-expand does not break other files', () => {
   });
 
   test('auto-expanded file still renders hunk header in spacer', async ({ page }) => {
-    const section = serverSection(page);
+    const section = await serverSection(page);
     await expect(section).toBeVisible();
 
     // After merging, standalone hunk headers are suppressed — the leading

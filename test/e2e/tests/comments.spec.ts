@@ -12,7 +12,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('gutter opens a focused comment form for the exact source line', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     const startLine = await lineBlock.getAttribute('data-start-line');
     const endLine = await lineBlock.getAttribute('data-end-line');
@@ -36,7 +36,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('submitting comment creates a comment card', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -56,7 +56,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('comment with fenced code block gets syntax highlighting', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -74,7 +74,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('comment with URL renders styled link', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -93,7 +93,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('Ctrl+Enter submits comment', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -109,7 +109,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('editing a comment opens editor with existing text and saves changes', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Create a comment first
     const lineBlock = section.locator('.line-block').first();
@@ -140,7 +140,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('Ctrl+Enter saves edits to a comment', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Create a comment first
     const lineBlock = section.locator('.line-block').first();
@@ -165,7 +165,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('deleting a comment removes it and updates count', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const countEl = page.locator('#commentCount');
 
     // Create a comment
@@ -187,7 +187,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('pressing Escape closes the comment form', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -203,7 +203,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('comment body renders markdown (bold, links, code)', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -236,7 +236,7 @@ test.describe('Diff Comments — Split Mode', () => {
   });
 
   test('hovering a diff line shows the + button', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
     await expect(section).toBeVisible();
 
     // Find an addition line in split mode
@@ -249,7 +249,7 @@ test.describe('Diff Comments — Split Mode', () => {
   });
 
   test('clicking + button on a diff line opens comment form', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const additionSide = section.locator('.diff-split-side.addition').first();
     await additionSide.hover();
@@ -262,7 +262,7 @@ test.describe('Diff Comments — Split Mode', () => {
   });
 
   test('submitting a diff comment creates a comment card', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const additionSide = section.locator('.diff-split-side.addition').first();
     await additionSide.hover();
@@ -281,7 +281,7 @@ test.describe('Diff Comments — Split Mode', () => {
 
   test('comments work on addition lines in split mode', async ({ page }) => {
     // Use handler.js which is an all-addition file
-    const section = jsSection(page);
+    const section = await jsSection(page);
     await expect(section).toBeVisible();
 
     const additionSide = section.locator('.diff-split-side.addition').first();
@@ -299,7 +299,7 @@ test.describe('Diff Comments — Split Mode', () => {
   });
 
   test('diff comment body renders markdown', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const additionSide = section.locator('.diff-split-side.addition').first();
     await additionSide.hover();
@@ -329,11 +329,11 @@ test.describe('Diff Comments — Unified Mode', () => {
     // Wait for the unified container inside server.go (which is always expanded).
     // deleted.txt also has a .diff-container.unified but is inside a collapsed
     // <details> (status=deleted), so .first() would pick the hidden one.
-    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect((await goSection(page)).locator('.diff-container.unified')).toBeVisible();
   });
 
   test('comments work on addition lines in unified mode', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const additionLine = section.locator('.diff-container.unified .diff-line.addition').first();
     await expect(additionLine).toBeVisible();
@@ -352,7 +352,7 @@ test.describe('Diff Comments — Unified Mode', () => {
   });
 
   test('comment form in unified mode has capped max-width', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
 
     const additionLine = section.locator('.diff-container.unified .diff-line.addition').first();
     await additionLine.hover();
@@ -381,7 +381,7 @@ test.describe('Cross-File Comments', () => {
     await loadPage(page);
 
     // Open comment form on server.go (diff file)
-    const serverSection = goSection(page);
+    const serverSection = await goSection(page);
     const additionSide = serverSection.locator('.diff-split-side.addition').first();
     await additionSide.hover();
     await additionSide.locator('.diff-comment-btn').click();
@@ -393,7 +393,7 @@ test.describe('Cross-File Comments', () => {
     await serverSection.locator('.comment-form textarea').fill('first');
 
     // Now open comment form on handler.js
-    const handlerSection = jsSection(page);
+    const handlerSection = await jsSection(page);
     const jsAdditionSide = handlerSection.locator('.diff-split-side.addition').first();
     await jsAdditionSide.hover();
     await jsAdditionSide.locator('.diff-comment-btn').click();
@@ -497,7 +497,7 @@ test.describe('Author Badges', () => {
 
     await loadPage(page);
 
-    const section = goSection(page);
+    const section = await goSection(page);
     const badge = section.locator('.comment-author-badge');
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('@reviewer1');
