@@ -483,6 +483,17 @@
       var gm = document.createElement('script'); gm.src = 'crit-glob-match.js'; gm.async = false; document.body.appendChild(gm);
       // Tab title badge when a round becomes ready while the tab is hidden.
       var tr = document.createElement('script'); tr.src = 'crit-tab-ready.js'; tr.async = false; document.body.appendChild(tr);
+      // @pierre/diffs (window.PierreDiffs) — split ESM bundle; module scripts
+      // don't join the async=false ordering above, so app.js awaits this
+      // promise before its first render. Resolves null if it fails to load.
+      window.critPierreReady = new Promise(function(resolve) {
+        var pm = document.createElement('script'); pm.type = 'module'; pm.src = 'pierre/pierre-diffs.js';
+        pm.onload = function() { resolve(window.PierreDiffs || null); };
+        pm.onerror = function() { resolve(null); };
+        document.body.appendChild(pm);
+      });
+      var pa = document.createElement('script'); pa.src = 'crit-pierre-adapter.js'; pa.async = false; document.body.appendChild(pa);
+      var pv = document.createElement('script'); pv.src = 'crit-pierre-view.js'; pv.async = false; document.body.appendChild(pv);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();

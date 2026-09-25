@@ -111,8 +111,6 @@
   --crit-diff-add-line-bg:  rgba(86, 211, 100, 0.18);
   --crit-diff-del-bg:       rgba(247, 118, 142, 0.06);
   --crit-diff-del-line-bg:  rgba(247, 118, 142, 0.14);
-  --crit-diff-add-gutter:   rgba(86, 211, 100, 0.12);
-  --crit-diff-del-gutter:   rgba(247, 118, 142, 0.08);
   --crit-diff-word-add-bg:  rgba(63, 185, 80, 0.18);
   --crit-diff-word-del-bg:  rgba(248, 81, 73, 0.18);
 
@@ -336,8 +334,6 @@
     --crit-diff-add-line-bg:  #dafbe1;
     --crit-diff-del-bg:       #ffebe9;
     --crit-diff-del-line-bg:  #ffebe9;
-    --crit-diff-add-gutter:   #aceebb;
-    --crit-diff-del-gutter:   #ffcecb;
     --crit-diff-word-add-bg:  #aceebb;
     --crit-diff-word-del-bg:  #ffcecb;
 
@@ -555,8 +551,6 @@
   --crit-diff-add-line-bg:  rgba(86, 211, 100, 0.18);
   --crit-diff-del-bg:       rgba(247, 118, 142, 0.06);
   --crit-diff-del-line-bg:  rgba(247, 118, 142, 0.14);
-  --crit-diff-add-gutter:   rgba(86, 211, 100, 0.12);
-  --crit-diff-del-gutter:   rgba(247, 118, 142, 0.08);
   --crit-diff-word-add-bg:  rgba(63, 185, 80, 0.18);
   --crit-diff-word-del-bg:  rgba(248, 81, 73, 0.18);
 
@@ -773,8 +767,6 @@
   --crit-diff-add-line-bg:  #dafbe1;
   --crit-diff-del-bg:       #ffebe9;
   --crit-diff-del-line-bg:  #ffebe9;
-  --crit-diff-add-gutter:   #aceebb;
-  --crit-diff-del-gutter:   #ffcecb;
   --crit-diff-word-add-bg:  #aceebb;
   --crit-diff-word-del-bg:  #ffcecb;
 

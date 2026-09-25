@@ -321,8 +321,8 @@ test('production Story callers thread side and display mapping into scroll routi
   );
   assert.match(
     appJs,
-    /data-diff-side="['"]\s*\+\s*displayAnchor\.side/,
-    'Story scroll target must use the translated display side'
+    /pierreLineElement\(group,\s*displayAnchor\.line,\s*displayAnchor\.side\)/,
+    'Story scroll target must use the translated display line and side'
   );
   assert.match(
     appJs,

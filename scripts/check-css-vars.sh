@@ -6,7 +6,8 @@ set -e
 
 # ── Allowlists ──────────────────────────────────────────────────────────────
 
-# Variables set dynamically via JS or intentionally unreferenced
+# Variables set dynamically via JS or intentionally unreferenced.
+# --diffs-* are read by @pierre/diffs inside its shadow root.
 DEAD_VAR_ALLOWLIST="
 --font-sans --header-height --file-tree-width --comments-panel-width --story-rail-width --p
 --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out
@@ -16,6 +17,7 @@ DEAD_VAR_ALLOWLIST="
 --crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow
 --crit-live-reanchor-active-outline
 --crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg
+--diffs-font-family
 "
 
 # Variables that legitimately exist in only some theme blocks (e.g. hljs vars

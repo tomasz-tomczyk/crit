@@ -25,7 +25,11 @@ check_file() {
   local f="$ROOT/$rel"
   if [ ! -f "$f" ]; then echo "MISS  $rel (not found)"; FAIL=1; return; fi
   local size
-  size=$(gzip -9 -c "$f" | wc -c | tr -d ' ')
+  # Precompressed assets (web/pierre/*.gz) are served as stored.
+  case "$rel" in
+    *.gz) size=$(wc -c < "$f" | tr -d ' ') ;;
+    *) size=$(gzip -9 -c "$f" | wc -c | tr -d ' ') ;;
+  esac
   if [ "$size" -gt "$cap" ]; then
     echo "OVER  $rel gzip=${size}B cap=${cap}B (+$((size - cap))B)"
     FAIL=1
@@ -47,6 +51,15 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "--web-only" ]; then
     FAIL=1
   else
     echo "ok    web/*.js (total) gzip=${total}B cap=${total_cap}B"
+  fi
+
+  pierre_cap=$(get 'b.pierreDirBytes')
+  pierre_total=$(cat "$ROOT"/web/pierre/*.gz | wc -c | tr -d ' ')
+  if [ "$pierre_total" -gt "$pierre_cap" ]; then
+    echo "OVER  web/pierre (total, precompressed) ${pierre_total}B cap=${pierre_cap}B (+$((pierre_total - pierre_cap))B)"
+    FAIL=1
+  else
+    echo "ok    web/pierre (total, precompressed) ${pierre_total}B cap=${pierre_cap}B"
   fi
 
   echo "== module globs (gzip) =="

@@ -13,4 +13,4 @@ f263b05369e050fa175d4ecb9c9358eb4253602d510297adfb31df48b2f1c4d5 web/dompurify.m
 581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8 web/mermaid.min.js mermaid@11.17.2 dist/mermaid.min.js copy
 3ea1e33c2366ea9fe4b228dcd54444e3c9f1e68f6bfdb2c0ced9287d95b78b41 web/highlight.min.js @highlightjs/cdn-assets@11.12.0,highlightjs-heex@1.0.1,highlightjs-vue@1.0.0,highlightjs-astro-js@1.0.0 - generated
 85535fef664d09befcafe5d45eb2fcaa83d84eb91058c68aa8f5e2a58aefc662 web/diff-match-patch.min.js @sanity/diff-match-patch@3.2.0,esbuild@0.28.2 - generated
-d0ca087263ab92aae0680546735474f1f89bed88ab2c05f2432af0681053ba07 web/pierre @pierre/diffs@1.5.1,shiki@4.4.3,esbuild@0.28.2 - generated
+c6821f0c9c2f540bef4aae2d07060e454045f5a1a47906bc949b9f7c01fcb7f8 web/pierre @pierre/diffs@1.5.1,shiki@4.4.3,esbuild@0.28.2 - generated

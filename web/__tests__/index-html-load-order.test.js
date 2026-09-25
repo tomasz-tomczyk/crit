@@ -45,6 +45,9 @@ test('index.html non-live branch sets async=false on dynamically inserted script
   assert.ok(scriptDecls.length > 0, 'expected at least one script tag in the non-live branch');
 
   for (const name of scriptDecls) {
+    // Module scripts (the @pierre/diffs bundle) never join async=false
+    // ordering; app.js awaits window.critPierreReady instead.
+    if (new RegExp(`${name}\\.type\\s*=\\s*'module'`).test(elseBlock)) continue;
     const asyncRe = new RegExp(`${name}\\.async\\s*=\\s*false`);
     assert.match(
       elseBlock,
@@ -52,4 +55,14 @@ test('index.html non-live branch sets async=false on dynamically inserted script
       `script var "${name}" must set ${name}.async = false to preserve execution order`
     );
   }
+});
+
+test('index.html non-live branch loads the Pierre bundle as a module and exposes a readiness promise', () => {
+  const elseBlock = getElseBlock();
+  assert.match(elseBlock, /window\.critPierreReady\s*=\s*new Promise/, 'app.js awaits window.critPierreReady before rendering');
+  assert.match(elseBlock, /\.type\s*=\s*'module';\s*\w+\.src\s*=\s*'pierre\/pierre-diffs\.js'/, 'Pierre bundle loads as an ES module');
+  const adapter = elseBlock.indexOf("'crit-pierre-adapter.js'");
+  const view = elseBlock.indexOf("'crit-pierre-view.js'");
+  const app = elseBlock.indexOf("'app.js'");
+  assert.ok(adapter > 0 && view > adapter && app > view, 'adapter → view → app.js order');
 });

@@ -73,6 +73,7 @@ const trimShiki = {
 const ENTRY = `\
 import {
   CodeView,
+  FileDiff,
   processFile,
   parseDiffFromFile,
   getFiletypeFromFileName,
@@ -86,6 +87,7 @@ import {
 
 window.PierreDiffs = {
   CodeView,
+  FileDiff,
   processFile,
   parseDiffFromFile,
   getFiletypeFromFileName,

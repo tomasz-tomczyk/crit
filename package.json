@@ -18,7 +18,7 @@
     "verify-assets": "node scripts/verify-vendored-assets.mjs",
     "verify-assets:installed": "node scripts/verify-vendored-assets.mjs --installed",
     "verify-assets:npm": "node scripts/verify-vendored-assets.mjs --npm",
-    "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/vue-astro-highlight.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node web/test-diff-render.mjs",
+    "test:frontend": "node web/__tests__/markdown-patch.test.mjs && node web/__tests__/vue-astro-highlight.test.mjs && node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node --test web/__tests__/crit-pierre-adapter.test.js web/__tests__/crit-pierre-view.test.js web/__tests__/index-html-load-order.test.js",
     "test:perf": "node --test web/__tests__/perf/*.perf.test.mjs"
   },
   "devDependencies": {

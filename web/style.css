@@ -959,12 +959,6 @@ body {
 body.visual-mode .line-block.focused {
   box-shadow: inset 3px 0 0 var(--crit-visual-accent);
 }
-body.visual-mode .diff-container.unified .diff-line.focused {
-  border-left-color: var(--crit-visual-accent);
-}
-body.visual-mode .diff-split-row.focused .diff-split-side {
-  border-left-color: var(--crit-visual-accent);
-}
 
 .line-block.line-block-added {
   box-shadow: inset 2px 0 0 var(--crit-green);
@@ -3750,8 +3744,6 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
   .diff-mode-toggle { display: none !important; }
 
   /* Force split rows to stack vertically on mobile */
-  .diff-split-row { flex-direction: column; }
-  .diff-split-side.left { border-right: none; border-bottom: 1px solid var(--crit-border); }
 
   /* Wrap long code lines on mobile instead of per-line scrolling */
   .line-content.code-line {
@@ -3766,8 +3758,13 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
   /* Clip the comments panel when it slides past the right edge (margin-right:-W).
      Without this the off-canvas box extends scrollWidth and shows a horizontal
      scrollbar. clip (not hidden) avoids creating a scroll container that can
-     break position:sticky descendants. */
-  overflow-x: clip;
+     break position:sticky descendants.
+     Clip BOTH axes: single-axis overflow-x: clip on an element this tall makes
+     Chrome stop painting and hit-testing everything below ~4,194,304px (2^22)
+     of the document — the whole page below the header, sticky sidebar
+     included, goes white on 2k+ file reviews. The vertical clip is free here:
+     .main-layout ends where the page does. */
+  overflow: clip;
 }
 .main-content {
   flex: 1;
@@ -3803,7 +3800,7 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
 /* Comments panel collapsed — slide off the right edge.
    margin-right:-W zeros the flex contribution so main-content expands, and
    parks the box past the container's right edge (mirrored by the file tree's
-   margin-left:-W on the left). .main-layout { overflow-x: clip } prevents that
+   margin-left:-W on the left). .main-layout { overflow: clip } prevents that
    off-canvas box from creating a page scrollbar.
    (margin-left:-W was tried first; it collapses space without moving the panel,
    so there was nothing to animate.) */
@@ -4963,45 +4960,7 @@ html[data-theme="light"] .toggle-btn.active {
 }
 
 /* ===== Diff Shared Styles ===== */
-.diff-container {
-  font-family: var(--crit-font-code);
-  font-size: 13px;
-  line-height: 20px;
-  border-bottom: 1px solid var(--crit-border);
-}
-.diff-hunk-header {
-  padding: 6px 24px 6px 0;
-  font-size: 12px;
-  color: var(--crit-editor-fg-muted);
-  background: var(--crit-brand-subtle);
-  border-top: 1px solid var(--crit-border);
-  border-bottom: 1px solid var(--crit-border);
-  display: flex;
-  align-items: center;
-}
-.diff-hunk-header .hunk-gutter { min-width: 100px; text-align: center; color: var(--crit-editor-fg-muted); }
-.diff-hunk-header .hunk-text { color: var(--crit-brand); font-weight: 500; }
-.diff-gutter-num {
-  min-width: 50px;
-  padding: 0 8px;
-  text-align: right;
-  color: var(--crit-editor-fg-muted);
-  font-size: 12px;
-  flex-shrink: 0;
-}
 /* Dedicated comment gutter column between line numbers and content */
-.diff-comment-gutter {
-  position: relative;
-  width: 24px;
-  margin-left: -12px;
-  margin-right: -12px;
-  z-index: 5;
-  flex-shrink: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 1px;
-}
 /* Blue + button in the diff comment gutter. display:none by default so
    it never renders on touch (the touch affordance is the F3 ::before
    `+` prefix on .diff-gutter-num). Desktop unhides it via
@@ -5009,218 +4968,29 @@ html[data-theme="light"] .toggle-btn.active {
    reveal rules. Without this guard, touch tap can briefly flash the
    blue button while .drag-endpoint is set during the pointerdown ->
    form-render gap. */
-.diff-comment-btn {
-  display: none;
-}
 @media (pointer: fine) {
-  .diff-comment-btn {
-    display: flex;
-    width: 20px;
-    height: 18px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 3px;
-    border: none;
-    background: var(--crit-brand);
-    color: var(--crit-fg-on-brand);
-    font-size: 14px;
-    font-weight: 700;
-    cursor: pointer;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.1s;
-    padding: 0;
-    line-height: 1;
-  }
   /* Show the + button when hovering the diff line or split side */
-  .diff-line:hover .diff-comment-btn,
-  .diff-split-side:hover .diff-comment-btn { opacity: 1; pointer-events: auto; }
   /* During drag: show the normal + button at endpoints, hide it on in-between lines */
-  .diff-comment-gutter.drag-endpoint .diff-comment-btn { opacity: 1; pointer-events: none; z-index: 2; }
-  .diff-comment-gutter.drag-range:not(.drag-endpoint) .diff-comment-btn { opacity: 0; pointer-events: none; }
 }
 
 /* Blue connecting line between endpoints */
-.diff-comment-gutter.drag-range {
-  position: relative;
-}
-.diff-comment-gutter.drag-range::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--crit-brand);
-}
-.diff-comment-gutter.drag-range-start::after { top: 10px; }
-.diff-comment-gutter.drag-range-end::after { bottom: calc(100% - 10px); }
-.diff-comment-gutter.drag-range-start.drag-range-end::after { display: none; }
-.diff-content {
-  flex: 1;
-  min-width: 0;
-  padding: 0 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .diff-word-add { background: var(--crit-diff-word-add-bg); border-radius: 2px; padding: 0 1px; }
 .diff-word-del { background: var(--crit-diff-word-del-bg); border-radius: 2px; padding: 0 1px; }
 /* GitHub-style expand spacer: icon gutter on left, hunk header text on right */
-.diff-spacer {
-  display: flex;
-  align-items: stretch;
-  font-size: 12px;
-  color: var(--crit-editor-fg-muted);
-  background: var(--crit-editor-bg-card);
-  border-top: 1px solid var(--crit-border);
-  border-bottom: 1px solid var(--crit-border);
-  min-height: 0;
-  cursor: default;
-}
 
 /* Left column: narrow gutter containing vertically stacked expand buttons */
-.diff-spacer .expand-gutter {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100px;
-  flex-shrink: 0;
-  gap: 0;
-  background: var(--crit-brand-subtle);
-}
 
 /* Individual expand button in the gutter */
-.diff-spacer .expand-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--crit-editor-fg-muted);
-  cursor: pointer;
-  opacity: 0.5;
-  transition: opacity var(--crit-dur-fast), color var(--crit-dur-fast), background var(--crit-dur-fast);
-}
-.diff-spacer .expand-btn:hover {
-  opacity: 1;
-  color: var(--crit-brand);
-  background: var(--crit-brand-bg);
-}
-.diff-spacer .expand-btn:focus-visible {
-  opacity: 1;
-  outline: 2px solid var(--crit-brand);
-  outline-offset: -2px;
-}
-.diff-spacer .expand-btn svg { width: 16px; height: 16px; }
 
 /* On spacer hover, make all buttons more visible */
-.diff-spacer:hover .expand-btn { opacity: 0.8; }
-.diff-spacer:hover .expand-btn:hover { opacity: 1; }
 
 /* Right column: hunk header text */
-.diff-spacer .spacer-hunk-text {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  font-family: var(--crit-font-mono);
-  font-size: 12px;
-  color: var(--crit-brand);
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
 
 /* Single-button spacers (leading/trailing) are compact */
-.diff-spacer-leading {
-  border-top: none;
-}
-.diff-spacer-trailing {
-  border-bottom: none;
-}
-.diff-spacer-leading .expand-gutter,
-.diff-spacer-trailing .expand-gutter {
-  justify-content: center;
-}
 
 /* ===== Unified Diff (interleaved lines) ===== */
-.diff-container.unified .diff-line {
-  display: flex;
-  border-left: 3px solid transparent;
-  position: relative;
-}
-.diff-container.unified .diff-line.addition { background: var(--crit-diff-add-bg); }
-.diff-container.unified .diff-line.deletion { background: var(--crit-diff-del-bg); }
-.diff-container.unified .diff-line.has-comment { background: var(--crit-comment-range-bg); }
-.diff-container.unified .diff-line.focused {
-  background: var(--crit-line-focus-bg);
-  border-left-color: var(--crit-brand);
-}
-.diff-container.unified .diff-line.focused .diff-gutter-num:first-child,
-.diff-container.unified .diff-line.focused .diff-gutter-num:last-child {
-  background: var(--crit-line-focus-bg);
-}
-.diff-container.unified .diff-line.selected,
-.diff-container.unified .diff-line.form-selected { background: var(--crit-brand-subtle); }
-.diff-container.unified .diff-gutter {
-  display: flex;
-  flex-shrink: 0;
-  user-select: none;
-}
-.diff-container.unified .diff-gutter-num:first-child { border-right: 1px solid var(--crit-border); }
-.diff-container.unified .addition .diff-gutter-num:last-child { background: var(--crit-diff-add-gutter); }
-.diff-container.unified .deletion .diff-gutter-num:first-child { background: var(--crit-diff-del-gutter); }
-.diff-container.unified .has-comment .diff-gutter-num:first-child,
-.diff-container.unified .has-comment .diff-gutter-num:last-child { background: transparent; }
-.diff-container.unified .diff-gutter-sign {
-  min-width: 20px;
-  text-align: center;
-  font-weight: 600;
-  color: var(--crit-editor-fg-muted);
-}
-.diff-container.unified .addition .diff-gutter-sign { color: var(--crit-green); }
-.diff-container.unified .deletion .diff-gutter-sign { color: var(--crit-red); }
-.diff-container.unified .comment-block { padding-left: 120px; margin: 0; max-width: var(--content-width); }
-.diff-container.unified .comment-form-wrapper { padding-left: 120px; margin: 0; max-width: var(--content-width); }
 
 /* ===== Split Diff (side-by-side) ===== */
-.diff-split-row {
-  display: flex;
-  border-bottom: none;
-}
-.diff-split-side {
-  flex: 1;
-  display: flex;
-  min-width: 0;
-  border-left: 3px solid transparent;
-}
-.diff-split-side.left { border-right: 1px solid var(--crit-border); }
-.diff-split-side.deletion { background: var(--crit-diff-del-bg); }
-.diff-split-side.addition { background: var(--crit-diff-add-bg); }
-.diff-split-side.has-comment { background: var(--crit-comment-range-bg); }
-.diff-split-side.empty { background: var(--crit-editor-bg-card); }
-.diff-split-side.selected,
-.diff-split-side.form-selected { background: var(--crit-brand-subtle); }
-.diff-split-row.focused .diff-split-side {
-  background: var(--crit-line-focus-bg);
-  border-left-color: var(--crit-brand);
-}
-.diff-split-row.focused .diff-split-side .diff-gutter-num { background: var(--crit-line-focus-bg); }
-.diff-split-side .diff-gutter-num { min-width: 44px; }
-.diff-split-side.deletion .diff-gutter-num { background: var(--crit-diff-del-gutter); }
-.diff-split-side.addition .diff-gutter-num { background: var(--crit-diff-add-gutter); }
-.diff-split-side.has-comment .diff-gutter-num { background: transparent; }
-.diff-container.split .comment-block { padding-left: 48px; width: 50%; max-width: none; margin: 0; }
-.diff-container.split .comment-form-wrapper { padding-left: 48px; width: 50%; max-width: none; margin: 0; }
-.diff-container.split .comment-block.diff-comment-right,
-.diff-container.split .comment-form-wrapper.diff-comment-right { margin-left: 50%; }
 
 /* Large diff placeholder */
 .diff-deleted-placeholder {
@@ -5418,25 +5188,6 @@ html[data-theme="light"] .toggle-btn.active {
 /* Hide drifted context when comment card is collapsed */
 .comment-card.collapsed .drifted-context {
   display: none;
-}
-.diff-large-placeholder {
-  padding: 48px 24px;
-  text-align: center;
-  color: var(--crit-editor-fg-muted);
-  font-size: 14px;
-  border-top: 1px solid var(--crit-border);
-}
-.diff-large-placeholder p { margin: 0 0 8px 0; }
-.diff-large-placeholder .diff-large-meta {
-  font-family: var(--crit-font-mono);
-  font-size: 12px;
-  color: var(--crit-editor-fg-muted);
-  margin-bottom: 16px;
-}
-.diff-no-changes {
-  padding: 16px 24px;
-  color: var(--crit-editor-fg-muted);
-  font-style: italic;
 }
 
 /* ===== Mini Toast =====
@@ -6263,15 +6014,8 @@ html[data-theme="light"] .toggle-btn.active {
      column 40. Converting these spans to inline-block + max-width:100% +
      overflow:hidden constrains each span's bounding rect to its container,
      which stops Chrome from expanding the scrollable viewport. */
-  .diff-container,
   .diff-view,
   .diff-view-unified { overflow-x: auto; }
-  .diff-content { overflow: clip; }
-  .diff-content span {
-    display: inline-block;
-    max-width: 100%;
-    overflow: hidden;
-  }
 
   /* File header on mobile: two-row layout.
      Row 1: [chevron] [icon] [name ………………] [comment-btn]
@@ -6313,18 +6057,6 @@ html[data-theme="light"] .toggle-btn.active {
      so they sit aligned with the code content. On a 375px viewport that
      consumes most of the row, crushing the textarea. Force full-row width
      on mobile — the gutter-alignment was a desktop affordance. */
-  .diff-container.unified .comment-block,
-  .diff-container.unified .comment-form-wrapper,
-  .diff-container.split .comment-block,
-  .diff-container.split .comment-form-wrapper {
-    padding-left: 0;
-    width: auto;
-    max-width: none;
-  }
-  .diff-container.split .comment-block.diff-comment-right,
-  .diff-container.split .comment-form-wrapper.diff-comment-right {
-    margin-left: 0;
-  }
 }
 
 /* Mobile file picker — shown instead of the hidden file-tree sidebar. */
@@ -6431,10 +6163,6 @@ html[data-theme="light"] .toggle-btn.active {
     min-height: 44px;
     padding: 12px;
   }
-  .diff-spacer .expand-btn {
-    min-width: 44px;
-    min-height: 44px;
-  }
 }
 
 /* F3: add-comment affordance for touch.
@@ -6453,8 +6181,7 @@ html[data-theme="light"] .toggle-btn.active {
    trigger. Making them actually tappable is F4's job (involves
    pointer-events and touch-action). */
 @media (pointer: coarse) {
-  .line-num::before,
-  .diff-gutter-num::before {
+  .line-num::before {
     content: '+';
     display: inline-block;
     width: 1.2ch;
@@ -6468,8 +6195,7 @@ html[data-theme="light"] .toggle-btn.active {
        .diff-no-comment class shows a number but isn't tappable.
      - Diff view: empty .diff-gutter-num cells (no line number on this
        side) shouldn't show the cue either. */
-  .line-block:has(.line-comment-gutter.diff-no-comment) .line-num::before,
-  .diff-gutter-num:empty::before {
+  .line-block:has(.line-comment-gutter.diff-no-comment) .line-num::before {
     display: none;
   }
 
@@ -6479,8 +6205,6 @@ html[data-theme="light"] .toggle-btn.active {
      are sometimes silently dropped. .diff-gutter-num is the touch tap
      target (an event delegate on .diff-container routes taps to the
      hidden .diff-comment-btn that owns the form-open logic). */
-  .diff-gutter-num { touch-action: none; }
-  .diff-comment-gutter { touch-action: none; }
   .line-comment-gutter { touch-action: none; }
 }
 
@@ -6825,7 +6549,6 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 }
 .crit-story-elsewhere:hover { color: var(--crit-brand); border-color: var(--crit-brand-subtle); }
 /* The diff renderer output nests directly under the group; no extra chrome */
-.crit-story-file-group .diff-container { border-left: 1px solid var(--crit-border); border-right: 1px solid var(--crit-border); border-bottom: 1px solid var(--crit-border); border-radius: 0 0 var(--crit-r-md) var(--crit-r-md); }
 .crit-story-file-group__empty { padding: 14px; color: var(--crit-fg-muted); font-size: 12.5px; }
 
 /* Chapter footer — next-chapter nudge */
@@ -6881,4 +6604,31 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   .crit-story-toc__item,
   .crit-story-next { min-height: 44px; }
   .crit-story-chapter__mark { min-height: 32px; }
+}
+
+/* ===== Pierre review view (git mode) =====
+   @pierre/diffs CodeView owns its own scroll container, so the file list
+   becomes a viewport-height pane instead of scrolling the window. The review
+   conversation is moved into CodeView's (non-virtualized) list header. */
+body.pierre-review .main-content {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-height, 49px));
+  min-height: 0;
+}
+body.pierre-review #filesContainer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  --diffs-font-family: var(--crit-font-code, var(--crit-font-mono));
+}
+.pierre-file-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+.pierre-file-header.collapsed .file-header-chevron {
+  transform: rotate(-90deg);
 }
