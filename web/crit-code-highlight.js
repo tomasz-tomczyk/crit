@@ -3,8 +3,8 @@
 
   // Syntax highlighting for code outside Pierre's diff/file surfaces: fenced
   // blocks in rendered markdown documents and in comments. Tokenization runs
-  // in Pierre's worker pool (the same Shiki grammars and pierre-light /
-  // pierre-dark themes as the diffs), so Crit ships one highlighter and a
+  // in Pierre's worker pool (the same Shiki grammars and themes as the
+  // diffs), so Crit ships one highlighter and a
   // long fence never blocks the main thread.
   //
   //   prime(fences) → Promise   tokenize off-thread, fill the cache

@@ -1,291 +1,94 @@
-import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { test, expect, type Locator, type Page, type APIRequestContext } from '@playwright/test';
+import { clearAllComments, loadPage, goSection, diffLine, openLineComment, type DiffSide } from './helpers';
 
-function serverSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+// server.go has two hunks separated by a small unchanged gap that Crit
+// expands automatically (new lines 12-19 / old lines 9-16). Comments on a
+// line inside that gap exercise the "expanded context" path: the line is
+// not part of any hunk in the raw diff.
+const GAP_LINE: Record<DiffSide, number> = { new: 14, old: 11 };
+const GAP_TEXT = 'w.WriteHeader(status)';
+
+async function serverComments(request: APIRequestContext) {
+  const res = await request.get('/api/file/comments?path=server.go');
+  expect(res.ok()).toBeTruthy();
+  return (await res.json()) as Array<{ start_line: number; end_line: number; side?: string; body: string }>;
 }
 
-// Get the server.go section with context lines already visible.
-// Small gaps (≤ 8 lines) are auto-expanded, so context lines between
-// hunks are rendered immediately without clicking a spacer.
-async function getServerSectionWithContext(page: Page) {
-  const section = serverSection(page);
-  await expect(section).toBeVisible();
-  // Wait for split rows to appear
-  await expect(section.locator('.diff-split-row').first()).toBeVisible();
-  return section;
+// Open a form on the expanded gap line and submit `body`; returns the card.
+async function commentOnGapLine(page: Page, item: Locator, side: DiffSide, body: string): Promise<Locator> {
+  const line = diffLine(item, GAP_LINE[side], side).first();
+  await expect(line).toContainText(GAP_TEXT);
+  await expect(line).toHaveAttribute('data-line-type', /^context/);
+  const form = await openLineComment(page, item, GAP_LINE[side], side);
+  await form.locator('textarea').fill(body);
+  await form.locator('.btn-primary').click();
+  const card = item.locator('.comment-card');
+  await expect(card).toHaveCount(1);
+  await expect(card.locator('.comment-body')).toContainText(body);
+  return card;
 }
 
-// Legacy alias: server.go's small gaps are auto-expanded, so context lines
-// are visible immediately. This just returns the server.go section.
-async function expandFirstSpacer(page: Page) {
-  return getServerSectionWithContext(page);
+async function expectAnchored(request: APIRequestContext, side: DiffSide, body: string) {
+  await expect.poll(async () => (await serverComments(request)).map(c => ({
+    line: c.start_line, end: c.end_line, old: c.side === 'old', body: c.body,
+  }))).toEqual([{ line: GAP_LINE[side], end: GAP_LINE[side], old: side === 'old', body }]);
 }
 
-// Find a context line on the right (new) side — a row where right side
-// is NOT addition and NOT deletion (i.e., a context line with a line number).
-async function findContextRightSide(section: import('@playwright/test').Locator) {
-  const rows = section.locator('.diff-split-row');
-  const count = await rows.count();
-  for (let i = 0; i < count; i++) {
-    const row = rows.nth(i);
-    const right = row.locator('.diff-split-side.right');
-    const hasAddition = await right.evaluate(el => el.classList.contains('addition'));
-    const hasDeletion = await right.evaluate(el => el.classList.contains('deletion'));
-    const hasEmpty = await right.evaluate(el => el.classList.contains('empty'));
-    if (!hasAddition && !hasDeletion && !hasEmpty) {
-      // Verify it has a line number (not empty)
-      const numText = await right.locator('.diff-gutter-num').textContent();
-      if (numText && numText.trim()) {
-        return right;
-      }
-    }
+async function editCard(page: Page, item: Locator, from: string, to: string) {
+  const card = item.locator('.comment-card');
+  await card.hover();
+  await card.locator('.comment-actions button[title="Edit"]').click();
+  const textarea = item.locator('.comment-form textarea');
+  await expect(textarea).toHaveValue(from);
+  await textarea.fill(to);
+  await item.locator('.comment-form .btn-primary').click();
+  await expect(item.locator('.comment-card .comment-body')).toHaveText(to);
+  await expect(item.locator('.comment-form')).toHaveCount(0);
+}
+
+async function deleteCard(item: Locator) {
+  const card = item.locator('.comment-card');
+  await card.hover();
+  await card.locator('.comment-actions .delete-btn').click();
+  await expect(item.locator('.comment-card')).toHaveCount(0);
+}
+
+for (const mode of ['split', 'unified'] as const) {
+  for (const side of (mode === 'split' ? ['new', 'old'] : ['new']) as DiffSide[]) {
+    const label = mode === 'split' ? `Split Mode (${side === 'new' ? 'New' : 'Old'} Side)` : 'Unified Mode';
+    const where = mode === 'split' ? `(${side} side)` : 'in unified mode';
+
+    test.describe(`Expanded Context Comments — ${label}`, () => {
+      test.beforeEach(async ({ page, request }) => {
+        await clearAllComments(request);
+        await loadPage(page);
+        if (mode === 'unified') {
+          await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
+          const item = await goSection(page);
+          await expect(item.locator('code[data-unified]').first()).toBeVisible();
+        }
+      });
+
+      test(`submit comment on expanded context line ${where}`, async ({ page, request }) => {
+        const item = await goSection(page);
+        const body = `Comment on expanded context line ${where}`;
+        await commentOnGapLine(page, item, side, body);
+        await expectAnchored(request, side, body);
+      });
+
+      test(`edit comment on expanded context line ${where}`, async ({ page, request }) => {
+        const item = await goSection(page);
+        await commentOnGapLine(page, item, side, 'Original expanded comment');
+        await editCard(page, item, 'Original expanded comment', 'Edited expanded comment');
+        await expectAnchored(request, side, 'Edited expanded comment');
+      });
+
+      test(`delete comment on expanded context line ${where}`, async ({ page, request }) => {
+        const item = await goSection(page);
+        await commentOnGapLine(page, item, side, 'Delete me expanded');
+        await deleteCard(item);
+        await expect.poll(async () => (await serverComments(request)).length).toBe(0);
+      });
+    });
   }
-  return null;
 }
-
-// Find a context line on the left (old) side
-async function findContextLeftSide(section: import('@playwright/test').Locator) {
-  const rows = section.locator('.diff-split-row');
-  const count = await rows.count();
-  for (let i = 0; i < count; i++) {
-    const row = rows.nth(i);
-    const left = row.locator('.diff-split-side.left');
-    const hasDeletion = await left.evaluate(el => el.classList.contains('deletion'));
-    const hasEmpty = await left.evaluate(el => el.classList.contains('empty'));
-    if (!hasDeletion && !hasEmpty) {
-      const numText = await left.locator('.diff-gutter-num').textContent();
-      if (numText && numText.trim()) {
-        return left;
-      }
-    }
-  }
-  return null;
-}
-
-// ============================================================
-// Expanded Context Line Comments — Split Mode (New/Right Side)
-// ============================================================
-test.describe('Expanded Context Comments — Split Mode (New Side)', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-  });
-
-  test('submit comment on expanded context line (new side)', async ({ page }) => {
-    const section = await expandFirstSpacer(page);
-
-    const rightSide = await findContextRightSide(section);
-    expect(rightSide).not.toBeNull();
-    await rightSide!.hover();
-
-    const commentBtn = rightSide!.locator('.diff-comment-btn');
-    await expect(commentBtn).toBeVisible();
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('Comment on expanded context line (new side)');
-    await page.locator('.comment-form .btn-primary').click();
-
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Comment on expanded context line (new side)');
-  });
-
-  test('edit comment on expanded context line (new side)', async ({ page }) => {
-    const section = await expandFirstSpacer(page);
-
-    // Create a comment first
-    const rightSide = await findContextRightSide(section);
-    expect(rightSide).not.toBeNull();
-    await rightSide!.hover();
-    await rightSide!.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Original expanded comment');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    // Click Edit
-    const editBtn = section.locator('.comment-actions button[title="Edit"]');
-    await editBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await expect(textarea).toHaveValue('Original expanded comment');
-
-    await textarea.clear();
-    await textarea.fill('Edited expanded comment');
-    await page.locator('.comment-form .btn-primary').click();
-
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Edited expanded comment');
-  });
-
-  test('delete comment on expanded context line (new side)', async ({ page }) => {
-    const section = await expandFirstSpacer(page);
-
-    // Create a comment first
-    const rightSide = await findContextRightSide(section);
-    expect(rightSide).not.toBeNull();
-    await rightSide!.hover();
-    await rightSide!.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Delete me expanded');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    // Delete it
-    const deleteBtn = section.locator('.comment-actions .delete-btn');
-    await deleteBtn.click();
-
-    await expect(section.locator('.comment-card')).toHaveCount(0);
-  });
-});
-
-// ============================================================
-// Expanded Context Line Comments — Split Mode (Old/Left Side)
-// ============================================================
-test.describe('Expanded Context Comments — Split Mode (Old Side)', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-  });
-
-  test('submit comment on expanded context line (old side)', async ({ page }) => {
-    const section = await expandFirstSpacer(page);
-
-    const leftSide = await findContextLeftSide(section);
-    expect(leftSide).not.toBeNull();
-    await leftSide!.hover();
-
-    const commentBtn = leftSide!.locator('.diff-comment-btn');
-    await expect(commentBtn).toBeVisible();
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('Comment on old side context line');
-    await page.locator('.comment-form .btn-primary').click();
-
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Comment on old side context line');
-  });
-
-  test('edit comment on expanded context line (old side)', async ({ page }) => {
-    const section = await expandFirstSpacer(page);
-
-    const leftSide = await findContextLeftSide(section);
-    expect(leftSide).not.toBeNull();
-    await leftSide!.hover();
-    await leftSide!.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Original old side comment');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    const editBtn = section.locator('.comment-actions button[title="Edit"]');
-    await editBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toHaveValue('Original old side comment');
-    await textarea.clear();
-    await textarea.fill('Edited old side comment');
-    await page.locator('.comment-form .btn-primary').click();
-
-    await expect(section.locator('.comment-card .comment-body')).toContainText('Edited old side comment');
-  });
-
-  test('delete comment on expanded context line (old side)', async ({ page }) => {
-    const section = await expandFirstSpacer(page);
-
-    const leftSide = await findContextLeftSide(section);
-    expect(leftSide).not.toBeNull();
-    await leftSide!.hover();
-    await leftSide!.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Delete old side');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    const deleteBtn = section.locator('.comment-actions .delete-btn');
-    await deleteBtn.click();
-
-    await expect(section.locator('.comment-card')).toHaveCount(0);
-  });
-});
-
-// ============================================================
-// Expanded Context Line Comments — Unified Mode
-// ============================================================
-test.describe('Expanded Context Comments — Unified Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    // Switch to unified mode
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await unifiedBtn.click();
-    await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
-  });
-
-  test('submit comment on expanded context line in unified mode', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
-
-    // Context lines between auto-expanded small gaps are already visible
-    const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
-    await expect(contextLine).toBeVisible();
-    await contextLine.hover();
-
-    const commentBtn = contextLine.locator('.diff-comment-btn');
-    await expect(commentBtn).toBeVisible();
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('Unified expanded context comment');
-    await page.locator('.comment-form .btn-primary').click();
-
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Unified expanded context comment');
-  });
-
-  test('edit comment on expanded context line in unified mode', async ({ page }) => {
-    const section = serverSection(page);
-
-    // Context lines are already visible from auto-expansion
-    const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
-    await contextLine.hover();
-    await contextLine.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Original unified context');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    const editBtn = section.locator('.comment-actions button[title="Edit"]');
-    await editBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toHaveValue('Original unified context');
-    await textarea.clear();
-    await textarea.fill('Edited unified context');
-    await page.locator('.comment-form .btn-primary').click();
-
-    await expect(section.locator('.comment-card .comment-body')).toContainText('Edited unified context');
-  });
-
-  test('delete comment on expanded context line in unified mode', async ({ page }) => {
-    const section = serverSection(page);
-
-    // Context lines are already visible from auto-expansion
-    const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
-    await contextLine.hover();
-    await contextLine.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Delete unified context');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    const deleteBtn = section.locator('.comment-actions .delete-btn');
-    await deleteBtn.click();
-
-    await expect(section.locator('.comment-card')).toHaveCount(0);
-  });
-});

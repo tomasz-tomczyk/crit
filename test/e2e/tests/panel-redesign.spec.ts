@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -155,14 +155,13 @@ test.describe('Panel Redesign', () => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'First');
     await loadPage(page);
-    await switchToDocumentView(page);
+    const section = await switchToDocumentView(page);
     await openPanel(page);
 
     await expect(filterCount(page, 'all')).toHaveText('1');
     await expect(filterCount(page, 'open')).toHaveText('1');
 
     // Add a comment via UI
-    const section = mdSection(page);
     const lineBlock = section.locator('.line-block').nth(2);
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').nth(2).click();
@@ -268,11 +267,11 @@ test.describe('Panel Redesign', () => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Inline test comment');
     await loadPage(page);
-    await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
     await openPanel(page);
 
     // Ensure inline comment card exists and is visible
-    const inlineCard = mdSection(page).locator('.comment-card[data-comment-id]').first();
+    const inlineCard = doc.locator('.comment-card[data-comment-id]').first();
     await expect(inlineCard).toBeVisible();
 
     // Cards start expanded; button says "Collapse all"

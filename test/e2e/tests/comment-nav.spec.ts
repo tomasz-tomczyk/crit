@@ -198,7 +198,7 @@ test.describe('Comment Navigation — disabled in textarea', () => {
     await clearFocus(page);
 
     // Open a new comment form on a line block
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = page.locator('[id="file-section-plan.md"].pierre-document');
     const lineBlock = section.locator('.line-block.kb-nav').first();
     await focusKbNavElement(page, lineBlock);
     await page.keyboard.press('c');
@@ -219,7 +219,7 @@ test.describe('Comment Navigation — disabled in textarea', () => {
     await clearFocus(page);
 
     // Open a new comment form on a line block
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = page.locator('[id="file-section-plan.md"].pierre-document');
     const lineBlock = section.locator('.line-block.kb-nav').first();
     await focusKbNavElement(page, lineBlock);
     await page.keyboard.press('c');

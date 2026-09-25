@@ -83,7 +83,7 @@
       // file-level annotation is Crit's rendered document (see app.js
       // buildPierreDocument). Pierre still owns header, collapse and scroll.
       if (!isStub && opts.isDocumentView && opts.isDocumentView(file)) {
-        return fileItem(file, { name: file.path, contents: '', cacheKey: 'doc:' + file.path });
+        return fileItem(file, emptyContents(file.path));
       }
       // Files-mode code file: the whole file, comments per line.
       if (!isStub && opts.isFileView && opts.isFileView(file)) {
@@ -98,6 +98,19 @@
         collapsed: !!file.collapsed,
         version: nextVersion(file.path),
       };
+    }
+
+    // The empty file behind a rendered document / placeholder. One object per
+    // path: Pierre prepares a collapsed item's layout against the file object
+    // and throws if a later render hands it a different one.
+    var emptyFiles = new Map();
+    function emptyContents(path) {
+      var f = emptyFiles.get(path);
+      if (!f) {
+        f = { name: path, contents: '', cacheKey: 'doc:' + path };
+        emptyFiles.set(path, f);
+      }
+      return f;
     }
 
     // File items are single-sided: annotations carry a line number only.
@@ -163,7 +176,7 @@
     }
 
     var options = {
-      theme: { dark: 'pierre-dark', light: 'pierre-light' },
+      theme: adapter.THEME,
       themeType: themeType,
       diffStyle: diffStyle,
       lineDiffType: 'word-alt',
@@ -183,6 +196,12 @@
         // File items (document view) have one side; comments are new-side.
         if (r && context && context.type === 'file') r.side = '';
         opts.onGutterUtilityClick(pathOf(context), r);
+        // Pierre keeps the clicked range selected, and its next gutter press
+        // extends that selection instead of starting at the hovered line.
+        // The form now marks the range; drop the selection once the click
+        // has finished.
+        var clear = function() { if (!disposed) viewer.clearSelectedLines(); };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(clear); else clear();
       },
       onPostRender: function(node, instance, phase, context) {
         if (opts.onPostRender) opts.onPostRender(pathOf(context), node, phase);
@@ -231,9 +250,13 @@
     var unsubscribe = viewer.subscribeToScroll(hydrateVisible);
 
     function setFiles(files) {
-      // A full render can change what a rendered document shows (inter-round
-      // diff toggle, hide-resolved); rebuild those, keep threads and forms.
-      files.forEach(function(f) { forgetAnnotation('document:' + f.path); });
+      // A full render follows a reload, round or view toggle: rebuild
+      // annotations from the current model, except open forms (they hold
+      // the reader's typing) and rendered documents (the caller re-renders
+      // those in place, keeping the element Pierre has measured).
+      Array.from(elements.keys()).forEach(function(key) {
+        if (key.indexOf('form:') !== 0 && key.indexOf('document:') !== 0) forgetAnnotation(key);
+      });
       order = files.map(function(f) { return f.path; });
       itemsByPath = new Map();
       var items = files.map(function(f) {
@@ -278,6 +301,10 @@
     }
 
     function scrollToLine(path, lineNumber, side, align) {
+      // A rendered document / placeholder is an empty file item: there is no
+      // line to target, and Pierre would keep sticking to a bogus position.
+      var item = itemsByPath.get(path);
+      if (item && item.type === 'file' && item.file.contents === '') return scrollToFile(path, 'start');
       return ensureLoaded(path).then(function() {
         viewer.scrollTo({
           type: 'line', id: path, lineNumber: lineNumber,

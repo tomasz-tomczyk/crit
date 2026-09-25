@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, realCommitItems } from './helpers';
+import { clearAllComments, fileHeader, loadPage, realCommitItems } from './helpers';
 
 async function openCommitPicker(page: Page) {
   await page.click('#commitDropdownBtn');
@@ -60,13 +60,14 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdownLabel')).toContainText('only');
     await expect(commitItem).toHaveClass(/is-from/);
 
-    const fileSections = page.locator('.file-section');
-    await expect(async () => {
-      const count = await fileSections.count();
-      // Auth commit touches several files; skill.md is included (branch fixture).
-      expect(count).toBeLessThanOrEqual(6);
-      expect(count).toBeGreaterThan(0);
-    }).toPass();
+    // Auth commit touches six files (skill.md included, branch fixture);
+    // handler.js (other commit) and the uncommitted files drop out.
+    await expect(page.locator('.tree-file')).toHaveCount(6);
+    await expect(page.locator('.tree-file[data-tree-path="skill.md"]')).toHaveCount(1);
+    await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(0);
+    // The diff pane re-renders with the filtered list
+    await expect(fileHeader(page, 'deleted.txt')).toBeVisible();
+    await expect(fileHeader(page, 'config.yaml')).toHaveCount(0);
   });
 
   test('selecting "All commits" restores full view', async ({ page }) => {

@@ -112,16 +112,36 @@
     return lang ? P.setLanguageOverride(contents, lang) : contents;
   }
 
+  // Does `all` hold a hunk that `shown` leaves out, before the last shown one?
+  // A hunk counts as shown when a shown hunk covers its new-side range
+  // (shown hunks may have been merged with neighbours).
+  function omitsHunkBeforeShown(shown, all) {
+    if (!all || !shown || shown.length === 0) return false;
+    var covered = function(h) {
+      return shown.some(function(s) {
+        return h.NewStart >= s.NewStart && h.NewStart + h.NewCount <= s.NewStart + s.NewCount;
+      });
+    };
+    var lastShown = Math.max.apply(null, shown.map(function(s) { return s.NewStart; }));
+    return all.some(function(h) { return h.NewStart < lastShown && !covered(h); });
+  }
+
   // Pierre FileDiffMetadata for a Crit file and the hunks to show. With both
   // sides reconstructed Pierre gets a full (expandable) diff; if the content
   // and hunks disagree (file changed after the diff was computed) it falls
   // back to the patch alone, where context expansion is unavailable.
-  // P is window.PierreDiffs (only processFile is used).
-  function buildFileDiff(P, file, hunks, cacheKey) {
+  //
+  // `allHunks` (optional) is every hunk of the file when `hunks` is a subset
+  // (a story chapter). Pierre treats the text between shown hunks as
+  // unchanged, so full contents only work when no omitted hunk sits before a
+  // shown one; otherwise the old-side line numbers would not line up and the
+  // diff falls back to the patch alone (correct numbers, no expansion).
+  // P is window.PierreDiffs (processFile, setLanguageOverride).
+  function buildFileDiff(P, file, hunks, cacheKey, allHunks) {
     var model = { path: file.path, old_path: file.oldPath || file.old_path, status: file.status, diffHunks: hunks };
     var patch = hunksToPatch(model);
     var newContent = file.content || '';
-    var oldContent = reconstructOldContent(newContent, hunks);
+    var oldContent = omitsHunkBeforeShown(hunks, allHunks) ? null : reconstructOldContent(newContent, hunks);
     var diff = oldContent === null
       ? P.processFile(patch, { cacheKey: cacheKey })
       : P.processFile(patch, {
@@ -213,6 +233,11 @@
     return rows;
   }
 
+  // Code token themes for every Pierre surface: Tokyo Night / GitHub Light
+  // Default adjusted for WCAG AA on diff backgrounds (scripts/code-themes.mjs,
+  // registered in the vendored bundle).
+  var THEME = { dark: 'crit-dark', light: 'crit-light' };
+
   // Crit theme setting → Pierre themeType ('system' follows the OS).
   function themeTypeFor(setting) {
     return setting === 'light' || setting === 'dark' ? setting : 'system';
@@ -220,6 +245,7 @@
 
   var api = {
     CHANGE_TYPE: CHANGE_TYPE,
+    THEME: THEME,
     hunksToPatch: hunksToPatch,
     reconstructOldContent: reconstructOldContent,
     estimatedLineCount: estimatedLineCount,
@@ -230,6 +256,7 @@
     navRowsForHunks: navRowsForHunks,
     buildFileDiff: buildFileDiff,
     buildFileContents: buildFileContents,
+    omitsHunkBeforeShown: omitsHunkBeforeShown,
     languageOverride: languageOverride,
   };
 

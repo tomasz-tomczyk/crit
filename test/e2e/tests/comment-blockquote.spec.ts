@@ -9,7 +9,7 @@ test.describe('Comment blockquotes', () => {
   });
 
   test('renders markdown blockquotes and agent-style **> question** lines', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();

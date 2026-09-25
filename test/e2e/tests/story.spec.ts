@@ -1,9 +1,9 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext, type Locator } from '@playwright/test';
 import { execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { clearAllComments, loadPage, goSection, addComment } from './helpers';
+import { clearAllComments, loadPage, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Story mode fixtures live on top of the shared git-mode fixture repo (server.go,
@@ -155,6 +155,27 @@ function storyView(page: Page, pageId: string) {
   return page.locator(`#crit-story-view-${pageId}`);
 }
 
+// Rendered new-side rows of a story group's Pierre FileDiff (split or unified).
+function storyDiffRows(group: Locator): Locator {
+  return group.locator('code[data-additions] [data-content] > [data-line], code[data-unified] [data-content] > [data-line]:not([data-line-type="change-deletion"])');
+}
+
+// Drag a story group's gutter "+" from one new-side line to another and
+// return the comment form it opens inside that group.
+async function dragStoryLineRange(page: Page, group: Locator, from: number, to: number): Promise<Locator> {
+  const button = await hoverLine(page, group, from);
+  const start = await button.boundingBox();
+  const end = await diffLineNumber(group, to).first().boundingBox();
+  if (!start || !end) throw new Error('expected gutter button and target line number');
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + start.width / 2, end.y + end.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const form = group.locator('.comment-form');
+  await expect(form.locator('textarea')).toBeVisible();
+  return form;
+}
+
 async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string, opts: { refresh?: boolean; story?: Record<string, unknown> } = {}) {
   const storyFile = writeStoryFixtureFile(opts.story || STORY);
   // --refresh forces a re-ingest (and a story-updated SSE to a running daemon)
@@ -195,7 +216,7 @@ test.describe('Story mode', () => {
     await loadPage(page);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('#storyRoot')).toBeHidden();
-    await expect(goSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
   });
 
   test('ingesting a story activates the overview with prologue and chapter TOC', async ({ page, request }) => {
@@ -363,41 +384,27 @@ test.describe('Story mode', () => {
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
     await expect(group).toBeVisible();
     await expect(group).toHaveAttribute('open', '');
-    await expect(group.locator('.diff-container.split')).toBeVisible();
+    await expect(group.locator('pre[data-diff-type="split"]')).toBeVisible();
     await expect(group.locator('.file-header-toggle')).toHaveCount(0);
 
-    const firstBtn = group.locator('.diff-split-side.right .diff-comment-btn').first();
-    const secondBtn = group.locator('.diff-split-side.right .diff-comment-btn').nth(1);
-    const firstBox = await firstBtn.boundingBox();
-    const secondBox = await secondBtn.boundingBox();
-    if (!firstBox || !secondBox) throw new Error('expected diff comment gutter buttons');
-    await firstBtn.dispatchEvent('mousedown', {
-      button: 0,
-      bubbles: true,
-      cancelable: true,
-      clientX: firstBox.x + firstBox.width / 2,
-      clientY: firstBox.y + firstBox.height / 2,
-    });
-    await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
-    await expect.poll(async () => group.locator('.diff-comment-gutter.drag-range').count()).toBeGreaterThan(0);
-    await page.mouse.up();
-    await expect(group.locator('.comment-form textarea')).toBeVisible();
+    // Gutter drag across two added lines opens a range form in the group.
+    const form = await dragStoryLineRange(page, group, 3, 4);
+    await expect(form).toContainText(/Lines? 3.{1,3}4/);
     await page.keyboard.press('Escape');
+    await expect(group.locator('.comment-form')).toHaveCount(0);
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    await expect(group.locator('.diff-container.unified')).toBeVisible();
+    await expect(group.locator('pre[data-diff-type="single"]')).toBeVisible();
 
-    const firstContent = group.locator('.diff-content').first();
-    await firstContent.evaluate((el) => {
+    // Select a few characters of an added line and comment on the selection.
+    const line = diffLine(group, 3);
+    await expect(line).toContainText('import (');
+    await line.evaluate((el) => {
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       const text = walker.nextNode();
       if (!text) throw new Error('expected text in diff content');
-      const range = document.createRange();
-      range.setStart(text, 0);
-      range.setEnd(text, Math.min(5, text.textContent?.length || 0));
       const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+      selection?.setBaseAndExtent(text, 0, text, Math.min(5, text.textContent?.length || 0));
     });
     await page.keyboard.press('Shift+C');
     await expect(group.locator('.comment-form textarea')).toBeVisible();
@@ -415,15 +422,23 @@ test.describe('Story mode', () => {
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
     await expect(group).toBeVisible();
 
-    const rowsBefore = await group.locator('.diff-split-row').count();
-    const trailingSpacer = group.locator('.diff-spacer-trailing').first();
-    await expect(trailingSpacer).toBeVisible();
-    await trailingSpacer.locator('[aria-label^="Expand "]').click();
+    // ch1 shows routes.go's first hunk; the trailing gap (the rest of the
+    // file) is collapsed behind an expand control.
+    const rows = storyDiffRows(group);
+    await expect(rows.last()).toBeVisible();
+    const rowsBefore = await rows.count();
+    await expect(diffLine(group, 30)).toHaveCount(0);
+    // (split view draws the separator once, across both columns)
+    const trailing = group.locator('[data-separator][data-separator-last] [data-expand-button]').first();
+    await expect(trailing).toBeVisible();
 
+    // Pierre ignores pointer events briefly after a scroll: retry the click
+    // until the gap actually expands.
     await expect(async () => {
-      const rowsAfter = await group.locator('.diff-split-row').count();
-      expect(rowsAfter).toBeGreaterThan(rowsBefore);
+      await trailing.click({ timeout: 1000 });
+      expect(await rows.count()).toBeGreaterThan(rowsBefore);
     }).toPass();
+    await expect(diffLine(group, rowsBefore + 1)).toBeVisible();
   });
 
   test('story chapter refs render the full small-gap hunk cluster', async ({ page, request }) => {
@@ -435,9 +450,13 @@ test.describe('Story mode', () => {
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="server.go"]');
     await expect(group).toBeVisible();
 
-    await expect(group.locator('.diff-spacer').first()).toContainText('@@ -2,43 +2,70 @@');
-    await expect(group).toContainText('authMiddleware');
-    await expect(group).toContainText('Server starting on :%s');
+    // The ref names only the first raw hunk (old_start 2), but all three
+    // small-gap hunks of the cluster (new lines 2-71) render together.
+    await expect(diffLine(group, 5)).toHaveAttribute('data-line-type', 'change-addition'); // "log" import, hunk 1
+    await expect(diffLine(group, 24)).toContainText('authMiddleware'); // hunk 2
+    await expect(diffLine(group, 67)).toContainText('Server starting on :%s'); // hunk 3
+    await expect(diffLine(group, 67)).toHaveAttribute('data-line-type', 'change-addition');
+    await expect(diffLine(group, 71)).toBeVisible();
 
     await page.keyboard.press('Shift+C');
     const panel = page.locator('#commentsPanel');
@@ -532,7 +551,7 @@ test.describe('Story mode', () => {
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
     await expect(page.locator('#storyRoot')).toBeHidden();
-    await expect(goSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
     await expect(page.locator('.tree-file .crit-story-chip')).toHaveCount(0);
     await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]')).toHaveClass(/active/);
 
@@ -595,21 +614,23 @@ test.describe('Story mode', () => {
       expect(new URL((await storyRequest).url()).searchParams.has('w')).toBe(false);
       await tocItem(page, 'ch1').click();
       const chapter = storyView(page, 'ch1');
-      await expect(chapter.locator('.diff-container')).toBeVisible();
-      await expect(chapter).toContainText('http.StatusAccepted');
+      const chapterGroup = chapter.locator('.crit-story-file-group[data-story-file="routes.go"]');
+      await expect(storyDiffRows(chapterGroup).filter({ hasText: 'http.StatusAccepted' })).toBeVisible();
 
       const flatRequest = page.waitForRequest(isRoutesDiff);
       await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
       expect(new URL((await flatRequest).url()).searchParams.get('w')).toBe('1');
-      const flat = page.locator('[id="file-section-routes.go"]');
-      await expect(flat).toBeVisible();
-      await expect(flat).toContainText('http.StatusAccepted');
-      await expect(flat).not.toContainText('import');
+      const flat = await revealFile(page, 'routes.go');
+      const flatRows = flat.locator('code [data-content] > [data-line]');
+      await expect(flatRows.filter({ hasText: 'http.StatusAccepted' }).first()).toBeVisible();
+      // Whitespace-only import hunk is filtered out of the flat diff
+      await expect(flatRows.filter({ hasText: 'import' })).toHaveCount(0);
 
       const restoredRequest = page.waitForRequest(isRoutesDiff);
       await page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]').click();
       expect(new URL((await restoredRequest).url()).searchParams.has('w')).toBe(false);
-      await expect(storyView(page, 'ch1')).toContainText('http.StatusAccepted');
+      await expect(storyDiffRows(storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]'))
+        .filter({ hasText: 'http.StatusAccepted' })).toBeVisible();
     } finally {
       fs.writeFileSync(routesPath, original);
       await clearStory(request);
@@ -639,7 +660,7 @@ test.describe('Story mode', () => {
     await tocItem(page, 'ch1').click();
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
     await expect(group).toBeVisible();
-    await expect(group.locator('.diff-container')).toBeVisible();
+    await expect(diffLine(group, 3)).toContainText('import (');
     await expect(group).not.toContainText('File not loaded.');
   });
 
@@ -679,7 +700,7 @@ test.describe('Story mode', () => {
     await tocItem(page, 'ch1').click();
     const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
     await expect(group).toBeVisible();
-    await expect(group.locator('.diff-container')).toBeVisible();
+    await expect(diffLine(group, 3)).toContainText('import (');
     await expect(group).not.toContainText('File not loaded.');
   });
 
@@ -710,7 +731,7 @@ test.describe('Story mode', () => {
     await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('#storyViewToggle')).toBeHidden();
-    await expect(goSection(page)).toBeVisible();
+    await expect(await goSection(page)).toBeVisible();
   });
 
   test('a fresh story via SSE brings the story back live and un-hides after Hide', async ({ page }) => {

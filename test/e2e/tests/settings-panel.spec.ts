@@ -1,5 +1,10 @@
-import { test, expect } from '@playwright/test';
-import { loadPage, clearAllComments } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { loadPage, clearAllComments, selectedLines } from './helpers';
+
+// Keyboard focus: a Pierre-selected diff line, or a focused document block.
+function keyboardFocus(page: Page) {
+  return page.locator('.kb-nav.focused').or(selectedLines(page));
+}
 
 test.describe('Settings Panel', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -98,9 +103,9 @@ test.describe('Settings Panel', () => {
 
     await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
     await page.keyboard.press('j');
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
+    await expect(keyboardFocus(page)).toHaveCount(0);
     await page.keyboard.press('ArrowDown');
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+    await expect(keyboardFocus(page).first()).toBeVisible();
 
     // A write through app.js must merge with the freshly saved shortcut,
     // rather than replacing it with an older cached settings object.
@@ -111,7 +116,7 @@ test.describe('Settings Panel', () => {
     await page.locator('.shortcut-reset-all').click();
     await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
     await page.keyboard.press('j');
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(1);
+    await expect(keyboardFocus(page).first()).toBeVisible();
   });
 
   test('shortcut conflicts are shown without changing the row height', async ({ page }) => {

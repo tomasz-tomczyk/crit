@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page, Locator } from '@playwright/test';
-import { clearAllComments, getMdPath, loadPage, mdSection, goSection, switchToDocumentView } from './helpers';
+import { clearAllComments, getMdPath, loadPage, goSection, mdSection, switchToDocumentView, diffLine, diffLineNumber } from './helpers';
 
 // Helper: drag-select between two coordinates, then press `c` to comment.
 // Selection alone never opens the form — `c` is the explicit commit.
@@ -9,6 +9,10 @@ async function selectAndPressC(
   x1: number, y1: number, x2: number, y2: number,
   steps = 5,
 ) {
+  // Pierre turns pointer events off briefly after any scroll; wait until the
+  // drag start hit-tests to rendered content.
+  await expect.poll(() => page.evaluate(([x, y]) =>
+    !!document.elementFromPoint(x, y)?.closest('.line-block, diffs-container'), [x1, y1])).toBe(true);
   await page.mouse.move(x1, y1);
   await page.mouse.down();
   await page.mouse.move(x2, y2, { steps });
@@ -16,34 +20,97 @@ async function selectAndPressC(
   await page.keyboard.press('c');
 }
 
-// Helper: find a wide addition line's content box, retrying until the
-// lazily-rendered diff lines appear. A one-shot `.count()` scan races with
-// diff rendering (count is 0 → targetBox stays null), so wrap in toPass().
-async function wideAdditionLine(section: Locator, lineSelector: string) {
-  let box: Awaited<ReturnType<Locator['boundingBox']>> = null;
-  let line: Locator | null = null;
+// Quote highlights in Pierre diffs are CSS custom highlights (the "crit-quote"
+// registry entry) over ranges inside the shadow roots. Describe each range by
+// its text and the diff line it sits on.
+function quoteHighlights(page: Page) {
+  return page.evaluate(() => {
+    const h = CSS.highlights.get('crit-quote');
+    if (!h) return [];
+    return [...h].map((r) => {
+      const range = r as AbstractRange & { toString?: () => string };
+      const node = range.startContainer;
+      const el = (node.nodeType === 1 ? node : node.parentElement) as HTMLElement | null;
+      const line = el?.closest('[data-line]') as HTMLElement | null;
+      const text = range instanceof Range ? range.toString() : '';
+      return {
+        text,
+        line: line ? Number(line.dataset.line) : null,
+        type: line?.dataset.lineType ?? null,
+        column: line?.closest('code[data-deletions]') ? 'old' : 'new',
+      };
+    });
+  });
+}
+
+// Mouse-select part of one diff line's text (inside Pierre's shadow root),
+// then press c. Returns the selected text.
+//
+// Drag points come from the text itself (the gutter and hover "+" overlap the
+// start of the line box). Chromium occasionally ends a drag inside a shadow
+// root without a selection, so the gesture is retried from a slightly
+// different start until the browser reports a non-empty composed selection.
+async function selectInLineAndPressC(page: Page, item: Locator, lineNo: number): Promise<string> {
+  const line = diffLine(item, lineNo);
+  let attempt = 0;
+  let selected = '';
   await expect(async () => {
-    box = null;
-    line = null;
-    const lines = section.locator(lineSelector);
-    const count = await lines.count();
-    for (let i = 0; i < count; i++) {
-      const candidate = lines.nth(i);
-      const content = candidate.locator('.diff-content');
-      const text = await content.textContent();
-      if (text && text.trim().length > 20) {
-        await candidate.scrollIntoViewIfNeeded();
-        const candidateBox = await content.boundingBox();
-        if (candidateBox) {
-          box = candidateBox;
-          line = candidate;
-          break;
+    attempt++;
+    // Scroll via the (narrow) line number: scrolling the wide line element
+    // also scrolls the code column sideways, under the sticky gutter.
+    await diffLineNumber(item, lineNo).scrollIntoViewIfNeeded({ timeout: 1000 });
+    const pts = await line.evaluate((el, offset) => {
+      const nodes: Text[] = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      while ((n = walker.nextNode())) nodes.push(n as Text);
+      const text = nodes.map(t => t.data).join('');
+      const from = text.search(/\S/) + offset;
+      const to = Math.min(text.length - 2, from + 20);
+      const at = (idx: number) => {
+        let i = idx;
+        for (const t of nodes) {
+          if (i < t.data.length) {
+            const r = document.createRange();
+            r.setStart(t, i);
+            r.setEnd(t, i + 1);
+            const b = r.getBoundingClientRect();
+            return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+          }
+          i -= t.data.length;
         }
-      }
-    }
-    expect(box).toBeTruthy();
-  }).toPass();
-  return { box: box as NonNullable<typeof box>, line: line as NonNullable<Locator> };
+        return null;
+      };
+      const start = at(from);
+      const end = at(to);
+      if (!start || !end) return null;
+      // Only drag once Pierre has pointer events on (the document-level hit is
+      // the host) and the start point is this line's text.
+      const root = el.getRootNode() as ShadowRoot;
+      const hit = root.elementFromPoint(start.x, start.y);
+      if (document.elementFromPoint(start.x, start.y) !== root.host || !hit || !el.contains(hit)) return null;
+      return { start, end };
+    }, 1 + (attempt % 8));
+    expect(pts).toBeTruthy();
+    await page.mouse.move(pts!.start.x, pts!.start.y);
+    await page.mouse.down();
+    await page.mouse.move(pts!.end.x, pts!.end.y, { steps: 5 });
+    await page.mouse.up();
+    selected = await page.evaluate(() => {
+      const sel = window.getSelection()!;
+      const roots = Array.from(document.querySelectorAll('diffs-container'))
+        .map(h => h.shadowRoot).filter((r): r is ShadowRoot => !!r);
+      const [r] = sel.getComposedRanges({ shadowRoots: roots });
+      if (!r) return '';
+      const live = document.createRange();
+      live.setStart(r.startContainer, r.startOffset);
+      live.setEnd(r.endContainer, r.endOffset);
+      return live.toString();
+    });
+    expect(selected.trim()).not.toBe('');
+  }).toPass({ timeout: 15_000 });
+  await page.keyboard.press('c');
+  return selected;
 }
 
 test.describe('Select-to-comment (git mode)', () => {
@@ -53,12 +120,13 @@ test.describe('Select-to-comment (git mode)', () => {
   });
 
   test.describe('document view', () => {
+    let section: Locator;
+
     test.beforeEach(async ({ page }) => {
-      await switchToDocumentView(page);
+      section = await switchToDocumentView(page);
     });
 
     test('selecting text alone does not open form; selection preserved for copying', async ({ page }) => {
-      const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
 
@@ -80,7 +148,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('Escape cancels the comment form once opened', async ({ page }) => {
-      const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       const blockBox = await firstBlock.boundingBox();
       expect(blockBox).toBeTruthy();
@@ -99,7 +166,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('full comment lifecycle via text selection', async ({ page }) => {
-      const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       const blockBox = await firstBlock.boundingBox();
       expect(blockBox).toBeTruthy();
@@ -122,7 +188,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('selecting alone does not open a second form when one is already open', async ({ page }) => {
-      const section = mdSection(page);
 
       // Open a comment form via gutter click first
       const firstBlock = section.locator('.line-block').first();
@@ -149,7 +214,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('pressing c with a new selection opens a second form (multi-form workflow)', async ({ page }) => {
-      const section = mdSection(page);
       const blocks = section.locator('.line-block');
 
       // First form: select-and-c on first block
@@ -192,7 +256,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('multi-block selection spans correct line range', async ({ page }) => {
-      const section = mdSection(page);
       const blocks = section.locator('.line-block');
       const firstBlock = blocks.first();
       const thirdBlock = blocks.nth(2);
@@ -221,7 +284,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
     test('selection endpoint on a gap container still spans full range (regression)', async ({ page, request }) => {
-      const section = mdSection(page);
       const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
       const paraBlock = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(overviewBlock).toBeVisible();
@@ -279,7 +341,6 @@ test.describe('Select-to-comment (git mode)', () => {
     });
 
 test('single click (no drag) does not open a form', async ({ page }) => {
-      const section = mdSection(page);
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
 
@@ -295,12 +356,13 @@ test('single click (no drag) does not open a form', async ({ page }) => {
   });
 
   test.describe('quote highlight', () => {
+    let section: Locator;
+
     test.beforeEach(async ({ page }) => {
-      await switchToDocumentView(page);
+      section = await switchToDocumentView(page);
     });
 
     test('partial selection highlights while open and persists its quote', async ({ page, request }) => {
-      const section = mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -332,7 +394,6 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('cross-line partial selection saves quote and shows highlight', async ({ page, request }) => {
-      const section = mdSection(page);
       const overviewBlock = section.locator('.line-block', { hasText: 'Overview' }).first();
       const authBlock = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(overviewBlock).toBeVisible();
@@ -374,7 +435,6 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('quote highlight inherits text color (not black)', async ({ page }) => {
-      const section = mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -400,7 +460,6 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('full-line selection does NOT produce a quote highlight', async ({ page }) => {
-      const section = mdSection(page);
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
@@ -432,67 +491,70 @@ test('single click (no drag) does not open a form', async ({ page }) => {
   });
 
   test.describe('diff view', () => {
-    test('quote highlight appears in split diff view while form is open', async ({ page }) => {
-      const section = goSection(page);
-      const { box: targetBox } = await wideAdditionLine(section, '.diff-split-side.addition');
+    test('quote highlight appears in split diff view while form is open', async ({ page, request }) => {
+      // server.go new 24: `func authMiddleware(next http.HandlerFunc) ...`
+      const item = await goSection(page);
+      const selected = await selectInLineAndPressC(page, item, 24);
 
-      await selectAndPressC(
-        page,
-        targetBox.x + 10, targetBox.y + targetBox.height / 2,
-        targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
+      const form = item.locator('.comment-form');
+      const textarea = form.locator('textarea');
       await expect(textarea).toBeVisible();
       await expect(textarea).toBeFocused();
-      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+      await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 24');
+
+      const text = selected.trim();
+      await expect.poll(() => quoteHighlights(page)).toEqual([
+        { text, line: 24, type: 'change-addition', column: 'new' },
+      ]);
+
+      // The quote is saved with the comment.
+      await textarea.fill('split quote');
+      await textarea.press('Control+Enter');
+      await expect(item.locator('.comment-card', { hasText: 'split quote' })).toBeVisible();
+      const comments = await (await request.get('/api/file/comments?path=server.go')).json() as Array<{ body: string; quote?: string; start_line: number; end_line: number }>;
+      const saved = comments.find(c => c.body === 'split quote');
+      expect(saved?.quote).toBe(text);
+      expect([saved?.start_line, saved?.end_line]).toEqual([24, 24]);
+      await expect.poll(() => quoteHighlights(page)).toEqual([
+        { text, line: 24, type: 'change-addition', column: 'new' },
+      ]);
     });
 
     test('quote highlight appears on addition line, not deletion line in unified diff (issue #133)', async ({ page }) => {
       const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
       await expect(unifiedBtn).toBeVisible();
       await unifiedBtn.click();
+      await expect(unifiedBtn).toHaveClass(/active/);
 
-      const section = goSection(page);
-      const { box: targetBox } = await wideAdditionLine(section, '.diff-line.addition');
+      // server.go: new 24 is an addition and old 24 a deletion — both render
+      // with data-line="24" in the unified column (the #133 collision).
+      const diff = await (await page.request.get('/api/file/diff?path=server.go')).json() as { hunks: Array<{ Lines: Array<{ Type: string; OldNum: number }> }> };
+      expect(diff.hunks.flatMap(h => h.Lines).some(l => l.Type === 'del' && l.OldNum === 24)).toBe(true);
+      const item = await goSection(page);
+      const addition = diffLine(item, 24);
+      await expect(addition).toHaveAttribute('data-line-type', 'change-addition');
 
-      await selectAndPressC(
-        page,
-        targetBox.x + 10, targetBox.y + targetBox.height / 2,
-        targetBox.x + Math.min(targetBox.width / 2, 150), targetBox.y + targetBox.height / 2,
-      );
+      const selected = await selectInLineAndPressC(page, item, 24);
 
-      const textarea = section.locator('.comment-form textarea');
+      const textarea = item.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
-
-      const highlightMark = section.locator('mark.quote-highlight').first();
-      await expect(highlightMark).toBeVisible();
-      const parentLine = highlightMark.locator('xpath=ancestor::div[contains(@class, "diff-line")]');
-      await expect(parentLine).toHaveClass(/addition/);
-      await expect(parentLine).not.toHaveClass(/deletion/);
+      await expect.poll(() => quoteHighlights(page)).toEqual([
+        { text: selected.trim(), line: 24, type: 'change-addition', column: 'new' },
+      ]);
     });
 
     test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {
-      const section = mdSection(page);
-      const additionLine = section.locator('.diff-split-side.addition').first();
-      await additionLine.scrollIntoViewIfNeeded();
-      await expect(additionLine).toBeVisible();
+      // plan.md defaults to diff view in git mode; new line 5 is the
+      // "We're adding API key authentication..." paragraph.
+      const item = await mdSection(page);
+      await expect(diffLine(item, 5)).toContainText('API key authentication');
+      const selected = await selectInLineAndPressC(page, item, 5);
 
-      const diffContent = additionLine.locator('.diff-content');
-      await expect(diffContent).toBeVisible();
-      const box = await diffContent.boundingBox();
-      expect(box).toBeTruthy();
-      if (!box) return;
-
-      await selectAndPressC(
-        page,
-        box.x + 10, box.y + box.height / 2,
-        box.x + Math.min(box.width / 2, 150), box.y + box.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
+      const textarea = item.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
-      await expect(section.locator('mark.quote-highlight')).toBeVisible();
+      await expect.poll(() => quoteHighlights(page)).toEqual([
+        { text: selected.trim(), line: 5, type: 'change-addition', column: 'new' },
+      ]);
     });
   });
 });

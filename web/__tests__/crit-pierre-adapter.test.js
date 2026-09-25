@@ -106,3 +106,22 @@ test('navRowsForHunks: unified visits every line; split pairs change rows', func
   ]);
   assert.deepEqual(a.navRowsForHunks([], 'split'), []);
 });
+
+test('buildFileDiff: a subset with an omitted earlier hunk falls back to the patch alone', function() {
+  const seen = [];
+  const P = { processFile(patch, opts) { seen.push({ patch, full: !!(opts && opts.oldFile) }); return {}; } };
+  const newContent = '1\nB\nB2\n3\n4\n5\nF\n7\n';
+  const all = [
+    hunk(2, 1, 2, 2, [['del', 'b'], ['add', 'B'], ['add', 'B2']]),
+    hunk(6, 1, 7, 1, [['del', 'f'], ['add', 'F']]),
+  ];
+  const file = { path: 'x.txt', status: 'modified', content: newContent };
+  // Chapter shows only the second hunk: the first (which adds a line) is
+  // omitted before it, so full contents cannot line up.
+  a.buildFileDiff(P, file, [all[1]], 'k', all);
+  assert.equal(seen[0].full, false);
+  assert.match(seen[0].patch, /@@ -6 \+7 @@/, 'real line numbers kept');
+  // Chapter shows only the first hunk: nothing omitted before it.
+  a.buildFileDiff(P, file, [all[0]], 'k2', all);
+  assert.equal(seen[1].full, true);
+});

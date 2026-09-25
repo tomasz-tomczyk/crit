@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, getReviewFilePath, loadPage, switchToDocumentView } from './helpers';
+import { clearAllComments, fileHeader, getReviewFilePath, loadPage, revealFile, switchToDocumentView } from './helpers';
 
 // Find a file path from the session (e.g., plan.md or handler.js)
 async function getTestFilePath(request: APIRequestContext): Promise<string> {
@@ -310,10 +310,7 @@ test.describe('Multi-Round — Frontend', () => {
 
   test('unresolved comments persist in UI after round-complete', async ({ page, request }) => {
     // Switch plan.md to document view for commenting
-    const mdSection = page.locator('.file-section').filter({ hasText: 'plan.md' });
-    const docBtn = mdSection.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
-    await docBtn.click();
-    await expect(mdSection.locator('.document-wrapper')).toBeVisible();
+    const mdSection = await switchToDocumentView(page);
 
     // Add a comment via UI
     const lineBlock = mdSection.locator('.line-block').first();
@@ -337,6 +334,7 @@ test.describe('Multi-Round — Frontend', () => {
 
     // Unresolved comment should still be visible (carried forward)
     await expect(page.locator('.comment-card')).toHaveCount(1);
+    await expect(page.locator('.comment-card .comment-body')).toContainText('Unresolved survives round');
     await expect(countEl).toBeVisible();
   });
 
@@ -474,8 +472,11 @@ test.describe('Multi-Round — Frontend', () => {
 
   test('viewed state persists across round-complete', async ({ page, request }) => {
     // Mark the first file as viewed
-    const section = page.locator('.file-section').first();
-    const viewedCheckbox = section.locator('.file-header-viewed input');
+    const session = await request.get('/api/session').then(r => r.json());
+    const firstPath: string = session.files[0].path;
+    const header = fileHeader(page, firstPath);
+    await expect(header).toBeVisible();
+    const viewedCheckbox = header.locator('.file-header-viewed input');
     await viewedCheckbox.check();
     await expect(viewedCheckbox).toBeChecked();
 
@@ -486,13 +487,19 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
     // Viewed checkbox should still be checked after the round transition
-    await expect(section.locator('.file-header-viewed input')).toBeChecked();
+    await expect(fileHeader(page, firstPath).locator('.file-header-viewed input')).toBeChecked();
+    await expect(page.locator(`.tree-file[data-tree-path="${firstPath}"]`)).toHaveClass(/viewed/);
   });
 
   test('file sections are re-rendered after round-complete', async ({ page, request }) => {
-    // Count file sections before
-    const sections = page.locator('.file-section');
+    // Count files before (the tree lists every file; the Pierre pane
+    // virtualizes, so only mounted items have DOM)
+    const sections = page.locator('.tree-file');
     const sectionsBefore = await sections.count();
+    expect(sectionsBefore).toBeGreaterThan(0);
+    const firstHeader = page.locator('#filesContainer .pierre-file-header').first();
+    await expect(firstHeader).toBeVisible();
+    const firstPath = await firstHeader.getAttribute('data-file-path');
 
     // Trigger round-complete
     await page.locator('#finishBtn').click();
@@ -500,8 +507,10 @@ test.describe('Multi-Round — Frontend', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 
-    // Same number of file sections after
+    // Same number of files after, and the diff pane rendered them again
     await expect(sections).toHaveCount(sectionsBefore);
+    await expect(fileHeader(page, firstPath!)).toBeVisible();
+    await expect(page.locator('#filesContainer .loading')).toHaveCount(0);
   });
 
   test('finish button shows Approve when all comments are resolved', async ({ page, request }) => {
@@ -551,7 +560,7 @@ test.describe('Multi-Round — Frontend', () => {
     });
 
     await loadPage(page);
-    await switchToDocumentView(page);
+    await revealFile(page, filePath);
 
     const badge = page.locator('.comment-round-badge');
     await expect(badge.first()).toBeVisible();
@@ -573,7 +582,7 @@ test.describe('Multi-Round — Frontend', () => {
     await waitForRound(request, round1);
 
     await loadPage(page);
-    await switchToDocumentView(page);
+    await revealFile(page, filePath);
 
     const badge = page.locator('.comment-round-badge');
     await expect(badge.first()).toBeVisible();
@@ -595,7 +604,7 @@ test.describe('Multi-Round — Frontend', () => {
     await waitForRound(request, round1);
 
     await loadPage(page);
-    await switchToDocumentView(page);
+    await revealFile(page, filePath);
 
     // The carried-forward comment from round1 should have round-latest class
     // since current round is round1+1, and round1 === current_round - 1

@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath } from './helpers';
+import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath, mdSection, switchToDocumentView } from './helpers';
 
 // Create a resolved comment by finishing a round, marking resolved, and round-completing.
 async function setupResolvedComment(request: APIRequestContext, line = 1) {
@@ -49,6 +49,7 @@ test.describe('Hide Resolved', () => {
   test('toggle hides resolved inline comments', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+    await mdSection(page);
 
     // Wait for resolved card to render
     await expect(page.locator('.comment-card.resolved-card').first()).toBeVisible();
@@ -69,6 +70,7 @@ test.describe('Hide Resolved', () => {
   test('h keyboard shortcut toggles resolved inline comment visibility', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+    await mdSection(page);
 
     const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
       has: page.locator('.resolved-card'),
@@ -84,29 +86,29 @@ test.describe('Hide Resolved', () => {
     await expect(resolvedBlock.first()).toBeVisible();
   });
 
-  // Cards hide via CSS; line highlights must update without a full file rebuild.
-  test('toggling hide-resolved drops has-comment on resolved ranges without rebuilding', async ({ page, request }) => {
+  // Hiding resolved must also drop the rendered document's comment
+  // highlight on the resolved range, and bring it back when shown again.
+  // (The classic renderer did this in place; under Pierre the document
+  // annotation is rebuilt on toggle, so node identity is not asserted.)
+  test('toggling hide-resolved drops has-comment on resolved ranges', async ({ page, request }) => {
     await setupResolvedComment(request, 1);
     await loadPage(page);
-    await page.locator('.file-section').filter({ hasText: 'plan.md' }).locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
-    await expect(page.locator('.document-wrapper')).toBeVisible();
+    await switchToDocumentView(page);
+    const doc = () => page.locator('[id="file-section-plan.md"].pierre-document');
 
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
-    await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
-
-    await section.evaluate(el => { (el as HTMLElement).dataset.critPreserveProbe = '1'; });
+    await expect(doc().locator('.line-block.has-comment').first()).toBeVisible();
+    await expect(doc().locator('.resolved-card').first()).toBeVisible();
 
     await page.keyboard.press('h');
-    await expect(section.locator('.comment-block:not(.panel-comment-block)').filter({
+    await expect(doc().locator('.comment-block:not(.panel-comment-block)').filter({
       has: page.locator('.resolved-card'),
     }).first()).toBeHidden();
-    await expect(section.locator('.line-block.has-comment')).toHaveCount(0);
-
-    const sameNode = await section.evaluate(el => (el as HTMLElement).dataset.critPreserveProbe === '1');
-    expect(sameNode).toBe(true);
+    await expect(doc().locator('.document-wrapper')).toBeVisible();
+    await expect(doc().locator('.line-block.has-comment')).toHaveCount(0);
 
     await page.keyboard.press('h');
-    await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
+    await expect(doc().locator('.line-block.has-comment').first()).toBeVisible();
+    await expect(doc().locator('.resolved-card').first()).toBeVisible();
   });
 
   test('comment arrows skip hidden resolved comments in both directions', async ({ page, request }) => {
@@ -131,7 +133,8 @@ test.describe('Hide Resolved', () => {
     await page.locator('#commentNavPrev').click();
     await expect(openA).toHaveClass(/comment-nav-highlight/);
     await expect(openC).not.toHaveClass(/comment-nav-highlight/);
-    await expect(resolvedCard).not.toHaveClass(/comment-nav-highlight/);
+    // Hidden resolved cards may be unmounted entirely; either way none is highlighted.
+    await expect(page.locator('.comment-card.resolved-card.comment-nav-highlight')).toHaveCount(0);
 
     await page.keyboard.press('h');
     await page.locator('#commentNavNext').click();
@@ -140,12 +143,13 @@ test.describe('Hide Resolved', () => {
     await page.keyboard.press('h');
     await page.locator('#commentNavNext').click();
     await expect(openC).toHaveClass(/comment-nav-highlight/);
-    await expect(resolvedCard).not.toHaveClass(/comment-nav-highlight/);
+    await expect(page.locator('.comment-card.resolved-card.comment-nav-highlight')).toHaveCount(0);
   });
 
   test('hide resolved persists via localStorage across reload', async ({ page, request }) => {
     await setupResolvedComment(request);
     await loadPage(page);
+    await mdSection(page);
 
     const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
       has: page.locator('.resolved-card'),
@@ -157,6 +161,7 @@ test.describe('Hide Resolved', () => {
 
     // Reload
     await loadPage(page);
+    await mdSection(page);
 
     // Should still be hidden after reload
     const resolvedBlockAfter = page.locator('.comment-block:not(.panel-comment-block)').filter({

@@ -56,7 +56,7 @@ test.describe('GitHub-synced comment badge (#370)', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const badge = section.locator('.github-badge');
     await expect(badge).toHaveCount(1, { timeout: 5000 });
     await expect(badge).toHaveText('GitHub');
@@ -73,7 +73,7 @@ test.describe('GitHub-synced comment badge (#370)', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.comment-body')).toContainText('Plain local comment', { timeout: 5000 });
     await expect(section.locator('.github-badge')).toHaveCount(0);
   });

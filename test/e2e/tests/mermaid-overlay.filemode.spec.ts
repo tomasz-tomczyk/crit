@@ -29,19 +29,40 @@ async function syncPlanWithMermaid(
 }
 
 async function expandButton(page: Page): Promise<Locator> {
-  const section = mdSection(page);
+  const section = await mdSection(page);
   const block = section.locator('.line-content.mermaid-block').first();
   await expect(block).toBeVisible();
+  await block.scrollIntoViewIfNeeded();
   // Desktop Expand is opacity:0 / pointer-events:none until hover or focus.
-  await block.hover();
+  // Pierre pauses pointer events briefly after a scroll, so a hover that
+  // lands during the pause doesn't register; re-hover until it reveals.
   const btn = block.locator('.mermaid-expand');
+  await expect(async () => {
+    await block.hover();
+    await expect(btn).toHaveCSS('pointer-events', 'auto', { timeout: 500 });
+  }).toPass({ timeout: 10_000 });
   await expect(btn).toBeVisible();
   return btn;
 }
 
-async function openOverlay(page: Page): Promise<Locator> {
+// Click Expand and wait for the overlay. A scroll (Playwright's own
+// actionability scroll, or the diagram settling) pauses pointer events and
+// drops the hover that reveals the button, so hover + click as one retry.
+async function clickExpand(page: Page): Promise<Locator> {
   const btn = await expandButton(page);
-  await btn.click();
+  const overlay = page.locator('#mermaidOverlay');
+  const block = page.locator('.line-content.mermaid-block').first();
+  await expect(async () => {
+    await block.hover();
+    await expect(btn).toHaveCSS('pointer-events', 'auto', { timeout: 500 });
+    await btn.click({ timeout: 1000 });
+    await expect(overlay).toHaveClass(/active/, { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+  return btn;
+}
+
+async function openOverlay(page: Page): Promise<Locator> {
+  await clickExpand(page);
   const overlay = page.locator('#mermaidOverlay');
   await expect(overlay).toHaveClass(/active/);
   return overlay;
@@ -104,8 +125,7 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
 
   test('Esc closes overlay and returns focus to Expand', async ({ page }) => {
     await loadPage(page);
-    const btn = await expandButton(page);
-    await btn.click();
+    const btn = await clickExpand(page);
     await expect(page.locator('#mermaidOverlay')).toHaveClass(/active/);
 
     await page.keyboard.press('Escape');

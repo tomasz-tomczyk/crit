@@ -24,7 +24,7 @@ test.describe('Comment Threading', () => {
     // Load page, switch to document view, verify reply renders
     await loadPage(page);
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.comment-card')).toBeVisible();
     await expect(section.locator('.comment-reply')).toHaveCount(1);
     await expect(section.locator('.reply-body')).toContainText('Done, fixed it');
@@ -36,7 +36,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -65,7 +65,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -90,7 +90,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -109,7 +109,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -129,7 +129,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -154,7 +154,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const firstCard = section.locator('.comment-card').filter({ hasText: 'First comment' });
     const secondCard = section.locator('.comment-card').filter({ hasText: 'Second comment' });
     await expect(firstCard).toBeVisible();
@@ -180,7 +180,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const firstCard = section.locator('.comment-card').filter({ hasText: 'First comment' });
     const secondCard = section.locator('.comment-card').filter({ hasText: 'Second comment' });
 
@@ -201,7 +201,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -222,7 +222,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const reply = section.locator('.comment-reply').first();
     await expect(reply).toBeVisible();
 
@@ -247,7 +247,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -268,30 +268,44 @@ test.describe('Comment Threading', () => {
     // Pinned: the bug is geometric, so don't depend on the default window size.
     await page.setViewportSize({ width: 1200, height: 500 });
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Reply to me');
+    // Mid-document, so there is page above it to scroll the card down to the edge.
+    await addComment(request, mdPath, 24, 'Reply to me');
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
-    // Park the collapsed reply input just above the bottom edge.
-    await page.evaluate(() => {
-      const el = document.querySelector('.comment-card .reply-input');
-      if (!el) throw new Error('no reply input');
-      const r = el.getBoundingClientRect();
-      window.scrollBy(0, r.top - (window.innerHeight - 60));
-    });
-
+    // Park the collapsed reply input just above the bottom edge. Instant
+    // scroll (html is scroll-behavior: smooth), re-parked until it holds —
+    // CodeView may still be settling item heights right after load.
     // locator.click() and boundingBox() scroll the target into view first,
-    // which would move the page out of the state under test.
-    const point = await page.evaluate(() => {
-      const el = document.querySelector('.comment-card .reply-input');
-      if (!el) throw new Error('no reply input');
-      const r = el.getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    });
+    // which would move the page out of the state under test, so measure
+    // in-page.
+    let point = { x: 0, y: 0, edge: 0 };
+    await expect(async () => {
+      point = await page.evaluate(async () => {
+        const el = document.querySelector('.comment-card .reply-input');
+        if (!el) throw new Error('no reply input');
+        // Git mode scrolls #filesContainer (CodeView's scroll root), not the window.
+        const scroller = document.getElementById('filesContainer')!;
+        const edge = Math.min(window.innerHeight, scroller.getBoundingClientRect().bottom);
+        const top = el.getBoundingClientRect().top;
+        scroller.scrollBy({ top: top - (edge - 60), behavior: 'instant' });
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const r = el.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2, edge };
+      });
+      expect(point.y).toBeGreaterThan(point.edge - 100);
+      expect(point.y).toBeLessThan(point.edge);
+    }).toPass({ timeout: 5000 });
+    // Pierre turns pointer events off briefly after a scroll: wait until a
+    // hit test at the input's center lands on the input itself.
+    await expect.poll(() => page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return !!hit && !!hit.closest('.reply-input');
+    }, point)).toBe(true);
     await page.mouse.click(point.x, point.y);
 
     await expect(card.locator('.reply-textarea')).toBeVisible();
@@ -305,7 +319,9 @@ test.describe('Comment Threading', () => {
         const btn = document.querySelector('.comment-card .reply-form-buttons .btn-primary');
         if (!btn) throw new Error('no Reply button');
         const r = btn.getBoundingClientRect();
-        return { bottom: Math.round(r.bottom), viewportHeight: window.innerHeight };
+        const scroller = document.getElementById('filesContainer')!;
+        const edge = Math.min(window.innerHeight, scroller.getBoundingClientRect().bottom);
+        return { bottom: Math.round(r.bottom), viewportHeight: Math.round(edge) };
       });
       expect(geom.bottom).toBeLessThanOrEqual(geom.viewportHeight);
     }).toPass({ timeout: 5000 });
@@ -319,7 +335,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -363,7 +379,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Verify reply exists
     await expect(section.locator('.comment-reply')).toHaveCount(1);
@@ -382,7 +398,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -408,7 +424,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Expand the resolved card
     await section.locator('.comment-collapse-btn').click();
@@ -429,7 +445,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toBeVisible();
@@ -459,7 +475,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
 
     // Collapsed by default with Unresolve button
@@ -488,7 +504,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 
@@ -510,7 +526,7 @@ test.describe('Comment Threading', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
 

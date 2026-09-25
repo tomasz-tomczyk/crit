@@ -6637,6 +6637,13 @@ body.pierre-review #filesContainer {
 }
 /* The rendered document sits in a Pierre annotation slot, which inherits
    the code typography from the diffs host; restore the page's. */
+/* Unified diffs are full width; keep comment cards and forms at reading
+   width, like the classic unified view. */
+body.pierre-unified #filesContainer .comment-block,
+body.pierre-unified #filesContainer .comment-form-wrapper {
+  max-width: var(--content-width);
+}
+
 .pierre-document {
   font-family: var(--crit-font-body);
   font-size: 1rem;

@@ -15,6 +15,7 @@ import { build } from "esbuild";
 import { gzipSync } from "zlib";
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
+import { critCodeThemes } from "./code-themes.mjs";
 
 export const PIERRE_DIR = "web/pierre";
 
@@ -40,8 +41,8 @@ export const SHIKI_LANGS = [
   "wasm", "wgsl", "xml", "yaml", "zig",
 ];
 
-// Drop what Crit never loads: all bundled Shiki themes (Crit uses Pierre's
-// own pierre-dark/pierre-light), the Oniguruma WASM engine (Crit uses Shiki's
+// Drop what Crit never loads: Shiki's bundled theme index (Crit registers the
+// two themes it uses in the entry below), the Oniguruma WASM engine (Crit uses Shiki's
 // JS regex engine), and grammars outside SHIKI_LANGS.
 const trimShiki = {
   name: "crit-trim-shiki",
@@ -81,11 +82,19 @@ import {
   setLanguageOverride,
   preloadHighlighter,
   getSharedHighlighter,
+  registerCustomTheme,
 } from '@pierre/diffs';
 import {
   getOrCreateWorkerPoolSingleton,
   terminateWorkerPoolSingleton,
 } from '@pierre/diffs/worker';
+
+// Crit's code themes (scripts/code-themes.mjs, inlined at build time):
+// Tokyo Night and GitHub Light Default adjusted for WCAG AA contrast on
+// Pierre's diff backgrounds. Bundled Shiki themes are stripped, so these two
+// are registered explicitly.
+registerCustomTheme('crit-dark', () => Promise.resolve(__CRIT_DARK__));
+registerCustomTheme('crit-light', () => Promise.resolve(__CRIT_LIGHT__));
 
 window.PierreDiffs = {
   CodeView,
@@ -103,10 +112,14 @@ window.PierreDiffs = {
 `;
 
 export async function buildPierre() {
+  const themes = critCodeThemes();
+  const entry = ENTRY
+    .replace("__CRIT_DARK__", JSON.stringify(themes.dark))
+    .replace("__CRIT_LIGHT__", JSON.stringify(themes.light));
   rmSync(PIERRE_DIR, { recursive: true, force: true });
   mkdirSync(PIERRE_DIR, { recursive: true });
   const result = await build({
-    stdin: { contents: ENTRY, resolveDir: process.cwd(), sourcefile: "pierre-entry.js", loader: "js" },
+    stdin: { contents: entry, resolveDir: process.cwd(), sourcefile: "pierre-entry.js", loader: "js" },
     bundle: true,
     format: "esm",
     splitting: true,

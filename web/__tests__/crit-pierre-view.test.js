@@ -210,3 +210,17 @@ test('destroy tears down the viewer and caches', function() {
   view.destroy();
   assert.ok(fake.log.some(e => e[0] === 'cleanUp'));
 });
+
+test('a full setFiles rebuilds thread cards but keeps open forms', function() {
+  const fake = fakePierre();
+  let builds = 0;
+  const view = makeView(fake, { buildAnnotation: () => ({ n: ++builds }) });
+  view.setFiles([file('a.go')]);
+  const render = fake.options().renderAnnotation;
+  const ctx = { item: { id: 'a.go' } };
+  const thread = render({ metadata: { kind: 'thread', id: 't1' } }, ctx);
+  const form = render({ metadata: { kind: 'form', id: 'f1' } }, ctx);
+  view.setFiles([file('a.go')]);
+  assert.notEqual(render({ metadata: { kind: 'thread', id: 't1' } }, ctx), thread, 'thread rebuilt from the new model');
+  assert.equal(render({ metadata: { kind: 'form', id: 'f1' } }, ctx), form, 'form element (and its typing) kept');
+});

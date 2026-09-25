@@ -51,7 +51,7 @@ test.describe('Comment Count Badge', () => {
   });
 
   test('badge shows 1 after adding a comment', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const badgeEl = page.locator('#commentCountNumber');
 
     // Add a comment via UI
@@ -106,7 +106,7 @@ test.describe('Comment Count Badge', () => {
   });
 
   test('badge decrements when a comment is deleted', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const badgeEl = page.locator('#commentCountNumber');
 
     // Add two comments via UI
@@ -133,7 +133,7 @@ test.describe('Comment Count Badge', () => {
   });
 
   test('badge shows empty text when all comments are deleted', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
 

@@ -19,9 +19,8 @@ test.describe('Mobile file-header layout (F6)', () => {
   });
 
   test('filename has positive visible width on mobile', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
-    const filename = section.locator('.file-header-name').first();
+    const section = await goSection(page);
+    const filename = section.locator('.pierre-file-header .file-header-name').first();
     const box = await filename.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.width).toBeGreaterThan(0);
@@ -54,7 +53,7 @@ test.describe('Mobile file-header layout (F6)', () => {
     // only) + badge + stats. The badge starts on its own row even on code
     // files with no toggle. Assert via vertical positioning: the comment
     // button on row 1 has a smaller y than the badge on row 2.
-    const fileHeader = page.locator('.file-header').first();
+    const fileHeader = page.locator('.pierre-file-header').first();
     await expect(fileHeader).toBeVisible();
     const positions = await fileHeader.evaluate((el) => {
       const commentBtn = el.querySelector('.file-comment-btn');
@@ -64,18 +63,18 @@ test.describe('Mobile file-header layout (F6)', () => {
         badgeTop: badge ? badge.getBoundingClientRect().top : null,
       };
     });
-    // Only meaningful if both elements rendered (file may be untracked
-    // without a badge, but the git-mode fixture's first file has both).
-    if (positions.commentBtnTop !== null && positions.badgeTop !== null) {
-      expect(positions.badgeTop).toBeGreaterThan(positions.commentBtnTop);
-    }
+    // The git-mode fixture's first file renders both.
+    expect(positions.commentBtnTop).not.toBeNull();
+    expect(positions.badgeTop).not.toBeNull();
+    expect(positions.badgeTop!).toBeGreaterThan(positions.commentBtnTop!);
   });
 
   test('page has no horizontal scroll at mobile viewport', async ({ page }) => {
     // The full assertion that was deferred from F1 and F5. With F6's
     // .file-header-viewed hide, no remaining element should push the page
     // past the viewport.
-    await expect(goSection(page).locator('.diff-container')).toBeVisible();
+    const section = await goSection(page);
+    await expect(section.locator('code[data-unified] [data-line]').first()).toBeVisible();
     const widths = await page.evaluate(() => ({
       scroll: document.documentElement.scrollWidth,
       client: document.documentElement.clientWidth,

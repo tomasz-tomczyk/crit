@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileHeader, fileItem, revealFile } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -18,6 +18,33 @@ function readFixtureState(): { fixtureDir: string } {
     throw new Error('CRIT_FIXTURE_DIR not set in state file');
   }
   return { fixtureDir: env['CRIT_FIXTURE_DIR'] };
+}
+
+// Pierre items have no <details>: a collapsed file is a header with the
+// `collapsed` class and no code rows in its shadow root.
+function viewedBox(page: Page, filePath: string) {
+  return fileHeader(page, filePath).locator('.file-header-viewed input[type="checkbox"]');
+}
+
+async function expectCollapsed(page: Page, filePath: string) {
+  await expect(fileHeader(page, filePath)).toHaveClass(/\bcollapsed\b/);
+  await expect(fileItem(page, filePath).locator('[data-line]')).toHaveCount(0);
+}
+
+async function expectExpanded(page: Page, filePath: string) {
+  await expect(fileHeader(page, filePath)).not.toHaveClass(/\bcollapsed\b/);
+  await expect(fileItem(page, filePath).locator('[data-line]').first()).toBeVisible();
+}
+
+// Collapse/expand through the header's chevron (a plain header click).
+async function clickChevron(page: Page, filePath: string) {
+  await fileHeader(page, filePath).locator('.file-header-chevron').click();
+}
+
+async function treePaths(page: Page): Promise<string[]> {
+  const tree = page.locator('.tree-file[data-tree-path]');
+  await expect(tree.first()).toBeVisible();
+  return tree.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.treePath!));
 }
 
 // ============================================================
@@ -37,66 +64,60 @@ test.describe('Viewed Checkbox — Git Mode', () => {
   });
 
   test('each file section has a viewed checkbox', async ({ page }) => {
-    const checkboxes = page.locator('.file-header-viewed input[type="checkbox"]');
-    const sections = page.locator('.file-section');
-    const sectionCount = await sections.count();
-    await expect(checkboxes).toHaveCount(sectionCount);
+    // CodeView only mounts files near the viewport, so visit each one.
+    const paths = await treePaths(page);
+    expect(paths.length).toBe(10);
+    for (const p of paths) {
+      await revealFile(page, p);
+      await expect(viewedBox(page, p)).toHaveCount(1);
+    }
   });
 
   test('viewed checkbox starts unchecked', async ({ page }) => {
-    const checkbox = page.locator('.file-header-viewed input[type="checkbox"]').first();
+    const checkbox = page.locator('.pierre-file-header .file-header-viewed input[type="checkbox"]').first();
+    await expect(checkbox).toBeAttached();
     await expect(checkbox).not.toBeChecked();
   });
 
   test('clicking viewed checkbox marks file as viewed', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-    await checkbox.click();
-    await expect(checkbox).toBeChecked();
+    await revealFile(page, 'plan.md');
+    await viewedBox(page, 'plan.md').click();
+    await expect(viewedBox(page, 'plan.md')).toBeChecked();
   });
 
   test('checking viewed collapses the file section', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
-    await expect(section).toHaveAttribute('open', '');
+    await revealFile(page, 'plan.md');
+    await expectExpanded(page, 'plan.md');
 
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-    await checkbox.click();
+    await viewedBox(page, 'plan.md').click();
 
-    await expect(section).not.toHaveAttribute('open', '');
+    await expectCollapsed(page, 'plan.md');
   });
 
   test('clicking viewed checkbox does not toggle section open/close on its own', async ({ page }) => {
-    // First collapse the section manually
-    const section = page.locator('#file-section-plan\\.md');
-    const header = section.locator('summary.file-header');
-    await header.click();
-    await expect(section).not.toHaveAttribute('open', '');
-
-    // Now uncheck viewed — section should stay collapsed (checkbox click doesn't toggle details)
-    // First we need to check it to have something to uncheck
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-    // Re-open section so we can interact with checkbox
-    await header.click();
-    await expect(section).toHaveAttribute('open', '');
+    await revealFile(page, 'plan.md');
+    // Collapse manually, then re-open
+    await clickChevron(page, 'plan.md');
+    await expectCollapsed(page, 'plan.md');
+    await clickChevron(page, 'plan.md');
+    await expectExpanded(page, 'plan.md');
 
     // Check it — collapses
-    await checkbox.click();
-    await expect(section).not.toHaveAttribute('open', '');
+    await viewedBox(page, 'plan.md').click();
+    await expectCollapsed(page, 'plan.md');
 
     // Re-open manually
-    await header.click();
-    await expect(section).toHaveAttribute('open', '');
+    await clickChevron(page, 'plan.md');
+    await expectExpanded(page, 'plan.md');
 
     // Uncheck — should NOT collapse (only checking collapses)
-    await checkbox.click();
-    await expect(checkbox).not.toBeChecked();
-    await expect(section).toHaveAttribute('open', '');
+    await viewedBox(page, 'plan.md').click();
+    await expect(viewedBox(page, 'plan.md')).not.toBeChecked();
+    await expectExpanded(page, 'plan.md');
   });
 
   test('viewed checkbox updates the tree indicator', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-
+    await revealFile(page, 'plan.md');
     const treeFile = page.locator('.tree-file', {
       has: page.locator('.tree-file-name', { hasText: 'plan.md' }),
     });
@@ -104,7 +125,7 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     // No viewed indicator initially
     await expect(treeFile.locator('.tree-viewed-check')).toHaveCount(0);
 
-    await checkbox.click();
+    await viewedBox(page, 'plan.md').click();
 
     // Tree file should have viewed class and checkmark
     await expect(treeFile).toHaveClass(/viewed/);
@@ -115,26 +136,24 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     const viewedCount = page.locator('#viewedCount');
     await expect(viewedCount).toContainText('0 /');
 
-    // Check one file
-    const section = page.locator('#file-section-plan\\.md');
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-    await checkbox.click();
+    await revealFile(page, 'plan.md');
+    await viewedBox(page, 'plan.md').click();
 
     await expect(viewedCount).toContainText('1 /');
   });
 
   test('viewed state persists across page reload', async ({ page }) => {
-    const section = page.locator('#file-section-plan\\.md');
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-    await checkbox.click();
-    await expect(checkbox).toBeChecked();
+    await revealFile(page, 'plan.md');
+    await viewedBox(page, 'plan.md').click();
+    await expect(viewedBox(page, 'plan.md')).toBeChecked();
 
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    const reloadedCheckbox = page.locator('#file-section-plan\\.md .file-header-viewed input[type="checkbox"]');
-    await expect(reloadedCheckbox).toBeChecked();
+    await revealFile(page, 'plan.md');
+    await expect(viewedBox(page, 'plan.md')).toBeChecked();
   });
+
   test('viewed state resets when file content changes between rounds', async ({ page, request }) => {
     // Reset server state
     await request.post('/api/round-complete');
@@ -144,11 +163,10 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     const { fixtureDir } = readFixtureState();
 
     // Mark plan.md as viewed
-    const section = page.locator('#file-section-plan\\.md');
-    const checkbox = section.locator('.file-header-viewed input[type="checkbox"]');
-    await checkbox.click();
-    await expect(checkbox).toBeChecked();
-    await expect(section).not.toHaveAttribute('open', '');
+    await revealFile(page, 'plan.md');
+    await viewedBox(page, 'plan.md').click();
+    await expect(viewedBox(page, 'plan.md')).toBeChecked();
+    await expectCollapsed(page, 'plan.md');
 
     // Verify tree indicator shows viewed
     const treeFile = page.locator('.tree-file', {
@@ -166,10 +184,11 @@ test.describe('Viewed Checkbox — Git Mode', () => {
     await request.post('/api/round-complete');
 
     // Wait for UI to refresh — the viewed checkbox should be unchecked
-    await expect(checkbox).not.toBeChecked({ timeout: 5_000 });
+    await expect(viewedBox(page, 'plan.md')).not.toBeChecked({ timeout: 5_000 });
 
     // File section should be open (uncollapsed)
-    await expect(section).toHaveAttribute('open', '');
+    await revealFile(page, 'plan.md');
+    await expectExpanded(page, 'plan.md');
 
     // Tree view should no longer show the viewed indicator
     await expect(treeFile).not.toHaveClass(/viewed/);
@@ -191,28 +210,32 @@ test.describe('Collapse/Expand All — Git Mode', () => {
   });
 
   test('clicking collapse all closes all expanded file sections', async ({ page }) => {
-    // Verify at least some sections are open
-    const openSections = page.locator('.file-section[open]');
-    const initialOpen = await openSections.count();
-    expect(initialOpen).toBeGreaterThan(0);
+    // Some sections start expanded
+    await expect(page.locator('.pierre-file-header:not(.collapsed)').first()).toBeVisible();
 
     await page.locator('.file-tree-collapse-btn').click();
 
-    // All sections should be closed
-    await expect(page.locator('.file-section[open]')).toHaveCount(0);
+    // Collapsed files are header-only, so all ten fit on screen at once:
+    // every file is mounted and every one is collapsed with no code rows.
+    await expect(page.locator('.pierre-file-header')).toHaveCount(10);
+    await expect(page.locator('.pierre-file-header.collapsed')).toHaveCount(10);
+    await expect(page.locator('diffs-container [data-line]')).toHaveCount(0);
   });
 
   test('clicking expand all after collapse opens all sections', async ({ page }) => {
     // Collapse all first
     await page.locator('.file-tree-collapse-btn').click();
-    await expect(page.locator('.file-section[open]')).toHaveCount(0);
+    await expect(page.locator('.pierre-file-header.collapsed')).toHaveCount(10);
 
     // Now expand all
     await page.locator('.file-tree-collapse-btn').click();
 
-    // All sections should be open
-    const allSections = page.locator('.file-section');
-    const totalCount = await allSections.count();
-    await expect(page.locator('.file-section[open]')).toHaveCount(totalCount);
+    // Every file is expanded again (visit each — only nearby files mount).
+    const paths = await treePaths(page);
+    expect(paths.length).toBe(10);
+    for (const p of paths) {
+      await revealFile(page, p);
+      await expect(fileHeader(page, p)).not.toHaveClass(/\bcollapsed\b/);
+    }
   });
 });

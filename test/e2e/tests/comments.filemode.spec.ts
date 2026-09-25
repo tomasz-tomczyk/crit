@@ -5,12 +5,12 @@ test.describe('Comments — File Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
   });
 
   test('can add and delete a markdown comment in file mode', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -29,7 +29,7 @@ test.describe('Comments — File Mode', () => {
   });
 
   test('renders safe HTML while stripping unsafe markup from comments', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await section.locator('.line-block').first().hover();
     await section.locator('.line-comment-gutter').first().click();
 

@@ -17,8 +17,10 @@ test.describe('Accessibility', () => {
   // user sees after the theme switch completes.
   async function setTheme(page: Page, theme: 'dark' | 'light', bgPage: string) {
     await page.addStyleTag({ content: '* { transition: none !important; }' });
+    // Go through the app's theme switch (what the settings pill calls) so the
+    // Pierre diff surface follows the page theme, not just the chrome.
     await page.evaluate(
-      (t) => document.documentElement.setAttribute('data-theme', t),
+      (t) => (window as unknown as { applyTheme: (c: string) => void }).applyTheme(t),
       theme,
     );
     await page.waitForFunction(
@@ -31,7 +33,7 @@ test.describe('Accessibility', () => {
   }
 
   test('should have no critical accessibility violations', async ({ page }) => {
-    await page.waitForSelector('.file-section');
+    await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
@@ -50,7 +52,7 @@ test.describe('Accessibility', () => {
   });
 
   test('should have no color contrast violations in dark theme', async ({ page }) => {
-    await page.waitForSelector('.file-section');
+    await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
     await setTheme(page, 'dark', '#0e0f13');
 
     const results = await new AxeBuilder({ page })
@@ -63,7 +65,7 @@ test.describe('Accessibility', () => {
   });
 
   test('should have no color contrast violations in light theme', async ({ page }) => {
-    await page.waitForSelector('.file-section');
+    await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
     await setTheme(page, 'light', '#ffffff');
 
     const results = await new AxeBuilder({ page })

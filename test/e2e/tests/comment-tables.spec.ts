@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { addComment, clearAllComments, getMdPath, goSection, loadPage, mdSection, switchToDocumentView } from './helpers';
+import { addComment, clearAllComments, getMdPath, goSection, loadPage, mdSection, openLineComment, switchToDocumentView } from './helpers';
 
 // A markdown table reaches a comment body through the sanitizer with its
 // classes removed, so only element rules can draw it. Without them the browser
@@ -33,15 +33,12 @@ test.describe('Comment tables', () => {
 
   test('a table in a diff comment draws a border on every cell', async ({ page }) => {
     await loadPage(page);
-    const section = goSection(page);
+    const section = await goSection(page);
 
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill(TABLE_MD);
-    await page.locator('.comment-form .btn-primary').click();
+    // server.go new line 5 (`"log"`) is an addition.
+    const form = await openLineComment(page, section, 5);
+    await form.locator('textarea').fill(TABLE_MD);
+    await form.locator('.btn-primary').click();
 
     const table = section.locator('.comment-body table');
     await expect(table).toBeVisible();
@@ -63,7 +60,7 @@ test.describe('Comment tables', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const table = mdSection(page).locator('.reply-body table');
+    const table = (await mdSection(page)).locator('.reply-body table');
     await expect(table).toBeVisible();
     await expect(table.locator('th')).toHaveCount(3);
 

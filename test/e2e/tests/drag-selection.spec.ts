@@ -1,28 +1,43 @@
-import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, goSection, switchToDocumentView, dragBetween } from './helpers';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import {
+  clearAllComments, loadPage, goSection, switchToDocumentView, dragBetween,
+  dragLineRange, openLineComment, diffLine,
+} from './helpers';
+
+// Pierre turns off pointer events for a moment after any scroll (switching
+// to Document view scrolls). Wait until the start gutter is hit-testable,
+// then drag.
+async function dragGutters(page: Page, from: Locator, to: Locator) {
+  await expect(from).toBeAttached();
+  await expect(to).toBeAttached();
+  await from.scrollIntoViewIfNeeded();
+  await expect.poll(() => from.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === el;
+  })).toBe(true);
+  await dragBetween(page, from, to);
+}
 
 // ============================================================
 // Markdown Drag Selection (git mode — plan.md in document view)
 // ============================================================
 test.describe('Markdown Drag Selection — Git Mode', () => {
+  let section: Locator;
+
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await switchToDocumentView(page);
+    section = await switchToDocumentView(page);
   });
 
   test('dragging across gutter elements opens comment form with multi-line header', async ({ page }) => {
-    const section = mdSection(page);
 
     // Get the first and third line-comment-gutter elements
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);
 
-    await expect(firstGutter).toBeAttached();
-    await expect(thirdGutter).toBeAttached();
-
-    await dragBetween(page, firstGutter, thirdGutter);
+    await dragGutters(page, firstGutter, thirdGutter);
 
     // Comment form should open with "Lines" in the header (multi-line range)
     const form = page.locator('.comment-form');
@@ -33,25 +48,23 @@ test.describe('Markdown Drag Selection — Git Mode', () => {
   });
 
   test('after drag, selected line blocks have .selected class', async ({ page }) => {
-    const section = mdSection(page);
 
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);
 
-    await expect(firstGutter).toBeAttached();
-    await expect(thirdGutter).toBeAttached();
+    await dragGutters(page, firstGutter, thirdGutter);
 
-    await dragBetween(page, firstGutter, thirdGutter);
-
-    // At least one line block should have the selected class
-    const selectedBlocks = section.locator('.line-block.selected');
-    const count = await selectedBlocks.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+    // Every block from the first to the third gutter is selected (the form
+    // spans them), and nothing past it.
+    const blocks = section.locator('.line-block.kb-nav');
+    await expect(blocks.nth(0)).toHaveClass(/selected/);
+    await expect(blocks.nth(1)).toHaveClass(/selected/);
+    await expect(blocks.nth(2)).toHaveClass(/selected/);
+    await expect(blocks.nth(3)).not.toHaveClass(/selected/);
   });
 
   test('single click on gutter opens single-line comment form', async ({ page }) => {
-    const section = mdSection(page);
 
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
@@ -75,21 +88,20 @@ test.describe('Markdown Drag Selection — Git Mode', () => {
 // Line highlight cleared after comment submit/cancel
 // ============================================================
 test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
+  let section: Locator;
+
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await switchToDocumentView(page);
+    section = await switchToDocumentView(page);
   });
 
   test('drag-select then submit clears selected class and keeps keyboard focus', async ({ page }) => {
-    const section = mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);
 
-    await expect(firstGutter).toBeAttached();
-    await expect(thirdGutter).toBeAttached();
-    await dragBetween(page, firstGutter, thirdGutter);
+    await dragGutters(page, firstGutter, thirdGutter);
 
     // Verify selection exists before submit
     const form = page.locator('.comment-form');
@@ -105,14 +117,11 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
   });
 
   test('drag-select then cancel clears selected class and keeps keyboard focus', async ({ page }) => {
-    const section = mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);
 
-    await expect(firstGutter).toBeAttached();
-    await expect(thirdGutter).toBeAttached();
-    await dragBetween(page, firstGutter, thirdGutter);
+    await dragGutters(page, firstGutter, thirdGutter);
 
     const form = page.locator('.comment-form');
     await expect(form).toBeVisible();
@@ -126,7 +135,6 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
   });
 
   test('single-line click then submit clears selected class and keeps keyboard focus', async ({ page }) => {
-    const section = mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -148,220 +156,132 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
 });
 
 // ============================================================
-// Diff Drag Selection — Split Mode (git mode — code files)
+// Diff Drag Selection (git mode — code files through Pierre)
+//
+// Dragging the gutter "+" opens a Crit form for exactly that range, and the
+// range stays tinted (form-selected, --crit-brand-subtle) while it is open.
 // ============================================================
+
+// Rows tinted as an open form's range, as "line:type" in visual order.
+// `column` narrows to one split side (or the unified column).
+function selectedRows(item: Locator, column = 'code') {
+  return item.evaluate((host, column) => {
+    const probe = document.createElement('div');
+    probe.style.backgroundColor = 'var(--crit-brand-subtle)';
+    document.body.appendChild(probe);
+    const tint = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return Array.from(host.shadowRoot!.querySelectorAll(`${column} [data-content] > [data-line]`))
+      .filter(el => getComputedStyle(el).backgroundColor === tint)
+      .map(el => `${(el as HTMLElement).dataset.line}:${(el as HTMLElement).dataset.lineType}`);
+  }, column);
+}
+
+async function submitForm(page: Page, form: Locator, body: string) {
+  await form.locator('textarea').fill(body);
+  await form.locator('.btn-primary').click();
+  await expect(page.locator('#filesContainer .comment-card', { hasText: body })).toBeVisible();
+}
+
+async function persisted(page: Page, body: string) {
+  const res = await page.request.get('/api/file/comments?path=server.go');
+  const comments = await res.json() as Array<{ body: string; start_line: number; end_line: number; side?: string }>;
+  const c = comments.find(x => x.body === body);
+  expect(c).toBeTruthy();
+  return c!;
+}
+
 test.describe('Diff Drag Selection — Split Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
   });
 
-  test('dragging across diff comment buttons opens multi-line comment form', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
+  // server.go new lines 23-34 are one run of additions (authMiddleware).
+  test('dragging the gutter + across addition lines opens multi-line comment form', async ({ page }) => {
+    const item = await goSection(page);
+    const form = await dragLineRange(page, item, 23, 25);
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 23-25');
 
-    // Find addition-side diff comment buttons in server.go
-    const additionSides = section.locator('.diff-split-side.addition');
-    await expect(additionSides.first()).toBeVisible();
-
-    // Get the first and a subsequent addition side's comment button
-    const firstBtn = additionSides.nth(0).locator('.diff-comment-btn');
-    const secondBtn = additionSides.nth(1).locator('.diff-comment-btn');
-
-    // Hover first to make buttons visible
-    await additionSides.nth(0).hover();
-    await expect(firstBtn).toBeAttached();
-
-    await dragBetween(page, firstBtn, secondBtn);
-
-    // Comment form should open
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    // Header should show line range (Lines N-M)
-    const header = page.locator('.comment-form-header');
-    await expect(header).toContainText('Line');
+    await submitForm(page, form, 'split drag range');
+    const c = await persisted(page, 'split drag range');
+    expect([c.start_line, c.end_line, c.side || '']).toEqual([23, 25, '']);
   });
 
-  test('single click on diff-comment-btn opens single-line comment form', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
-
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-
-    const commentBtn = additionSide.locator('.diff-comment-btn');
-    await expect(commentBtn).toBeVisible();
-    await commentBtn.click();
-
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    const header = page.locator('.comment-form-header');
-    const headerText = await header.textContent();
-    // Single-line: "Comment on Line N" (no range)
-    expect(headerText).toMatch(/Line \d+$/);
+  test('single click on the gutter + opens single-line comment form', async ({ page }) => {
+    const item = await goSection(page);
+    const form = await openLineComment(page, item, 23);
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 23');
   });
 
-  test('dragging selects lines with .selected class on diff sides', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
-
-    const additionSides = section.locator('.diff-split-side.addition');
-    await expect(additionSides.first()).toBeVisible();
-
-    const firstBtn = additionSides.nth(0).locator('.diff-comment-btn');
-    const thirdBtn = additionSides.nth(2).locator('.diff-comment-btn');
-
-    await additionSides.nth(0).hover();
-    await expect(firstBtn).toBeAttached();
-
-    await dragBetween(page, firstBtn, thirdBtn);
-
-    // After drag, at least one diff-split-side should have .selected
-    const selectedSides = section.locator('.diff-split-side.selected');
-    const count = await selectedSides.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+  test('dragging selects exactly the dragged lines on the new side', async ({ page }) => {
+    const item = await goSection(page);
+    await dragLineRange(page, item, 23, 25);
+    await expect.poll(() => selectedRows(item)).toEqual([
+      '23:change-addition', '24:change-addition', '25:change-addition',
+    ]);
+    // The old side of those rows is not part of the range.
+    expect(await selectedRows(item, 'code[data-deletions]')).toEqual([]);
   });
 });
 
-// ============================================================
-// Diff Drag Selection — Unified Mode (git mode)
-// ============================================================
 test.describe('Diff Drag Selection — Unified Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    // Switch to unified mode
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
-    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
+    await expect(unifiedBtn).toHaveClass(/active/);
+    const item = await goSection(page);
+    await expect(item.locator('code[data-unified]')).toBeVisible();
   });
 
-  test('dragging across diff lines in unified mode opens comment form', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
-
-    // Find addition lines in the unified diff
-    const additionLines = section.locator('.diff-container.unified .diff-line.addition');
-    await expect(additionLines.first()).toBeVisible();
-
-    const firstBtn = additionLines.nth(0).locator('.diff-comment-btn');
-    const secondBtn = additionLines.nth(1).locator('.diff-comment-btn');
-
-    await additionLines.nth(0).hover();
-    await expect(firstBtn).toBeAttached();
-
-    await dragBetween(page, firstBtn, secondBtn);
-
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    const header = page.locator('.comment-form-header');
-    await expect(header).toContainText('Lines');
+  test('dragging across addition lines in unified mode opens comment form', async ({ page }) => {
+    const item = await goSection(page);
+    const form = await dragLineRange(page, item, 23, 24);
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 23-24');
   });
 
-  test('drag works across add/del lines in unified mode (no side restriction)', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
+  test('drag works from a context line onto an addition (no type restriction)', async ({ page }) => {
+    // server.go new 35 is context (`func main() {`), 36-40 are additions.
+    const item = await goSection(page);
+    await expect(diffLine(item, 35)).toHaveAttribute('data-line-type', 'context');
+    const form = await dragLineRange(page, item, 35, 37);
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 35-37');
 
-    // In unified mode, find any diff lines with comment buttons (mix of add/del)
-    const diffLines = section.locator('.diff-container.unified .diff-line');
-    await expect(diffLines.first()).toBeVisible();
-
-    // Find two diff lines with line numbers (could be different types)
-    // We need lines that have data-diff-line-num set (i.e., commentable)
-    const commentableLines = section.locator('.diff-container.unified .diff-line[data-diff-line-num]');
-    const count = await commentableLines.count();
-    expect(count).toBeGreaterThanOrEqual(2);
-
-    const firstBtn = commentableLines.nth(0).locator('.diff-comment-btn');
-    const thirdBtn = commentableLines.nth(2).locator('.diff-comment-btn');
-
-    await commentableLines.nth(0).hover();
-    await expect(firstBtn).toBeAttached();
-
-    await dragBetween(page, firstBtn, thirdBtn);
-
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    // Should show a range since we dragged across multiple lines
-    const header = page.locator('.comment-form-header');
-    await expect(header).toContainText('Line');
+    await submitForm(page, form, 'unified mixed drag');
+    const c = await persisted(page, 'unified mixed drag');
+    expect([c.start_line, c.end_line, c.side || '']).toEqual([35, 37, '']);
   });
 
-  test('unified drag selects lines with .selected class', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
-
-    const additionLines = section.locator('.diff-container.unified .diff-line.addition');
-    await expect(additionLines.first()).toBeVisible();
-
-    const firstBtn = additionLines.nth(0).locator('.diff-comment-btn');
-    const secondBtn = additionLines.nth(1).locator('.diff-comment-btn');
-
-    await additionLines.nth(0).hover();
-    await expect(firstBtn).toBeAttached();
-
-    await dragBetween(page, firstBtn, secondBtn);
-
-    // At least one diff-line should have .selected
-    const selectedLines = section.locator('.diff-line.selected');
-    const count = await selectedLines.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+  test('unified drag selects the dragged lines', async ({ page }) => {
+    const item = await goSection(page);
+    await dragLineRange(page, item, 23, 24);
+    await expect.poll(() => selectedRows(item)).toEqual(['23:change-addition', '24:change-addition']);
   });
 
   test('unified drag from deletion spans across context lines after release', async ({ page }) => {
-    // Regression: dragging from a deletion anchor across context + another deletion
-    // should keep the full old-side range highlighted after mouseup, not collapse
-    // to only the deletion lines.
-    const section = goSection(page);
-    await expect(section).toBeVisible();
+    // Regression: a drag from one deletion to a later deletion keeps the whole
+    // span selected after mouseup (context between included), and the form
+    // is an old-side comment over the old-line range.
+    // server.go: old 21 and old 23 are deletions; old 22 / new 42 is context
+    // between them.
+    const item = await goSection(page);
+    await expect(diffLine(item, 21, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
+    // Pierre virtualizes rows within a file; bring the span on screen.
+    await diffLine(item, 21, 'old').scrollIntoViewIfNeeded();
+    await expect(diffLine(item, 23, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
 
-    // Find two deletion lines separated by at least one context line in between.
-    const pair = await section.evaluate((sec) => {
-      const lines = Array.from(sec.querySelectorAll('.diff-container.unified .diff-line'));
-      let firstDel = -1;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].classList.contains('deletion')) {
-          if (firstDel === -1) { firstDel = i; continue; }
-          // Check at least one context line between firstDel and i
-          for (let j = firstDel + 1; j < i; j++) {
-            const cls = lines[j].classList;
-            if (!cls.contains('deletion') && !cls.contains('addition')) {
-              return { first: firstDel, last: i };
-            }
-          }
-        }
-      }
-      return null;
-    });
-    if (!pair) test.skip(true, 'fixture needs two deletions with context between');
+    const form = await dragLineRange(page, item, 21, 23, 'old');
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 21-23');
 
-    const allLines = section.locator('.diff-container.unified .diff-line');
-    const firstDel = allLines.nth(pair!.first);
-    const lastDel = allLines.nth(pair!.last);
+    await expect.poll(async () => (await selectedRows(item)).filter(r => r.endsWith(':context'))).toEqual(['42:context']);
+    const rows = await selectedRows(item);
+    expect(rows[0]).toBe('21:change-deletion');
+    expect(rows[rows.length - 1]).toBe('23:change-deletion');
 
-    await firstDel.scrollIntoViewIfNeeded();
-    await firstDel.hover();
-    const firstBtn = firstDel.locator('.diff-comment-btn');
-    await expect(firstBtn).toBeAttached();
-    const secondBtn = lastDel.locator('.diff-comment-btn');
-
-    await dragBetween(page, firstBtn, secondBtn);
-
-    await expect(page.locator('.comment-form')).toBeVisible();
-
-    // After mouseup, context lines between the deletions should still be highlighted
-    // (not just the deletion endpoints). Before the fix, inCurrentForm filtered by
-    // side so only deletion lines kept the .selected class after the drag released.
-    const selectedContext = section.locator(
-      '.diff-container.unified .diff-line.selected:not(.deletion):not(.addition)'
-    );
-    await expect(async () => {
-      const n = await selectedContext.count();
-      expect(n).toBeGreaterThan(0);
-    }).toPass();
+    await submitForm(page, form, 'old side span');
+    const c = await persisted(page, 'old side span');
+    expect([c.start_line, c.end_line, c.side]).toEqual([21, 23, 'old']);
   });
 });

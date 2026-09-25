@@ -33,7 +33,7 @@ test.describe('CLI comment sync — live browser update', () => {
     // spawned `crit comment` would otherwise look for the daemon registry in
     // the runner's real home and miss the fixture's daemon.
     const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Wait for document to be stable before asserting no comments
     await expect(section.locator('.line-block').first()).toBeVisible();
@@ -52,7 +52,7 @@ test.describe('CLI comment sync — live browser update', () => {
     // spawned `crit comment` would otherwise look for the daemon registry in
     // the runner's real home and miss the fixture's daemon.
     const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const countEl = page.locator('#commentCount');
     const badgeEl = page.locator('#commentCountNumber');
 
@@ -74,7 +74,7 @@ test.describe('CLI comment sync — live browser update', () => {
     // spawned `crit comment` would otherwise look for the daemon registry in
     // the runner's real home and miss the fixture's daemon.
     const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Add a comment via the API, then reload so the browser picks up the in-memory state.
     await addComment(request, 'plan.md', 1, 'Comment to be cleared');

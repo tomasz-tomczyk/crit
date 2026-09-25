@@ -12,4 +12,4 @@ f263b05369e050fa175d4ecb9c9358eb4253602d510297adfb31df48b2f1c4d5 web/dompurify.m
 635972b985228e8af9f0143647c68616b7a3bb09f6946e7e4a52e43dcf5e7be5 web/markdown-it.min.js markdown-it@15.0.2 dist/browser/markdown-it.umd.min.js copy
 581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8 web/mermaid.min.js mermaid@11.17.2 dist/mermaid.min.js copy
 85535fef664d09befcafe5d45eb2fcaa83d84eb91058c68aa8f5e2a58aefc662 web/diff-match-patch.min.js @sanity/diff-match-patch@3.2.0,esbuild@0.28.2 - generated
-55671cda934bbaa7c678ccec6bf2969fee505ea45c7f482296bd5a6c1c0fe9d8 web/pierre @pierre/diffs@1.5.1,shiki@4.4.3,esbuild@0.28.2 - generated
+ba6d99b5ef2626a869ee4e8a6bf77e57808cb8c7bd7ed6ae0581e48947f5a047 web/pierre @pierre/diffs@1.5.1,shiki@4.4.3,@shikijs/themes@4.4.3,esbuild@0.28.2 - generated

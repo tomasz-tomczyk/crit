@@ -22,6 +22,13 @@ test.describe('Interactive accessibility', () => {
     await expect(shortcutsTab).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#shortcutsPane')).toHaveClass(/active/);
 
+    // Audit the settled dialog: its open animation and the tab color
+    // transitions blend foreground into background while running, which axe
+    // reports as contrast failures (seen on main too, not a product issue).
+    await overlay.evaluate(async (el) => {
+      await Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished));
+    });
+
     const results = await new AxeBuilder({ page })
       .include('#settingsOverlay')
       .withTags(['wcag2a', 'wcag2aa'])

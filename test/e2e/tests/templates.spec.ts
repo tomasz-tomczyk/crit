@@ -3,7 +3,7 @@ import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './h
 
 // Helper: open comment form on the first markdown line block
 async function openCommentForm(page: import('@playwright/test').Page) {
-  const section = mdSection(page);
+  const section = await mdSection(page);
   const lineBlock = section.locator('.line-block').first();
   await lineBlock.hover();
   const gutterBtn = section.locator('.line-comment-gutter').first();

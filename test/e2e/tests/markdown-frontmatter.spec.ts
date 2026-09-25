@@ -1,14 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { addComment, clearAllComments, loadPage } from './helpers';
+import type { Page } from '@playwright/test';
+import { addComment, clearAllComments, fileHeader, loadPage, revealFile } from './helpers';
 
-function skillSection(page: Parameters<typeof loadPage>[0]) {
-  return page.locator('.file-section').filter({ hasText: 'skill.md' });
-}
-
-async function switchSkillToDocumentView(page: Parameters<typeof loadPage>[0]) {
-  const section = skillSection(page);
-  await expect(section).toBeVisible();
-  await section.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+// Bring skill.md into view, switch it to Document view and return its
+// rendered document (the .pierre-document annotation inside its Pierre item).
+async function switchSkillToDocumentView(page: Page) {
+  await revealFile(page, 'skill.md');
+  await fileHeader(page, 'skill.md').locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+  const section = page.locator('[id="file-section-skill.md"].pierre-document');
   await expect(section.locator('.document-wrapper')).toBeVisible();
   return section;
 }
@@ -25,8 +24,8 @@ test.describe('Markdown frontmatter — skill.md', () => {
     await expect(section.locator('h1', { hasText: 'this would become an h1' })).toHaveCount(0);
     await expect(section.locator('.line-block[data-start-line="1"] .fence-marker', { hasText: '---' })).toBeVisible();
     await expect(section.locator('.line-block[data-start-line="8"] .fence-marker', { hasText: '---' })).toBeVisible();
-    await expect(section.locator('.line-block[data-start-line="2"] code.hljs')).toContainText('name: demo-skill');
-    await expect(section.locator('.line-block[data-start-line="2"] [class^="hljs-"]').first()).toBeVisible();
+    await expect(section.locator('.line-block[data-start-line="2"] code.crit-code')).toContainText('name: demo-skill');
+    await expect(section.locator('.line-block[data-start-line="2"] code.crit-code span[style*="--diffs-token"]').first()).toBeVisible();
     // Line 4 is a YAML `# comment` — must not become a heading.
     await expect(section.locator('.line-block[data-start-line="4"]')).toContainText('this would become an h1');
     await expect(section.locator('.line-block[data-start-line="4"] h1, .line-block[data-start-line="4"] h2')).toHaveCount(0);

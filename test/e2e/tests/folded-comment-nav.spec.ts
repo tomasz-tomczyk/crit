@@ -1,9 +1,5 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
-
-function serverSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
-}
+import { test, expect, type APIRequestContext } from '@playwright/test';
+import { clearAllComments, loadPage, goSection, fileItem, diffLine } from './helpers';
 
 // Find a new-side line number that falls inside a spacer gap between two
 // diff hunks. Returns { line, gapSize } or null if no gap exists.
@@ -45,19 +41,25 @@ test.describe('Comments in folded code (#317)', () => {
 
     await loadPage(page);
 
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
+    const item = await goSection(page);
 
-    // The comment should NOT be in the outdated section
-    await expect(section.locator('.outdated-diff-comments .comment-card')).toHaveCount(0);
+    // The comment should NOT be in the outdated block
+    await expect(item.locator('.outdated-diff-comments')).toHaveCount(0);
 
     // The comment should be rendered inline at its correct line position
-    const inlineCard = section.locator('.comment-card').filter({ hasText: 'Comment on folded line' });
-    await expect(inlineCard).toBeVisible({ timeout: 5000 });
-
-    // The spacer that contained this line should have been expanded
-    // (fewer spacers than before, or the comment is between diff lines not in outdated)
+    const inlineCard = item.locator('.comment-card').filter({ hasText: 'Comment on folded line' });
+    await expect(inlineCard).toBeAttached();
+    await inlineCard.scrollIntoViewIfNeeded();
+    await expect(inlineCard).toBeVisible();
     await expect(inlineCard.locator('.outdated-badge')).toHaveCount(0);
+
+    // The fold that held the line was expanded: the line itself renders
+    // as a diff row, directly above its comment.
+    const row = diffLine(item, line).first();
+    await expect(row).toBeVisible();
+    const rowBox = await row.boundingBox();
+    const cardBox = await inlineCard.boundingBox();
+    expect(rowBox!.y + rowBox!.height).toBeLessThanOrEqual(cardBox!.y + 1);
   });
 
   test('panel click scrolls to comment on formerly-folded line', async ({ page, request }) => {
@@ -83,12 +85,13 @@ test.describe('Comments in folded code (#317)', () => {
     await panelCards.first().click();
 
     // The inline comment card should be visible and highlighted at its correct position
-    const section = serverSection(page);
-    const inlineCard = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
-    await expect(inlineCard).toBeVisible();
+    const item = fileItem(page, 'server.go');
+    const inlineCard = item.locator(`.comment-card[data-comment-id="${comment.id}"]`);
+    await expect(inlineCard).toBeInViewport();
     await expect(inlineCard).toHaveClass(/comment-card-highlight/);
+    await expect(diffLine(item, line).first()).toBeInViewport();
 
-    // Must NOT be in the outdated section
-    await expect(section.locator('.outdated-diff-comments .comment-card')).toHaveCount(0);
+    // Must NOT be in the outdated block
+    await expect(item.locator('.outdated-diff-comments')).toHaveCount(0);
   });
 });

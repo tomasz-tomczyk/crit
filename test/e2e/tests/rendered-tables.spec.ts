@@ -1,14 +1,48 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   clearAllComments,
-  focusKbNavElement,
+  clearFocus,
   loadPage,
-  mdSection,
   switchToDocumentView,
 } from './helpers';
 
+// plan.md's rendered document (Document view), set up in beforeEach.
+function mdDocument(page: Page): Locator {
+  return page.locator('[id="file-section-plan.md"].pierre-document');
+}
+
 function decisionRow(page: Page, label: string): Locator {
-  return mdSection(page).getByRole('cell', { name: label, exact: true }).locator('..');
+  return mdDocument(page).getByRole('cell', { name: label, exact: true }).locator('..');
+}
+
+// Center `target` in the viewport and wait until it actually receives pointer
+// hits: Pierre disables pointer events for a moment after every scroll.
+async function settledBox(page: Page, target: Locator) {
+  await target.evaluate(el => el.scrollIntoView({ block: 'center' }));
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect.poll(async () => {
+    box = await target.boundingBox();
+    if (!box) return false;
+    const point = { x: box.x + box.width / 2, y: box.y + Math.min(10, box.height / 2) };
+    return target.evaluate((el, p) => {
+      const hit = document.elementFromPoint(p.x, p.y);
+      return !!hit && el.contains(hit);
+    }, point);
+  }).toBe(true);
+  return box!;
+}
+
+// Walk j/k keyboard focus (which spans every file's rows in order) until the
+// given plan.md document row is the focused block.
+async function focusRowByKeyboard(page: Page, label: string) {
+  await clearFocus(page);
+  await expect.poll(async () => {
+    await page.keyboard.press('j');
+    return page.evaluate(text => {
+      const focused = document.querySelector('[id="file-section-plan.md"] .line-block.focused');
+      return !!focused && !!Array.from(focused.querySelectorAll('td, th')).find(c => c.textContent?.trim() === text);
+    }, label);
+  }, { timeout: 60_000, intervals: [10] }).toBe(true);
 }
 
 async function selectPhrase(cell: Locator, phrase: string) {
@@ -38,7 +72,7 @@ test.describe('Native rendered tables', () => {
   });
 
   test('uses one auto-layout table without generated column widths or outer border', async ({ page }) => {
-    const table = mdSection(page).locator('table.native-table').first();
+    const table = mdDocument(page).locator('table.native-table').first();
     await expect(table).toBeVisible();
     await expect(table.locator('thead tr.table-row')).toHaveCount(1);
     await expect(table.locator('tbody tr.table-row')).toHaveCount(3);
@@ -78,12 +112,12 @@ test.describe('Native rendered tables', () => {
   });
 
   test('selected phrases in any table cell are highlighted when commenting', async ({ page }) => {
-    const optionsCell = mdSection(page).getByRole('cell', { name: 'OAuth, API keys, JWT', exact: true });
+    const optionsCell = mdDocument(page).getByRole('cell', { name: 'OAuth, API keys, JWT', exact: true });
     await selectPhrase(optionsCell, 'API keys');
     await page.keyboard.press('c');
 
     await expect(page.locator('.comment-form textarea')).toBeFocused();
-    await expect(mdSection(page).locator('mark.quote-highlight')).toHaveText('API keys');
+    await expect(mdDocument(page).locator('mark.quote-highlight')).toHaveText('API keys');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     const row = decisionRow(page, 'Auth method');
@@ -100,9 +134,9 @@ test.describe('Native rendered tables', () => {
       selection?.addRange(range);
     });
     await page.keyboard.press('c');
-    await expect(mdSection(page).locator('mark.quote-highlight')).toHaveCount(2);
-    await expect(mdSection(page).locator('mark.quote-highlight').nth(0)).toHaveText('Auth method');
-    await expect(mdSection(page).locator('mark.quote-highlight').nth(1)).toHaveText('OAuth');
+    await expect(mdDocument(page).locator('mark.quote-highlight')).toHaveCount(2);
+    await expect(mdDocument(page).locator('mark.quote-highlight').nth(0)).toHaveText('Auth method');
+    await expect(mdDocument(page).locator('mark.quote-highlight').nth(1)).toHaveText('OAuth');
   });
 
   test('row stripes and interaction backgrounds do not shift around annotations', async ({ page }) => {
@@ -129,7 +163,9 @@ test.describe('Native rendered tables', () => {
   test('drag connector fills every selected table row without gaps', async ({ page }) => {
     const first = decisionRow(page, 'Auth method').locator('.line-comment-gutter');
     const last = decisionRow(page, 'Header format').locator('.line-comment-gutter');
-    await first.scrollIntoViewIfNeeded();
+    // Center the middle row so all three rows are on screen, then wait for
+    // pointer events to resume before pressing.
+    await settledBox(page, decisionRow(page, 'Key storage').locator('.line-comment-gutter'));
     const firstBox = await first.boundingBox();
     const lastBox = await last.boundingBox();
     expect(firstBox).toBeTruthy();
@@ -140,7 +176,7 @@ test.describe('Native rendered tables', () => {
     await page.mouse.down();
     await page.mouse.move(lastBox.x + lastBox.width / 2, lastBox.y + 10, { steps: 5 });
 
-    const segments = await mdSection(page).locator('.native-table .line-comment-gutter.drag-range')
+    const segments = await mdDocument(page).locator('.native-table .line-comment-gutter.drag-range')
       .evaluateAll(gutters => gutters.map(gutter => {
         const rect = gutter.getBoundingClientRect();
         return { top: rect.top, bottom: rect.bottom, height: rect.height };
@@ -157,15 +193,15 @@ test.describe('Native rendered tables', () => {
   });
 
   test('keyboard commenting and submitted comments stay anchored to a table row', async ({ page }) => {
-    let row = decisionRow(page, 'Key storage');
-    await focusKbNavElement(page, row);
+    await focusRowByKeyboard(page, 'Key storage');
+    await expect(decisionRow(page, 'Key storage')).toHaveClass(/focused/);
     await page.keyboard.press('c');
     const textarea = page.locator('.comment-form textarea');
     await expect(textarea).toBeFocused();
     await textarea.fill('Table row comment');
     await textarea.press('Control+Enter');
 
-    row = decisionRow(page, 'Key storage');
+    const row = decisionRow(page, 'Key storage');
     const annotation = row.locator('xpath=following-sibling::tr[1]');
     await expect(annotation).toHaveClass(/native-table-annotation/);
     await expect(annotation.locator('.comment-card')).toContainText('Table row comment');

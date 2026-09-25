@@ -1,17 +1,51 @@
-import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { clearAllComments, loadPage, revealFile, fileItem, diffLine, openLineComment } from './helpers';
 
-// Helpers scoped to this fixture's files
+// Helpers scoped to this fixture's files. The file list is virtualized, so
+// each brings its file into view and returns the file's Pierre item.
 function planSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'plan.md' });
+  return revealFile(page, 'plan.md');
 }
 
 function goSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'main.go' });
+  return revealFile(page, 'main.go');
 }
 
 function exSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'handler.ex' });
+  return revealFile(page, 'handler.ex');
+}
+
+// The comment is stored on the expected file and line.
+async function expectCommentOn(request: APIRequestContext, filePath: string, line: number, body: string) {
+  await expect.poll(async () => {
+    const comments = await (await request.get(`/api/file/comments?path=${encodeURIComponent(filePath)}`)).json();
+    return comments.map((c: { start_line: number; end_line: number; body: string }) => `${c.start_line}-${c.end_line}:${c.body}`);
+  }).toEqual([`${line}-${line}:${body}`]);
+}
+
+// File paths in list order: walk the #filesContainer scroller top to bottom
+// and record each file header the first time it is rendered.
+async function listOrder(page: Page): Promise<string[]> {
+  const scroller = page.locator('#filesContainer');
+  const seen: string[] = [];
+  await scroller.evaluate(el => el.scrollTo(0, 0));
+  for (let step = 0; step < 200; step++) {
+    const paths = await page.locator('.pierre-file-header[data-file-path]').evaluateAll(els =>
+      els
+        .map(el => ({ p: el.getAttribute('data-file-path') || '', top: el.getBoundingClientRect().top }))
+        .sort((a, b) => a.top - b.top)
+        .map(x => x.p));
+    for (const p of paths) if (!seen.includes(p)) seen.push(p);
+    const atEnd = await scroller.evaluate(el => {
+      const before = el.scrollTop;
+      el.scrollTop = before + el.clientHeight / 2;
+      return el.scrollTop === before;
+    });
+    if (atEnd) break;
+    // Let the virtualizer mount what scrolled into view.
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  }
+  return seen;
 }
 
 test.describe('Multi-File Mode — Loading', () => {
@@ -33,12 +67,12 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('displays all file sections', async ({ page }) => {
-    await expect(planSection(page)).toBeVisible();
-    await expect(goSection(page)).toBeVisible();
-    await expect(exSection(page)).toBeVisible();
+    await expect((await planSection(page)).locator('.document-wrapper')).toBeVisible();
+    await expect(diffLine(await goSection(page), 1)).toBeVisible();
+    await expect(diffLine(await exSection(page), 1)).toBeVisible();
     // Nested files too
-    await expect(page.locator('.file-section').filter({ hasText: 'utils.ex' })).toBeVisible();
-    await expect(page.locator('.file-section').filter({ hasText: 'config.ex' })).toBeVisible();
+    await expect(diffLine(await revealFile(page, 'lib/utils.ex'), 1)).toBeVisible();
+    await expect(diffLine(await revealFile(page, 'lib/config.ex'), 1)).toBeVisible();
   });
 
   test('session mode is "files"', async ({ request }) => {
@@ -55,11 +89,8 @@ test.describe('Multi-File Mode — Loading', () => {
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
     // Fixture passes: plan.md main.go handler.ex lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
-    await expect(page.locator('.file-section')).toHaveCount(5);
-    const sectionIds = await page.locator('.file-section').evaluateAll(els =>
-      els.map(el => (el as HTMLElement).id.replace('file-section-', ''))
-    );
-    expect(sectionIds).toEqual([
+    await expect(page.locator('.pierre-file-header').first()).toBeVisible();
+    expect(await listOrder(page)).toEqual([
       'plan.md',
       'main.go',
       'handler.ex',
@@ -76,24 +107,23 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
   });
 
   test('Go file renders with syntax-highlighted code', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
-    // Code files in file mode default to document view
-    const codeBlock = section.locator('code');
-    await expect(codeBlock.first()).toBeVisible();
+    const section = await goSection(page);
+    // Code files in file mode render the whole file (no diff sides)
+    await expect(diffLine(section, 1)).toContainText('package');
+    await expect(section.locator('code[data-additions], code[data-deletions], code[data-unified]')).toHaveCount(0);
+    // Shiki tokens carry per-theme colors as inline custom properties
+    await expect(section.locator('code[data-code] [data-content] span[style*="--diffs-token"]').first()).toBeVisible();
   });
 
   test('Elixir file renders with code content', async ({ page }) => {
-    const section = exSection(page);
-    await expect(section).toBeVisible();
+    const section = await exSection(page);
     // Should contain Elixir keywords
-    await expect(section).toContainText('defmodule');
-    await expect(section).toContainText('def handle_request');
+    await expect(section.locator('code[data-code]')).toContainText('defmodule');
+    await expect(section.locator('code[data-code]')).toContainText('def handle_request');
   });
 
   test('markdown file renders in document view by default', async ({ page }) => {
-    const section = planSection(page);
-    await expect(section).toBeVisible();
+    const section = await planSection(page);
     const docWrapper = section.locator('.document-wrapper');
     await expect(docWrapper).toBeVisible();
     await expect(section).toContainText('Migration Plan');
@@ -106,58 +136,46 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
     await loadPage(page);
   });
 
-  test('can add a comment on a Go file line', async ({ page }) => {
-    const section = goSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
+  test('can add a comment on a Go file line', async ({ page, request }) => {
+    const section = await goSection(page);
+    const form = await openLineComment(page, section, 1);
 
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await expect(gutterBtn).toBeVisible();
-    await gutterBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
+    const textarea = form.locator('textarea');
     await textarea.fill('Comment on Go code');
-    await page.locator('.comment-form .btn-primary').click();
+    await form.locator('.btn-primary').click();
 
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toContainText('Comment on Go code');
+    await expectCommentOn(request, 'main.go', 1, 'Comment on Go code');
   });
 
-  test('can add a comment on an Elixir file line', async ({ page }) => {
-    const section = exSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
+  test('can add a comment on an Elixir file line', async ({ page, request }) => {
+    const section = await exSection(page);
+    const form = await openLineComment(page, section, 1);
 
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await expect(gutterBtn).toBeVisible();
-    await gutterBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
+    const textarea = form.locator('textarea');
     await textarea.fill('Comment on Elixir code');
-    await page.locator('.comment-form .btn-primary').click();
+    await form.locator('.btn-primary').click();
 
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toContainText('Comment on Elixir code');
+    await expectCommentOn(request, 'handler.ex', 1, 'Comment on Elixir code');
   });
 
-  test('can add a comment on a nested directory file', async ({ page }) => {
-    const section = page.locator('.file-section').filter({ hasText: 'utils.ex' });
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
+  test('can add a comment on a nested directory file', async ({ page, request }) => {
+    const section = await revealFile(page, 'lib/utils.ex');
+    const form = await openLineComment(page, section, 1);
 
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await expect(gutterBtn).toBeVisible();
-    await gutterBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
+    const textarea = form.locator('textarea');
     await textarea.fill('Comment on nested file');
-    await page.locator('.comment-form .btn-primary').click();
+    await form.locator('.btn-primary').click();
 
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toContainText('Comment on nested file');
+    await expectCommentOn(request, 'lib/utils.ex', 1, 'Comment on nested file');
   });
 
   test('comment count reflects comments across all files', async ({ page, request }) => {
@@ -191,8 +209,9 @@ test.describe('Multi-File Mode — File Tree Interaction', () => {
     const treeFile = page.locator('.tree-file-name', { hasText: 'config.ex' });
     await treeFile.click();
 
-    const section = page.locator('.file-section').filter({ hasText: 'config.ex' });
-    await expect(section).toBeInViewport();
+    const header = page.locator('.pierre-file-header[data-file-path="lib/config.ex"]');
+    await expect(header).toBeInViewport();
+    await expect(diffLine(fileItem(page, 'lib/config.ex'), 1)).toBeInViewport();
   });
 
   test('file tree shows comment badges for files with comments', async ({ page, request }) => {

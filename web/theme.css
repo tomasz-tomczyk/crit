@@ -907,7 +907,7 @@
 /* ===== Code tokens (Shiki, via Pierre) =====
    Fenced code in comments and rendered documents (.crit-code) carries the
    same per-token --diffs-token-light / --diffs-token-dark properties as
-   Pierre's diffs (pierre-light / pierre-dark themes). Dark is the default,
+   Pierre's diffs (crit-pierre-adapter.js THEME). Dark is the default,
    like the variables above. */
 .crit-code span[style] { color: var(--diffs-token-dark); }
 @media (prefers-color-scheme: light) {

@@ -43,7 +43,7 @@ export const vendoredAssets = [
   },
   {
     path: "web/pierre",
-    sources: ["@pierre/diffs@1.5.1", "shiki@4.4.3", "esbuild@0.28.2"],
+    sources: ["@pierre/diffs@1.5.1", "shiki@4.4.3", "@shikijs/themes@4.4.3", "esbuild@0.28.2"],
     packagePath: "-",
     kind: "generated",
   },

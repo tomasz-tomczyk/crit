@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, revealFile } from './helpers';
 
 // Regression: in unified diff, a single-line comment on a new-side context line
 // below a deletion block must NOT highlight deletion lines further up just
@@ -38,21 +38,26 @@ test.describe('Unified diff — comment range scoping', () => {
 
     await loadPage(page);
 
-    const section = page.locator('#file-section-legacy\\.go');
-    await expect(section).toBeVisible();
-
     // Switch to unified mode (toggle is in the page header, not per-file).
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await expect(unifiedBtn).toBeVisible();
     await unifiedBtn.click();
+    await expect(unifiedBtn).toHaveClass(/active/);
 
-    // Exactly one line should carry has-comment, and it must be a context line (not a deletion).
-    const highlighted = section.locator('.diff-line.has-comment');
-    await expect(highlighted).toHaveCount(1);
+    const item = await revealFile(page, 'legacy.go');
+    await expect(item.locator('.comment-card', { hasText: 'comment on Keep1' })).toBeVisible();
 
-    // The deletion block must not be highlighted.
-    await expect(section.locator('.diff-line.deletion.has-comment')).toHaveCount(0);
-    // The addition block must not be highlighted either.
-    await expect(section.locator('.diff-line.addition.has-comment')).toHaveCount(0);
+    // Rows in visual order with whether each carries the comment-range tint
+    // (--crit-comment-range-bg). Both the deletion Old6 (old 13) and the
+    // context Keep1 (new 13) render with data-line="13".
+    const rows = item.locator('code[data-unified] [data-content] > [data-line]');
+    await expect(rows.filter({ hasText: 'func Keep1() {}' })).toBeVisible();
+    await expect(rows.filter({ hasText: 'func Old6() {}' })).toBeVisible();
+    await expect.poll(() => rows.evaluateAll(els => els
+      .filter(el => getComputedStyle(el).backgroundColor.includes('210, 153, 34'))
+      .map(el => `${(el as HTMLElement).dataset.line}:${(el as HTMLElement).dataset.lineType}:${el.textContent!.trim()}`)))
+      // Exactly one highlighted row: the context line, not the deletion that
+      // shares its number, and no addition.
+      .toEqual(['13:context:func Keep1() {}']);
   });
 });

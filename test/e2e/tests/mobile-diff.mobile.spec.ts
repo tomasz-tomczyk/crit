@@ -11,32 +11,31 @@ test.describe('Mobile diff layout (F5)', () => {
   });
 
   test('code file renders in unified diff mode, not split', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
+    const section = await goSection(page);
 
-    // Unified diff container should be present
-    await expect(section.locator('.diff-container.unified')).toBeVisible();
+    // Unified diff column should be present
+    await expect(section.locator('code[data-unified]')).toBeVisible();
 
-    // Split diff container should NOT be present
-    await expect(section.locator('.diff-container.split')).toHaveCount(0);
+    // Split columns should NOT be present
+    await expect(section.locator('code[data-additions], code[data-deletions]')).toHaveCount(0);
   });
 
   test('diff content stays within its container width', async ({ page }) => {
-    // The Chrome union-bounding-box gotcha on wrapping inline spans (e.g.
-    // .hljs-string that spans multiple visual lines) would push the diff's
-    // own scrollWidth past its clientWidth, which in turn widens the page.
-    // The CSS fix (overflow:clip on .diff-content + display:inline-block
-    // max-width:100% overflow:hidden on .diff-content span) constrains each
-    // span's reported width to its container. This test catches a regression
-    // of that fix more reliably than asserting CSS properties.
-    await expect(goSection(page).locator('.diff-container')).toBeVisible();
-    const widths = await page.evaluate(() => {
-      const sec = document.querySelector('.diff-container');
-      if (!sec) return null;
-      return { scroll: sec.scrollWidth, client: sec.clientWidth };
+    // Long code lines (and wrapping Shiki token spans) must scroll or wrap
+    // inside the diff, never widen the file item or the page.
+    const section = await goSection(page);
+    await expect(section.locator('code[data-unified] [data-line]').first()).toBeVisible();
+    const widths = await section.evaluate((el) => {
+      const pane = document.getElementById('filesContainer')!;
+      return {
+        item: { scroll: el.scrollWidth, client: el.clientWidth },
+        pane: { scroll: pane.scrollWidth, client: pane.clientWidth },
+        page: { scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth },
+      };
     });
-    expect(widths).not.toBeNull();
     // Allow 1px tolerance for sub-pixel rounding on some platforms.
-    expect(widths!.scroll).toBeLessThanOrEqual(widths!.client + 1);
+    expect(widths.item.scroll).toBeLessThanOrEqual(widths.item.client + 1);
+    expect(widths.pane.scroll).toBeLessThanOrEqual(widths.pane.client + 1);
+    expect(widths.page.scroll).toBeLessThanOrEqual(widths.page.client + 1);
   });
 });

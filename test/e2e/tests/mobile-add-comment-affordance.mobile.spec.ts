@@ -1,45 +1,43 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, goSection } from './helpers';
+import { clearAllComments, loadPage, goSection, switchToDocumentView } from './helpers';
 
 // F3: visible touch-only `+` affordance.
-// On touch (pointer:coarse), the user sees a `+` prefix next to each
-// commentable line number (a CSS ::before pseudo-element on .line-num
-// / .diff-gutter-num). The desktop blue `+` button (.line-add /
-// .diff-comment-btn) is hidden on touch because it depends on hover.
+// On touch (pointer:coarse) there is no hover, so the hover "+" button can't
+// be the cue. Instead every commentable line number shows a `+` prefix (a
+// ::before pseudo-element) without any interaction.
 test.describe('Mobile add-comment affordance (F3)', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
   });
 
-  test('line-num ::before "+" prefix is rendered on touch', async ({ page }) => {
-    // The ::before pseudo-element on .diff-gutter-num renders a `+` prefix
-    // on touch. We assert content is set (not the default 'none') AND that
-    // it contains a "+". A computed `content: none` means no pseudo-element
-    // exists at all, regardless of opacity.
-    const lineNum = goSection(page).locator('.diff-gutter-num').first();
-    await expect(lineNum).toBeAttached();
+  test('diff gutter line number shows a "+" prefix on touch', async ({ page }) => {
+    // A computed `content: none`/`""` means no visible pseudo-element,
+    // regardless of opacity.
+    const item = await goSection(page);
+    // The cue sits on the number itself; the cell's own ::before is Pierre's
+    // change bar.
+    const lineNum = item.locator(
+      'code[data-unified] [data-gutter] > [data-column-number][data-line-type="change-addition"] [data-line-number-content]',
+    ).first();
+    await expect(lineNum).toBeVisible();
     const beforeStyle = await lineNum.evaluate((el) => {
       const cs = getComputedStyle(el, '::before');
       return { content: cs.content, opacity: parseFloat(cs.opacity) };
     });
-    expect(beforeStyle.content).not.toBe('none');
     expect(beforeStyle.content).toContain('+');
     expect(beforeStyle.opacity).toBeGreaterThan(0);
   });
 
-  test('desktop blue .diff-comment-btn is display:none on touch', async ({ page }) => {
-    // The button stays in the DOM (its mousedown handler is the desktop
-    // click target — F4 routes touch via a separate pointer delegate on
-    // .diff-gutter-num). It's structurally hidden on touch via display:none
-    // so the browser can't render it under any state, including the
-    // brief .drag-endpoint window during a tap. Opacity-only hiding fails
-    // because the .drag-endpoint reveal rules force opacity:1.
-    const btn = page.locator('.diff-comment-btn').first();
-    await expect(btn).toBeAttached();
-    const display = await btn.evaluate((el) =>
-      getComputedStyle(el).display
-    );
-    expect(display).toBe('none');
+  test('document view line-num shows a "+" prefix on touch', async ({ page }) => {
+    const doc = await switchToDocumentView(page);
+    const lineNum = doc.locator('.line-block:not(:has(.line-comment-gutter.diff-no-comment)) .line-num').first();
+    await expect(lineNum).toBeVisible();
+    const beforeStyle = await lineNum.evaluate((el) => {
+      const cs = getComputedStyle(el, '::before');
+      return { content: cs.content, opacity: parseFloat(cs.opacity) };
+    });
+    expect(beforeStyle.content).toContain('+');
+    expect(beforeStyle.opacity).toBeGreaterThan(0);
   });
 });
