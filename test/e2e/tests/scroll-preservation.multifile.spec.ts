@@ -135,12 +135,11 @@ test.describe('Scroll position across comment updates', () => {
     await loadPage(page);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await waitForScrollStable(page);
-    // First review file must sit below the conversation (not a virt window edge).
-    const firstPath = (await (await request.get('/api/session')).json()).files[0].path as string;
-    expect(await page.evaluate((path) => {
-      const el = document.getElementById('file-section-' + path);
-      return !el || el.getBoundingClientRect().top >= window.innerHeight;
-    }, firstPath)).toBe(true);
+    // The whole file list must sit below the conversation — independent of
+    // which file sections the list window happens to mount.
+    expect(await page.evaluate(() =>
+      document.getElementById('filesContainer')!.getBoundingClientRect().top >= window.innerHeight
+    )).toBe(true);
 
     await page.locator('#finishBtn').click();
     const overlay = page.locator('#waitingOverlay');

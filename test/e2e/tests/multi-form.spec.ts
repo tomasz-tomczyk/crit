@@ -258,8 +258,12 @@ test.describe('Multi-Form Comments', () => {
     // fixture drift removes the behavior it promises to exercise.
     await expect(additions.nth(1)).toBeAttached();
 
-    const firstAdd = additions.first();
-    const secondAdd = additions.nth(1);
+    // Pin rows by line number: .first()/.nth() re-resolve against whatever
+    // rows the row virtualizer has mounted after scrolling.
+    const byLine = async (i: number) => goSec.locator(
+      `.diff-split-side.right[data-diff-line-num="${await additions.nth(i).getAttribute('data-diff-line-num')}"]`);
+    const firstAdd = await byLine(0);
+    const secondAdd = await byLine(1);
 
     // Open form on first addition
     await firstAdd.hover();

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments } from './helpers';
+import { loadPage, clearAllComments, fileListState, waitForScrollStable } from './helpers';
 
 // Perf guardrails for large reviews (300 files / ~9k changed lines fixture).
 //
@@ -81,16 +81,18 @@ test('large review initial render stays within DOM and longtask budgets', async 
   });
   expect(hasController).toBe(true);
 
-  // Only a window of file sections is in the DOM — not all 301.
+  // Only a window of file sections is in the DOM — a viewport's worth plus
+  // overscan, not a large slice of the 301 (a leaked pin or runaway overscan
+  // would still pass a "< TOTAL_FILES" bound).
   const sectionCount = await page.locator('#filesContainer .file-section').count();
   expect(sectionCount).toBeGreaterThan(0);
-  expect(sectionCount).toBeLessThan(TOTAL_FILES);
+  expect(sectionCount).toBeLessThanOrEqual(25);
 
   // Height index still accounts for every file (spacers reserve off-screen space).
   const totalH = await fileListTotalHeight(page);
   expect(totalH).toBeGreaterThan(10_000);
 
-  await expect.poll(() => mountedBodies(page).count()).toBeLessThanOrEqual(40);
+  await expect.poll(() => mountedBodies(page).count()).toBeLessThanOrEqual(25);
   const mounted = await mountedBodies(page).count();
 
   const nodes = await domNodeCount(page);
@@ -123,9 +125,16 @@ test('scrolling a large review windows the file list and leaves the tail unmount
   const nodes = await domNodeCount(page);
   console.log(`scroll: wall=${wallMs}ms scrollTBT=${Math.round(scrollTBT)}ms mounted=${mounted} domNodes=${nodes}`);
 
-  expect(mounted).toBeLessThan(120);
+  expect(mounted).toBeLessThanOrEqual(25);
   expect(nodes).toBeLessThan(200_000);
   expect(scrollTBT).toBeLessThan(8000);
+
+  // Files scrolled past are unmounted again, not merely left behind.
+  const order = await page.evaluate(() =>
+    (document.getElementById('filesContainer') as unknown as {
+      _critFileListVirtualizer: { items: { key: string }[] };
+    })._critFileListVirtualizer.items.map(i => i.key));
+  await expect(page.locator('[id="file-section-' + order[0] + '"]')).toHaveCount(0);
 
   // Tail file stays out of the mounted window (spacer / not in DOM).
   // Intentionally unmounted (off-window) — do not call fileSection (that mounts).
@@ -143,14 +152,40 @@ test('sidebar jump to a deep file does not push the target out of view', async (
   expect(path).toBeTruthy();
 
   await target.click();
-  await page.waitForTimeout(100);
 
   // CSS.escape is browser-only; paths in this fixture are simple identifiers.
   const section = page.locator('[id="file-section-' + path + '"]');
   await expect(section).toBeVisible({ timeout: 10_000 });
+  await waitForScrollStable(page);
 
-  const top = await section.evaluate((el) => el.getBoundingClientRect().top);
+  // The shove this guards against lands late (lazy prefetch refining
+  // neighbour heights), so sample for a while instead of once.
+  const tops: number[] = [];
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    tops.push(await section.evaluate((el) => el.getBoundingClientRect().top));
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(r)));
+  }
   // Near sticky header (~49px), not shoved down by adjacent mounts expanding.
-  expect(top).toBeGreaterThanOrEqual(0);
-  expect(top).toBeLessThan(200);
+  expect(Math.min(...tops)).toBeGreaterThanOrEqual(0);
+  expect(Math.max(...tops)).toBeLessThan(200);
+});
+
+test('repeated sidebar jumps keep the mounted window bounded', async ({ page }) => {
+  await loadPage(page);
+  const tree = page.locator('.tree-file');
+  const count = await tree.count();
+  for (const i of [40, 150, 260, 120, 207]) {
+    const target = tree.nth(Math.min(i, count - 1));
+    const path = await target.getAttribute('data-tree-path');
+    await target.scrollIntoViewIfNeeded();
+    await target.click();
+    await expect(page.locator('[id="file-section-' + path + '"]')).toBeInViewport();
+  }
+  // Earlier jump targets must not stay pinned (each would keep a full file
+  // body and its row virtualizer alive for the rest of the session).
+  await page.mouse.move(700, 400);
+  await page.mouse.wheel(0, 200);
+  await expect.poll(async () => (await fileListState(page)).pinned).toEqual([]);
+  await expect.poll(() => page.locator('#filesContainer .file-section').count()).toBeLessThanOrEqual(25);
 });

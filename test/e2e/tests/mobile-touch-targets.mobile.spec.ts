@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, getMdPath, fileSectionByName } from './helpers';
+import { clearAllComments, loadPage, getMdPath, fileSection } from './helpers';
 
 async function expectTouchTargets(targets: Locator, expectedCount?: number) {
   if (expectedCount !== undefined) {
@@ -50,12 +50,12 @@ test.describe('Mobile touch targets (F2)', () => {
     await expectTouchTargets(page.locator('.comment-nav-btn'), 2);
   });
 
-  test('comment textarea uses font-size >= 16px (iOS zoom prevention)', async ({ page }) => {
+  test('comment textarea uses font-size >= 16px (iOS zoom prevention)', async ({ page, request }) => {
     // Open a comment form to expose its textarea. The mobile file picker
     // gives us a known file; we tap a line gutter to open a form.
     // Actually simpler: post a comment so a reply input renders, OR open
     // the review-conversation form. Easiest is to tap a markdown line.
-    const fileSec = (await fileSectionByName(page, '.md')).first();
+    const fileSec = await fileSection(page, await getMdPath(request));
     await expect(fileSec).toBeVisible();
     // Switch to document view so .line-comment-gutter is the affordance.
     const docBtn = fileSec.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
@@ -88,7 +88,8 @@ test.describe('Mobile touch targets (F2)', () => {
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    const replyActions = page.locator('.reply-actions');
+    // The commented file may be off the file-list window — mount it first.
+    const replyActions = (await fileSection(page, mdPath)).locator('.reply-actions');
     await expect(replyActions).toBeVisible();
     await expect(replyActions).toHaveCSS('opacity', '1');
     await expectTouchTargets(replyActions.locator('button'), 2);

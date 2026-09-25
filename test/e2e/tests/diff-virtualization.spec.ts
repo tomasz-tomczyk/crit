@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { addComment, clearAllComments, dragBetween, goSection, loadPage } from './helpers';
+import { addComment, clearAllComments, dragBetween, goSection, loadPage, reviewFileOrder, waitForScrollStable } from './helpers';
 
 /**
  * Always-on code-diff virtualization safety net.
@@ -33,7 +33,6 @@ test.describe('Diff virtualization', () => {
 
     const split = (await goSection(page)).locator('.diff-container.split.virtualized');
     await expect(split).toBeVisible();
-    await expect(split).toHaveClass(/diff-virtual-surface|virtualized/);
 
     // Surface owns a controller and only a window of rows (spacers allowed).
     const hasController = await split.evaluate((el) => !!el._critVirtualWindow);
@@ -123,20 +122,38 @@ test.describe('Diff virtualization', () => {
     await expect(page.locator('.comment-form-header')).toContainText(/Line/);
   });
 
-  test('file-list virtualizer module is loaded for large-review path', async ({ page }) => {
-    // Small git fixture (<40 files) stays on the classic deferred-body path;
-    // assert the module loaded and the controller API is present for large reviews.
+  test('re-rendering a file keeps the row under the pointer in place', async ({ page }) => {
+    // Pressing a gutter button starts a drag, which re-renders the file with a
+    // fresh row controller whose heights start as estimates; the reading
+    // anchor must be restored from the DOM or the drag lands a row off.
     await loadPage(page);
-    const api = await page.evaluate(() => {
-      const FL = (window as unknown as {
-        crit?: { fileListVirtualizer?: { FileListVirtualizer: unknown; FILE_HEADER_ESTIMATE: number } };
-      }).crit?.fileListVirtualizer;
-      return FL
-        ? { hasCtor: typeof FL.FileListVirtualizer === 'function', header: FL.FILE_HEADER_ESTIMATE }
-        : null;
-    });
-    expect(api).toBeTruthy();
-    expect(api!.hasCtor).toBe(true);
-    expect(api!.header).toBeGreaterThan(0);
+    const section = await goSection(page);
+    const row = section.locator('.diff-split-side.right[data-diff-line-num]').nth(3);
+    const line = await row.getAttribute('data-diff-line-num');
+    const target = section.locator(`.diff-split-side.right[data-diff-line-num="${line}"]`);
+    await target.scrollIntoViewIfNeeded();
+    await waitForScrollStable(page);
+    const before = await target.evaluate(el => el.getBoundingClientRect().top);
+    await target.hover();
+    const btn = await target.locator('.diff-comment-btn').boundingBox();
+    await page.mouse.move(btn!.x + btn!.width / 2, btn!.y + btn!.height / 2);
+    await page.mouse.down();
+    await expect(target).toHaveClass(/selected/);
+    const after = await target.evaluate(el => el.getBoundingClientRect().top);
+    await page.mouse.up();
+    expect(Math.abs(after - before)).toBeLessThan(1);
+  });
+
+  test('flat review runs through the file-list virtualizer in model order', async ({ page }) => {
+    // Always-on (not gated on file count): even this small fixture must use
+    // the controller, and every mounted section must follow the model order.
+    await loadPage(page);
+    const order = await reviewFileOrder(page);
+    const mounted = await page.locator('#filesContainer > .file-section[id]').evaluateAll(els =>
+      els.map(el => el.id.replace(/^file-section-/, '')));
+    expect(mounted.length).toBeGreaterThan(0);
+    const positions = mounted.map(path => order.indexOf(path));
+    expect(positions.every(p => p >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 });

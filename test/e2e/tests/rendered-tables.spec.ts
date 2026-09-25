@@ -155,8 +155,8 @@ test.describe('Native rendered tables', () => {
 
   test('keyboard commenting and submitted comments stay anchored to a table row', async ({ page }) => {
     let row = await decisionRow(page, 'Key storage');
-    await row.hover();
-    await row.locator('.line-comment-gutter').click();
+    await focusKbNavElement(page, row);
+    await page.keyboard.press('c');
     const textarea = page.locator('.comment-form textarea');
     await expect(textarea).toBeFocused();
     await textarea.fill('Table row comment');

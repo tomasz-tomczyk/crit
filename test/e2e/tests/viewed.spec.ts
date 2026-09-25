@@ -229,9 +229,11 @@ test.describe('Collapse/Expand All — Git Mode', () => {
       if (!virt || !Array.isArray(virt.items)) return false;
       return virt.items.every(item => !item.collapsed);
     })).toBe(true);
-    const mounted = page.locator('.file-section');
-    const n = await mounted.count();
-    expect(n).toBeGreaterThan(0);
-    await expect(page.locator('.file-section[open]')).toHaveCount(n);
+    // One sample: the window can re-mount as heights grow, so a count read
+    // earlier goes stale.
+    await expect.poll(() => page.evaluate(() => {
+      const sections = [...document.querySelectorAll('#filesContainer .file-section')] as HTMLDetailsElement[];
+      return sections.length > 0 && sections.every(s => s.open);
+    })).toBe(true);
   });
 });

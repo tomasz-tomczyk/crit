@@ -3,7 +3,7 @@ import { execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { clearAllComments, loadPage, goSection, addComment } from './helpers';
+import { clearAllComments, loadPage, goSection, addComment, fileSection } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Story mode fixtures live on top of the shared git-mode fixture repo (server.go,
@@ -602,7 +602,8 @@ test.describe('Story mode', () => {
       const flatRequest = page.waitForRequest(isRoutesDiff);
       await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
       expect(new URL((await flatRequest).url()).searchParams.get('w')).toBe('1');
-      const flat = page.locator('[id="file-section-routes.go"]');
+      // routes.go may be off the file-list window in the flat view.
+      const flat = await fileSection(page, 'routes.go');
       await expect(flat).toBeVisible();
       await expect(flat).toContainText('http.StatusAccepted');
       await expect(flat).not.toContainText('import');

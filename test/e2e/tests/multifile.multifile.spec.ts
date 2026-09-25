@@ -187,8 +187,9 @@ test.describe('Multi-File Mode — File Tree Interaction', () => {
     const treeFile = page.locator('.tree-file-name', { hasText: 'config.ex' });
     await treeFile.click();
 
-    const section = await fileSectionByName(page, 'config.ex');
-    await expect(section).toBeInViewport();
+    // Raw locator — fileSectionByName would re-click the tree and mask a
+    // first click that failed to scroll.
+    await expect(page.locator('[id="file-section-lib/config.ex"]')).toBeInViewport();
   });
 
   test('file tree shows comment badges for files with comments', async ({ page, request }) => {

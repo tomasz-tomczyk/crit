@@ -315,12 +315,15 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
     const endLine = allLines.nth(startIdx + 3);
     await startLine.scrollIntoViewIfNeeded();
 
+    // Bring both endpoints on screen before measuring: a scroll after the
+    // start box is read would leave it stale and start the drag a row late.
+    await endLine.scrollIntoViewIfNeeded();
+    await startLine.scrollIntoViewIfNeeded();
     const startBtn = startLine.locator('.diff-comment-btn');
     await startLine.hover();
     await expect(startBtn).toBeVisible();
 
     const startBox = await startBtn.boundingBox();
-    await endLine.scrollIntoViewIfNeeded();
     const endBox = await endLine.boundingBox();
 
     if (startBox && endBox) {
@@ -330,8 +333,7 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
 
       // All 4 lines should have the selected class regardless of type (del/add/context)
       const selectedLines = serverSection.locator('.diff-container.unified .diff-line.selected');
-      const selectedCount = await selectedLines.count();
-      expect(selectedCount).toBeGreaterThanOrEqual(4);
+      await expect.poll(() => selectedLines.count()).toBeGreaterThanOrEqual(4);
 
       await page.mouse.up();
     }

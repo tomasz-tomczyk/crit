@@ -35,7 +35,14 @@ test.describe('Lazy loading', () => {
     for (const path of order) {
       const section = await fileSection(page, path);
       await expect(section).toBeVisible();
-      await expect(section.locator('.file-section-loading')).toHaveCount(0);
+      // .file-section-loading is a class on the section, not a descendant.
+      await expect(section).not.toHaveClass(/file-section-loading/);
+      // Open sections must mount a real body; collapsed ones (deleted files
+      // start collapsed) legitimately keep it deferred.
+      await expect.poll(() => section.evaluate(el =>
+        !(el as HTMLDetailsElement).open ||
+        !!el.querySelector(':scope > .file-body:not([data-body-deferred])')
+      )).toBe(true);
     }
     await expect(page.locator('.file-section-loading')).toHaveCount(0);
   });

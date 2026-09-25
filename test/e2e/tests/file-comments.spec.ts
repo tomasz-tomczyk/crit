@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { clearAllComments, loadPage, mdSection, goSection } from './helpers';
 
 // ============================================================
 // File-Level Comments (git mode)
@@ -33,7 +33,8 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const fileComments = page.locator('.file-comments .comment-card');
+    // plan.md may be off the file-list window on load — mount it first.
+    const fileComments = (await mdSection(page)).locator('.file-comments .comment-card');
     await expect(fileComments).toHaveCount(1);
     await expect(fileComments.first()).toContainText('file comment via api');
   });
@@ -54,7 +55,7 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const card = page.locator('.file-comments .comment-card').first();
+    const card = (await mdSection(page)).locator('.file-comments .comment-card').first();
     await expect(card).toBeVisible();
 
     // Click the delete button
@@ -103,7 +104,13 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const allFileComments = page.locator('.file-comments .comment-card');
-    await expect(allFileComments).toHaveCount(2);
+    // Each file owns exactly its own file-level comment (checked per file:
+    // both are rarely in the list window at once).
+    const planCards = (await mdSection(page)).locator('.file-comments .comment-card');
+    await expect(planCards).toHaveCount(1);
+    await expect(planCards).toContainText('comment on plan');
+    const serverCards = (await goSection(page)).locator('.file-comments .comment-card');
+    await expect(serverCards).toHaveCount(1);
+    await expect(serverCards).toContainText('comment on server');
   });
 });

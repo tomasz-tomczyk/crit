@@ -66,6 +66,26 @@ export async function expectFileListVirt(page: Page) {
 }
 
 /**
+ * Read-only snapshot of file-list virtualizer internals. Keep every e2e read
+ * of private virt state behind this one helper so a rename breaks one place;
+ * pair it with a DOM assertion rather than using it instead of one.
+ */
+export async function fileListState(page: Page): Promise<{
+  pinned: string[]; mounted: string[]; stick: string | null;
+}> {
+  return page.evaluate(() => {
+    const surface = document.getElementById('filesContainer') as (HTMLElement & {
+      _critFileListVirtualizer?: {
+        pinnedKeys: Set<string>; mountedKeys: Set<string>; stickKey: () => string | null;
+      };
+    }) | null;
+    const virt = surface && surface._critFileListVirtualizer;
+    if (!virt) throw new Error('file-list virtualizer not active');
+    return { pinned: [...virt.pinnedKeys], mounted: [...virt.mountedKeys], stick: virt.stickKey() };
+  });
+}
+
+/**
  * Logical file order from the file-list virtualizer.
  * When requireVirt is true (default), fails if the controller is missing so
  * tests cannot silently fall back to a partial windowed DOM.
@@ -106,8 +126,14 @@ export async function fileSection(page: Page, filePath: string): Promise<Locator
   };
 
   if (!(await inViewport())) {
-    await expect(tree).toBeVisible({ timeout: 10_000 });
-    await tree.click();
+    // Mobile hides the tree in a drawer; the file picker is its stand-in.
+    const picker = page.locator('#mobileFilePicker');
+    if (await picker.isVisible()) {
+      await picker.selectOption(filePath);
+    } else {
+      await expect(tree).toBeVisible({ timeout: 10_000 });
+      await tree.click();
+    }
   }
   await expect(section).toBeVisible({ timeout: 15_000 });
   return section;
@@ -175,16 +201,64 @@ export async function clearFocus(page: Page) {
   await expect.poll(async () => page.locator('.kb-nav.focused').count()).toBe(0);
 }
 
-/** Stable identity for the currently focused kb-nav (virtual key, line, or DOM index). */
+/**
+ * Stable identity for the currently focused kb-nav. Row keys and start lines
+ * are only unique within a file, so prefix the owning section.
+ */
 async function focusedKbNavId(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const el = document.querySelector('.kb-nav.focused') as HTMLElement | null;
     if (!el) return null;
-    return el.getAttribute('data-virtual-key')
+    const section = el.closest('.file-section') as HTMLElement | null;
+    const local = el.getAttribute('data-virtual-key')
       || el.getAttribute('data-start-line')
       || el.id
       || `idx:${[...document.querySelectorAll('.kb-nav')].indexOf(el)}`;
+    return `${section ? section.id : ''}|${local}`;
   });
+}
+
+/** Focused diff row in the row-virtualizer model: owning file + logical index. */
+export async function focusedDiffRow(page: Page): Promise<{ file: string; index: number } | null> {
+  return page.evaluate(() => {
+    const el = document.querySelector('.kb-nav.focused');
+    const row = el && el.closest('[data-virtual-row-index]') as HTMLElement | null;
+    const section = el && el.closest('.file-section') as HTMLElement | null;
+    if (!row || !section) return null;
+    return {
+      file: section.id.replace(/^file-section-/, ''),
+      index: parseInt(row.dataset.virtualRowIndex || '', 10),
+    };
+  });
+}
+
+/**
+ * Index of the next (dir=1) or previous (dir=-1) navigable line row after
+ * `from` in the file's row model — what j/k must land on. -1 at the boundary.
+ */
+export async function adjacentLineRowIndex(
+  page: Page, filePath: string, from: number, dir: 1 | -1,
+): Promise<number> {
+  return page.evaluate(({ filePath, from, dir }) => {
+    const section = document.getElementById('file-section-' + filePath);
+    const surface = section && section.querySelector('.diff-virtual-surface') as
+      (HTMLElement & { _critVirtualWindow?: { rows: { kind: string; lineNum?: number }[] } }) | null;
+    const rows = surface && surface._critVirtualWindow ? surface._critVirtualWindow.rows : [];
+    for (let i = from + dir; i >= 0 && i < rows.length; i += dir) {
+      if (rows[i].kind === 'line' && rows[i].lineNum) return i;
+    }
+    return -1;
+  }, { filePath, from, dir });
+}
+
+/** Press j/k and require focus to land on exactly the adjacent line row. */
+export async function pressAndExpectAdjacentRow(page: Page, key: 'j' | 'k') {
+  const before = await focusedDiffRow(page);
+  expect(before).toBeTruthy();
+  const expected = await adjacentLineRowIndex(page, before!.file, before!.index, key === 'j' ? 1 : -1);
+  expect(expected, `no ${key === 'j' ? 'next' : 'previous'} line row in ${before!.file}`).toBeGreaterThanOrEqual(0);
+  await page.keyboard.press(key);
+  await expect.poll(() => focusedDiffRow(page)).toEqual({ file: before!.file, index: expected });
 }
 
 export async function focusKbNavByJ(page: Page, presses: number) {
