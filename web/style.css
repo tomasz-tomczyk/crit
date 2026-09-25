@@ -2725,6 +2725,19 @@ textarea.drag-active {
   line-height: 1.4;
   vertical-align: baseline;
 }
+.tip-text a {
+  color: var(--crit-brand);
+  text-decoration: none;
+  border-bottom: 1px solid var(--crit-brand-subtle);
+  transition: color 0.15s, border-color 0.15s;
+}
+.tip-text a:visited {
+  color: var(--crit-brand);
+}
+.tip-text a:hover {
+  color: var(--crit-brand-hover);
+  border-bottom-color: var(--crit-brand-hover);
+}
 
 @keyframes tipFadeIn {
   from { opacity: 0; transform: translateY(4px); }
