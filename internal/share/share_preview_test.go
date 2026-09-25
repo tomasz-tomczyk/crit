@@ -111,6 +111,8 @@ func sharePreviewHasBase64(files []any) bool {
 func runSharePreviewStub(t *testing.T, extraArgs ...string) (map[string]any, string, error) {
 	t.Helper()
 	testutil.SetHome(t, t.TempDir())
+	t.Setenv("CRIT_AUTH_TOKEN", "")
+	t.Setenv("CRIT_SHARE_URL", "")
 	dir := t.TempDir()
 	writeSharePreviewFixture(t, dir)
 
@@ -133,6 +135,7 @@ func runSharePreviewStub(t *testing.T, extraArgs ...string) (map[string]any, str
 		t.Fatal(err)
 	}
 	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
 	runErr := RunShare(args)
 	_ = w.Close()
 	os.Stderr = oldStderr
@@ -140,29 +143,29 @@ func runSharePreviewStub(t *testing.T, extraArgs ...string) (map[string]any, str
 	return got, string(stderr), runErr
 }
 
-func TestRunSharePreview_SendsOrgAndVisibility(t *testing.T) {
-	got, _, err := runSharePreviewStub(t, "--org", "acme", "--visibility", "public")
-	if err != nil {
-		t.Fatalf("RunShare: %v", err)
+func TestRunSharePreview_OrgAndVisibility(t *testing.T) {
+	cases := []struct {
+		name           string
+		args           []string
+		wantOrg        any
+		wantVisibility any
+	}{
+		{"flags sent", []string{"--org", "acme", "--visibility", "public"}, "acme", "public"},
+		{"omitted by default", nil, nil, nil},
 	}
-	if got["org"] != "acme" {
-		t.Errorf("org = %v, want acme", got["org"])
-	}
-	if got["visibility"] != "public" {
-		t.Errorf("visibility = %v, want public", got["visibility"])
-	}
-}
-
-func TestRunSharePreview_OmitsOrgAndVisibilityByDefault(t *testing.T) {
-	got, _, err := runSharePreviewStub(t)
-	if err != nil {
-		t.Fatalf("RunShare: %v", err)
-	}
-	if _, ok := got["org"]; ok {
-		t.Errorf("org = %v, want absent", got["org"])
-	}
-	if _, ok := got["visibility"]; ok {
-		t.Errorf("visibility = %v, want absent", got["visibility"])
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _, err := runSharePreviewStub(t, tc.args...)
+			if err != nil {
+				t.Fatalf("RunShare: %v", err)
+			}
+			if got["org"] != tc.wantOrg {
+				t.Errorf("org = %v, want %v", got["org"], tc.wantOrg)
+			}
+			if got["visibility"] != tc.wantVisibility {
+				t.Errorf("visibility = %v, want %v", got["visibility"], tc.wantVisibility)
+			}
+		})
 	}
 }
 
