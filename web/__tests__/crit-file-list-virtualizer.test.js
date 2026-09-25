@@ -19,6 +19,29 @@ test('estimateFileSectionHeight is header-only when collapsed', function() {
   assert.equal(open, fileList.FILE_HEADER_ESTIMATE + 2000);
 });
 
+test('estimateFileSectionHeight skips the body estimate for collapsed files', function() {
+  let calls = 0;
+  const item = { collapsed: true, estimateBodyHeight: function() { calls++; return 500; } };
+  assert.equal(fileList.estimateFileSectionHeight(item), fileList.FILE_HEADER_ESTIMATE);
+  assert.equal(calls, 0);
+});
+
+test('estimateDiffBodyHeight does not query the DOM when there is nothing to size', function() {
+  // 2k+ file reviews rebuild estimates for every file on collapse/expand all;
+  // two document queries per file froze the page for seconds.
+  let queries = 0;
+  global.document = { querySelector: function() { queries++; return null; } };
+  try {
+    const hunks = [{ Lines: new Array(10).fill({}) }];
+    diffV.estimateDiffBodyHeight({ hunks: hunks, commentCount: 0, formCount: 0 });
+    assert.equal(queries, 0);
+    diffV.estimateDiffBodyHeight({ hunks: hunks, commentCount: 1, formCount: 0 });
+    assert.equal(queries, 1, 'still measures when a comment needs sizing');
+  } finally {
+    delete global.document;
+  }
+});
+
 test('getScrollAnchor / resolveAnchoredScrollTop pin a file across height refine', function() {
   const items = [
     { key: 'a', kind: 'file' },

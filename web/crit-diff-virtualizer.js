@@ -1139,11 +1139,14 @@
     }
     var formRows = options.forms ? options.forms.length : (options.formCount || 0);
 
+    // The comment/form estimates query the live DOM; only pay for them when
+    // there is something to size. Called once per file on every file-list
+    // rebuild, so an unconditional query costs seconds on 2k+ file reviews.
     return lineRows * DEFAULT_ESTIMATES.line +
       headers * DEFAULT_ESTIMATES.header +
       gaps * DEFAULT_ESTIMATES.gap +
-      commentRows * estimateCommentHeight() +
-      formRows * estimateFormHeight();
+      (commentRows ? commentRows * estimateCommentHeight() : 0) +
+      (formRows ? formRows * estimateFormHeight() : 0);
   }
 
   function findParentFileList(surface) {

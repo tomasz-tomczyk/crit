@@ -71,12 +71,14 @@
 
   function estimateFileSectionHeight(item) {
     item = item || {};
+    var header = fileHeaderEstimate();
+    // Collapsed files are header-only; skip the (possibly DOM-reading) body
+    // estimate entirely.
+    if (item.collapsed) return header;
     var body = item.bodyHeight || 0;
     if (typeof item.estimateBodyHeight === 'function') {
       body = item.estimateBodyHeight(item);
     }
-    var header = fileHeaderEstimate();
-    if (item.collapsed) return header;
     return header + Math.max(0, body);
   }
 
