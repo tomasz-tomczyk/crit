@@ -35,7 +35,9 @@ func PreviewEntryPath(htmlPath, baseDir string) string {
 		p = relWithin(baseDir, p)
 	}
 	p = filepath.ToSlash(p)
-	if p == "." || p == ".." || strings.HasPrefix(p, "../") {
+	// A leading "/" is left by a Windows root-relative path (\dir\a.html),
+	// which filepath.IsAbs does not treat as absolute.
+	if p == "." || p == ".." || strings.HasPrefix(p, "../") || strings.HasPrefix(p, "/") {
 		return filepath.Base(htmlPath)
 	}
 	return p

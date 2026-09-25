@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -355,5 +356,13 @@ func TestPreviewEntryPath_SymlinkedBase(t *testing.T) {
 	}
 	if got := PreviewEntryPath(filepath.Join(link, "docs", "page.html"), real); got != "docs/page.html" {
 		t.Errorf("symlinked path under real base = %q, want docs/page.html", got)
+	}
+}
+
+func TestPreviewEntryPath_RootRelativeFallsBackToBasename(t *testing.T) {
+	// A root-relative path that filepath.IsAbs rejects (a Windows "\dir\a.html")
+	// must not become a key with a leading slash.
+	if got := PreviewEntryPath("/"+"dir/a.html", ""); strings.HasPrefix(got, "/") {
+		t.Errorf("PreviewEntryPath kept a leading slash: %q", got)
 	}
 }

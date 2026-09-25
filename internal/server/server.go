@@ -999,7 +999,7 @@ func (s *Server) shareCLIArgsForSession(sess *Session) []string {
 		return cliArgs
 	}
 	if sess.Origin != "" {
-		return []string{"preview", session.PreviewEntryPath(sess.Origin, sess.RepoRoot)}
+		return []string{"preview", s.previewEntryPath(sess)}
 	}
 	if len(cliArgs) >= 2 && cliArgs[0] == "preview" && cliArgs[1] != "" {
 		return []string{"preview", session.PreviewEntryPath(cliArgs[1], sess.RepoRoot)}
@@ -1011,7 +1011,7 @@ func (s *Server) shareCLIArgsForSession(sess *Session) []string {
 }
 
 // previewEntryPath is the share-payload path of a preview session's HTML —
-// the same value shareCLIArgsForSession sends as the title.
+// the crawl key, the comment re-key and the title shareCLIArgsForSession sends.
 func (s *Server) previewEntryPath(sess *Session) string {
 	return session.PreviewEntryPath(sess.Origin, sess.RepoRoot)
 }

@@ -2557,3 +2557,39 @@ func TestBuildSharePayloadReviewType(t *testing.T) {
 		t.Errorf("empty review_type should be omitted, got %v", withoutType["review_type"])
 	}
 }
+
+// TestLoadPreviewShareComments_IncludesPulledKeys covers comments pulled from
+// crit-web: they are stored under the payload path, which is the entry path
+// (the basename for a file outside the session root) or "index.html" for a
+// share made by an older CLI. They must load and re-key onto the entry, or a
+// re-share drops them and crit-web deletes them.
+func TestLoadPreviewShareComments_IncludesPulledKeys(t *testing.T) {
+	reviewDir := filepath.Join(t.TempDir(), "review")
+	cj := CritJSON{
+		ReviewRound: 1,
+		Files: map[string]CritJSONFile{
+			"../site/page.html": {Comments: []Comment{{ID: "c1", StartLine: 1, EndLine: 1, Body: "local"}}},
+			"page.html":         {Comments: []Comment{{ID: "web-1", StartLine: 1, EndLine: 1, Body: "pulled"}}},
+			"index.html":        {Comments: []Comment{{ID: "web-2", StartLine: 1, EndLine: 1, Body: "pulled legacy"}}},
+			"other.html":        {Comments: []Comment{{ID: "c9", StartLine: 1, EndLine: 1, Body: "not this session"}}},
+		},
+	}
+	if err := review.SaveCritJSON(reviewDir, cj); err != nil {
+		t.Fatal(err)
+	}
+
+	comments, _ := LoadPreviewShareComments(reviewDir, []string{"../site/page.html"}, "Alice", "page.html")
+	got := map[string]string{}
+	for _, c := range comments {
+		got[c.Body] = c.File
+	}
+	want := map[string]string{"local": "page.html", "pulled": "page.html", "pulled legacy": "page.html"}
+	if len(got) != len(want) {
+		t.Fatalf("comments = %v, want %v", got, want)
+	}
+	for body, file := range want {
+		if got[body] != file {
+			t.Errorf("comment %q file = %q, want %q", body, got[body], file)
+		}
+	}
+}

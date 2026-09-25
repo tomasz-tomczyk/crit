@@ -88,99 +88,141 @@ func TestShareSyncPreviewOriginalPath_CLI(t *testing.T) {
 // Share button (POST /api/share) and re-share (POST /api/share/reshare) of a
 // live preview session: artifact path, title, and comment round-trip — local
 // comments go up on the entry path, a comment added on crit-web comes back on
-// pull and survives the re-share upsert.
+// pull and survives the re-share upsert. The outside-cwd case has a session
+// path ("../…") that differs from the entry path (the basename), and a legacy
+// comment pulled from an old index.html share must not be dropped either.
 func TestShareSyncPreviewOriginalPath_SessionShareAndReshare(t *testing.T) {
 	baseURL := critWebURL(t)
-	testutil.SetHome(t, t.TempDir())
-	t.Setenv("CRIT_AUTH_TOKEN", "")
 
-	cwd := t.TempDir()
-	const entry = "artifacts/reports/gutter-icons-inline.html"
-	abs := writeNamedPreviewFixture(t, filepath.Join(cwd, "artifacts", "reports"), "gutter-icons-inline.html")
-	t.Chdir(cwd)
-
-	// Local comments, stored the way a live preview session stores them: a DOM
-	// pin on the live-route entry (/preview-content) and a line comment on the
-	// HTML's session path.
-	reviewPath := filepath.Join(cwd, "review.json")
-	if err := saveCritJSON(reviewPath, CritJSON{
-		ReviewRound: 1,
-		Files: map[string]CritJSONFile{
-			"/preview-content": {Comments: []Comment{{
-				ID: "c1", Body: "pin on the heading", Author: "Alice",
-				DOMAnchor: &DOMAnchor{Pathname: "/preview-content", CSSSelector: "#title"},
-			}}},
-			entry: {Comments: []Comment{{
-				ID: "c2", StartLine: 6, EndLine: 6, Body: "line comment on the title tag", Author: "Alice", Scope: "line",
-			}}},
-		},
-	}); err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name      string
+		insideCwd bool
+		entry     string
+	}{
+		{"file inside cwd", true, "artifacts/reports/gutter-icons-inline.html"},
+		{"file outside cwd", false, "gutter-icons-inline.html"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			testutil.SetHome(t, t.TempDir())
+			t.Setenv("CRIT_AUTH_TOKEN", "")
 
-	sess, err := createPreviewSession(&serverConfig{previewFile: abs, reviewPath: reviewPath})
-	if err != nil {
-		t.Fatal(err)
+			cwd := t.TempDir()
+			siteRoot := cwd
+			if !tc.insideCwd {
+				siteRoot = t.TempDir()
+			}
+			abs := writeNamedPreviewFixture(t, filepath.Join(siteRoot, "artifacts", "reports"), "gutter-icons-inline.html")
+			t.Chdir(cwd)
+
+			// The session keys the HTML relative to cwd, as NewPreviewSession does.
+			// The review file must exist before the session loads it, so the
+			// live-route entry holding the pin is part of the session.
+			wd, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessPath, err := filepath.Rel(wd, abs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.insideCwd && sessPath == tc.entry {
+				t.Fatalf("session path %q should differ from entry %q for a file outside cwd", sessPath, tc.entry)
+			}
+			reviewPath := filepath.Join(cwd, "review.json")
+
+			// Local comments, stored the way a live preview session stores them:
+			// a DOM pin on the live-route entry (/preview-content), a line comment
+			// on the HTML's session path, and a comment pulled from a share made
+			// by an older CLI (stored under "index.html").
+			if err := saveCritJSON(reviewPath, CritJSON{
+				ReviewRound: 1,
+				Files: map[string]CritJSONFile{
+					"/preview-content": {Comments: []Comment{{
+						ID: "c1", Body: "pin on the heading", Author: "Alice",
+						DOMAnchor: &DOMAnchor{Pathname: "/preview-content", CSSSelector: "#title"},
+					}}},
+					sessPath: {Comments: []Comment{{
+						ID: "c2", StartLine: 6, EndLine: 6, Body: "line comment on the title tag", Author: "Alice", Scope: "line",
+					}}},
+					"index.html": {Comments: []Comment{{
+						ID: "web-1", StartLine: 1, EndLine: 1, Body: "pulled from an old share", Author: "Bob", Scope: "line",
+					}}},
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			sess, err := createPreviewSession(&serverConfig{previewFile: abs, reviewPath: reviewPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := sess.FilePathsSnapshot()[0]; got != sessPath {
+				t.Fatalf("session path = %q, want %q", got, sessPath)
+			}
+			sess.InitTestChannels()
+			s, err := NewServer(sess, frontendFS, baseURL, false, "", "Alice", "test", 0, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.SetSession(sess)
+
+			// --- first share ---
+			res := serveJSON(t, s, http.MethodPost, "/api/share")
+			shareURL, _ := res["url"].(string)
+			if shareURL == "" {
+				t.Fatalf("share returned no url: %v", res)
+			}
+			token := filepath.Base(shareURL)
+			t.Logf("  → Review: %s", shareURL)
+
+			assertPreviewArtifacts(t, baseURL, token, tc.entry)
+			assertPreviewTitle(t, baseURL, token, tc.entry)
+			assertPreviewComments(t, baseURL, token, tc.entry, 3)
+
+			// --- a reviewer comments on crit-web, then the author re-shares ---
+			seedPreviewComment(t, baseURL, token, tc.entry, "web reviewer comment")
+
+			res = serveJSON(t, s, http.MethodPost, "/api/share/reshare")
+			if merged, _ := res["merged"].(float64); merged != 1 {
+				t.Errorf("reshare merged = %v, want 1 (the web comment); body=%v", res["merged"], res)
+			}
+
+			// The pulled web comment is stored locally...
+			data, err := os.ReadFile(session.ReviewPathsFor(sess.CritJSONPath()).Review)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(data, []byte("web reviewer comment")) {
+				t.Errorf("pulled web comment not stored locally:\n%s", data)
+			}
+
+			// ...and the re-share upsert keeps every comment on the entry path
+			// (crit-web replaces the comment set with what the CLI sends, so a
+			// comment the CLI fails to load is deleted), without introducing an
+			// index.html artifact.
+			assertPreviewComments(t, baseURL, token, tc.entry, 4)
+			assertPreviewArtifacts(t, baseURL, token, tc.entry)
+			assertPreviewTitle(t, baseURL, token, tc.entry)
+
+			// A second re-share with nothing new must not lose anything either.
+			serveJSON(t, s, http.MethodPost, "/api/share/reshare")
+			assertPreviewComments(t, baseURL, token, tc.entry, 4)
+		})
 	}
-	sess.InitTestChannels()
-	s, err := NewServer(sess, frontendFS, baseURL, false, "", "Alice", "test", 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetSession(sess)
+}
 
-	// --- first share ---
-	res := serveJSON(t, s, http.MethodPost, "/api/share")
-	shareURL, _ := res["url"].(string)
-	if shareURL == "" {
-		t.Fatalf("share returned no url: %v", res)
-	}
-	token := filepath.Base(shareURL)
-	t.Logf("  → Review: %s", shareURL)
-
-	assertPreviewArtifacts(t, baseURL, token, entry)
-	assertPreviewTitle(t, baseURL, token, entry)
-
+func assertPreviewComments(t *testing.T, baseURL, token, entry string, want int) {
+	t.Helper()
 	comments := previewCommentsFromAPI(t, baseURL, token)
-	if len(comments) != 2 {
-		t.Fatalf("expected 2 shared comments, got %d: %+v", len(comments), comments)
+	if len(comments) != want {
+		t.Fatalf("expected %d comments on crit-web, got %d: %+v", want, len(comments), comments)
 	}
 	for _, c := range comments {
 		if c.FilePath != entry {
-			t.Errorf("shared comment %q file = %q, want %q", c.Body, c.FilePath, entry)
+			t.Errorf("comment %q file = %q, want %q", c.Body, c.FilePath, entry)
 		}
 	}
-
-	// --- a reviewer comments on crit-web, then the author re-shares ---
-	seedPreviewComment(t, baseURL, token, entry, "web reviewer comment")
-
-	res = serveJSON(t, s, http.MethodPost, "/api/share/reshare")
-	if merged, _ := res["merged"].(float64); merged != 1 {
-		t.Errorf("reshare merged = %v, want 1 (the web comment); body=%v", res["merged"], res)
-	}
-
-	// The pulled web comment is stored locally under the entry path...
-	data, err := os.ReadFile(session.ReviewPathsFor(sess.CritJSONPath()).Review)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(data, []byte("web reviewer comment")) {
-		t.Errorf("pulled web comment not stored locally:\n%s", data)
-	}
-
-	// ...and the re-share upsert keeps all three comments on the entry path,
-	// without introducing an index.html artifact.
-	comments = previewCommentsFromAPI(t, baseURL, token)
-	if len(comments) != 3 {
-		t.Fatalf("expected 3 comments after reshare, got %d: %+v", len(comments), comments)
-	}
-	for _, c := range comments {
-		if c.FilePath != entry {
-			t.Errorf("comment %q file = %q after reshare, want %q", c.Body, c.FilePath, entry)
-		}
-	}
-	assertPreviewArtifacts(t, baseURL, token, entry)
-	assertPreviewTitle(t, baseURL, token, entry)
 }
 
 // writeNamedPreviewFixture copies the test/fixtures/preview fixture into dir,
