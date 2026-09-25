@@ -71,7 +71,7 @@ func TestShareSyncPreview(t *testing.T) {
 
 	htmlPath := copyPreviewFixture(t, dir)
 
-	cmd := exec.Command(binary, "share", "--share-url", baseURL, "--output", dir, "--preview", htmlPath)
+	cmd := exec.Command(binary, "share", "--share-url", baseURL, "--preview", htmlPath)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -2,11 +2,15 @@ package share
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 // TestParseShareFlagsPreview verifies the --preview flag is parsed into the
@@ -47,7 +51,7 @@ func TestPostPreviewShareDispatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	url, err := postPreviewShare(filepath.Join(dir, "index.html"), srv.URL, "")
+	url, err := postPreviewShare(filepath.Join(dir, "index.html"), srv.URL, "", "", "")
 	if err != nil {
 		t.Fatalf("postPreviewShare: %v", err)
 	}
@@ -100,4 +104,88 @@ func sharePreviewHasBase64(files []any) bool {
 		}
 	}
 	return false
+}
+
+// runSharePreviewStub runs `crit share --preview` against a stub crit-web and
+// returns the decoded POST body plus anything written to stderr.
+func runSharePreviewStub(t *testing.T, extraArgs ...string) (map[string]any, string, error) {
+	t.Helper()
+	testutil.SetHome(t, t.TempDir())
+	dir := t.TempDir()
+	writeSharePreviewFixture(t, dir)
+
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"url":"https://crit.md/r/abc","delete_token":"t"}`))
+	}))
+	defer srv.Close()
+
+	args := append([]string{"--preview", filepath.Join(dir, "index.html"), "--share-url", srv.URL}, extraArgs...)
+
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runErr := RunShare(args)
+	_ = w.Close()
+	os.Stderr = oldStderr
+	stderr, _ := io.ReadAll(r)
+	return got, string(stderr), runErr
+}
+
+func TestRunSharePreview_SendsOrgAndVisibility(t *testing.T) {
+	got, _, err := runSharePreviewStub(t, "--org", "acme", "--visibility", "public")
+	if err != nil {
+		t.Fatalf("RunShare: %v", err)
+	}
+	if got["org"] != "acme" {
+		t.Errorf("org = %v, want acme", got["org"])
+	}
+	if got["visibility"] != "public" {
+		t.Errorf("visibility = %v, want public", got["visibility"])
+	}
+}
+
+func TestRunSharePreview_OmitsOrgAndVisibilityByDefault(t *testing.T) {
+	got, _, err := runSharePreviewStub(t)
+	if err != nil {
+		t.Fatalf("RunShare: %v", err)
+	}
+	if _, ok := got["org"]; ok {
+		t.Errorf("org = %v, want absent", got["org"])
+	}
+	if _, ok := got["visibility"]; ok {
+		t.Errorf("visibility = %v, want absent", got["visibility"])
+	}
+}
+
+func TestRunSharePreview_PrintsQR(t *testing.T) {
+	_, stderr, err := runSharePreviewStub(t, "--qr")
+	if err != nil {
+		t.Fatalf("RunShare: %v", err)
+	}
+	if !strings.ContainsAny(stderr, "█▀▄") {
+		t.Errorf("stderr = %q, want a QR code", stderr)
+	}
+}
+
+func TestRunSharePreview_RejectsReviewFileFlags(t *testing.T) {
+	for _, flag := range []string{"--output", "-o", "--session"} {
+		t.Run(flag, func(t *testing.T) {
+			got, _, err := runSharePreviewStub(t, flag, "x")
+			if err == nil || !strings.Contains(err.Error(), flag) {
+				t.Fatalf("err = %v, want usage error naming %s", err, flag)
+			}
+			if got != nil {
+				t.Errorf("share was posted despite %s: %v", flag, got)
+			}
+		})
+	}
 }
