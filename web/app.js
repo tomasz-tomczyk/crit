@@ -85,6 +85,13 @@
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
   function scrollToCommentRef(id) {
+    if (pierreViewActive()) {
+      const owner = files.find(function(f) {
+        return (f.comments || []).some(function(c) { return c.id === id; });
+      });
+      if (owner) pierreJumpToComment(id, owner.path, flashCommentRefCard);
+      return;
+    }
     let card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
     if (!card) {
       // Line cards live in deferred .file-body — mount the owning file and retry.
@@ -112,11 +119,16 @@
     // Make sure any containing <details> file section is open
     const section = card.closest('details');
     if (section && !section.open) section.open = true;
+    flashCommentRefCard(card);
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function flashCommentRefCard(card) {
+    const id = card.dataset.commentId;
     if (card.classList.contains('collapsed')) {
       card.classList.remove('collapsed');
       if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
     }
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     card.classList.remove('comment-ref-flash');
     void card.offsetWidth;
     card.classList.add('comment-ref-flash');
@@ -577,10 +589,22 @@
   // Fetch and build file objects from the API for a list of file infos.
   // Files marked as lazy by the backend are returned with metadata only;
   // their content/diff/comments are fetched on demand when expanded.
-  async function loadAllFileData(fileInfos, scope) {
-    const hasLazy = fileInfos.some(function(fi) { return fi.lazy; });
+  // The server's `lazy` flag only marks files it has not pre-loaded, and
+  // scoped sessions (e.g. scope=branch) never set it. Loading every file
+  // up front costs three requests per file — thousands on a large review —
+  // and the browser drops the overflow (ERR_INSUFFICIENT_RESOURCES), which
+  // then rendered as "No changes". Load at most EAGER_FILE_LIMIT files up
+  // front; the rest become lazy placeholders filled on demand. Orphaned
+  // files (comments only) are cheap and always load eagerly.
+  const EAGER_FILE_LIMIT = 25;
 
-    // If no lazy files, load everything eagerly (identical to previous behavior)
+  function loadsEagerly(fi, index) {
+    return !!fi.orphaned || (!fi.lazy && index < EAGER_FILE_LIMIT);
+  }
+
+  async function loadAllFileData(fileInfos, scope) {
+    const hasLazy = fileInfos.some(function(fi, i) { return !loadsEagerly(fi, i); });
+
     if (!hasLazy) {
       return Promise.all(fileInfos.map(function(fi) { return loadSingleFile(fi, scope); }));
     }
@@ -589,10 +613,10 @@
     const eager = [];
     const lazy = [];
     for (let i = 0; i < fileInfos.length; i++) {
-      if (fileInfos[i].lazy) {
-        lazy.push(fileInfos[i]);
-      } else {
+      if (loadsEagerly(fileInfos[i], i)) {
         eager.push(fileInfos[i]);
+      } else {
+        lazy.push(fileInfos[i]);
       }
     }
 
@@ -1403,8 +1427,12 @@
       collapseBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 3.22a.75.75 0 0 1 1.06 0L8 5.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 4.28a.75.75 0 0 1 0-1.06zm0 5a.75.75 0 0 1 1.06 0L8 10.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 9.28a.75.75 0 0 1 0-1.06z"/></svg>';
       collapseBtn.addEventListener('click', function() {
         const anyExpanded = files.some(function(f) { return !f.collapsed; });
-        for (let i = 0; i < files.length; i++) {
-          files[i].collapsed = anyExpanded;
+        if (pierreViewActive() && pierreView) {
+          pierreView.setAllCollapsed(files, anyExpanded);
+        } else {
+          for (let i = 0; i < files.length; i++) {
+            files[i].collapsed = anyExpanded;
+          }
         }
         const sections = document.querySelectorAll('.file-section');
         for (let i = 0; i < sections.length; i++) {
@@ -1471,6 +1499,10 @@
     if (!select._mobilePickerBound) {
       select._mobilePickerBound = true;
       select.addEventListener('change', function() {
+        if (pierreViewActive()) {
+          scrollToFile(select.value);
+          return;
+        }
         const sectionEl = document.getElementById('file-section-' + select.value);
         if (sectionEl) {
           sectionEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -1898,21 +1930,35 @@
     return keys;
   }
 
+  function pierreIsDocumentView(file) {
+    return file.fileType === 'markdown' && file.viewMode === 'document';
+  }
+
   function pierreAnnotationsFor(file) {
     const A = window.crit.pierreAdapter;
     const out = [];
     const hideResolved = isHideResolved();
-    const documentView = file.fileType === 'markdown' && file.viewMode === 'document';
-    const lineKeys = documentView ? null : renderedDiffLineKeys(pierrePreparedHunks(file));
+    if (pierreIsDocumentView(file)) {
+      // Line comments and forms live inside the rendered document; only
+      // file-level threads and the file form sit above it.
+      for (let i = 0; i < (file.comments || []).length; i++) {
+        const c = file.comments[i];
+        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
+      }
+      const fileForm = getFileComposeForm(file.path);
+      if (fileForm && !fileForm.editingId) out.push(A.annotationForForm(fileForm));
+      out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'document', id: file.path } });
+      return out;
+    }
+    const lineKeys = renderedDiffLineKeys(pierrePreparedHunks(file));
     let outdated = false;
     for (let i = 0; i < (file.comments || []).length; i++) {
       const c = file.comments[i];
       if (hideResolved && c.resolved) continue;
-      if (c.scope !== 'file' && lineKeys && !lineKeys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''))) {
+      if (c.scope !== 'file' && !lineKeys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''))) {
         outdated = true;
         continue;
       }
-      if (documentView && c.side === 'old') continue; // old-side lines don't exist in the document
       out.push(A.annotationForComment(c));
     }
     if (outdated) {
@@ -1923,6 +1969,26 @@
       if (!forms[i].editingId) out.push(A.annotationForForm(forms[i]));
     }
     return out;
+  }
+
+  // Markdown Document view: Crit's rendered document (line blocks, inline
+  // comments, gutter drag, mermaid) as the file-level annotation of an empty
+  // Pierre file item. Pierre owns the header, collapse and virtualization.
+  // The wrapper keeps the classic section shape so document helpers (TOC,
+  // visual selection, comment focus) find it by id.
+  function buildPierreDocument(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file || file.lazy) return null;
+    const section = document.createElement('div');
+    section.className = 'file-section pierre-document';
+    section.id = 'file-section-' + filePath;
+    section.open = true;
+    const body = document.createElement('div');
+    body.className = 'file-body';
+    section.appendChild(body);
+    populateFileBody(body, file);
+    highlightQuotesInSection(section, file);
+    return section;
   }
 
   function buildPierreThread(filePath, commentId) {
@@ -2029,12 +2095,13 @@
       themeType: window.crit.pierreAdapter.themeTypeFor(getSetting('theme', 'system')),
       annotations: pierreAnnotationsFor,
       prepareHunks: pierrePreparedHunks,
-      isDocumentView: function(file) { return file.fileType === 'markdown' && file.viewMode === 'document'; },
+      isDocumentView: pierreIsDocumentView,
       loadFile: loadPierreFile,
       buildHeader: buildPierreFileHeader,
       buildAnnotation: function(kind, filePath, id) {
         if (kind === 'form') return buildPierreForm(filePath, id);
         if (kind === 'outdated') return buildPierreOutdated(filePath);
+        if (kind === 'document') return buildPierreDocument(filePath);
         return buildPierreThread(filePath, id);
       },
       buildListHeader: function() { return document.getElementById('reviewConversation'); },
@@ -2054,13 +2121,63 @@
   let pierreFocus = null; // { path, line, side }
   let pierreVisualAnchor = null; // same shape, set by Shift+V
 
+  // Keyboard rows for a file: diff rows, or the rendered document's blocks
+  // when a markdown file is in Document view (same stops as the classic view).
   function pierreNavRows(file) {
+    if (pierreIsDocumentView(file)) {
+      return (file.lineBlocks || []).map(function(b, i) {
+        return { line: b.startLine, endLine: b.endLine, side: '', block: i };
+      });
+    }
     return window.crit.pierreAdapter.navRowsForHunks(pierrePreparedHunks(file), diffMode);
+  }
+
+  function pierreDocBlockElement(path, blockIndex) {
+    return document.querySelector('#filesContainer .line-block.kb-nav[data-file-path="' + CSS.escape(path) +
+      '"][data-block-index="' + blockIndex + '"]');
+  }
+
+  // Document focus/visual range: the classic .focused/.selected classes on
+  // the rendered blocks. Returns false while the document is not mounted.
+  function markPierreDocFocus(focus, anchor) {
+    const el = pierreDocBlockElement(focus.path, focus.block);
+    if (!el) return false;
+    document.querySelectorAll('.kb-nav.focused').forEach(function(n) { n.classList.remove('focused'); });
+    el.classList.add('focused');
+    focusedElement = el;
+    const start = anchor ? Math.min(anchor.line, focus.line) : null;
+    const end = anchor ? Math.max(anchor.endLine, focus.endLine) : null;
+    const section = el.closest('.pierre-document');
+    section.querySelectorAll('.line-block.kb-nav').forEach(function(b) {
+      b.classList.toggle('selected', start !== null &&
+        parseInt(b.dataset.startLine) >= start && parseInt(b.dataset.endLine) <= end);
+    });
+    el.scrollIntoView({ block: 'nearest' });
+    return true;
   }
 
   function showPierreFocus() {
     if (!pierreView) return;
     if (!pierreFocus) { pierreView.setSelectedLine(null); return; }
+    if (pierreFocus.block !== undefined) {
+      const focus = pierreFocus;
+      const anchor = pierreVisualAnchor && pierreVisualAnchor.path === focus.path ? pierreVisualAnchor : null;
+      pierreView.setSelectedLine(null);
+      keyboardFocusTarget = { filePath: focus.path, blockIndex: String(focus.block), startLine: String(focus.line), endLine: String(focus.endLine) };
+      focusedFilePath = focus.path;
+      focusedBlockIndex = focus.block;
+      if (!markPierreDocFocus(focus, anchor)) {
+        pierreView.scrollToFile(focus.path).then(function() {
+          let tries = 0;
+          (function retry() {
+            if (pierreFocus === focus && !markPierreDocFocus(focus, anchor) && ++tries < 60) requestAnimationFrame(retry);
+          })();
+        });
+      }
+      updateTreeActive(focus.path);
+      return;
+    }
+    document.querySelectorAll('.kb-nav.focused').forEach(function(n) { n.classList.remove('focused'); });
     keyboardFocusTarget = {
       filePath: pierreFocus.path,
       diffLineNum: String(pierreFocus.line),
@@ -2087,7 +2204,7 @@
     function step(file, rows, fromIdx) {
       const nextIdx = fromIdx + direction;
       if (nextIdx >= 0 && nextIdx < rows.length) {
-        pierreFocus = { path: file.path, line: rows[nextIdx].line, side: rows[nextIdx].side };
+        pierreFocus = Object.assign({ path: file.path }, rows[nextIdx]);
         showPierreFocus();
         return;
       }
@@ -2127,7 +2244,8 @@
       if (!file) return;
       if (file.collapsed) pierreView.setCollapsed(file, false);
       const comment = (file.comments || []).find(function(c) { return c.id === commentId; });
-      const anchored = comment && comment.scope !== 'file' &&
+      const inDocument = pierreIsDocumentView(file) && comment && comment.scope !== 'file';
+      const anchored = comment && comment.scope !== 'file' && !inDocument &&
         renderedDiffLineKeys(pierrePreparedHunks(file)).has(comment.end_line + ':' + (comment.side === 'old' ? 'old' : ''));
       ignoreTreeObserverUntil = Date.now() + 400;
       updateTreeActive(filePath);
@@ -2138,7 +2256,11 @@
         let tries = 0;
         (function waitForCard() {
           const el = card();
-          if (el) { done(el); return; }
+          if (el) {
+            if (inDocument) el.scrollIntoView({ block: 'center' });
+            done(el);
+            return;
+          }
           if (++tries < 60) requestAnimationFrame(waitForCard);
         })();
       });
@@ -2221,7 +2343,7 @@
       lineDiffType: 'word-alt',
       disableFileHeader: true,
       unsafeCSS: PIERRE_UNSAFE_CSS,
-      onPostRender: function(node, instance, phase) { onPierrePostRender(clone.path, node, phase); },
+      onPostRender: function(node, _instance, phase) { onPierrePostRender(clone.path, node, phase); },
       expansionLineCount: 20,
       enableGutterUtility: true,
       lineHoverHighlight: 'number',
@@ -2349,6 +2471,37 @@
     if (phase === 'unmount') pierreQuoteRanges.delete(host);
     else pierreQuoteRanges.set(host, pierreQuoteRangesFor(host, getFileByPath(filePath)));
     syncPierreQuoteHighlight();
+    if (phase !== 'unmount' && host.querySelector('.pierre-document')) renderMermaidBlocks();
+  }
+
+  // A form opened from a sticky file header (or the keyboard) may belong to
+  // a part of the file that is scrolled away — e.g. the file-level form sits
+  // at the top of a long file. Bring it into view, then focus it once Pierre
+  // has mounted the annotation. Line forms use 'nearest', so a gutter click
+  // on a visible line does not move the page.
+  function pierreRevealForm(form) {
+    if (!pierreView || !pierreViewActive() || !form) return;
+    const textarea = function() {
+      return document.querySelector('#filesContainer .comment-form[data-form-key="' + CSS.escape(form.formKey) + '"] textarea');
+    };
+    const root = document.getElementById('filesContainer').getBoundingClientRect();
+    const current = textarea();
+    const r = current && current.getBoundingClientRect();
+    if (r && r.height > 0 && r.top >= root.top && r.bottom <= root.bottom) {
+      current.focus({ preventScroll: true });
+      return; // already visible — don't move the page
+    }
+    const scrolled = form.scope === 'file'
+      ? pierreView.scrollToFile(form.filePath)
+      : pierreView.scrollToLine(form.filePath, form.endLine, form.side, 'nearest');
+    scrolled.then(function() {
+      let tries = 0;
+      (function focusWhenMounted() {
+        const ta = textarea();
+        if (ta && ta.getBoundingClientRect().height > 0) { ta.focus({ preventScroll: true }); return; }
+        if (++tries < 60) requestAnimationFrame(focusWhenMounted);
+      })();
+    });
   }
 
   function clearPierreFocus() {
@@ -2400,6 +2553,12 @@
     const keys = [];
     for (let i = 0; i < file.comments.length; i++) keys.push(pierreThreadKey(file.comments[i].id));
     keys.push('outdated:' + filePath);
+    if (pierreIsDocumentView(file)) {
+      // The document holds its own line forms: keep their typed text across
+      // the rebuild the way the classic section re-render did.
+      saveOpenFormContent(filePath);
+      keys.push('document:' + filePath);
+    }
     pierreView.refreshFile(file, keys);
   }
 
@@ -4456,6 +4615,7 @@
       selectionEnd = newForm.endLine;
       renderFileByPath(newForm.filePath);
       focusCommentTextarea(existing.formKey);
+      pierreRevealForm(existing);
       return;
     }
     closeEmptyForms(fk);
@@ -4466,6 +4626,7 @@
     selectionEnd = newForm.endLine;
     renderFileByPath(newForm.filePath);
     focusCommentTextarea(newForm.formKey);
+    pierreRevealForm(newForm);
   }
 
   function openFileCommentForm(filePath) {
@@ -4481,6 +4642,7 @@
     if (existing) {
       renderFileByPath(filePath);
       focusCommentTextarea(existing.formKey);
+      pierreRevealForm(existing);
       return;
     }
     closeEmptyForms(fk);
@@ -4488,6 +4650,7 @@
     addForm(newForm);
     renderFileByPath(filePath);
     focusCommentTextarea(newForm.formKey);
+    pierreRevealForm(newForm);
   }
 
   function createFileCommentForm(formObj) {
@@ -5563,9 +5726,6 @@
     allQuoted.forEach(function(comment) {
       // Find the content elements in this comment's line range
       const contentEls = [];
-      // Filter by side to avoid matching the wrong line in unified diff
-      // (deleted and added lines can share the same line number)
-      const commentSide = comment.side || '';
       for (let ln = comment.start_line; ln <= comment.end_line; ln++) {
         // Document view: line-blocks with data-file-path
         const docEls = docLineMap.get(ln);
@@ -9390,10 +9550,17 @@
           if (!pierreFocus) return;
           const anchor = pierreVisualAnchor && pierreVisualAnchor.path === pierreFocus.path ? pierreVisualAnchor : pierreFocus;
           const start = Math.min(anchor.line, pierreFocus.line);
-          const end = Math.max(anchor.line, pierreFocus.line);
-          const side = anchor.side;
           pierreVisualAnchor = null;
           document.body.classList.remove('visual-mode');
+          if (pierreFocus.block !== undefined) {
+            // Document blocks: the form sits after the last block of the range.
+            document.querySelectorAll('#filesContainer .line-block.selected').forEach(function(b) { b.classList.remove('selected'); });
+            openForm({ filePath: pierreFocus.path, afterBlockIndex: Math.max(anchor.block, pierreFocus.block),
+              startLine: start, endLine: Math.max(anchor.endLine, pierreFocus.endLine), editingId: null });
+            return;
+          }
+          const end = Math.max(anchor.line, pierreFocus.line);
+          const side = anchor.side;
           openForm({ filePath: pierreFocus.path, afterBlockIndex: null, startLine: start, endLine: end, editingId: null, side: side || undefined });
           return;
         }

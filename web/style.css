@@ -6632,3 +6632,11 @@ body.pierre-review #filesContainer {
 .pierre-file-header.collapsed .file-header-chevron {
   transform: rotate(-90deg);
 }
+/* The rendered document sits in a Pierre annotation slot, which inherits
+   the code typography from the diffs host; restore the page's. */
+.pierre-document {
+  font-family: var(--crit-font-body);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--crit-editor-fg);
+}

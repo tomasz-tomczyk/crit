@@ -79,14 +79,14 @@
     function itemFor(file) {
       var isStub = !!file.lazy;
       if (isStub) stubs.add(file.path); else stubs.delete(file.path);
-      // Markdown "Document" view in git mode: the full source as a Pierre
-      // file item (Pierre renders source, not rendered markdown). Comments
-      // attach per source line, like the diff view.
+      // Markdown "Document" view in git mode: an empty file item whose
+      // file-level annotation is Crit's rendered document (see app.js
+      // buildPierreDocument). Pierre still owns header, collapse and scroll.
       if (!isStub && opts.isDocumentView && opts.isDocumentView(file)) {
         return {
           id: file.path,
           type: 'file',
-          file: { name: file.path, contents: file.content || '', cacheKey: 'doc:' + file.path + ':' + (file.fileHash || '') },
+          file: { name: file.path, contents: '', cacheKey: 'doc:' + file.path },
           annotations: annotationsFor(file).map(function(a) { return { lineNumber: a.lineNumber, metadata: a.metadata }; }),
           collapsed: !!file.collapsed,
           version: nextVersion(file.path),
@@ -279,6 +279,15 @@
       publish(file);
     }
 
+    // Collapse or expand every file, then render once.
+    function setAllCollapsed(files, isCollapsed) {
+      files.forEach(function(f) {
+        f.collapsed = !!isCollapsed;
+        if (itemsByPath.has(f.path)) publish(f);
+      });
+      viewer.render(true);
+    }
+
     function setDiffStyle(style, files) {
       if (style === diffStyle) return;
       diffStyle = style;
@@ -323,6 +332,7 @@
       scrollToFile: scrollToFile,
       scrollToLine: scrollToLine,
       setCollapsed: setCollapsed,
+      setAllCollapsed: setAllCollapsed,
       setDiffStyle: setDiffStyle,
       setThemeType: setThemeType,
       setSelectedLine: setSelectedLine,
