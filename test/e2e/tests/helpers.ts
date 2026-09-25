@@ -47,29 +47,151 @@ export async function loadPage(page: Page) {
   await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 }
 
-// Scope selectors to the plan.md file section.
-export function mdSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'plan.md' });
+// ----- Pierre diff surface -----
+//
+// Git-mode files render through @pierre/diffs CodeView. Each file is a
+// <diffs-container> item: Crit's header (.pierre-file-header) and annotations
+// (comment cards, forms, the rendered markdown document) are light-DOM
+// children; the code lines live in its open shadow root, which Playwright
+// CSS locators pierce. CodeView virtualizes the list, so a file far from
+// the viewport has no DOM until it is scrolled to — use the async section
+// helpers, which bring the file into view first.
+
+function cssAttr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-// Scope selectors to the server.go file section.
-export function goSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+/** A file's Pierre item. Only resolves while the file is mounted. */
+export function fileItem(page: Page, filePath: string): Locator {
+  return page.locator('diffs-container').filter({
+    has: page.locator(`.pierre-file-header[data-file-path="${cssAttr(filePath)}"]`),
+  });
 }
 
-// Scope selectors to the handler.js file section.
-export function jsSection(page: Page) {
-  return page.locator('#file-section-handler\\.js');
+/** A file's Crit header inside its Pierre item. */
+export function fileHeader(page: Page, filePath: string): Locator {
+  return page.locator(`.pierre-file-header[data-file-path="${cssAttr(filePath)}"]`);
 }
 
-// In git mode, markdown defaults to diff view. Click the Document toggle to switch.
-export async function switchToDocumentView(page: Page) {
-  const section = mdSection(page);
-  await expect(section).toBeVisible();
-  const docBtn = section.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
+/**
+ * Bring a file into view (tree click, or the mobile file picker) and return
+ * its item. Leaves the page alone when the file is already on screen.
+ */
+export async function revealFile(page: Page, filePath: string): Promise<Locator> {
+  const item = fileItem(page, filePath);
+  const header = fileHeader(page, filePath);
+  const onScreen = async () => {
+    if (await header.count() === 0) return false;
+    return item.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    }).catch(() => false);
+  };
+  if (!(await onScreen())) {
+    const picker = page.locator('#mobileFilePicker');
+    if (await picker.isVisible()) {
+      await picker.selectOption(filePath);
+    } else {
+      const tree = page.locator(`.tree-file[data-tree-path="${cssAttr(filePath)}"]`);
+      await expect(tree).toBeVisible({ timeout: 10_000 });
+      await tree.click();
+    }
+  }
+  await expect(header).toBeVisible({ timeout: 15_000 });
+  return item;
+}
+
+// The fixture's usual files, brought into view.
+export function mdSection(page: Page) { return revealFile(page, 'plan.md'); }
+export function goSection(page: Page) { return revealFile(page, 'server.go'); }
+export function jsSection(page: Page) { return revealFile(page, 'handler.js'); }
+
+export type DiffSide = 'new' | 'old';
+
+// Content cell of one diff line. Split puts each side in its own
+// code[data-additions|data-deletions]; unified uses one code[data-unified]
+// where data-line is the line number on the row's own side.
+export function diffLine(item: Locator, line: number, side: DiffSide = 'new'): Locator {
+  const n = `[data-line="${line}"]`;
+  return side === 'old'
+    ? item.locator(`code[data-deletions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}[data-line-type="change-deletion"]`)
+    : item.locator(`code[data-additions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}:not([data-line-type="change-deletion"])`);
+}
+
+// Line-number cell of one diff line (same side rules as diffLine).
+export function diffLineNumber(item: Locator, line: number, side: DiffSide = 'new'): Locator {
+  const n = `[data-column-number="${line}"]`;
+  return side === 'old'
+    ? item.locator(`code[data-deletions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}[data-line-type="change-deletion"]`)
+    : item.locator(`code[data-additions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}:not([data-line-type="change-deletion"])`);
+}
+
+// Pierre pauses pointer events briefly after any scroll, and Playwright's
+// actionability scroll counts. Settle, then press at coordinates.
+async function pressAt(page: Page, target: Locator) {
+  await target.scrollIntoViewIfNeeded();
+  await expect.poll(async () => {
+    const box = await target.boundingBox();
+    if (!box) return false;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    return true;
+  }).toBe(true);
+  await page.waitForFunction(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+}
+
+/** The gutter "+" for a line: hover the line, then the utility button. */
+export async function hoverLine(page: Page, item: Locator, line: number, side: DiffSide = 'new'): Promise<Locator> {
+  const content = diffLine(item, line, side).first();
+  await expect(content).toBeVisible();
+  const button = item.locator('[data-utility-button]');
+  await expect(async () => {
+    await pressAt(page, content);
+    await expect(button).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 10_000 });
+  return button;
+}
+
+/** Open a line comment form through the gutter "+" and return the form. */
+export async function openLineComment(page: Page, item: Locator, line: number, side: DiffSide = 'new'): Promise<Locator> {
+  const button = await hoverLine(page, item, line, side);
+  const box = await button.boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  const form = page.locator('#filesContainer .comment-form').last();
+  await expect(form.locator('textarea')).toBeVisible();
+  return form;
+}
+
+/** Drag the gutter "+" from one line to another to open a range form. */
+export async function dragLineRange(page: Page, item: Locator, from: number, to: number, side: DiffSide = 'new'): Promise<Locator> {
+  const button = await hoverLine(page, item, from, side);
+  const start = await button.boundingBox();
+  const end = await diffLineNumber(item, to, side).first().boundingBox();
+  expect(start && end).toBeTruthy();
+  await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start!.x + start!.width / 2, end!.y + end!.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const form = page.locator('#filesContainer .comment-form').last();
+  await expect(form.locator('textarea')).toBeVisible();
+  return form;
+}
+
+/** The line Pierre marks selected (keyboard focus / visual range). */
+export function selectedLines(page: Page): Locator {
+  return page.locator('diffs-container [data-content] > [data-selected-line]');
+}
+
+// In git mode, markdown defaults to diff view. Switch plan.md to Document
+// view and return the rendered document (.pierre-document).
+export async function switchToDocumentView(page: Page): Promise<Locator> {
+  await mdSection(page);
+  const docBtn = fileHeader(page, 'plan.md').locator('.file-header-toggle .toggle-btn[data-mode="document"]');
   await expect(docBtn).toBeVisible();
   await docBtn.click();
-  await expect(section.locator('.document-wrapper')).toBeVisible();
+  const doc = page.locator('[id="file-section-plan.md"].pierre-document');
+  await expect(doc.locator('.document-wrapper')).toBeVisible();
+  return doc;
 }
 
 // Perform a mouse drag between two elements (for gutter range selection).
