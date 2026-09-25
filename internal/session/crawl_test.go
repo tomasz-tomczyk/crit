@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestCrawlHTMLFile(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "bg.jpg"), []byte{0xFF, 0xD8, 0xFF}, 0644)
 	os.WriteFile(filepath.Join(dir, "font.woff2"), []byte{0x77, 0x4F, 0x46, 0x32}, 0644)
 
-	files, err := crawlPreview(filepath.Join(dir, "index.html"))
+	files, err := crawlPreview(filepath.Join(dir, "index.html"), "index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestCrawlTotalSizeLimit(t *testing.T) {
 	big := make([]byte, 15*1024*1024)
 	os.WriteFile(filepath.Join(dir, "big.bin"), big, 0644)
 
-	_, err := crawlPreview(filepath.Join(dir, "index.html"))
+	_, err := crawlPreview(filepath.Join(dir, "index.html"), "index.html")
 	if err == nil {
 		t.Error("expected error for oversized snapshot")
 	}
@@ -101,7 +102,7 @@ func TestCrawlMissingAssetSkipped(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte(htmlContent), 0644)
 	os.WriteFile(filepath.Join(dir, "exists.png"), []byte{137, 80, 78, 71}, 0644)
 
-	files, err := crawlPreview(filepath.Join(dir, "index.html"))
+	files, err := crawlPreview(filepath.Join(dir, "index.html"), "index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ body { color: red; }`
 	os.WriteFile(filepath.Join(dir, "main.css"), []byte(mainCSS), 0644)
 	os.WriteFile(filepath.Join(dir, "reset.css"), []byte(resetCSS), 0644)
 
-	files, err := crawlPreview(filepath.Join(dir, "index.html"))
+	files, err := crawlPreview(filepath.Join(dir, "index.html"), "index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +154,7 @@ func TestCrawlExternalURLsSkipped(t *testing.T) {
 
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte(htmlContent), 0644)
 
-	files, err := crawlPreview(filepath.Join(dir, "index.html"))
+	files, err := crawlPreview(filepath.Join(dir, "index.html"), "index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestCrawlDuplicateRefs(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte(htmlContent), 0644)
 	os.WriteFile(filepath.Join(dir, "logo.png"), []byte{137, 80, 78, 71}, 0644)
 
-	files, err := crawlPreview(filepath.Join(dir, "index.html"))
+	files, err := crawlPreview(filepath.Join(dir, "index.html"), "index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,5 +270,99 @@ func TestExtractCSSURLs(t *testing.T) {
 		if !got[want] {
 			t.Errorf("missing CSS reference: %q", want)
 		}
+	}
+}
+
+// TestCrawlPreview_KeysByEntryPath is the #983 regression: the entry HTML is
+// keyed by its original path (not "index.html") and every asset is keyed
+// under the entry's directory, so the HTML's relative refs still resolve when
+// crit-web serves it from that path.
+func TestCrawlPreview_KeysByEntryPath(t *testing.T) {
+	dir := t.TempDir()
+	site := filepath.Join(dir, "artifacts", "reports")
+	os.MkdirAll(filepath.Join(site, "css", "img"), 0o755)
+	os.WriteFile(filepath.Join(site, "checkout.html"), []byte(
+		`<link rel="stylesheet" href="css/app.css"><img src="./logo.png"><img src="checkout.html">`), 0o644)
+	os.WriteFile(filepath.Join(site, "css", "app.css"), []byte(`body { background: url(img/bg.png); }`), 0o644)
+	os.WriteFile(filepath.Join(site, "logo.png"), []byte{137, 80, 78, 71}, 0o644)
+	os.WriteFile(filepath.Join(site, "css", "img", "bg.png"), []byte{137, 80, 78, 71}, 0o644)
+
+	files, err := crawlPreview(filepath.Join(site, "checkout.html"), "artifacts/reports/checkout.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range files {
+		got = append(got, f.Path)
+	}
+	want := []string{
+		"artifacts/reports/checkout.html",
+		"artifacts/reports/css/app.css",
+		"artifacts/reports/logo.png",
+		"artifacts/reports/css/img/bg.png",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("paths[%d] = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestPreviewEntryPath(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name, in, base, want string
+	}{
+		{"relative kept", "artifacts/reports/checkout.html", root, "artifacts/reports/checkout.html"},
+		{"relative cleaned", "./docs//a/../minimize.html", root, "docs/minimize.html"},
+		{"bare file", "docs-minimize.html", root, "docs-minimize.html"},
+		{"absolute under base", filepath.Join(root, "site", "index.html"), root, "site/index.html"},
+		{"absolute outside base", filepath.Join(t.TempDir(), "gutter-icons-inline.html"), root, "gutter-icons-inline.html"},
+		{"relative escaping", "../elsewhere/page.html", root, "page.html"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PreviewEntryPath(tc.in, tc.base); got != tc.want {
+				t.Errorf("PreviewEntryPath(%q, %q) = %q, want %q", tc.in, tc.base, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("empty base uses cwd", func(t *testing.T) {
+		t.Chdir(root)
+		abs := filepath.Join(root, "nested", "page.html")
+		if got := PreviewEntryPath(abs, ""); got != "nested/page.html" {
+			t.Errorf("PreviewEntryPath(%q, \"\") = %q, want nested/page.html", abs, got)
+		}
+	})
+}
+
+// TestPreviewEntryPath_SymlinkedBase covers a base dir reached through a
+// symlink (macOS /var → /private/var): the path is still inside the tree.
+func TestPreviewEntryPath_SymlinkedBase(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	os.MkdirAll(filepath.Join(real, "docs"), 0o755)
+	os.WriteFile(filepath.Join(real, "docs", "page.html"), []byte("<html></html>"), 0o644)
+
+	if got := PreviewEntryPath(filepath.Join(real, "docs", "page.html"), link); got != "docs/page.html" {
+		t.Errorf("real path under symlinked base = %q, want docs/page.html", got)
+	}
+	if got := PreviewEntryPath(filepath.Join(link, "docs", "page.html"), real); got != "docs/page.html" {
+		t.Errorf("symlinked path under real base = %q, want docs/page.html", got)
+	}
+}
+
+func TestPreviewEntryPath_RootRelativeFallsBackToBasename(t *testing.T) {
+	// A root-relative path that filepath.IsAbs rejects (a Windows "\dir\a.html")
+	// must not become a key with a leading slash.
+	if got := PreviewEntryPath("/"+"dir/a.html", ""); strings.HasPrefix(got, "/") {
+		t.Errorf("PreviewEntryPath kept a leading slash: %q", got)
 	}
 }

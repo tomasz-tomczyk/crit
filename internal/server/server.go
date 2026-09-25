@@ -974,7 +974,7 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, err error) {
 	sess := s.session.Load()
 	if sess != nil && sess.ReviewType == "preview" {
-		files, err = session.CrawlPreview(sess.Origin)
+		files, err = session.CrawlPreview(sess.Origin, s.previewEntryPath(sess))
 		if err != nil {
 			return nil, "", fmt.Errorf("crawling preview assets: %w", err)
 		}
@@ -983,10 +983,13 @@ func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, e
 	return sess.LoadShareFilesFromDisk(), "", nil
 }
 
-// shareCLIArgsForSession prefers persisted metadata. Preview metadata is
-// normalized to the canonical ["preview", path] shape and falls back to the
-// live session when the persisted value is stale or malformed. File-review
-// sessions retain their existing review.json-only behavior.
+// shareCLIArgsForSession returns the cli_args sent with a share. For preview
+// sessions it is the canonical ["preview", entryPath] shape, where entryPath
+// is the previewed file's path relative to the session root (see
+// session.PreviewEntryPath). crit-web uses it as the review title and the
+// crawl keys the entry HTML by the same value, so title and artifact path
+// match. Without an origin it falls back to persisted, then live, metadata.
+// File-review sessions retain their existing review.json-only behavior.
 func (s *Server) shareCLIArgsForSession(sess *Session) []string {
 	if sess == nil {
 		return nil
@@ -995,16 +998,22 @@ func (s *Server) shareCLIArgsForSession(sess *Session) []string {
 	if sess.ReviewType != "preview" {
 		return cliArgs
 	}
+	if sess.Origin != "" {
+		return []string{"preview", s.previewEntryPath(sess)}
+	}
 	if len(cliArgs) >= 2 && cliArgs[0] == "preview" && cliArgs[1] != "" {
-		return []string{"preview", cliArgs[1]}
+		return []string{"preview", session.PreviewEntryPath(cliArgs[1], sess.RepoRoot)}
 	}
 	if len(sess.CLIArgs) >= 2 && sess.CLIArgs[0] == "preview" && sess.CLIArgs[1] != "" {
-		return []string{"preview", sess.CLIArgs[1]}
-	}
-	if sess.Origin != "" {
-		return []string{"preview", sess.Origin}
+		return []string{"preview", session.PreviewEntryPath(sess.CLIArgs[1], sess.RepoRoot)}
 	}
 	return nil
+}
+
+// previewEntryPath is the share-payload path of a preview session's HTML —
+// the crawl key, the comment re-key and the title shareCLIArgsForSession sends.
+func (s *Server) previewEntryPath(sess *Session) string {
+	return session.PreviewEntryPath(sess.Origin, sess.RepoRoot)
 }
 
 func (s *Server) writeExistingShareIfPresent(w http.ResponseWriter) (bool, error) {
@@ -1103,7 +1112,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) { //nolint:
 	critPath := s.session.Load().CritJSONPath()
 
 	// Comments are loaded from the review file by their session path. For a
-	// preview the uploaded files are crawled (keyed "index.html"), but the
+	// preview the uploaded files are crawled (keyed by the entry path), but the
 	// comments live under the session's previewed-file path — pass that so they
 	// load, then shareReviewFiles re-keys them to the crawl entry. The scope is
 	// always the session's file identity so restoreShareStateLocked matches it
@@ -1304,7 +1313,8 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a preview session", http.StatusBadRequest)
 		return
 	}
-	files, err := session.CrawlPreview(sess.Origin)
+	entryPath := s.previewEntryPath(sess)
+	files, err := session.CrawlPreview(sess.Origin, entryPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1314,7 +1324,7 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 	// POST /api/share path. Comments span all session paths (DOM pins live on
 	// live-route entries, not the HTML's "code" entry), so load across all of
 	// them — not just the first. Without this, sharing via popup loses comments.
-	comments, reviewRound := share.LoadPreviewShareComments(sess.CritJSONPath(), sess.FilePathsSnapshot(), s.author)
+	comments, reviewRound := share.LoadPreviewShareComments(sess.CritJSONPath(), sess.FilePathsSnapshot(), s.author, entryPath)
 	if reviewRound == 0 {
 		reviewRound = 1
 	}
@@ -1352,7 +1362,7 @@ func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
 	if reviewType == "preview" {
 		// Load comments across all session paths (DOM pins on live-route entries)
 		// and collapse onto the crawl entry, matching the initial-share payload.
-		comments, reviewRound = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author)
+		comments, reviewRound = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author, files[0].Path)
 	} else {
 		filePaths := make([]string, len(files))
 		for i, f := range files {
@@ -1463,7 +1473,7 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 	critPath := sess.CritJSONPath()
 	var comments []shareComment
 	if reviewType == "preview" {
-		comments, _ = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author)
+		comments, _ = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author, files[0].Path)
 	} else {
 		filePaths := make([]string, len(files))
 		for i, f := range files {
@@ -1511,6 +1521,16 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		return 0, 0, errNoSharedReview
 	}
 	critPath := sess.CritJSONPath()
+	// Flush pending edits and cancel the debounced save first. Otherwise a
+	// save firing after MergeWebComments rewrites the review file from
+	// in-memory state and drops the comments just pulled — and a re-share
+	// then deletes them on crit-web. Skip it when there is no review file,
+	// so a missing file still reports as an error below.
+	if _, statErr := os.Stat(review.ReviewPathsFor(critPath).Review); statErr == nil {
+		if err := sess.SyncWriteFiles(); err != nil {
+			return 0, 0, err
+		}
+	}
 	data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review)
 	if readErr != nil {
 		if os.IsNotExist(readErr) {
@@ -1537,11 +1557,33 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		sess.SyncCommentsFromDisk()
 		return 0, 0, nil
 	}
+	rekeyPulledPreviewComments(sess, fetched.NewComments)
 	if err := share.MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
 		return 0, 0, err
 	}
 	sess.SyncCommentsFromDisk()
 	return len(fetched.NewComments), len(fetched.ReplyUpdates), nil
+}
+
+// rekeyPulledPreviewComments files comments pulled into a preview session
+// under the previewed HTML's session path. crit-web keys them by the payload
+// path (the entry path, or "index.html" for older shares), which is not a
+// session file when the HTML is outside the session root. Under such a key
+// the session never loads them and drops them on its next save, and the next
+// re-share then deletes them on crit-web.
+func rekeyPulledPreviewComments(sess *Session, comments []share.WebComment) {
+	if sess == nil || sess.ReviewType != "preview" {
+		return
+	}
+	paths := sess.FilePathsSnapshot()
+	if len(paths) == 0 {
+		return
+	}
+	for i := range comments {
+		if comments[i].Scope != "review" && comments[i].FilePath != "" {
+			comments[i].FilePath = paths[0]
+		}
+	}
 }
 
 var (

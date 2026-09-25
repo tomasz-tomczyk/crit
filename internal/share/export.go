@@ -71,6 +71,6 @@ func DecodeJSONOrHTMLHint(resp *http.Response, v any) error {
 	return decodeJSONOrHTMLHint(resp, v)
 }
 
-func RemapPreviewCommentFiles(comments []ShareComment) {
-	remapPreviewCommentFiles(comments)
+func RemapPreviewCommentFiles(comments []ShareComment, entryPath string) {
+	remapPreviewCommentFiles(comments, entryPath)
 }

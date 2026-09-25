@@ -16,7 +16,7 @@ import (
 // no running server, so it runs under plain `go test ./...`.
 func TestCrawlPreviewFixtureShape(t *testing.T) {
 	root := filepath.Join("..", "..", "test", "fixtures", "preview")
-	entries, err := crawlPreview(filepath.Join(root, "index.html"))
+	entries, err := crawlPreview(filepath.Join(root, "index.html"), "index.html")
 	if err != nil {
 		t.Fatalf("crawlPreview: %v", err)
 	}

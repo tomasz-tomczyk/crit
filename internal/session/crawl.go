@@ -15,13 +15,51 @@ import (
 
 const maxPreviewBytes = 10 * 1024 * 1024 // 10MB total snapshot limit
 
-// previewMainHTMLKey is the share-payload path under which the previewed HTML
-// file is stored. The crawler roots the snapshot here and assets hang off it by
-// their relative paths. Comments authored on the preview are stored under the
-// session's on-disk path, so they must be re-keyed to this constant when built
-// into a share payload (see remapPreviewCommentFiles) — otherwise crit-web has
-// no matching file to attach them to. Single constant so the two can't drift.
-const PreviewMainHTMLKey = "index.html"
+// PreviewEntryPath returns the share-payload path for a previewed HTML file.
+// A relative htmlPath is kept as given (cleaned, forward-slash); an absolute
+// one is made relative to baseDir (the working directory when baseDir is "").
+// Paths that escape that tree fall back to the basename. The same value is
+// sent as the review title (cli_args) and used as the crawled entry key, so
+// the two can't drift. Comments authored on the preview are re-keyed to it
+// when built into a share payload (see remapPreviewCommentFiles) — otherwise
+// crit-web has no matching file to attach them to.
+func PreviewEntryPath(htmlPath, baseDir string) string {
+	p := filepath.Clean(htmlPath)
+	if filepath.IsAbs(p) {
+		if baseDir == "" {
+			// On a Getwd error baseDir stays "", Rel fails, and relWithin
+			// returns "..", so the basename fallback below applies.
+			baseDir, _ = os.Getwd()
+		}
+		p = relWithin(baseDir, p)
+	}
+	p = filepath.ToSlash(p)
+	// A leading "/" is left by a Windows root-relative path (\dir\a.html),
+	// which filepath.IsAbs does not treat as absolute.
+	if p == "." || p == ".." || strings.HasPrefix(p, "../") || strings.HasPrefix(p, "/") {
+		return filepath.Base(htmlPath)
+	}
+	return p
+}
+
+// relWithin returns target relative to base. If that escapes base, it retries
+// with symlinks resolved on both sides (macOS /var → /private/var: os.Getwd
+// and a caller-supplied path can disagree on the prefix).
+func relWithin(base, target string) string {
+	rel, err := filepath.Rel(base, target)
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rel
+	}
+	rb, errB := filepath.EvalSymlinks(base)
+	rt, errT := filepath.EvalSymlinks(target)
+	if errB != nil || errT != nil {
+		return ".."
+	}
+	if rel, err := filepath.Rel(rb, rt); err == nil {
+		return rel
+	}
+	return ".."
+}
 
 // textExtensions lists file extensions served as plain text (not base64).
 var textExtensions = map[string]bool{
@@ -45,26 +83,32 @@ var (
 // previewCollector accumulates files for a preview snapshot, tracking
 // seen paths and enforcing the total size limit.
 type previewCollector struct {
-	baseDir    string
+	baseDir string
+	// keyDir is the directory of the entry HTML in the share payload. Assets are
+	// read from baseDir+rel but stored under keyDir+rel, so the HTML's relative
+	// refs still resolve when crit-web serves it from its original path.
+	keyDir     string
 	files      []ShareFile
 	seen       map[string]bool
 	totalBytes int
 }
 
-func newPreviewCollector(baseDir string) *previewCollector {
+func newPreviewCollector(baseDir, keyDir string) *previewCollector {
 	return &previewCollector{
 		baseDir: baseDir,
+		keyDir:  keyDir,
 		seen:    map[string]bool{},
 	}
 }
 
-func (c *previewCollector) add(relPath string, data []byte) error {
+// add stores data under key and marks rel (the path relative to baseDir) seen.
+func (c *previewCollector) add(rel, key string, data []byte) error {
 	c.totalBytes += len(data)
 	if c.totalBytes > maxPreviewBytes {
 		return fmt.Errorf("preview snapshot exceeds %dMB limit", maxPreviewBytes/(1024*1024))
 	}
-	c.files = append(c.files, makeShareFile(relPath, data))
-	c.seen[relPath] = true
+	c.files = append(c.files, makeShareFile(key, data))
+	c.seen[rel] = true
 	return nil
 }
 
@@ -76,17 +120,19 @@ func (c *previewCollector) tryAdd(rel string) (isCSS bool, err error) {
 	if readErr != nil {
 		return false, nil //nolint:nilerr // missing assets are intentionally skipped
 	}
-	if err := c.add(rel, data); err != nil {
+	if err := c.add(rel, path.Join(c.keyDir, rel), data); err != nil {
 		return false, err
 	}
 	return strings.HasSuffix(strings.ToLower(rel), ".css"), nil
 }
 
-// crawlPreview reads an HTML file and all its local asset references,
+// CrawlPreview reads an HTML file and all its local asset references,
 // returning them as ShareFile entries suitable for uploading to crit-web.
-// CSS files are followed one level deep to discover url() and @import refs.
-// Missing assets are silently skipped. Total size is capped at maxPreviewBytes.
-func CrawlPreview(htmlPath string) ([]ShareFile, error) {
+// The HTML is the first entry, keyed entryPath (see PreviewEntryPath); assets
+// are keyed relative to entryPath's directory. CSS files are followed one
+// level deep to discover url() and @import refs. Missing assets are silently
+// skipped. Total size is capped at maxPreviewBytes.
+func CrawlPreview(htmlPath, entryPath string) ([]ShareFile, error) {
 	absHTML, err := filepath.Abs(htmlPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -97,9 +143,9 @@ func CrawlPreview(htmlPath string) ([]ShareFile, error) {
 		return nil, fmt.Errorf("read HTML: %w", err)
 	}
 
-	c := newPreviewCollector(filepath.Dir(absHTML))
+	c := newPreviewCollector(filepath.Dir(absHTML), path.Dir(entryPath))
 
-	if err := c.add(PreviewMainHTMLKey, htmlData); err != nil {
+	if err := c.add(filepath.Base(absHTML), entryPath, htmlData); err != nil {
 		return nil, err
 	}
 

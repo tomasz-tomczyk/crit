@@ -1986,7 +1986,7 @@ func (s *Session) UnresolvedCommentCount() int {
 
 // locateFileCommentLocked finds a file comment by ID. hintPath is the route
 // pathname the client sent (?path=); when it differs from the on-disk file
-// key (e.g. preview pins re-keyed to index.html on crit-web share), the
+// key (e.g. preview pins re-keyed to the entry path on crit-web share), the
 // global search still finds the comment.
 func (s *Session) locateFileCommentLocked(hintPath, id string) (*FileEntry, int) {
 	if hintPath != "" {

@@ -213,29 +213,44 @@ type ShareReviewFilesResult struct {
 	Comments    []ShareComment
 }
 
-// loadPreviewShareComments loads ALL of a preview session's comments and re-keys
-// them to previewMainHTMLKey. Preview DOM pins live in separate "live-route"
+// LoadPreviewShareComments loads ALL of a preview session's comments and re-keys
+// them to entryPath (the crawled HTML's payload path, see
+// session.PreviewEntryPath). Preview DOM pins live in separate "live-route"
 // FileEntries keyed by the iframe pathname (/preview-content), distinct from the
 // previewed HTML's "code" entry — so comments must be loaded across EVERY
 // session path (sessionPaths = Session.FilePathsSnapshot()), not just the HTML's,
 // then collapsed onto the single crawl entry. Used by the proxy preview-payload
 // and re-share upsert-payload builders; handleShare gets the same effect by
 // passing all session paths through shareReviewFiles.
-func LoadPreviewShareComments(critPath string, sessionPaths []string, fallbackAuthor string) ([]ShareComment, int) {
-	comments, reviewRound := LoadCommentsForShare(critPath, sessionPaths, fallbackAuthor)
-	remapPreviewCommentFiles(comments)
+func LoadPreviewShareComments(critPath string, sessionPaths []string, fallbackAuthor, entryPath string) ([]ShareComment, int) {
+	comments, reviewRound := LoadCommentsForShare(critPath, previewCommentPaths(sessionPaths, entryPath), fallbackAuthor)
+	remapPreviewCommentFiles(comments, entryPath)
 	return comments, reviewRound
 }
 
-// remapPreviewCommentFiles re-keys per-file comments to previewMainHTMLKey so
-// they attach to the crawled HTML entry in a preview share payload. Review-level
+// legacyPreviewEntryKey is the payload path older CLIs used for every preview
+// entry HTML. Comments pulled from those shares are stored under it locally.
+const legacyPreviewEntryKey = "index.html"
+
+// previewCommentPaths adds the keys pulled crit-web comments are stored under
+// to the session paths: the entry path (which differs from the session path
+// when the file is outside the session root) and the legacy "index.html".
+// Without them, pulled comments never load and a re-share deletes them on
+// crit-web, which replaces the comment set with what the CLI sends.
+func previewCommentPaths(sessionPaths []string, entryPath string) []string {
+	paths := make([]string, 0, len(sessionPaths)+2)
+	paths = append(paths, sessionPaths...)
+	return append(paths, entryPath, legacyPreviewEntryKey)
+}
+
+// remapPreviewCommentFiles re-keys per-file comments to entryPath so they attach to the crawled HTML entry in a preview share payload. Review-level
 // comments (empty File) are left untouched. Preview is a single rendered page,
 // so every per-file comment (including DOM pins on live-route entries) collapses
 // onto the one previewed HTML.
-func remapPreviewCommentFiles(comments []ShareComment) {
+func remapPreviewCommentFiles(comments []ShareComment, entryPath string) {
 	for i := range comments {
 		if comments[i].File != "" {
-			comments[i].File = session.PreviewMainHTMLKey
+			comments[i].File = entryPath
 		}
 	}
 }
@@ -254,12 +269,15 @@ func ShareReviewFiles(critPath string, files []ShareFile, filePaths []string, sv
 // metadata. Server-backed sessions use it so a first share can preserve the
 // live session arguments before review.json has been written.
 func ShareReviewFilesWithCLIArgs(critPath string, files []ShareFile, filePaths []string, svcURL, authToken, fallbackAuthor string, cliArgs []string, org, visibility, reviewType string) (ShareReviewFilesResult, error) {
-	comments, reviewRound := LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
-	if reviewType == "preview" {
+	var comments []ShareComment
+	var reviewRound int
+	if reviewType == "preview" && len(files) > 0 {
 		// Preview comments are stored under the session's on-disk path (passed
-		// in filePaths) but the crawled payload keys the HTML as
-		// previewMainHTMLKey — re-key so crit-web attaches them to that entry.
-		remapPreviewCommentFiles(comments)
+		// in filePaths) but the crawled payload keys the HTML by its entry path
+		// (always the first crawled file) — re-key so crit-web attaches them.
+		comments, reviewRound = LoadPreviewShareComments(critPath, filePaths, fallbackAuthor, files[0].Path)
+	} else {
+		comments, reviewRound = LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
 	}
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility, reviewType)
