@@ -260,7 +260,7 @@ test('lockScrollToKey never shortens an existing longer lock', function() {
   fl.dispose();
 });
 
-test('releasePendingScrollTarget keeps pin and lock', function() {
+test('releasePendingScrollTarget keeps the lock (and so the mount)', function() {
   const surface = {
     children: [],
     style: {},
@@ -284,10 +284,10 @@ test('releasePendingScrollTarget keeps pin and lock', function() {
     },
   });
   fl.stickToKey('a');
-  assert.ok(fl.pinnedKeys.has('a'));
   fl.releasePendingScrollTarget();
   assert.equal(fl.stickKey(), null);
-  assert.ok(fl.pinnedKeys.has('a'), 'pin retained after pending release');
   assert.ok(fl.isScrollLocked(), 'lock retained after pending release');
+  assert.deepEqual(fl.heldKeys(), ['a'], 'locked key stays mounted');
+  assert.equal(fl.pinnedKeys.size, 0, 'jumps never add caller-owned pins');
   fl.dispose();
 });

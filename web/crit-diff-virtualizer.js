@@ -637,6 +637,16 @@
         : options.kind === 'virtualizer' ? VIRTUALIZER_OVERSCROLL_SIZE
         : OVERSCROLL_SIZE;
     }
+    // Pierre's createWindowFromScrollPosition assumes scrollTop is the scroll
+    // container's own position, so its "content fits the window" branch starts
+    // at scrollTop and drops rows above (bounded there by the scroller: at most
+    // 2× overscroll). Crit windows each file surface by its local offset inside
+    // a much taller page, where that branch hits almost every file and would
+    // unmount every row above the viewport. A surface that fits keeps all rows.
+    var total = heightIndex.total();
+    if (!options.fitPerfectly && (viewportHeight || 0) + overscrollSize * 2 >= total) {
+      return [0, heightIndex.rows.length - 1];
+    }
     var win = createWindowFromScrollPosition({
       scrollTop: Math.max(0, localTop || 0),
       height: viewportHeight || 0,
@@ -1002,7 +1012,16 @@
     ));
     var index = this.heightIndex.indexAt(local);
     if (index < 0) return null;
-    return { rowKey: this.rows[index].key, intraRowOffset: local - this.heightIndex.offset(index) };
+    var rowKey = this.rows[index].key;
+    var node = this.nodes.get(rowKey);
+    return {
+      rowKey: rowKey,
+      intraRowOffset: local - this.heightIndex.offset(index),
+      // Real on-screen top when mounted: the restoring controller starts from
+      // estimates, so index math alone lands off by every measured-vs-estimated
+      // row above the anchor.
+      rowTop: node && node.isConnected ? node.getBoundingClientRect().top : null,
+    };
   };
 
   VirtualWindow.prototype.restoreAnchor = function(anchor, viewportY) {
@@ -1018,6 +1037,15 @@
       (anchor.intraRowOffset || 0) - (y - metrics.vpTop);
     scrollParentScrollTo(scrollParent, target);
     this.update();
+    // Pierre-style scroll fix: pin the anchor row's DOM position, not its
+    // estimated offset.
+    var node = anchor.rowTop == null ? null : this.nodes.get(anchor.rowKey);
+    if (node && node.isConnected) {
+      var delta = node.getBoundingClientRect().top - anchor.rowTop;
+      if (Math.abs(delta) >= 0.5) {
+        scrollParentScrollTo(scrollParent, scrollParentScrollTop(scrollParent) + delta);
+      }
+    }
     return true;
   };
 

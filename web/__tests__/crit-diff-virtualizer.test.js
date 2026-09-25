@@ -146,6 +146,23 @@ test('calculateWindow matches Pierre createWindowFromScrollPosition', function()
   assert.ok(keep[1] - keep[0] > middle[1] - middle[0]);
 });
 
+test('calculateWindow keeps every row of a surface that fits the keep-alive window', function() {
+  // A 60-row file (1200px) scrolled 300px into its surface: the keep-alive
+  // band covers the whole file, so rows above the viewport stay mounted
+  // (form-selected / comment rows just above the fold must not vanish).
+  const rows = Array.from({ length: 60 }, function(_, index) {
+    return { key: String(index), kind: 'line' };
+  });
+  const heights = new virtualizer.HeightIndex(rows);
+  assert.deepEqual(virtualizer.calculateWindow(heights, 300, 720, { kind: 'keepalive' }), [0, 59]);
+  // Pierre's raw function starts at scrollTop in its fits-in-window branch —
+  // correct for a scroller, wrong for a surface inside a taller page.
+  const raw = virtualizer.createWindowFromScrollPosition({
+    scrollTop: 300, height: 720, scrollHeight: heights.total(), overscrollSize: 4000,
+  });
+  assert.equal(raw.top, 300);
+});
+
 test('createWindowFromScrollPosition fitPerfectly expands around target', function() {
   const win = virtualizer.createWindowFromScrollPosition({
     scrollTop: 5000,

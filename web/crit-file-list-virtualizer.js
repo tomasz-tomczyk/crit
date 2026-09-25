@@ -159,6 +159,15 @@
     scrollParentScrollTo(scrollParent, targetScrollTop);
   }
 
+  var SCROLL_KEYS = new Set(['PageDown', 'PageUp', 'Home', 'End', 'ArrowDown', 'ArrowUp', ' ']);
+
+  function isEditableTarget(target) {
+    if (!target || target.nodeType !== 1) return false;
+    if (target.isContentEditable) return true;
+    var tag = target.tagName;
+    return tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT';
+  }
+
   function FileListVirtualizer(options) {
     options = options || {};
     this.surface = options.surface;
@@ -178,6 +187,9 @@
     this.rebuildKeyMap();
     this.nodes = new Map();
     this.pinnedKeys = new Set();
+    // key -> expiry (ms). Keeps a slot mounted for async work (lazy load,
+    // keyboard nav) without the permanent pin that pinnedKeys implies.
+    this._holdUntil = new Map();
     this.mountedKeys = new Set();
     this.disposed = false;
     this.updateFrame = 0;
@@ -245,20 +257,18 @@
     this._onResize = function() { self.scheduleUpdate(); };
     var target = this.scrollParent === window ? window : this.scrollParent;
     target.addEventListener('scroll', this._onScroll, { passive: true });
-    // User intents: wheel/touchmove/keys fully clear; pointerdown only clears
-    // pending stick (Pierre clearPendingScroll is pending-only).
-    // Keydown is filtered to scroll keys so Crit j/k nav does not clear.
+    // User intents: wheel/touchmove/scroll keys fully clear; pointerdown and
+    // other keys (j/k, n/N) only clear the pending stick — Pierre clears the
+    // pending target on any keydown. Typing in a form is not a scroll intent.
     target.addEventListener('wheel', this._onUserScrollIntent, { passive: true });
     target.addEventListener('touchstart', this._onUserScrollIntent, { passive: true });
     target.addEventListener('touchmove', this._onUserScrollIntent, { passive: true });
     target.addEventListener('pointerdown', this._onClearPendingOnly, { passive: true });
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this._onUserKeyScrollIntent = function(e) {
-        var k = e.key;
-        if (k === 'PageDown' || k === 'PageUp' || k === 'Home' || k === 'End' ||
-            k === 'ArrowDown' || k === 'ArrowUp' || k === ' ') {
-          self._onUserScrollIntent();
-        }
+        if (isEditableTarget(e.target)) return;
+        if (SCROLL_KEYS.has(e.key)) self._onUserScrollIntent();
+        else self._onClearPendingOnly();
       }, true);
     }
     window.addEventListener('resize', this._onResize);
@@ -285,6 +295,7 @@
     }
     if (this._onResize) window.removeEventListener('resize', this._onResize);
     this._stickKey = null;
+    this._holdUntil.clear();
     this.clearPinScrollRoom();
     this.nodes.clear();
     this.mountedKeys.clear();
@@ -299,11 +310,12 @@
     this.items = items || [];
     this.rebuildKeyMap();
     this.heightIndex = new diffV.HeightIndex(this.items, this.estimateHeight);
+    if (this.surface) {
+      var children = Array.from(this.surface.children);
+      for (var c = 0; c < children.length; c++) this.detachNode(children[c]);
+    }
     this.nodes.clear();
     this.mountedKeys.clear();
-    if (this.surface) {
-      while (this.surface.firstChild) this.surface.removeChild(this.surface.firstChild);
-    }
     this.update();
     if (anchor) this.restoreAnchor(anchor);
   };
@@ -463,19 +475,26 @@
       var index = this.keyToIndex.get(key);
       if (index !== undefined) intervals.push([index, index]);
     }, this);
-    // Keep a scroll-locked jump target mounted even after pending stick settles.
-    if (this.isScrollLocked() && this._scrollLockKey) {
-      var lockIdx = this.keyToIndex.get(this._scrollLockKey);
-      if (lockIdx !== undefined) intervals.push([lockIdx, lockIdx]);
+    // Jump targets (pending stick, scroll lock) and transient holds stay
+    // mounted without joining pinnedKeys — those pins are caller-owned and
+    // would outlive the jump.
+    var held = this.heldKeys();
+    for (var h = 0; h < held.length; h++) {
+      var heldIdx = this.keyToIndex.get(held[h]);
+      if (heldIdx !== undefined) intervals.push([heldIdx, heldIdx]);
     }
     this.reconcile(diffV.mergeIntervals(intervals, this.items.length));
     // Re-apply file-top pin while a pending target is active. Only release when
     // already at target *before* this pin — otherwise a just-written scroll
     // would settle in the same frame and drop stick before height refine.
+    // Also release when the pin cannot move the node any closer (clamped at
+    // a scroll edge, or a sub-pixel offset the scroller cannot represent) —
+    // Pierre clamps its target so it always settles; an unreachable target
+    // would otherwise stay pending and yank later programmatic scrolls back.
     if (this._stickKey) {
       var settledBefore = this.isPendingTargetSettled();
-      this.pinKeyToViewportTop(this._stickKey);
-      if (settledBefore && this.isPendingTargetSettled()) {
+      var pin = this.pinKeyToViewportTop(this._stickKey);
+      if (pin && (pin.stalled || (settledBefore && this.isPendingTargetSettled()))) {
         this.releasePendingScrollTarget();
       }
     }
@@ -553,18 +572,7 @@
     var desiredKeys = new Set(desired.map(function(d) { return d.key; }));
     var children = Array.from(this.surface.children);
     for (var c = 0; c < children.length; c++) {
-      var oldKey = children[c].dataset.virtualKey;
-      if (desiredKeys.has(oldKey)) continue;
-      if (this.resizeObserver && children[c].dataset.fileListIndex !== undefined) {
-        this.resizeObserver.unobserve(children[c]);
-      }
-      // Drop row-virtualizer controllers before detaching the section.
-      if (typeof this.onUnmount === 'function' && this.mountedKeys.has(oldKey)) {
-        try { this.onUnmount(oldKey, children[c]); } catch (err) { /* ignore */ }
-      }
-      this.nodes.delete(oldKey);
-      this.mountedKeys.delete(oldKey);
-      children[c].remove();
+      if (!desiredKeys.has(children[c].dataset.virtualKey)) this.detachNode(children[c]);
     }
 
     for (var di = 0; di < desired.length; di++) {
@@ -606,19 +614,30 @@
       if (current !== node) this.surface.insertBefore(node, current || null);
     }
     while (this.surface.children.length > desired.length) {
-      var extra = this.surface.lastElementChild;
-      if (this.resizeObserver && extra.dataset.fileListIndex !== undefined) {
-        this.resizeObserver.unobserve(extra);
-      }
-      this.nodes.delete(extra.dataset.virtualKey);
-      this.mountedKeys.delete(extra.dataset.virtualKey);
-      extra.remove();
+      this.detachNode(this.surface.lastElementChild);
     }
     if (this.onRangeChange) this.onRangeChange(intervals);
   };
 
+  // Single exit path for surface children: stop measuring (a detached node
+  // reports a 0×0 ResizeObserver entry that would zero its slot in the
+  // HeightIndex), dispose row controllers, then drop from the DOM.
+  FileListVirtualizer.prototype.detachNode = function(node) {
+    var key = node.dataset.virtualKey;
+    if (this.resizeObserver && node.dataset.fileListIndex !== undefined) {
+      this.resizeObserver.unobserve(node);
+    }
+    if (typeof this.onUnmount === 'function' && this.mountedKeys.has(key)) {
+      try { this.onUnmount(key, node); } catch (err) { /* ignore */ }
+    }
+    if (this.nodes.get(key) === node) this.nodes.delete(key);
+    this.mountedKeys.delete(key);
+    node.remove();
+  };
+
   FileListVirtualizer.prototype.handleMeasurements = function(entries) {
     for (var i = 0; i < entries.length; i++) {
+      if (entries[i].target.isConnected === false) continue;
       var index = parseInt(entries[i].target.dataset.fileListIndex, 10);
       if (isNaN(index)) continue;
       var height = entries[i].borderBoxSize && entries[i].borderBoxSize.length
@@ -822,32 +841,24 @@
       this.clearStickToKey();
       return;
     }
-    if (this._stickKey && this._stickKey !== key) {
-      this.unpin(this._stickKey);
-    }
     this._stickKey = key;
     this._stickTargetTop = null;
-    this._stickSince = Date.now();
     this._forceFitPerfectly = true;
-    this.pin(key);
     this.lockScrollToKey(key, 60000);
-    this.ensurePinScrollRoom(key);
+    this.scheduleUpdate();
   };
 
   FileListVirtualizer.prototype.clearStickToKey = function() {
-    var prev = this._stickKey;
-    var lockKey = this._scrollLockKey;
     this._stickKey = null;
     this._stickTargetTop = null;
     this._scrollLockKey = null;
     this._scrollLockUntil = 0;
     this.clearPinScrollRoom();
-    if (prev) this.unpin(prev);
-    else if (lockKey) this.unpin(lockKey);
+    this.scheduleUpdate();
   };
 
-  // Drop pending file-top force only. Keep pin + lock + padding so the jump
-  // target stays mounted and scrollable until clearStickToKey (user scroll).
+  // Drop pending file-top force only. Keep lock + padding so the jump target
+  // stays mounted and scrollable until clearStickToKey (user scroll).
   FileListVirtualizer.prototype.releasePendingScrollTarget = function() {
     this._stickKey = null;
     this._stickTargetTop = null;
@@ -895,7 +906,7 @@
     if (section && section.classList && !section.classList.contains('file-section')) {
       section = section.closest ? section.closest('.file-section') : null;
     }
-    if (!section) return;
+    if (!section || section.isConnected === false) return;
     var key = section.dataset && (section.dataset.filePath || section.dataset.fileKey || section.dataset.virtualKey);
     if (!key) {
       // id="file-section-<path>"
@@ -942,14 +953,17 @@
   // spacer reflow.
   FileListVirtualizer.prototype.pinKeyToViewportTop = function(key) {
     var node = this.nodes.get(key);
-    if (!node || typeof node.getBoundingClientRect !== 'function') return false;
+    if (!node || typeof node.getBoundingClientRect !== 'function') return null;
     this.ensurePinScrollRoom(key);
     var targetTop = this.stickTargetTop(node);
     var top = node.getBoundingClientRect().top;
     var delta = top - targetTop;
-    if (!(Math.abs(delta) >= 0.5)) return true;
+    if (!(Math.abs(delta) >= 0.5)) return { stalled: true };
     scrollParentScrollBy(this.scrollParent || window, delta);
-    return true;
+    // Clamped at a scroll edge or snapped to the same device pixel: the pin
+    // cannot get closer, so a pending stick must not wait on it.
+    var after = node.getBoundingClientRect().top;
+    return { stalled: Math.abs(after - top) < 0.5 };
   };
 
   FileListVirtualizer.prototype.restoreAfterHeightChange = function(domAnchor) {
@@ -1048,10 +1062,31 @@
     this.scheduleUpdate();
   };
 
-  FileListVirtualizer.prototype.ensureMounted = function(key) {
-    this.pin(key);
+  // Mount now and keep the slot for `ms` (async lazy load / keyboard nav).
+  // Callers that need a slot indefinitely pin() and unpin() it themselves.
+  FileListVirtualizer.prototype.ensureMounted = function(key, ms) {
+    this.holdMounted(key, ms);
     this.update();
     return Promise.resolve(this.nodes.get(key) || null);
+  };
+
+  FileListVirtualizer.prototype.holdMounted = function(key, ms) {
+    var until = Date.now() + (ms || 5000);
+    if ((this._holdUntil.get(key) || 0) < until) this._holdUntil.set(key, until);
+  };
+
+  // Keys kept mounted outside the caller-owned pinnedKeys: pending stick,
+  // active scroll lock, unexpired holds. Expired holds are dropped here.
+  FileListVirtualizer.prototype.heldKeys = function() {
+    var now = Date.now();
+    var keys = [];
+    if (this._stickKey) keys.push(this._stickKey);
+    if (this.isScrollLocked()) keys.push(this._scrollLockKey);
+    this._holdUntil.forEach(function(until, key) {
+      if (until > now) keys.push(key);
+      else this._holdUntil.delete(key);
+    }, this);
+    return keys;
   };
 
   FileListVirtualizer.prototype.scrollToItem = function(key, alignment) {
@@ -1061,7 +1096,6 @@
     this._forceFitPerfectly = true;
     // Default short lock; never shortens an existing longer lock (e.g. stick 60s).
     this.lockScrollToKey(key, 2000);
-    this.pin(key);
     // Synchronous mount + scroll before the next rAF reconcile can fight us.
     this.update();
     var node = this.nodes.get(key) || null;

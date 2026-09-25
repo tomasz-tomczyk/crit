@@ -1538,11 +1538,10 @@
 
     if (!select._mobilePickerBound) {
       select._mobilePickerBound = true;
+      // Same path as a tree click: under file-list virt the target is often
+      // only a spacer, so a DOM lookup + scrollIntoView would do nothing.
       select.addEventListener('change', function() {
-        const sectionEl = document.getElementById('file-section-' + select.value);
-        if (sectionEl) {
-          sectionEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        }
+        scrollToFile(select.value);
       });
     }
   }
@@ -1899,11 +1898,7 @@
       // Hold stick across height refine until settle or user scroll.
       ignoreTreeObserverUntil = Date.now() + 15000;
       suppressBodyMountObserver(5000);
-      if (typeof fileListController.stickToKey === 'function') {
-        fileListController.stickToKey(filePath);
-      } else {
-        fileListController.lockScrollToKey(filePath, 15000);
-      }
+      fileListController.stickToKey(filePath);
       fileListController.setCollapsed(filePath, false);
       prioritizeLazyPrefetch(file);
 
@@ -1916,11 +1911,7 @@
         const live = (fileListController.nodes && fileListController.nodes.get(filePath)) || sectionEl;
         if (!live || !live.isConnected) return;
         fileListController.setItemHeight(filePath, live.getBoundingClientRect().height);
-        if (typeof fileListController.pinKeyToViewportTop === 'function') {
-          fileListController.pinKeyToViewportTop(filePath);
-        } else {
-          live.scrollIntoView({ block: 'start', behavior: 'instant' });
-        }
+        fileListController.pinKeyToViewportTop(filePath);
       }
 
       // Jump now — placeholder/header at viewport top while network warms.
@@ -2088,11 +2079,21 @@
     if (item && item.key) updateTreeActive(item.key);
   }
 
+  // Files pinned because they hold an open line form. Tracked so a closed
+  // form releases its pin instead of keeping the file mounted forever.
+  const formPinnedPaths = new Set();
+
   function pinOpenFormFilesInList() {
     if (!fileListController) return;
     for (let i = 0; i < files.length; i++) {
-      if (fileHasOpenLineForms(files[i].path)) {
-        fileListController.pin(files[i].path);
+      const path = files[i].path;
+      const open = fileHasOpenLineForms(path);
+      if (open && !formPinnedPaths.has(path)) {
+        formPinnedPaths.add(path);
+        fileListController.pin(path);
+      } else if (!open && formPinnedPaths.has(path)) {
+        formPinnedPaths.delete(path);
+        fileListController.unpin(path);
       }
     }
   }
@@ -2109,6 +2110,7 @@
     if (!FL || typeof FL.FileListVirtualizer !== 'function') return false;
 
     disposeFileListController();
+    formPinnedPaths.clear();
     fileListController = new FL.FileListVirtualizer({
       surface: container,
       items: buildFileListItems(),
@@ -2220,12 +2222,9 @@
       fileListController.restoreAnchor(listAnchor);
       // Ensure the reading file is in the window so line-anchor restore can find DOM.
       if (lineAnchor && lineAnchor.filePath) {
-        fileListController.pin(lineAnchor.filePath);
-        fileListController.update();
+        fileListController.ensureMounted(lineAnchor.filePath);
       } else if (sectionAnchor) {
-        const path = sectionAnchor.id.replace('file-section-', '');
-        fileListController.pin(path);
-        fileListController.update();
+        fileListController.ensureMounted(sectionAnchor.id.replace('file-section-', ''));
       }
     }
 
@@ -3423,9 +3422,7 @@
       // scroll lock is active on another file — background estimate updates
       // would move spacers under an in-flight jump.
       if (fileListController) {
-        const locked = typeof fileListController.scrollLockKey === 'function'
-          ? fileListController.scrollLockKey()
-          : null;
+        const locked = fileListController.scrollLockKey();
         if (!locked || locked === file.path) {
           const est = (window.crit && window.crit.fileListVirtualizer)
             ? window.crit.fileListVirtualizer.estimateFileSectionHeight({
@@ -3554,7 +3551,7 @@
       liveSection.replaceWith(newSection);
       if (newSection.open) ensureFileBodyMounted(newSection, file);
       // If a file-list controller exists but pointed at the old node, re-adopt.
-      if (fileListController && typeof fileListController.adoptNode === 'function') {
+      if (fileListController) {
         fileListController.adoptNode(file.path, newSection);
       }
 
@@ -8230,7 +8227,7 @@
       if (file && file.lazy) {
         loadLazyFile(section, file, function(el) {
           const live = el || document.getElementById('file-section-' + filePath) || section;
-          if (live && fileListController && typeof fileListController.adoptNode === 'function') {
+          if (live && fileListController) {
             fileListController.adoptNode(filePath, live);
           }
           done(live);
@@ -8242,30 +8239,18 @@
     }
 
     if (fileListController && !storyActive()) {
-      if (typeof fileListController.setCollapsed === 'function') {
-        fileListController.setCollapsed(filePath, false);
-      }
+      // A comment jump supersedes a pending tree-jump stick; left armed, the
+      // stick would re-pin its file top over the comment on the next update.
+      fileListController.releasePendingScrollTarget();
+      fileListController.setCollapsed(filePath, false);
       // Keep the slot mounted while scrolling to the comment row.
       fileListController.pin(filePath);
-      fileListController.ensureMounted(filePath).then(function(node) {
-        let section = node;
-        if (!section || (section.classList && section.classList.contains('file-section-placeholder'))) {
-          section = document.getElementById('file-section-' + filePath);
-        }
-        // Bring the file into the list window so a real body can mount.
-        const jump = (fileListController.scrollToItem
-          ? fileListController.scrollToItem(filePath, 'nearest')
-          : Promise.resolve(section));
-        jump.then(function(jumped) {
-          if (typeof fileListController.lockScrollToKey === 'function') {
-            fileListController.lockScrollToKey(filePath, 60000);
-          }
-          fileListController.pin(filePath);
-          const live = (fileListController.nodes && fileListController.nodes.get(filePath))
-            || jumped
-            || document.getElementById('file-section-' + filePath);
-          afterSection(live);
-        });
+      // Bring the file into the list window (mounts synchronously) so a real
+      // body can mount; the caller releases pin + lock once the row lands.
+      fileListController.scrollToItem(filePath, 'nearest').then(function(jumped) {
+        fileListController.lockScrollToKey(filePath, 60000);
+        afterSection(fileListController.nodes.get(filePath) || jumped ||
+          document.getElementById('file-section-' + filePath));
       });
       return;
     }
@@ -8337,18 +8322,14 @@
       if (!section) {
         if (fileListController) {
           fileListController.unpin(filePath);
-          if (typeof fileListController.clearStickToKey === 'function') {
-            fileListController.clearStickToKey();
-          }
+          fileListController.clearStickToKey();
         }
         return;
       }
       function releaseFileListHold() {
         if (!fileListController) return;
         fileListController.unpin(filePath);
-        if (typeof fileListController.clearStickToKey === 'function') {
-          fileListController.clearStickToKey();
-        }
+        fileListController.clearStickToKey();
       }
       const flashCardIn = function(el) {
         if (!el) return;

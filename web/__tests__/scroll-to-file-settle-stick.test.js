@@ -1,6 +1,7 @@
 'use strict';
 // scrollToFile stick contract: arm pending once; FileListVirtualizer owns
-// settle. Must not define a timed settleRepin loop.
+// settle. Must not define a timed settleRepin loop. (Virtualizer intent and
+// settle behavior is covered in crit-file-list-virtualizer-lifecycle.test.js.)
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -8,10 +9,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const appSrc = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
-const flSrc = fs.readFileSync(
-  path.join(__dirname, '..', 'crit-file-list-virtualizer.js'),
-  'utf8',
-);
 
 function extractFunctionBody(src, name) {
   const marker = 'function ' + name + '(';
@@ -91,20 +88,10 @@ test('app.js scrollToFile sticks without settleRepin', function() {
   assertScrollToFileStick(appSrc);
 });
 
-test('FileListVirtualizer intent listeners: pending-only vs full clear', function() {
-  assert.match(flSrc, /addEventListener\(\s*'wheel'/);
-  assert.match(flSrc, /addEventListener\(\s*'pointerdown'/);
-  assert.match(flSrc, /_onClearPendingOnly/);
-  assert.match(flSrc, /releasePendingScrollTarget/);
-  // pointerdown uses pending-only clear, not clearStickToKey
-  const start = extractFunctionBody(flSrc, 'start') || flSrc;
-  assert.match(start, /pointerdown['"],\s*this\._onClearPendingOnly/);
-  assert.match(flSrc, /Never shorten an existing lock/);
-});
-
-test('comment jump uses nearest alignment (no file-top pin)', function() {
+test('comment jump uses nearest alignment and drops a pending stick', function() {
   const ensure = extractFunctionBody(appSrc, 'ensureFileVisibleForComment');
   assert.ok(ensure);
+  assert.match(ensure, /releasePendingScrollTarget\(\)/);
   assert.match(ensure, /scrollToItem\(\s*filePath\s*,\s*'nearest'\s*\)/);
   assert.doesNotMatch(ensure, /scrollToItem\(\s*filePath\s*,\s*'start'\s*\)/);
 });
