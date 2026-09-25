@@ -51,8 +51,11 @@ All custom JS uses the IIFE + dual-export pattern:
 | Module | Namespace | Purpose |
 |--------|-----------|---------|
 | `crit-icons.js` | `window.crit.icons` | SVG icon constants (ICON_CHEVRON, ICON_EDIT, etc.) |
-| `crit-line-blocks.js` | `window.crit.lineBlocks` | buildLineBlocks, splitHighlightedCode, buildCodeLineBlocks |
-| `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff computation (lineSimilarity, wordDiff, etc.) |
+| `crit-line-blocks.js` | `window.crit.lineBlocks` | buildLineBlocks (markdown → commentable line blocks) |
+| `crit-code-highlight.js` | `window.crit.codeHighlight` | Shiki highlighting for fenced code (comments, documents) via Pierre's worker pool |
+| `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff for the rendered markdown diff (files mode rounds) |
+| `crit-pierre-adapter.js` | `window.crit.pierreAdapter` | Pure mapping: Crit hunks/comments/forms → Pierre diffs, annotations, themes |
+| `crit-pierre-view.js` | `window.crit.pierreView` | The review list on Pierre CodeView (items, lazy hydration, annotation cache, jumps) |
 
 ## ContentRenderer Interface
 
