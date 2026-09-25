@@ -299,7 +299,7 @@ Three top-level globals in `app.js`: `session` (mode, branch, base_ref, review_r
   them into one native auto-layout `<table>`; rendered diff paths retain
   standalone row HTML as a compatibility fallback.
 - CodeView virtualizes the file list: an off-screen file has no DOM. Navigate through `pierreView.scrollToFile/scrollToLine` (or the tree) rather than assuming a file's elements exist. Only a mounted rendered document keeps the classic `#file-section-<path>` wrapper.
-- Pierre ignores pointer events for ~120ms after a scroll. E2E helpers settle before clicking (`hoverLine`, `openLineComment`).
+- E2E: act on Pierre lines through the helpers (`hoverLine`, `openLineComment`, `revealFile`); they scroll the line into view and settle first.
 </important>
 
 <important if="you are changing any agent-*.js, crit-agent.js, or agent-marker.css in web/">

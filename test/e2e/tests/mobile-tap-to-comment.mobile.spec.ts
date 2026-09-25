@@ -1,5 +1,5 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, goSection } from './helpers';
+import { test, expect, type Locator } from '@playwright/test';
+import { clearAllComments, loadPage, goSection, tapCenter } from './helpers';
 
 // F4: reliable single-tap comment opening.
 // On touch, tapping the diff gutter (the line number of a commentable line)
@@ -21,27 +21,6 @@ function additionGutter(item: Locator, nth = 0): Locator {
   return item.locator(
     'code[data-unified] [data-gutter] > [data-column-number][data-line-type="change-addition"]',
   ).nth(nth);
-}
-
-// Pierre pauses pointer events on the list briefly after any scroll; wait
-// for that to lift so a tap is not swallowed.
-async function waitForPointerEvents(page: Page) {
-  await expect.poll(() => page.evaluate(() =>
-    !document.querySelector('#filesContainer [style*="pointer-events"]'),
-  )).toBe(true);
-}
-
-async function tapCenter(page: Page, target: Locator) {
-  // The row can re-render under us (hover/selection state), so re-resolve
-  // until it is on screen and measurable.
-  let box: { x: number; y: number; width: number; height: number } | null = null;
-  await expect(async () => {
-    await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    await waitForPointerEvents(page);
-    box = await target.boundingBox();
-    expect(box).not.toBeNull();
-  }).toPass({ timeout: 10_000 });
-  await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
 test.describe('Mobile tap-to-comment (F4)', () => {

@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import {
   clearAllComments, loadPage, goSection, clearFocus, switchToDocumentView,
-  openLineComment,
+  openLineComment, treePaths, pressUntil, reviewScroller,
 } from './helpers';
 
 // Keyboard focus is model-driven in git mode. On a diff it shows as the one
@@ -48,18 +48,8 @@ async function step(page: Page, key: 'j' | 'k'): Promise<string> {
 }
 
 // Press j until the focus matches `want` (a prefix of a focusKey value).
-async function jUntil(page: Page, want: string, max = 200): Promise<void> {
-  for (let i = 0; i < max; i++) {
-    if ((await focusKey(page)).startsWith(want)) return;
-    await step(page, 'j');
-  }
-  throw new Error(`keyboard focus never reached ${want}`);
-}
-
-async function treePaths(page: Page): Promise<string[]> {
-  const tree = page.locator('.tree-file[data-tree-path]');
-  await expect(tree.first()).toBeVisible();
-  return tree.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.treePath!));
+function jUntil(page: Page, want: string): Promise<void> {
+  return pressUntil(page, 'j', async () => (await focusKey(page)).startsWith(want), { state: () => focusKey(page) });
 }
 
 // Focus a block of plan.md's rendered document with j.
@@ -127,7 +117,7 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
   test('j/k stays continuous when mouse is stationary over the document', async ({ page }) => {
     const paths = await treePaths(page);
     // Rest the pointer over the diff while navigating purely with j.
-    const box = await page.locator('#filesContainer').boundingBox();
+    const box = await reviewScroller(page).boundingBox();
     expect(box).toBeTruthy();
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
 

@@ -62,10 +62,31 @@
       });
     }
 
+    // Parsed diffs and file contents, reused while what they were built from
+    // is unchanged. The key doubles as Pierre's cacheKey, so its worker keeps
+    // the highlighting too, and a stable object keeps whatever Pierre has
+    // hydrated onto it. Publishing for comments, forms or collapse therefore
+    // costs no re-parse or re-highlight.
+    var parsed = new Map(); // path → { key, value }
+    function memoParsed(path, key, build) {
+      var hit = parsed.get(path);
+      if (hit && hit.key === key) return hit.value;
+      var value = build(key);
+      parsed.set(path, { key: key, value: value });
+      return value;
+    }
+
+    function hunksSignature(hunks) {
+      return hunks.map(function(h) {
+        return h.OldStart + ',' + h.OldCount + ',' + h.NewStart + ',' + h.NewCount + ',' + (h.Lines || []).length;
+      }).join(';');
+    }
+
     function fileDiffFor(file) {
       var hunks = opts.prepareHunks ? opts.prepareHunks(file) : (file.diffHunks || []);
-      var cacheKey = file.path + ':' + (file.fileHash || '') + ':' + (versions.get(file.path) || 0);
-      return adapter.buildFileDiff(P, file, hunks, cacheKey);
+      var key = 'diff:' + file.path + ':' + (file.oldPath || '') + ':' + file.status + ':' +
+        (file.fileHash || '') + ':' + (file.content || '').length + ':' + hunksSignature(hunks);
+      return memoParsed(file.path, key, function(k) { return adapter.buildFileDiff(P, file, hunks, k); });
     }
 
     // A file whose diff has not been fetched yet (server-side lazy). Pierre
@@ -77,9 +98,11 @@
     function stubDiffFor(file) {
       var n = adapter.estimatedLineCount(file);
       var p = file.path;
-      var patch = 'diff --git a/' + p + ' b/' + p + '\n--- a/' + p + '\n+++ b/' + p +
-        '\n@@ -1,' + n + ' +1,' + n + ' @@\n' + ' \n'.repeat(n);
-      return P.processFile(patch, { cacheKey: 'stub:' + p });
+      return memoParsed(p, 'stub:' + p + ':' + n, function(k) {
+        var patch = 'diff --git a/' + p + ' b/' + p + '\n--- a/' + p + '\n+++ b/' + p +
+          '\n@@ -1,' + n + ' +1,' + n + ' @@\n' + ' \n'.repeat(n);
+        return P.processFile(patch, { cacheKey: k });
+      });
     }
 
     function itemFor(file) {
@@ -93,8 +116,8 @@
       }
       // Files-mode code file: the whole file, comments per line.
       if (!isStub && opts.isFileView && opts.isFileView(file)) {
-        var cacheKey = 'file:' + file.path + ':' + (file.fileHash || '') + ':' + (versions.get(file.path) || 0);
-        return fileItem(file, adapter.buildFileContents(P, file, cacheKey));
+        var key = 'file:' + file.path + ':' + (file.fileHash || '') + ':' + (file.content || '').length;
+        return fileItem(file, memoParsed(file.path, key, function(k) { return adapter.buildFileContents(P, file, k); }));
       }
       return {
         id: file.path,
@@ -133,32 +156,27 @@
       };
     }
 
-    // Publish one file's item. CodeView won't change an item's type in
-    // place (diff ↔ file for markdown Document view), so a type change is a
-    // remove + reinsert at the same position; other items are passed back
-    // unchanged and reconcile without re-rendering.
+    // Publish one file's item. updateItem can't change an item's type
+    // (diff ↔ file for markdown Document view); setItems swaps the record in
+    // place instead, with the other items passed back unchanged. Pierre's
+    // scroll anchor skips the replaced record, so if the reader was on this
+    // file its top is put back where it was.
     function publish(file) {
       var item = itemFor(file);
       var prev = itemsByPath.get(file.path);
       itemsByPath.set(file.path, item);
-      if (prev && prev.type !== item.type) {
-        // Removing the record drops the scroll anchor on it; if the reader
-        // was on this file, put its top back where it was.
-        var before = renderedTop(file.path);
-        viewer.removeItem(file.path);
-        viewer.setItems(order.map(function(p) { return itemsByPath.get(p); }));
-        if (before !== null) {
-          viewer.render(true);
-          viewer.scrollTo({ type: 'item', id: file.path, align: 'start' });
-          viewer.render(true);
-          var after = renderedTop(file.path);
-          if (after !== null && Math.abs(after - before) >= 1) {
-            viewer.scrollTo({ type: 'position', position: Math.max(0, viewer.getScrollTop() + after - before) });
-          }
-        }
+      if (!prev || prev.type === item.type) {
+        viewer.updateItem(item);
         return;
       }
-      viewer.updateItem(item);
+      var before = renderedTop(file.path);
+      viewer.setItems(order.map(function(p) { return itemsByPath.get(p); }));
+      if (before === null) return;
+      viewer.render(true);
+      var after = renderedTop(file.path);
+      if (after !== null && Math.abs(after - before) >= 1) {
+        viewer.scrollTo({ type: 'position', position: Math.max(0, viewer.getScrollTop() + after - before) });
+      }
     }
 
     // On-screen top of a mounted item's element, or null when not rendered.
@@ -183,15 +201,12 @@
       return el;
     }
 
-    var options = {
-      theme: adapter.THEME,
-      themeType: themeType,
-      diffStyle: diffStyle,
-      lineDiffType: 'word-alt',
+    var options = Object.assign(adapter.baseOptions(themeType, diffStyle), {
       stickyHeaders: true,
-      expansionLineCount: 20,
-      enableGutterUtility: true,
-      lineHoverHighlight: 'number',
+      // Pierre drops pointer events for ~120ms after each scroll by default;
+      // measured no scroll cost with them on, and clicks right after a
+      // scroll (tree jump, then click a line) land.
+      pointerEventsOnScroll: true,
       itemMetrics: opts.itemMetrics,
       unsafeCSS: opts.unsafeCSS,
       renderCustomHeader: function(fileDiff, context) {
@@ -219,7 +234,7 @@
         }
         if (opts.onPostRender) opts.onPostRender(path, node, phase);
       },
-    };
+    });
     // setOptions replaces the whole options object, so keep the source of truth here.
     function updateOptions(patch) {
       options = Object.assign({}, options, patch);
@@ -260,7 +275,15 @@
       return p.finally(function() { hydrating.delete(path); });
     }
 
-    var unsubscribe = viewer.subscribeToScroll(hydrateVisible);
+    // Scroll events come faster than frames; look for stubs once per frame.
+    var hydrateQueued = false;
+    function queueHydrate() {
+      if (hydrateQueued) return;
+      hydrateQueued = true;
+      var run = function() { hydrateQueued = false; hydrateVisible(); };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 0);
+    }
+    var unsubscribe = viewer.subscribeToScroll(queueHydrate);
 
     function setFiles(files) {
       // A full render follows a reload, round or view toggle: rebuild
@@ -285,10 +308,7 @@
     // Re-publish one file (comments/forms/hunks changed). Pass a thread or
     // form key in `invalidate` to rebuild just those annotation elements.
     function refreshFile(file, invalidate) {
-      (invalidate || []).forEach(function(key) {
-        elements.delete(key);
-        metadataCache.delete(key);
-      });
+      (invalidate || []).forEach(forgetAnnotation);
       publish(file);
       viewer.render(true);
     }

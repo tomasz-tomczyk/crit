@@ -1,6 +1,9 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath, mdSection, switchToDocumentView } from './helpers';
+import {
+  clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath,
+  mdSection, switchToDocumentView, mdDocument,
+} from './helpers';
 
 // Create a resolved comment by finishing a round, marking resolved, and round-completing.
 async function setupResolvedComment(request: APIRequestContext, line = 1) {
@@ -94,7 +97,7 @@ test.describe('Hide Resolved', () => {
     await setupResolvedComment(request, 1);
     await loadPage(page);
     await switchToDocumentView(page);
-    const doc = () => page.locator('[id="file-section-plan.md"].pierre-document');
+    const doc = () => mdDocument(page);
 
     await expect(doc().locator('.line-block.has-comment').first()).toBeVisible();
     await expect(doc().locator('.resolved-card').first()).toBeVisible();

@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator, type APIRequestContext } from '@playwright/test';
 import {
-  clearAllComments, loadPage, goSection, jsSection, revealFile,
-  diffLine, diffLineNumber, openLineComment,
+  clearAllComments, loadPage, goSection, jsSection, revealFile, diffLine,
+  diffLineNumber, openLineComment, showLine, setDiffStyle, reviewScroller,
 } from './helpers';
 
 // server.go has three git hunks (new 2..11, 20..57, 64..71). The gaps between
@@ -12,31 +12,10 @@ import {
 const SERVER_LAST_LINE = 71;
 const GAP_LINES = [12, 13, 14, 15, 16, 17, 18, 19, 58, 59, 60, 61, 62, 63];
 
-async function setUnified(page: Page) {
-  await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-  const item = await goSection(page);
-  await expect(item.locator('code[data-unified]')).toBeVisible();
-}
-
 async function fileLines(request: APIRequestContext, path: string): Promise<string[]> {
   const res = await request.get(`/api/file?path=${encodeURIComponent(path)}`);
   expect(res.ok()).toBeTruthy();
   return ((await res.json()).content as string).split('\n');
-}
-
-// Pierre virtualizes lines inside long files: scroll the list down until
-// the line is rendered, then bring it on screen.
-async function showLine(page: Page, line: Locator) {
-  await expect.poll(async () => {
-    if (await line.count() > 0) return true;
-    await page.locator('#filesContainer').evaluate(el => el.scrollBy(0, 200));
-    return false;
-  }, { timeout: 15_000 }).toBe(true);
-  // The row can re-mount while the list settles; retry until it holds.
-  await expect(async () => {
-    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
-    await expect(line.first()).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
 }
 
 // Scroll through a file and record, in visual order, every new-side line
@@ -64,7 +43,7 @@ async function scanFile(page: Page, item: Locator, last: number): Promise<{ rows
   await expect.poll(async () => {
     for (const r of await rowsOf()) seen.set(r.key, r.top);
     if (seen.has(String(last))) return true;
-    await page.locator('#filesContainer').evaluate(el => el.scrollBy(0, 200));
+    await reviewScroller(page).evaluate(el => el.scrollBy(0, 200));
     return false;
   }, { timeout: 15_000 }).toBe(true);
   return { rows: [...seen.entries()].sort((a, b) => a[1] - b[1]).map(e => e[0]) };
@@ -139,7 +118,8 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await setUnified(page);
+    await setDiffStyle(page, 'unified');
+    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
   });
 
   test('small gaps are auto-expanded in unified mode (no separator)', async ({ page }) => {

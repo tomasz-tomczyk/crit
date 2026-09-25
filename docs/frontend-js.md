@@ -58,11 +58,14 @@ Oniguruma WASM engine (Crit uses Shiki's JS regex engine). Budgets:
 | Deleted/renamed with nothing to show, orphaned | Empty `file` item with a placeholder annotation. |
 | Not fetched yet (server-side lazy) | Stub `diff` item (see Loading). |
 
-The empty-file object is one per path: Pierre prepares a collapsed item's
-layout against the file object and throws if a later render passes another.
-CodeView cannot change an item's type in place, so a Document/Diff toggle is
-a remove + reinsert at the same index, with the reader's position restored
-from the DOM.
+Parsed diffs and file contents are memoized per path on what they were
+built from (content hash, status, hunk shape); the key is also Pierre's
+`cacheKey`, so re-publishing a file for a comment, form or collapse costs no
+re-parse and no worker re-highlight. The empty-file object is one per path:
+Pierre prepares a collapsed item's layout against the file object and throws
+if a later render passes another. `updateItem` cannot change an item's type,
+so a Document/Diff toggle goes through `setItems` (same index, new record),
+restoring the reader's position if they were on that file.
 
 ## Annotations
 
@@ -77,7 +80,8 @@ file scrolls away (`formTextarea` reads unmounted forms from the cache).
 - A full `setFiles` rebuilds everything except forms and documents.
 - Documents are re-rendered **in place** (`refreshPierreDocument`). Swapping
   the element makes Pierre drop it before measuring the replacement; the item
-  collapses for a frame and the list scroll clamps to the top.
+  collapses for a frame and the list scroll clamps to the top. A document
+  that is not mounted is only marked stale and re-renders when it mounts.
 
 ## Loading
 
@@ -105,8 +109,10 @@ and a "Loading diff…" annotation shows. Stubs hydrate when rendered
   document the card itself is scrolled into view.
 - New forms are revealed only if off screen: a mounted form scrolls itself
   into view; an unmounted one asks Pierre to bring its line (or file) in.
-- Pierre ignores pointer events for ~120ms after any scroll. Code (and e2e
-  helpers) that scroll then click must wait.
+- Pierre's default pause of pointer events for ~120ms after a scroll is off
+  (`pointerEventsOnScroll: true`; no measured scroll cost), so clicks right
+  after a jump land. Story chapter `FileDiff`s are not virtualized and never
+  paused.
 
 ## Keyboard
 

@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, goSection, switchToDocumentView, reviewScroller, setDiffStyle } from './helpers';
 
 async function expectDocumentHighlightRange(
   section: Locator,
@@ -111,19 +111,12 @@ async function showCard(item: Locator, body: string) {
   await expect(card).toBeAttached();
   await expect(async () => {
     if (!(await card.isVisible())) {
-      const box = await page.locator('#filesContainer').boundingBox();
+      const box = await reviewScroller(page).boundingBox();
       await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
       await page.mouse.wheel(0, 300);
     }
     await expect(card).toBeVisible({ timeout: 500 });
   }).toPass({ timeout: 15_000 });
-}
-
-async function useDiffStyle(page: Page, mode: 'split' | 'unified') {
-  const btn = page.locator(`#diffModeToggle .toggle-btn[data-mode="${mode}"]`);
-  await expect(btn).toBeVisible();
-  await btn.click();
-  await expect(btn).toHaveClass(/active/);
 }
 
 type DiffLine = { Type: string; OldNum: number; NewNum: number };
@@ -174,7 +167,7 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
     expect(res.ok()).toBeTruthy();
 
     await loadPage(page);
-    await useDiffStyle(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await showCard(item, 'Unified range test');
 
@@ -202,7 +195,7 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
     expect(res.ok()).toBeTruthy();
 
     await loadPage(page);
-    await useDiffStyle(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await showCard(item, 'Spans deletion');
     await expect.poll(async () => (await rowStates(item, 'unified'))
@@ -231,7 +224,7 @@ test.describe('Comment Range Highlighting — Split Diff', () => {
     expect(res.ok()).toBeTruthy();
 
     await loadPage(page);
-    await useDiffStyle(page, 'split');
+    await setDiffStyle(page, 'split');
     const item = await goSection(page);
     await showCard(item, 'Split range test');
 

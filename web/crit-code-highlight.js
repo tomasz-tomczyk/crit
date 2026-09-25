@@ -23,7 +23,14 @@
   // or a promise of it (app.js: once the Pierre bundle has loaded).
 
   var getPool = null;
-  var cache = new Map();   // lang + '\0' + code → string[] | null
+  var cache = new Map();   // lang + '\0' + code → string[] | null (LRU)
+  var CACHE_LIMIT = 500;
+
+  function remember(key, value) {
+    cache.delete(key);
+    cache.set(key, value);
+    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  }
   var pending = new Map(); // same key → Promise
 
   function configure(options) {
@@ -86,7 +93,7 @@
     if (pending.has(key)) return pending.get(key);
     var id = normalize(lang);
     if (!id || !getPool) {
-      cache.set(key, null);
+      remember(key, null);
       return Promise.resolve(null);
     }
     var file = { name: 'fence', contents: code, cacheKey: 'crit-fence:' + hashKey(key), lang: id };
@@ -99,10 +106,10 @@
       var res = pool.getFileResultCache(file);
       var out = res && res.result ? linesFromResult(res.result, code) : null;
       pool.evictFileFromCache(file.cacheKey);
-      cache.set(key, out);
+      remember(key, out);
       return out;
     }, function() {
-      cache.set(key, null); // unknown grammar: plain text
+      remember(key, null); // unknown grammar: plain text
       return null;
     });
     pending.set(key, p);

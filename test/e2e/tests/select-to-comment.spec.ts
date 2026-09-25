@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import type { Page, Locator } from '@playwright/test';
-import { clearAllComments, getMdPath, loadPage, goSection, mdSection, switchToDocumentView, diffLine, diffLineNumber } from './helpers';
+import {
+  clearAllComments, getMdPath, loadPage, goSection, mdSection,
+  switchToDocumentView, diffLine, diffLineNumber, setDiffStyle,
+} from './helpers';
 
 // Helper: drag-select between two coordinates, then press `c` to comment.
 // Selection alone never opens the form — `c` is the explicit commit.
@@ -521,10 +524,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     });
 
     test('quote highlight appears on addition line, not deletion line in unified diff (issue #133)', async ({ page }) => {
-      const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-      await expect(unifiedBtn).toBeVisible();
-      await unifiedBtn.click();
-      await expect(unifiedBtn).toHaveClass(/active/);
+      await setDiffStyle(page, 'unified');
 
       // server.go: new 24 is an addition and old 24 a deletion — both render
       // with data-line="24" in the unified column (the #133 collision).

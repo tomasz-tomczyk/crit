@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, revealFile } from './helpers';
+import { clearAllComments, loadPage, revealFile, setDiffStyle } from './helpers';
 
 // Regression: in unified diff, a single-line comment on a new-side context line
 // below a deletion block must NOT highlight deletion lines further up just
@@ -39,10 +39,7 @@ test.describe('Unified diff — comment range scoping', () => {
     await loadPage(page);
 
     // Switch to unified mode (toggle is in the page header, not per-file).
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await expect(unifiedBtn).toBeVisible();
-    await unifiedBtn.click();
-    await expect(unifiedBtn).toHaveClass(/active/);
+    await setDiffStyle(page, 'unified');
 
     const item = await revealFile(page, 'legacy.go');
     await expect(item.locator('.comment-card', { hasText: 'comment on Keep1' })).toBeVisible();

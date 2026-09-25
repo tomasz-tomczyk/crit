@@ -947,18 +947,12 @@ body {
 }
 .line-block.focused .line-gutter { background: var(--crit-line-focus-bg); }
 
-/* Visual line mode: recolor the focused block's left accent so it's clearly
-   distinct from the default j/k cursor, signalling that j/k now extends the
-   selection instead of moving focus. Uses a dedicated --crit-visual-accent
-   so we don't conflate it with --crit-orange (modified-line indicator) or
-   --crit-yellow (modified-file badges, warning text).
-
-   Three render paths:
-   - markdown line-blocks: box-shadow inset (matches the default focus accent)
-   - unified diff lines: border-left-color (the .diff-line has a 3px transparent
-     left border that turns brand on focus; we override that color)
-   - split diff rows: border-left-color on the .diff-split-side children
-     (the row's focus accent lives on the side panels, not the row itself) */
+/* Visual line mode (Shift+V) in a rendered document: recolor the focused
+   block's left accent so it's clearly distinct from the default j/k cursor,
+   signalling that j/k now extends the selection. Uses a dedicated
+   --crit-visual-accent so we don't conflate it with --crit-orange
+   (modified-line indicator) or --crit-yellow (modified-file badges). Diffs
+   show the visual range with Pierre's line selection. */
 body.visual-mode .line-block.focused {
   box-shadow: inset 3px 0 0 var(--crit-visual-accent);
 }
@@ -3746,8 +3740,6 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
   .scope-toggle { display: none !important; }
   .diff-mode-toggle { display: none !important; }
 
-  /* Force split rows to stack vertically on mobile */
-
   /* Wrap long code lines on mobile instead of per-line scrolling */
   .line-content.code-line {
     white-space: pre-wrap;
@@ -4962,37 +4954,9 @@ html[data-theme="light"] .toggle-btn.active {
   padding: 0 10px;
 }
 
-/* ===== Diff Shared Styles ===== */
-/* Dedicated comment gutter column between line numbers and content */
-/* Blue + button in the diff comment gutter. display:none by default so
-   it never renders on touch (the touch affordance is the F3 ::before
-   `+` prefix on .diff-gutter-num). Desktop unhides it via
-   @media (pointer: fine) below, along with the hover and drag-state
-   reveal rules. Without this guard, touch tap can briefly flash the
-   blue button while .drag-endpoint is set during the pointerdown ->
-   form-render gap. */
-@media (pointer: fine) {
-  /* Show the + button when hovering the diff line or split side */
-  /* During drag: show the normal + button at endpoints, hide it on in-between lines */
-}
-
-/* Blue connecting line between endpoints */
+/* Word-level highlights (suggestion diffs, rendered markdown round diff) */
 .diff-word-add { background: var(--crit-diff-word-add-bg); border-radius: 2px; padding: 0 1px; }
 .diff-word-del { background: var(--crit-diff-word-del-bg); border-radius: 2px; padding: 0 1px; }
-/* GitHub-style expand spacer: icon gutter on left, hunk header text on right */
-
-/* Left column: narrow gutter containing vertically stacked expand buttons */
-
-/* Individual expand button in the gutter */
-
-/* On spacer hover, make all buttons more visible */
-
-/* Right column: hunk header text */
-
-/* Single-button spacers (leading/trailing) are compact */
-
-/* ===== Unified Diff (interleaved lines) ===== */
-
 /* ===== Split Diff (side-by-side) ===== */
 
 /* Large diff placeholder */
@@ -5420,23 +5384,6 @@ html[data-theme="light"] .toggle-btn.active {
   pointer-events: none;
 }
 
-/* Lazy file loading spinner */
-.file-section-loading .file-header-name::after {
-  content: '';
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-left: 8px;
-  border: 2px solid var(--crit-border);
-  border-top-color: var(--crit-editor-fg);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-  vertical-align: middle;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 /* Stack chip + popover — vertical-tree alternative to the old horizontal
    breadcrumb. Renders only when the picker reports >1 stack entry.
@@ -6168,21 +6115,12 @@ html[data-theme="light"] .toggle-btn.active {
   }
 }
 
-/* F3: add-comment affordance for touch.
-   On desktop the affordance is the blue `+` button (.line-add /
-   .diff-comment-btn) revealed on row hover. Touch devices never fire
-   hover, so users need an always-visible cue. We render a `+` prefix as
-   an inline ::before pseudo-element on .line-num / .diff-gutter-num.
-   display:inline-block + width:1.2ch reserves a fixed-width slot at the
-   start of each cell, so the glyph sits flush before the digit inside
-   the cell's right-aligned text. No absolute positioning: the prefix
-   never escapes its own cell, which avoids any phantom-column effect
-   in the two-cell unified diff layout.
-   The desktop blue buttons are NOT hidden on touch: they remain in the
-   DOM as the click target (their mousedown handlers open the form), and
-   are visually invisible because their base opacity:0 has no hover
-   trigger. Making them actually tappable is F4's job (involves
-   pointer-events and touch-action). */
+/* F3: add-comment affordance for touch in rendered documents.
+   On desktop the affordance is the `+` (.line-add) revealed on row hover.
+   Touch devices never fire hover, so a `+` prefix sits before each
+   commentable .line-num as an inline ::before; display:inline-block +
+   width:1.2ch reserves a fixed slot so the glyph sits flush before the
+   digit. Pierre diffs get the same cue through PIERRE_UNSAFE_CSS (app.js). */
 @media (pointer: coarse) {
   .line-num::before {
     content: '+';
@@ -6193,11 +6131,8 @@ html[data-theme="light"] .toggle-btn.active {
     font-weight: 700;
     pointer-events: none;
   }
-  /* Read-only line-number cells must not advertise commentability.
-     - Document view: a .line-block whose .line-comment-gutter has the
-       .diff-no-comment class shows a number but isn't tappable.
-     - Diff view: empty .diff-gutter-num cells (no line number on this
-       side) shouldn't show the cue either. */
+  /* Read-only line-number cells (a .line-block whose .line-comment-gutter
+     has .diff-no-comment) must not advertise commentability. */
   .line-block:has(.line-comment-gutter.diff-no-comment) .line-num::before {
     display: none;
   }
@@ -6205,9 +6140,7 @@ html[data-theme="light"] .toggle-btn.active {
   /* F4 reliability: disable the browser's scroll/zoom gesture recognizer
      on tap targets so it cannot race the pointerdown handler and fire
      pointercancel before pointerup. Without this, single taps on phones
-     are sometimes silently dropped. .diff-gutter-num is the touch tap
-     target (an event delegate on .diff-container routes taps to the
-     hidden .diff-comment-btn that owns the form-open logic). */
+     are sometimes silently dropped. */
   .line-comment-gutter { touch-action: none; }
 }
 
@@ -6635,8 +6568,6 @@ body.pierre-review #filesContainer {
 .pierre-file-header.collapsed .file-header-chevron {
   transform: rotate(-90deg);
 }
-/* The rendered document sits in a Pierre annotation slot, which inherits
-   the code typography from the diffs host; restore the page's. */
 /* Unified diffs are full width; keep comment cards and forms at reading
    width, like the classic unified view. */
 body.pierre-unified #filesContainer .comment-block,
@@ -6644,6 +6575,8 @@ body.pierre-unified #filesContainer .comment-form-wrapper {
   max-width: var(--content-width);
 }
 
+/* The rendered document sits in a Pierre annotation slot, which inherits
+   the code typography from the diffs host; restore the page's. */
 .pierre-document {
   font-family: var(--crit-font-body);
   font-size: 1rem;

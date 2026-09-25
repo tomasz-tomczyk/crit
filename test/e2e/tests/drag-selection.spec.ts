@@ -1,20 +1,16 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   clearAllComments, loadPage, goSection, switchToDocumentView, dragBetween,
-  dragLineRange, openLineComment, diffLine,
+  dragLineRange, openLineComment, diffLine, waitUntilHittable, setDiffStyle,
 } from './helpers';
 
-// Pierre turns off pointer events for a moment after any scroll (switching
-// to Document view scrolls). Wait until the start gutter is hit-testable,
-// then drag.
+// Switching to Document view scrolls: wait out Pierre's pointer-events
+// pause on the start gutter, then drag.
 async function dragGutters(page: Page, from: Locator, to: Locator) {
   await expect(from).toBeAttached();
   await expect(to).toBeAttached();
   await from.scrollIntoViewIfNeeded();
-  await expect.poll(() => from.evaluate(el => {
-    const r = el.getBoundingClientRect();
-    return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === el;
-  })).toBe(true);
+  await waitUntilHittable(from);
   await dragBetween(page, from, to);
 }
 
@@ -229,9 +225,7 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await unifiedBtn.click();
-    await expect(unifiedBtn).toHaveClass(/active/);
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
   });

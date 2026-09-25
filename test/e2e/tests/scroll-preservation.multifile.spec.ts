@@ -1,43 +1,15 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { clearAllComments, loadPage, addComment, getReviewFilePath, revealFile, fileItem } from './helpers';
+import {
+  clearAllComments, loadPage, addComment, getReviewFilePath, revealFile,
+  waitForScrollStable, waitUntilHittable, reviewScroller,
+} from './helpers';
 
 // Rebuilding every file section hands back deferred (empty) bodies, so the
 // document collapses shorter than the current offset and the browser clamps the
 // scroll to the top. Replying and deleting used to trigger that via the
 // comments-changed SSE event. The review list scrolls inside #filesContainer
 // (Pierre CodeView), so offsets below are that pane's scrollTop.
-
-// Wait until the review pane's scroll offset and height hold still for a few
-// frames (re-layout after an update, virtualized items mounting).
-async function waitForPaneStable(page: Page) {
-  await page.locator('#filesContainer').evaluate((el) => new Promise<void>((resolve) => {
-    let last = '';
-    let stable = 0;
-    const check = () => {
-      const now = `${el.scrollTop}:${el.scrollHeight}`;
-      if (now === last) {
-        if (++stable >= 5) return resolve();
-      } else {
-        stable = 0;
-        last = now;
-      }
-      requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-  }));
-}
-
-// Pierre turns pointer events off for a moment after any scroll and settles
-// its scroll anchor then. Wait until the target hit-tests (the list is
-// interactive again) before acting on it, as a reader would.
-async function waitUntilHittable(target: Locator) {
-  await expect.poll(() => target.evaluate(el => {
-    const r = el.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    return !!hit && (hit === el || el.contains(hit));
-  })).toBe(true);
-}
 
 // Pane scroll offset plus the element's on-screen top.
 function measure(el: Locator) {
@@ -68,7 +40,7 @@ test.describe('Scroll position across comment updates', () => {
     // Park the thread mid-viewport and let virtualized items settle so the
     // measurement below isn't racing the mount.
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
     await waitUntilHittable(card.locator('.reply-input'));
     const before = await measure(card);
     expect(before.scrollTop).toBeGreaterThan(100);
@@ -79,7 +51,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await expect(card.locator('.comment-reply')).toHaveCount(1);
     // The jump happened when the SSE event landed, after the local re-render.
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
 
     const after = await measure(card);
     expect(after.scrollTop).toBeGreaterThan(100);
@@ -101,7 +73,7 @@ test.describe('Scroll position across comment updates', () => {
     await expect(card).toBeVisible();
 
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
     await waitUntilHittable(card.locator('.comment-actions .delete-btn'));
     // The card itself disappears, so anchor the measurement to its file.
     const before = await measure(section);
@@ -109,7 +81,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await card.locator('.comment-actions .delete-btn').click();
     await expect(page.locator('.comment-card')).toHaveCount(0);
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
 
     const after = await measure(section);
     expect(after.scrollTop).toBeGreaterThan(100);
@@ -130,7 +102,7 @@ test.describe('Scroll position across comment updates', () => {
 
     const section = await revealFile(page, lastFile);
     await section.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
     const before = await measure(section);
     expect(before.scrollTop).toBeGreaterThan(100);
 
@@ -140,7 +112,7 @@ test.describe('Scroll position across comment updates', () => {
 
     await request.post('/api/round-complete');
     await expect(overlay).not.toHaveClass(/active/, { timeout: 5_000 });
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
 
     // The rebuild may replace the item node; the locator re-resolves to the new one.
     const after = await measure(section);
@@ -156,9 +128,9 @@ test.describe('Scroll position across comment updates', () => {
     expect(response.ok()).toBeTruthy();
     const reviewPath = await getReviewFilePath(request);
     await loadPage(page);
-    const pane = page.locator('#filesContainer');
+    const pane = reviewScroller(page);
     await pane.evaluate(el => el.scrollTo({ top: 0, behavior: 'instant' }));
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
     await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
     // Every file starts below the fold (unmounted, or mounted off-screen).
     expect(await page.locator('#filesContainer diffs-container').evaluateAll(
@@ -181,7 +153,7 @@ test.describe('Scroll position across comment updates', () => {
     expect((await request.post('/api/round-complete')).ok()).toBeTruthy();
     await expect(overlay).not.toHaveClass(/active/);
     await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(2);
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
 
     // A file below the viewport must not become the scroll anchor when the
     // conversation grows: the reader is still at the top of the conversation.
@@ -194,8 +166,8 @@ test.describe('Scroll position across comment updates', () => {
     await page.setViewportSize({ width: 1200, height: 400 });
     await loadPage(page);
 
-    await page.locator('#filesContainer').evaluate(el => el.scrollTo({ top: 2000, behavior: 'instant' }));
-    await waitForPaneStable(page);
+    await reviewScroller(page).evaluate(el => el.scrollTo({ top: 2000, behavior: 'instant' }));
+    await waitForScrollStable(page);
 
     const before = await page.evaluate(() => {
       const pane = document.getElementById('filesContainer')!;

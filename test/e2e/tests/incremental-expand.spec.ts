@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, revealFile, diffLine } from './helpers';
+import { clearAllComments, loadPage, revealFile, diffLine, clickWhenHittable, setDiffStyle } from './helpers';
 
 // routes.go: hunk 1 ends at new line 14 (old 10), hunk 2 starts at new 52
 // (old 48). The 37 unchanged lines between them (new 15..51) are collapsed
@@ -19,22 +19,6 @@ function expandBelowPreviousHunk(item: Locator): Locator {
 }
 function expandAboveNextHunk(item: Locator): Locator {
   return item.locator('[data-separator] [data-expand-button][data-expand-down]').filter({ visible: true }).first();
-}
-
-// Pierre ignores pointer events briefly after any scroll. Click only once
-// the element is the hit target at its centre, so the click lands once.
-async function clickWhenHittable(page: Page, target: Locator) {
-  await expect(async () => {
-    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
-    expect(await target.evaluate(el => {
-      const r = el.getBoundingClientRect();
-      const root = el.getRootNode() as Document | ShadowRoot;
-      const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-      return !!hit && el.contains(hit);
-    }, undefined, { timeout: 1000 })).toBe(true);
-  }).toPass({ timeout: 10_000 });
-  const box = await target.boundingBox();
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
 async function expectCollapsedGap(item: Locator) {
@@ -116,7 +100,7 @@ test.describe('Incremental Expand — Unified Mode', () => {
     await clearAllComments(request);
     await loadPage(page);
     await routesSection(page);
-    await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
+    await setDiffStyle(page, 'unified');
     const item = await routesSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
   });

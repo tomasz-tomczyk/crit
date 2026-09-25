@@ -1,5 +1,8 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, revealFile, goSection, jsSection, diffLine, openLineComment } from './helpers';
+import {
+  clearAllComments, loadPage, revealFile, goSection, jsSection, diffLine,
+  openLineComment, showLine, clickWhenHittable, setDiffStyle,
+} from './helpers';
 
 // utils.go appends a Reverse function at the end. Its only hunk starts at
 // line 8, so lines 1..7 are collapsed behind a leading separator, and the
@@ -21,45 +24,6 @@ function trailingSeparator(item: Locator): Locator {
 }
 function leadingExpandButton(item: Locator): Locator {
   return item.locator('[data-separator][data-separator-first] [data-expand-button]').filter({ visible: true }).first();
-}
-
-async function switchToUnified(page: Page) {
-  const btn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-  await expect(btn).toBeVisible();
-  await btn.click();
-  const item = await goSection(page);
-  await expect(item.locator('code[data-unified]')).toBeVisible();
-}
-
-// Pierre virtualizes lines inside long files: scroll the list down until
-// the line is rendered, then bring it on screen.
-async function showLine(page: Page, line: Locator) {
-  await expect.poll(async () => {
-    if (await line.count() > 0) return true;
-    await page.locator('#filesContainer').evaluate(el => el.scrollBy(0, 200));
-    return false;
-  }, { timeout: 15_000 }).toBe(true);
-  // The row can re-mount while the list settles; retry until it holds.
-  await expect(async () => {
-    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
-    await expect(line.first()).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-}
-
-// Pierre ignores pointer events briefly after any scroll. Click only once
-// the element is the hit target at its centre, so the click lands once.
-async function clickWhenHittable(page: Page, target: Locator) {
-  await expect(async () => {
-    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
-    expect(await target.evaluate(el => {
-      const r = el.getBoundingClientRect();
-      const root = el.getRootNode() as Document | ShadowRoot;
-      const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-      return !!hit && el.contains(hit);
-    }, undefined, { timeout: 1000 })).toBe(true);
-  }).toPass({ timeout: 10_000 });
-  const box = await target.boundingBox();
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
 async function expectLeadingSeparator(item: Locator) {
@@ -157,7 +121,8 @@ test.describe('Leading Separator — Unified Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await switchToUnified(page);
+    await setDiffStyle(page, 'unified');
+    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
   });
 
   test('leading separator appears in unified mode', async ({ page }) => {
@@ -187,7 +152,8 @@ test.describe('Trailing Separator — Unified Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await switchToUnified(page);
+    await setDiffStyle(page, 'unified');
+    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
   });
 
   test('no trailing separator in unified mode when last hunk reaches EOF', async ({ page }) => {

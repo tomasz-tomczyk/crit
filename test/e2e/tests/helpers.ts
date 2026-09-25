@@ -129,8 +129,127 @@ export function diffLineNumber(item: Locator, line: number, side: DiffSide = 'ne
     : item.locator(`code[data-additions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}:not([data-line-type="change-deletion"]), ${FILE_CODE} [data-gutter] > ${n}`);
 }
 
-// Pierre pauses pointer events briefly after any scroll, and Playwright's
-// actionability scroll counts. Settle, then press at coordinates.
+// ----- Waiting out Pierre -----
+//
+// Pierre pauses pointer events on the list for a moment after any scroll
+// (it sets an inline pointer-events style under #filesContainer), and
+// virtualizes both files and the lines inside long files.
+
+/** The review pane: git mode scrolls #filesContainer (CodeView's scroll root), not the window. */
+export function reviewScroller(page: Page): Locator {
+  return page.locator('#filesContainer');
+}
+
+/** Wait two animation frames (let the virtualizer mount what scrolled into view). */
+export async function nextFrames(page: Page) {
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+}
+
+/** Wait until Pierre's post-scroll pointer-events pause lifts. */
+export async function waitForPointerEvents(page: Page) {
+  await expect.poll(() => page.evaluate(() =>
+    !document.querySelector('#filesContainer [style*="pointer-events"]'),
+  )).toBe(true);
+}
+
+// Whether a hit test at the element's centre lands on it (or inside it).
+// Uses the element's own root so shadow-DOM lines hit-test correctly.
+function hitsCentre(target: Locator, timeout?: number): Promise<boolean> {
+  return target.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    const root = el.getRootNode() as Document | ShadowRoot;
+    const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!hit && el.contains(hit);
+  }, undefined, { timeout });
+}
+
+/** Wait until the element receives pointer hits at its centre (the list is interactive again). */
+export async function waitUntilHittable(target: Locator) {
+  await expect.poll(() => hitsCentre(target)).toBe(true);
+}
+
+/**
+ * Click only once the element is actually the hit target at its centre, so
+ * the click lands exactly once (Pierre ignores pointer events after a scroll).
+ */
+export async function clickWhenHittable(page: Page, target: Locator) {
+  await expect(async () => {
+    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
+    expect(await hitsCentre(target, 1000)).toBe(true);
+  }).toPass({ timeout: 10_000 });
+  const box = await target.boundingBox();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+}
+
+/** Scroll `target` to the centre, wait for pointer events, and tap its centre. */
+export async function tapCenter(page: Page, target: Locator) {
+  // The row can re-render under us (hover/selection state), so re-resolve
+  // until it is on screen and measurable.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect(async () => {
+    await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await waitForPointerEvents(page);
+    box = await target.boundingBox();
+    expect(box).not.toBeNull();
+  }).toPass({ timeout: 10_000 });
+  await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+}
+
+/**
+ * Pierre virtualizes lines inside long files: scroll the pane down until the
+ * line is rendered, then bring it on screen.
+ */
+export async function showLine(page: Page, line: Locator) {
+  await expect.poll(async () => {
+    if (await line.count() > 0) return true;
+    await reviewScroller(page).evaluate(el => el.scrollBy(0, 200));
+    return false;
+  }, { timeout: 15_000 }).toBe(true);
+  // The row can re-mount while the list settles; retry until it holds.
+  await expect(async () => {
+    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
+    await expect(line.first()).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+}
+
+/**
+ * Wait until the review pane's scroll offset and height hold still for a few
+ * frames (re-layout after an update, virtualized items mounting).
+ */
+export async function waitForScrollStable(page: Page) {
+  await reviewScroller(page).evaluate((el) => new Promise<void>((resolve) => {
+    let last = '';
+    let stable = 0;
+    const check = () => {
+      const now = `${el.scrollTop}:${el.scrollHeight}`;
+      if (now === last) {
+        if (++stable >= 5) return resolve();
+      } else {
+        stable = 0;
+        last = now;
+      }
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  }));
+}
+
+/**
+ * Switch the global Split/Unified toggle and wait until the mounted Pierre
+ * items have re-rendered in that layout.
+ */
+export async function setDiffStyle(page: Page, mode: 'split' | 'unified') {
+  const btn = page.locator(`#diffModeToggle .toggle-btn[data-mode="${mode}"]`);
+  await expect(btn).toBeVisible();
+  await btn.click();
+  await expect(btn).toHaveClass(/active/);
+  const unified = reviewScroller(page).locator('diffs-container code[data-unified]');
+  if (mode === 'unified') await expect(unified.first()).toBeAttached();
+  else await expect(unified).toHaveCount(0);
+}
+
+// Settle, then press at coordinates: Playwright's actionability scroll
+// counts as a scroll for Pierre's pointer-events pause.
 async function pressAt(page: Page, target: Locator) {
   await target.scrollIntoViewIfNeeded();
   await expect.poll(async () => {
@@ -139,7 +258,7 @@ async function pressAt(page: Page, target: Locator) {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     return true;
   }).toBe(true);
-  await page.waitForFunction(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+  await nextFrames(page);
 }
 
 /** The gutter "+" for a line: hover the line, then the utility button. */
@@ -185,6 +304,11 @@ export function selectedLines(page: Page): Locator {
   return page.locator('diffs-container [data-content] > [data-selected-line]');
 }
 
+/** plan.md's rendered document (Document view). */
+export function mdDocument(page: Page): Locator {
+  return page.locator('[id="file-section-plan.md"].pierre-document');
+}
+
 // In git mode, markdown defaults to diff view. Switch plan.md to Document
 // view and return the rendered document (.pierre-document).
 export async function switchToDocumentView(page: Page): Promise<Locator> {
@@ -192,7 +316,7 @@ export async function switchToDocumentView(page: Page): Promise<Locator> {
   const docBtn = fileHeader(page, 'plan.md').locator('.file-header-toggle .toggle-btn[data-mode="document"]');
   await expect(docBtn).toBeVisible();
   await docBtn.click();
-  const doc = page.locator('[id="file-section-plan.md"].pierre-document');
+  const doc = mdDocument(page);
   await expect(doc.locator('.document-wrapper')).toBeVisible();
   return doc;
 }
@@ -218,12 +342,6 @@ export async function clearFocus(page: Page) {
   await page.locator('body').click({ position: { x: 0, y: 0 } });
 }
 
-export async function focusKbNavByJ(page: Page, presses: number) {
-  for (let i = 0; i < presses; i++) {
-    await page.keyboard.press('j');
-  }
-}
-
 async function kbNavIndex(page: Page, locator: ReturnType<Page['locator']>) {
   return locator.evaluate(el => Array.from(document.querySelectorAll('.kb-nav')).indexOf(el));
 }
@@ -232,7 +350,34 @@ export async function focusKbNavElement(page: Page, locator: ReturnType<Page['lo
   await clearFocus(page);
   const index = await kbNavIndex(page, locator);
   expect(index).toBeGreaterThanOrEqual(0);
-  await focusKbNavByJ(page, index + 1);
+  for (let i = 0; i <= index; i++) await page.keyboard.press('j');
+}
+
+/**
+ * Press `key` until `reached()` holds, at most `max` times. With `state`,
+ * wait after each press until its value changes, so a slow re-render can't
+ * make the loop overshoot the target.
+ */
+export async function pressUntil(
+  page: Page,
+  key: string,
+  reached: () => Promise<boolean>,
+  { max = 200, state }: { max?: number; state?: () => Promise<unknown> } = {},
+): Promise<void> {
+  for (let i = 0; i < max; i++) {
+    if (await reached()) return;
+    const before = state && JSON.stringify(await state());
+    await page.keyboard.press(key);
+    if (state) await expect.poll(async () => JSON.stringify(await state())).not.toBe(before);
+  }
+  throw new Error(`pressed ${key} ${max} times without reaching the target`);
+}
+
+/** File paths in the file tree, in tree order. */
+export async function treePaths(page: Page): Promise<string[]> {
+  const tree = page.locator('.tree-file[data-tree-path]');
+  await expect(tree.first()).toBeVisible();
+  return tree.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.treePath!));
 }
 
 // Add a comment via API and return the created comment object.
@@ -250,27 +395,4 @@ export async function getMdPath(request: APIRequestContext): Promise<string> {
   const mdFile = session.files.find((f: { path: string }) => f.path.endsWith('.md'));
   expect(mdFile).toBeTruthy();
   return mdFile.path;
-}
-
-// Wait for document scroll height to stop changing (deferred bodies settled,
-// SSE-triggered rebuilds complete, etc.). Polls via requestAnimationFrame and
-// requires the height to be stable across consecutive frames.
-export async function waitForScrollStable(page: Page, { timeout = 5000 } = {}) {
-  await page.waitForFunction(() => {
-    return new Promise<boolean>(resolve => {
-      let lastH = -1;
-      let stableCount = 0;
-      const check = () => {
-        const h = document.documentElement.scrollHeight;
-        if (h === lastH && h > 0) {
-          if (++stableCount >= 3) return resolve(true);
-        } else {
-          stableCount = 0;
-          lastH = h;
-        }
-        requestAnimationFrame(check);
-      };
-      requestAnimationFrame(check);
-    });
-  }, { timeout });
 }

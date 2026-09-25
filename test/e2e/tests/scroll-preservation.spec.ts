@@ -1,5 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-import { loadPage } from './helpers';
+import { test, expect } from '@playwright/test';
+import { loadPage, waitForScrollStable, setDiffStyle, reviewScroller } from './helpers';
 
 // Switching diff mode rebuilds every file's diff. It used to collapse the
 // document so the browser clamped the scroll to the top of the review instead
@@ -7,26 +7,6 @@ import { loadPage } from './helpers';
 // #filesContainer and must keep the reading position across the re-layout.
 
 type Pinned = { filePath: string; line: string; top: number; scrollTop: number };
-
-// Wait until the review pane's scroll offset and height hold still for a few
-// frames (re-layout after a toggle, virtualized items mounting).
-async function waitForPaneStable(page: Page) {
-  await page.locator('#filesContainer').evaluate((el) => new Promise<void>((resolve) => {
-    let last = '';
-    let stable = 0;
-    const check = () => {
-      const now = `${el.scrollTop}:${el.scrollHeight}`;
-      if (now === last) {
-        if (++stable >= 5) return resolve();
-      } else {
-        stable = 0;
-        last = now;
-      }
-      requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-  }));
-}
 
 // New-side (or context) rows of every mounted file, keyed by file + line.
 function newSideRows(): { filePath: string; line: string; el: Element }[] {
@@ -53,9 +33,8 @@ test.describe('Scroll position across view toggles', () => {
 
     const inactive = page.locator('#diffModeToggle .toggle-btn:not(.active)').first();
     await expect(inactive).toBeVisible();
-    const mode = await inactive.getAttribute('data-mode');
-    const toggle = page.locator(`#diffModeToggle .toggle-btn[data-mode="${mode}"]`);
-    const pane = page.locator('#filesContainer');
+    const mode = await inactive.getAttribute('data-mode') as 'split' | 'unified';
+    const pane = reviewScroller(page);
     await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
     await page.evaluate((src) => {
       (window as unknown as { __newSideRows: unknown }).__newSideRows = (0, eval)(`(${src})`);
@@ -63,9 +42,9 @@ test.describe('Scroll position across view toggles', () => {
 
     // Park deep enough that a collapsed rebuild would clamp the offset.
     await pane.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
     await pane.evaluate((el) => { el.scrollTop = el.scrollHeight * 0.6; });
-    await waitForPaneStable(page);
+    await waitForScrollStable(page);
 
     // Pin the line closest to the vertical center — that's what the rebuild
     // should put back, not just the file header.
@@ -89,12 +68,11 @@ test.describe('Scroll position across view toggles', () => {
     expect(before).toBeTruthy();
     expect(before!.scrollTop).toBeGreaterThan(100);
 
-    await toggle.click();
-    await expect(toggle).toHaveClass(/active/);
+    await setDiffStyle(page, mode);
 
     // The same line must be mounted again, near where it was.
     await expect.poll(async () => {
-      await waitForPaneStable(page);
+      await waitForScrollStable(page);
       return page.evaluate((a: Pinned) => {
         const rows = (window as unknown as { __newSideRows: typeof newSideRows }).__newSideRows();
         const pane = document.getElementById('filesContainer')!;

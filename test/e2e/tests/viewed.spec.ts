@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
-import { clearAllComments, loadPage, fileHeader, fileItem, revealFile } from './helpers';
+import { clearAllComments, loadPage, fileHeader, fileItem, revealFile, treePaths } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -39,12 +39,6 @@ async function expectExpanded(page: Page, filePath: string) {
 // Collapse/expand through the header's chevron (a plain header click).
 async function clickChevron(page: Page, filePath: string) {
   await fileHeader(page, filePath).locator('.file-header-chevron').click();
-}
-
-async function treePaths(page: Page): Promise<string[]> {
-  const tree = page.locator('.tree-file[data-tree-path]');
-  await expect(tree.first()).toBeVisible();
-  return tree.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.treePath!));
 }
 
 // ============================================================

@@ -1,5 +1,8 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage, revealFile, fileItem, diffLine, openLineComment } from './helpers';
+import {
+  clearAllComments, loadPage, revealFile, fileItem, diffLine, openLineComment,
+  reviewScroller, nextFrames,
+} from './helpers';
 
 // Helpers scoped to this fixture's files. The file list is virtualized, so
 // each brings its file into view and returns the file's Pierre item.
@@ -26,7 +29,7 @@ async function expectCommentOn(request: APIRequestContext, filePath: string, lin
 // File paths in list order: walk the #filesContainer scroller top to bottom
 // and record each file header the first time it is rendered.
 async function listOrder(page: Page): Promise<string[]> {
-  const scroller = page.locator('#filesContainer');
+  const scroller = reviewScroller(page);
   const seen: string[] = [];
   await scroller.evaluate(el => el.scrollTo(0, 0));
   for (let step = 0; step < 200; step++) {
@@ -43,7 +46,7 @@ async function listOrder(page: Page): Promise<string[]> {
     });
     if (atEnd) break;
     // Let the virtualizer mount what scrolled into view.
-    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await nextFrames(page);
   }
   return seen;
 }

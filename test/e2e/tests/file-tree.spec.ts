@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, fileHeader, goSection, openLineComment } from './helpers';
+import { clearAllComments, loadPage, fileHeader, goSection, openLineComment, reviewScroller } from './helpers';
 
 // ============================================================
 // File Tree Panel — Git Mode
@@ -140,7 +140,7 @@ test.describe('File Tree — Git Mode', () => {
   test('clicking a file in tree scrolls its header to the top of viewport', async ({ page }) => {
     // Scroll to the bottom so we need to scroll back up. CodeView scrolls
     // #filesContainer, not the window.
-    await page.locator('#filesContainer').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
     await expect(fileHeader(page, 'plan.md')).not.toBeInViewport();
 
     // Click the first file (plan.md) in the tree

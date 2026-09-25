@@ -1,5 +1,8 @@
 import { test, expect, type Locator, type Page, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, diffLine, openLineComment, type DiffSide } from './helpers';
+import {
+  clearAllComments, loadPage, goSection, diffLine, openLineComment,
+  type DiffSide, setDiffStyle,
+} from './helpers';
 
 // server.go has two hunks separated by a small unchanged gap that Crit
 // expands automatically (new lines 12-19 / old lines 9-16). Comments on a
@@ -63,7 +66,7 @@ for (const mode of ['split', 'unified'] as const) {
         await clearAllComments(request);
         await loadPage(page);
         if (mode === 'unified') {
-          await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
+          await setDiffStyle(page, 'unified');
           const item = await goSection(page);
           await expect(item.locator('code[data-unified]').first()).toBeVisible();
         }

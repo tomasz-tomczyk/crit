@@ -1,5 +1,8 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loadPage, goSection, jsSection, revealFile, diffLine } from './helpers';
+import { test, expect, type Locator } from '@playwright/test';
+import {
+  loadPage, goSection, jsSection, revealFile, diffLine, showLine,
+  clickWhenHittable, setDiffStyle,
+} from './helpers';
 
 // ============================================================
 // Syntax Highlighting in Diff Views
@@ -39,43 +42,6 @@ function token(line: Locator, text: string): Locator {
 
 async function colourOf(t: Locator) {
   return t.evaluate(el => (el as HTMLElement).style.getPropertyValue('--diffs-token-light').trim());
-}
-
-async function setUnified(page: Page) {
-  await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-  const item = await goSection(page);
-  await expect(item.locator('code[data-unified]')).toBeVisible();
-  return item;
-}
-
-// Pierre virtualizes lines inside long files: scroll the list down until
-// the line is rendered, then bring it on screen.
-async function showLine(page: Page, line: Locator) {
-  await expect.poll(async () => {
-    if (await line.count() > 0) return true;
-    await page.locator('#filesContainer').evaluate(el => el.scrollBy(0, 200));
-    return false;
-  }, { timeout: 15_000 }).toBe(true);
-  await expect(async () => {
-    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
-    await expect(line.first()).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-}
-
-// Pierre ignores pointer events briefly after any scroll. Click only once
-// the element is the hit target at its centre, so the click lands once.
-async function clickWhenHittable(page: Page, target: Locator) {
-  await expect(async () => {
-    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
-    expect(await target.evaluate(el => {
-      const r = el.getBoundingClientRect();
-      const root = el.getRootNode() as Document | ShadowRoot;
-      const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-      return !!hit && el.contains(hit);
-    }, undefined, { timeout: 1000 })).toBe(true);
-  }).toPass({ timeout: 10_000 });
-  const box = await target.boundingBox();
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
 test.describe('Syntax Highlighting — Split Mode', () => {
@@ -143,7 +109,9 @@ test.describe('Syntax Highlighting — language detection', () => {
 test.describe('Syntax Highlighting — Unified Mode', () => {
   test('Go file has syntax-highlighted code in unified diff', async ({ page }) => {
     await loadPage(page);
-    const item = await setUnified(page);
+    await setDiffStyle(page, 'unified');
+    const item = await goSection(page);
+    await expect(item.locator('code[data-unified]')).toBeVisible();
 
     const line = diffLine(item, 24);
     await showLine(page, line);
@@ -153,7 +121,9 @@ test.describe('Syntax Highlighting — Unified Mode', () => {
 
   test('deletion lines in unified mode have syntax highlighting', async ({ page }) => {
     await loadPage(page);
-    const item = await setUnified(page);
+    await setDiffStyle(page, 'unified');
+    const item = await goSection(page);
+    await expect(item.locator('code[data-unified]')).toBeVisible();
 
     const line = diffLine(item, 23, 'old');
     await showLine(page, line);

@@ -1,16 +1,13 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import {
   loadPage, goSection, revealFile, fileHeader, diffLine, diffLineNumber,
-  hoverLine, selectedLines, clearAllComments,
+  hoverLine, selectedLines, clearAllComments, showLine, clickWhenHittable,
+  setDiffStyle,
 } from './helpers';
 
 // Git-mode files render through Pierre (see helpers.ts). server.go has
 // adjacent del/add pairs; routes.go has a 37-line gap (new 15..51) between
 // its two hunks, collapsed behind a separator.
-
-async function setDiffMode(page: Page, mode: 'split' | 'unified') {
-  await page.locator(`#diffModeToggle .toggle-btn[data-mode="${mode}"]`).click();
-}
 
 // Hidden-line labels of the file's separators (one per collapsed gap).
 function separators(item: Locator): Locator {
@@ -22,38 +19,6 @@ function separators(item: Locator): Locator {
 function expandButton(item: Locator, which: 'below-previous-hunk' | 'above-next-hunk'): Locator {
   const dir = which === 'below-previous-hunk' ? 'up' : 'down';
   return item.locator(`[data-separator] [data-expand-button][data-expand-${dir}]`).filter({ visible: true }).first();
-}
-
-// Pierre virtualizes lines inside long files: scroll the list down until
-// the line is rendered, then bring it on screen.
-async function showLine(page: Page, line: Locator) {
-  await expect.poll(async () => {
-    if (await line.count() > 0) return true;
-    await page.locator('#filesContainer').evaluate(el => el.scrollBy(0, 200));
-    return false;
-  }, { timeout: 15_000 }).toBe(true);
-  // The row can re-mount while the list settles; retry until it holds.
-  await expect(async () => {
-    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
-    await expect(line.first()).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-}
-
-// Pierre ignores pointer events briefly after any scroll. Click only once
-// the element is actually the hit target at its centre, so the click lands
-// exactly once.
-async function clickWhenHittable(page: Page, target: Locator) {
-  await expect(async () => {
-    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
-    expect(await target.evaluate(el => {
-      const r = el.getBoundingClientRect();
-      const root = el.getRootNode() as Document | ShadowRoot;
-      const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-      return !!hit && el.contains(hit);
-    }, undefined, { timeout: 1000 })).toBe(true);
-  }).toPass({ timeout: 10_000 });
-  const box = await target.boundingBox();
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
 test.describe('Diff Rendering — Split Mode (default)', () => {
@@ -172,7 +137,7 @@ test.describe('Diff Mode Toggle', () => {
     const item = await goSection(page);
     await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
 
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
 
     await expect(item.locator('code[data-unified]')).toBeVisible();
     await expect(item.locator('code[data-additions], code[data-deletions]')).toHaveCount(0);
@@ -180,7 +145,7 @@ test.describe('Diff Mode Toggle', () => {
 
   test('unified mode shows single-pane diff lines', async ({ page }) => {
     await loadPage(page);
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
 
     // Old and new versions of a changed line are stacked in one column.
@@ -199,7 +164,7 @@ test.describe('Diff Mode Toggle', () => {
 
   test('unified mode marks addition lines distinctly from context', async ({ page }) => {
     await loadPage(page);
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
 
     const added = diffLine(item, 5);
@@ -220,7 +185,7 @@ test.describe('Diff Mode Toggle', () => {
     let item = await goSection(page);
     await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
 
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
     await expect(item.locator('code[data-unified]')).toBeVisible();
 
     await page.reload();
@@ -233,11 +198,11 @@ test.describe('Diff Mode Toggle', () => {
 
   test('can switch back to split', async ({ page }) => {
     await loadPage(page);
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
 
-    await setDiffMode(page, 'split');
+    await setDiffStyle(page, 'split');
 
     await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
     await expect(item.locator('code[data-unified]')).toHaveCount(0);
@@ -259,7 +224,7 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
 
   test('drag indicator shows on deletion lines when dragging from addition line', async ({ page }) => {
     await loadPage(page);
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
     await showLine(page, diffLine(item, 41));
@@ -282,7 +247,7 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
 
   test('all lines between drag endpoints are selected in unified mode', async ({ page }) => {
     await loadPage(page);
-    await setDiffMode(page, 'unified');
+    await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
     await showLine(page, diffLine(item, 43));

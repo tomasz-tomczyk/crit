@@ -1,5 +1,8 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loadPage, goSection, jsSection, revealFile, diffLine } from './helpers';
+import { test, expect } from '@playwright/test';
+import {
+  loadPage, goSection, jsSection, revealFile, diffLine, showLine,
+  clickWhenHittable, setDiffStyle,
+} from './helpers';
 
 // ============================================================
 // Word-Level Diff Highlighting (Pierre lineDiffType 'word-alt')
@@ -11,42 +14,6 @@ import { loadPage, goSection, jsSection, revealFile, diffLine } from './helpers'
 // ============================================================
 
 const WORD = '[data-diff-span]';
-
-async function setUnified(page: Page, item: Locator) {
-  await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-  await expect(item.locator('code[data-unified]')).toBeVisible();
-}
-
-// Pierre virtualizes lines inside long files: scroll the list down until
-// the line is rendered, then bring it on screen.
-async function showLine(page: Page, line: Locator) {
-  await expect.poll(async () => {
-    if (await line.count() > 0) return true;
-    await page.locator('#filesContainer').evaluate(el => el.scrollBy(0, 200));
-    return false;
-  }, { timeout: 15_000 }).toBe(true);
-  // The row can re-mount while the list settles; retry until it holds.
-  await expect(async () => {
-    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
-    await expect(line.first()).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-}
-
-// Separator expand buttons ignore clicks for a moment after a scroll; wait
-// until the button is the hit target, then click once.
-async function clickWhenHittable(page: Page, target: Locator) {
-  await expect(async () => {
-    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
-    expect(await target.evaluate(el => {
-      const r = el.getBoundingClientRect();
-      const root = el.getRootNode() as Document | ShadowRoot;
-      const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-      return !!hit && el.contains(hit);
-    }, undefined, { timeout: 1000 })).toBe(true);
-  }).toPass({ timeout: 10_000 });
-  const box = await target.boundingBox();
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
-}
 
 test.describe('Word Diff — Split Mode', () => {
   test('paired del/add lines show word-diff highlights', async ({ page }) => {
@@ -114,7 +81,8 @@ test.describe('Word Diff — Unified Mode', () => {
   test('paired del/add lines show word-diff highlights', async ({ page }) => {
     await loadPage(page);
     const item = await goSection(page);
-    await setUnified(page, item);
+    await setDiffStyle(page, 'unified');
+    await expect(item.locator('code[data-unified]')).toBeVisible();
 
     const del = diffLine(item, 42, 'old');
     const add = diffLine(item, 67);
@@ -126,7 +94,8 @@ test.describe('Word Diff — Unified Mode', () => {
   test('word-diff spans contain expected tokens in unified mode', async ({ page }) => {
     await loadPage(page);
     const item = await goSection(page);
-    await setUnified(page, item);
+    await setDiffStyle(page, 'unified');
+    await expect(item.locator('code[data-unified]')).toBeVisible();
 
     const del = diffLine(item, 42, 'old');
     const add = diffLine(item, 67);
@@ -138,7 +107,8 @@ test.describe('Word Diff — Unified Mode', () => {
   test('context lines in unified mode have no word-diff spans', async ({ page }) => {
     await loadPage(page);
     const item = await goSection(page);
-    await setUnified(page, item);
+    await setDiffStyle(page, 'unified');
+    await expect(item.locator('code[data-unified]')).toBeVisible();
 
     const context = item.locator('code[data-unified] [data-content] > [data-line-type^="context"]');
     await expect(context.first()).toBeVisible();

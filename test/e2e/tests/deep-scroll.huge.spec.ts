@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments, fileHeader, fileItem } from './helpers';
+import { loadPage, clearAllComments, fileHeader, fileItem, reviewScroller } from './helpers';
 
 // A review tall enough that the file list passes 2^22px (~2,500 files).
 // Pierre's CodeView owns the scroll container (#filesContainer) and
@@ -19,12 +19,8 @@ test.beforeEach(async ({ request }) => {
   await clearAllComments(request);
 });
 
-function scroller(page: Page) {
-  return page.locator('#filesContainer');
-}
-
 async function scrollState(page: Page) {
-  return scroller(page).evaluate(el => ({ top: el.scrollTop, height: el.scrollHeight }));
+  return reviewScroller(page).evaluate(el => ({ top: el.scrollTop, height: el.scrollHeight }));
 }
 
 async function reviewOrder(page: Page): Promise<string[]> {
@@ -52,7 +48,7 @@ async function paintedFraction(page: Page, clip: { x: number; y: number; width: 
 }
 
 async function expectPainted(page: Page) {
-  const content = await scroller(page).boundingBox();
+  const content = await reviewScroller(page).boundingBox();
   const side = await page.locator('.file-tree-panel').boundingBox();
   expect(content && side).toBeTruthy();
   const contentPaint = await paintedFraction(page, { x: content!.x + 10, y: content!.y + 10, width: content!.width - 20, height: content!.height - 20 });
@@ -84,6 +80,9 @@ async function expectItemHitTests(page: Page, path: string) {
 async function expectSettledAt(page: Page, path: string) {
   const header = fileHeader(page, path);
   await expect(header).toBeInViewport();
+  // Pierre can remount the item once as it measures; start sampling when
+  // the header is back, then require it to hold.
+  await expect.poll(async () => (await header.boundingBox()) !== null).toBe(true);
   const tops: number[] = [];
   for (let i = 0; i < 10; i++) {
     const box = await header.boundingBox();
@@ -115,7 +114,7 @@ test('tree jump to the deepest files lands, settles, paints and hit-tests', asyn
   expect((await scrollState(page)).top).toBeGreaterThan(CHROME_BREAK_Y);
   // Free scroll afterwards: the jump does not pin the reader.
   const before = (await scrollState(page)).top;
-  const box = await scroller(page).boundingBox();
+  const box = await reviewScroller(page).boundingBox();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.wheel(0, -600);
   await expect.poll(async () => (await scrollState(page)).top).toBeLessThan(before - 300);
@@ -125,7 +124,7 @@ test('scrolling to the bottom renders, paints and hit-tests', async ({ page }) =
   await loadPage(page);
   // CodeView sizes the list on its first layout; scroll once it has.
   await expect.poll(async () => {
-    await scroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
     return (await scrollState(page)).top;
   }).toBeGreaterThan(CHROME_BREAK_Y);
   const order = await reviewOrder(page);
@@ -188,7 +187,7 @@ test('reload after the server has loaded every file keeps file requests bounded'
 test('the off-canvas comments panel adds no horizontal page scroll', async ({ page }) => {
   await loadPage(page);
   await expect.poll(async () => {
-    await scroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
     return (await scrollState(page)).top;
   }).toBeGreaterThan(CHROME_BREAK_Y);
   expect(await page.evaluate(() => {

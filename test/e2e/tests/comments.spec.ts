@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine } from './helpers';
+import {
+  clearAllComments, loadPage, mdSection, goSection, jsSection,
+  switchToDocumentView, openLineComment, hoverLine, diffLine, setDiffStyle,
+} from './helpers';
 
 // ============================================================
 // Markdown Comments (git mode — plan.md in document view)
@@ -315,8 +318,7 @@ test.describe('Diff Comments — Unified Mode', () => {
     await clearAllComments(request);
     await loadPage(page);
     // Switch to unified mode
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await unifiedBtn.click();
+    await setDiffStyle(page, 'unified');
     const section = await goSection(page);
     await expect(section.locator('code[data-unified]')).toBeVisible();
     await expect(section.locator('code[data-additions]')).toHaveCount(0);

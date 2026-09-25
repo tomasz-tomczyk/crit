@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView, mdDocument } from './helpers';
 
 test.describe('File Picker Autocomplete — Git Mode', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -15,7 +15,7 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
 
   /** Helper: open a comment form on the first markdown line block and return the textarea. */
   async function openCommentForm(page: import('@playwright/test').Page) {
-    const section = page.locator('[id="file-section-plan.md"].pierre-document');
+    const section = mdDocument(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     const gutterBtn = section.locator('.line-comment-gutter').first();

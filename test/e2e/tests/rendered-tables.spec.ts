@@ -1,48 +1,11 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
-  clearAllComments,
-  clearFocus,
-  loadPage,
-  switchToDocumentView,
+  clearAllComments, clearFocus, loadPage, switchToDocumentView, mdDocument,
+  waitUntilHittable, pressUntil,
 } from './helpers';
-
-// plan.md's rendered document (Document view), set up in beforeEach.
-function mdDocument(page: Page): Locator {
-  return page.locator('[id="file-section-plan.md"].pierre-document');
-}
 
 function decisionRow(page: Page, label: string): Locator {
   return mdDocument(page).getByRole('cell', { name: label, exact: true }).locator('..');
-}
-
-// Center `target` in the viewport and wait until it actually receives pointer
-// hits: Pierre disables pointer events for a moment after every scroll.
-async function settledBox(page: Page, target: Locator) {
-  await target.evaluate(el => el.scrollIntoView({ block: 'center' }));
-  let box: { x: number; y: number; width: number; height: number } | null = null;
-  await expect.poll(async () => {
-    box = await target.boundingBox();
-    if (!box) return false;
-    const point = { x: box.x + box.width / 2, y: box.y + Math.min(10, box.height / 2) };
-    return target.evaluate((el, p) => {
-      const hit = document.elementFromPoint(p.x, p.y);
-      return !!hit && el.contains(hit);
-    }, point);
-  }).toBe(true);
-  return box!;
-}
-
-// Walk j/k keyboard focus (which spans every file's rows in order) until the
-// given plan.md document row is the focused block.
-async function focusRowByKeyboard(page: Page, label: string) {
-  await clearFocus(page);
-  await expect.poll(async () => {
-    await page.keyboard.press('j');
-    return page.evaluate(text => {
-      const focused = document.querySelector('[id="file-section-plan.md"] .line-block.focused');
-      return !!focused && !!Array.from(focused.querySelectorAll('td, th')).find(c => c.textContent?.trim() === text);
-    }, label);
-  }, { timeout: 60_000, intervals: [10] }).toBe(true);
 }
 
 async function selectPhrase(cell: Locator, phrase: string) {
@@ -165,7 +128,9 @@ test.describe('Native rendered tables', () => {
     const last = decisionRow(page, 'Header format').locator('.line-comment-gutter');
     // Center the middle row so all three rows are on screen, then wait for
     // pointer events to resume before pressing.
-    await settledBox(page, decisionRow(page, 'Key storage').locator('.line-comment-gutter'));
+    const middle = decisionRow(page, 'Key storage').locator('.line-comment-gutter');
+    await middle.evaluate(el => el.scrollIntoView({ block: 'center' }));
+    await waitUntilHittable(middle);
     const firstBox = await first.boundingBox();
     const lastBox = await last.boundingBox();
     expect(firstBox).toBeTruthy();
@@ -193,7 +158,12 @@ test.describe('Native rendered tables', () => {
   });
 
   test('keyboard commenting and submitted comments stay anchored to a table row', async ({ page }) => {
-    await focusRowByKeyboard(page, 'Key storage');
+    // j/k focus spans every file's rows in order; walk it to the table row.
+    await clearFocus(page);
+    await pressUntil(page, 'j', () => page.evaluate(text => {
+      const focused = document.querySelector('[id="file-section-plan.md"] .line-block.focused');
+      return !!focused && !!Array.from(focused.querySelectorAll('td, th')).find(c => c.textContent?.trim() === text);
+    }, 'Key storage'), { max: 1000 });
     await expect(decisionRow(page, 'Key storage')).toHaveClass(/focused/);
     await page.keyboard.press('c');
     const textarea = page.locator('.comment-form textarea');

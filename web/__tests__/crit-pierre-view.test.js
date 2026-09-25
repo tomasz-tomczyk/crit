@@ -133,16 +133,16 @@ test('annotation metadata objects are stable across publishes', function() {
   assert.notEqual(view.viewer.items.get('a.go').annotations[0].metadata, firstMeta, 'invalidated one gets a new reference');
 });
 
-test('switching a file between diff and document view removes and reinserts the item', function() {
+test('switching a file between diff and document view swaps the item type in place', function() {
   const fake = fakePierre();
   const md = file('plan.md', { fileType: 'markdown', viewMode: 'diff' });
   const view = makeView(fake, { isDocumentView: f => f.viewMode === 'document' });
   view.setFiles([file('a.go'), md]);
+  fake.log.length = 0;
   md.viewMode = 'document';
   view.refreshFile(md, []);
-  const i = fake.log.findIndex(e => e[0] === 'removeItem' && e[1] === 'plan.md');
-  assert.ok(i >= 0, 'type change removes the old record');
-  assert.deepEqual(fake.log[i + 1], ['setItems', ['a.go:diff', 'plan.md:file']], 'reinserted in the same position');
+  assert.deepEqual(fake.log.find(e => e[0] === 'setItems'), ['setItems', ['a.go:diff', 'plan.md:file']], 'same position, new type');
+  assert.ok(!fake.log.some(e => e[0] === 'updateItem' && e[1] === 'plan.md'), 'updateItem cannot change a type');
 });
 
 test('scroll and selection map Crit sides to Pierre sides', async function() {
@@ -223,4 +223,25 @@ test('a full setFiles rebuilds thread cards but keeps open forms', function() {
   view.setFiles([file('a.go')]);
   assert.notEqual(render({ metadata: { kind: 'thread', id: 't1' } }, ctx), thread, 'thread rebuilt from the new model');
   assert.equal(render({ metadata: { kind: 'form', id: 'f1' } }, ctx), form, 'form element (and its typing) kept');
+});
+
+test('re-publishing a file reuses its parsed diff until the content changes', function() {
+  const fake = fakePierre();
+  let parses = 0;
+  const processFile = fake.P.processFile;
+  fake.P.processFile = function() { parses++; return processFile.apply(this, arguments); };
+  const view = makeView(fake);
+  const f = file('a.go', { fileHash: 'h1' });
+  view.setFiles([f]);
+  const first = view.viewer.items.get('a.go').fileDiff;
+  view.refreshFile(f, []);          // comment/form/collapse change: same content
+  view.setCollapsed(f, true);
+  assert.equal(view.viewer.items.get('a.go').fileDiff, first, 'same object, no re-parse');
+  assert.equal(parses, 1);
+  f.diffHunks = f.diffHunks.concat([{ OldStart: 9, OldCount: 1, NewStart: 9, NewCount: 1, Lines: [
+    { Type: 'del', Content: 'x', OldNum: 9 }, { Type: 'add', Content: 'y', NewNum: 9 },
+  ] }]);
+  view.refreshFile(f, []);
+  assert.notEqual(view.viewer.items.get('a.go').fileDiff, first, 'new hunks parse again');
+  assert.equal(parses, 2);
 });

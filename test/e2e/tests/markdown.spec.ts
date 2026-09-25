@@ -1,10 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
-
-// plan.md's rendered document (Document view), set up in beforeEach.
-function mdDocument(page: Page) {
-  return page.locator('[id="file-section-plan.md"].pierre-document');
-}
+import { test, expect } from '@playwright/test';
+import { clearAllComments, loadPage, switchToDocumentView, mdDocument } from './helpers';
 
 test.describe('Markdown Rendering — plan.md', () => {
   test.beforeEach(async ({ page, request }) => {

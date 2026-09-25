@@ -238,6 +238,20 @@
   // registered in the vendored bundle).
   var THEME = { dark: 'crit-dark', light: 'crit-light' };
 
+  // Rendering options every Crit Pierre surface shares (the review list's
+  // CodeView and story chapter FileDiffs).
+  function baseOptions(themeType, diffStyle) {
+    return {
+      theme: THEME,
+      themeType: themeType,
+      diffStyle: diffStyle,
+      lineDiffType: 'word-alt',
+      expansionLineCount: 20,
+      enableGutterUtility: true,
+      lineHoverHighlight: 'number',
+    };
+  }
+
   // Crit theme setting → Pierre themeType ('system' follows the OS).
   function themeTypeFor(setting) {
     return setting === 'light' || setting === 'dark' ? setting : 'system';
@@ -246,6 +260,7 @@
   var api = {
     CHANGE_TYPE: CHANGE_TYPE,
     THEME: THEME,
+    baseOptions: baseOptions,
     hunksToPatch: hunksToPatch,
     reconstructOldContent: reconstructOldContent,
     estimatedLineCount: estimatedLineCount,

@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { clearAllComments, goSection, loadPage } from './helpers';
+import { clearAllComments, goSection, loadPage, tapCenter } from './helpers';
 
 // Open a line comment on the first added line of server.go with a single
 // tap on its line number (mobile-tap-to-comment covers the tap itself) and
@@ -12,13 +12,7 @@ async function touchOpenFirstAddition(page: Page): Promise<number> {
   ).first();
   const textarea = page.locator('#filesContainer .comment-form textarea');
   await expect(async () => {
-    await gutter.evaluate(el => el.scrollIntoView({ block: 'center' }));
-    await expect.poll(() => page.evaluate(() =>
-      !document.querySelector('#filesContainer [style*="pointer-events"]'),
-    )).toBe(true);
-    const box = await gutter.boundingBox();
-    expect(box).not.toBeNull();
-    await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await tapCenter(page, gutter);
     await expect(textarea).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 10_000 });
   return Number(await gutter.getAttribute('data-column-number'));
