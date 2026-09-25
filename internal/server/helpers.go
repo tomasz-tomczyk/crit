@@ -46,8 +46,8 @@ func loadCommentsForShare(critPath string, filePaths []string, fallbackAuthor st
 	return share.LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
 }
 
-func loadPreviewShareComments(critPath string, sessionPaths []string, fallbackAuthor string) ([]shareComment, int) {
-	return share.LoadPreviewShareComments(critPath, sessionPaths, fallbackAuthor)
+func loadPreviewShareComments(critPath string, sessionPaths []string, fallbackAuthor, entryPath string) ([]shareComment, int) {
+	return share.LoadPreviewShareComments(critPath, sessionPaths, fallbackAuthor, entryPath)
 }
 
 func loadCliArgsFromReviewFile(critPath string) []string {
@@ -62,7 +62,9 @@ func mergeWebComments(critPath string, newComments []webComment, replyUpdates ma
 	return share.MergeWebComments(critPath, newComments, replyUpdates)
 }
 
-func crawlPreview(origin string) ([]ShareFile, error) { return session.CrawlPreview(origin) }
+func crawlPreview(origin, entryPath string) ([]ShareFile, error) {
+	return session.CrawlPreview(origin, entryPath)
+}
 
 func saveAttachment(reviewPath string, data []byte) (string, error) {
 	return session.SaveAttachment(reviewPath, data)

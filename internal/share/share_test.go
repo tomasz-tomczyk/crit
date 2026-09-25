@@ -1959,7 +1959,7 @@ func TestMergeWebComments_PreviewPinPreservesDOMAnchor(t *testing.T) {
 	anchor := &session.DOMAnchor{Pathname: "/preview-content", CSSSelector: "h1"}
 	newComments := []WebComment{{
 		Body:              "imported pin",
-		FilePath:          session.PreviewMainHTMLKey,
+		FilePath:          "index.html",
 		DOMAnchor:         anchor,
 		AuthorDisplayName: "Alice",
 	}}
@@ -1971,9 +1971,9 @@ func TestMergeWebComments_PreviewPinPreservesDOMAnchor(t *testing.T) {
 	var result CritJSON
 	json.Unmarshal(data, &result)
 
-	stored := result.Files[session.PreviewMainHTMLKey].Comments
+	stored := result.Files["index.html"].Comments
 	if len(stored) != 1 {
-		t.Fatalf("expected 1 comment under %s, got %d", session.PreviewMainHTMLKey, len(stored))
+		t.Fatalf("expected 1 comment under %s, got %d", "index.html", len(stored))
 	}
 	if stored[0].DOMAnchor == nil || stored[0].DOMAnchor.Pathname != "/preview-content" {
 		t.Fatalf("dom_anchor not preserved: %+v", stored[0].DOMAnchor)

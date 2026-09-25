@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,10 +18,10 @@ func TestRemapPreviewCommentFiles(t *testing.T) {
 		{File: "sub/dir/index.html", Body: "line comment", StartLine: 3},
 		{File: "", Scope: "review", Body: "review-level"},
 	}
-	remapPreviewCommentFiles(comments)
+	remapPreviewCommentFiles(comments, "docs/checkout.html")
 
-	if comments[0].File != previewMainHTMLKey {
-		t.Errorf("per-file comment File = %q, want %q", comments[0].File, previewMainHTMLKey)
+	if comments[0].File != "docs/checkout.html" {
+		t.Errorf("per-file comment File = %q, want %q", comments[0].File, "docs/checkout.html")
 	}
 	if comments[1].File != "" {
 		t.Errorf("review-level comment File = %q, want empty (untouched)", comments[1].File)
@@ -29,9 +30,9 @@ func TestRemapPreviewCommentFiles(t *testing.T) {
 
 // TestShareReviewFiles_PreviewRemapsComments is the direct-transport regression
 // for the "preview share drops my comments" bug: comments are stored under the
-// session's previewed-file path, but the crawled payload keys the HTML as
-// previewMainHTMLKey. shareReviewFiles must re-key them so crit-web attaches
-// them to the entry. Before the fix the payload carried zero comments.
+// session's previewed-file path, but the crawled payload keys the HTML by its
+// entry path (the first crawled file). shareReviewFiles must re-key them so
+// crit-web attaches them to the entry. Before the fix the payload carried zero comments.
 func TestShareReviewFiles_PreviewRemapsComments(t *testing.T) {
 	dir := t.TempDir()
 	review := filepath.Join(dir, "review.json")
@@ -68,9 +69,11 @@ func TestShareReviewFiles_PreviewRemapsComments(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// files = crawled snapshot (keyed index.html); comment-source path is the
-	// session path "sub/index.html"; reviewType=preview triggers the re-key.
-	files := []shareFile{{Path: previewMainHTMLKey, Content: "<html></html>"}}
+	// files = crawled snapshot (entry keyed "docs/checkout.html"); the
+	// comment-source path is the session path "sub/index.html";
+	// reviewType=preview triggers the re-key onto the entry.
+	const entryPath = "docs/checkout.html"
+	files := []shareFile{{Path: entryPath, Content: "<html></html>"}, {Path: "docs/style.css", Content: "body{}"}}
 	if _, err := shareReviewFiles(review, files, []string{"sub/index.html"}, srv.URL, "", "Alice", "", "", "preview"); err != nil {
 		t.Fatalf("shareReviewFiles: %v", err)
 	}
@@ -83,8 +86,8 @@ func TestShareReviewFiles_PreviewRemapsComments(t *testing.T) {
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment in payload, got %d\nbody=%s", len(comments), captured)
 	}
-	if got := comments[0].(map[string]any)["file"]; got != previewMainHTMLKey {
-		t.Errorf("shared comment file = %v, want %q", got, previewMainHTMLKey)
+	if got := comments[0].(map[string]any)["file"]; got != entryPath {
+		t.Errorf("shared comment file = %v, want %q", got, entryPath)
 	}
 }
 
@@ -99,7 +102,10 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const sessPath = "../../test/fixtures/preview/index.html"
+	// The session root is the repo root, so the entry path is the fixture's
+	// repo-relative path — used for the crawled HTML, the comment re-key and
+	// the cli_args title alike.
+	const entryPath = "test/fixtures/preview/index.html"
 	// DOM pins are stored under the iframe pathname (/preview-content) in a
 	// separate "live-route" FileEntry — NOT the previewed HTML's path. This
 	// mirrors how the live composer persists preview comments (AddLivePin), and
@@ -117,7 +123,7 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 		t.Fatalf("saveCritJSON: %v", err)
 	}
 
-	sess := previewSessionWithPin(dir, origin, review, sessPath)
+	sess := previewSessionWithPin(t, origin, review)
 	s, err := NewServer(sess, frontendFS, "", false, "", "Alice", "test", 0, "")
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -139,16 +145,22 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d\nbody=%s", len(comments), rec.Body.String())
 	}
-	if got := comments[0].(map[string]any)["file"]; got != previewMainHTMLKey {
-		t.Errorf("comment file = %v, want %q", got, previewMainHTMLKey)
+	if got := comments[0].(map[string]any)["file"]; got != entryPath {
+		t.Errorf("comment file = %v, want %q", got, entryPath)
 	}
 	cliArgs, _ := payload["cli_args"].([]any)
-	if len(cliArgs) != 2 || cliArgs[0] != "preview" || cliArgs[1] != sessPath {
-		t.Errorf("cli_args = %v, want [preview %s]", cliArgs, sessPath)
+	if len(cliArgs) != 2 || cliArgs[0] != "preview" || cliArgs[1] != entryPath {
+		t.Errorf("cli_args = %v, want [preview %s]", cliArgs, entryPath)
 	}
 	files, _ := payload["files"].([]any)
-	if len(files) == 0 || files[0].(map[string]any)["path"] != previewMainHTMLKey {
-		t.Errorf("files = %v, want entry HTML at %q", files, previewMainHTMLKey)
+	if len(files) == 0 || files[0].(map[string]any)["path"] != entryPath {
+		t.Errorf("files = %v, want entry HTML at %q", files, entryPath)
+	}
+	for _, f := range files[1:] {
+		p, _ := f.(map[string]any)["path"].(string)
+		if filepath.ToSlash(filepath.Dir(p)) != "test/fixtures/preview" && !strings.HasPrefix(p, "test/fixtures/preview/") {
+			t.Errorf("asset %q not keyed under the entry's directory", p)
+		}
 	}
 }
 
@@ -156,13 +168,22 @@ func TestHandlePreviewPayload_IncludesRemappedComments(t *testing.T) {
 // previewed HTML ("code") and a live-route entry holding DOM pins, matching how
 // a real preview session looks after the user adds a comment (AddLivePin
 // auto-creates the live-route entry keyed by the iframe pathname).
-func previewSessionWithPin(dir, origin, review, sessPath string) *Session {
+func previewSessionWithPin(t *testing.T, origin, review string) *Session {
+	t.Helper()
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessPath, err := filepath.Rel(repoRoot, origin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := &Session{
 		Mode:           "files",
 		ReviewType:     "preview",
-		RepoRoot:       dir,
+		RepoRoot:       repoRoot,
 		Origin:         origin,
-		CLIArgs:        []string{"preview", sessPath, "ignored-extra"},
+		CLIArgs:        []string{"preview", origin, "ignored-extra"},
 		ReviewFilePath: review,
 		ReviewRound:    1,
 		Files: []*FileEntry{
@@ -201,7 +222,7 @@ func TestHandleUpsertPayload_PreviewIncludesPins(t *testing.T) {
 		t.Fatalf("saveCritJSON: %v", err)
 	}
 
-	sess := previewSessionWithPin(dir, origin, review, "../../test/fixtures/preview/index.html")
+	sess := previewSessionWithPin(t, origin, review)
 	sess.SetSharedURLAndToken("https://crit.example.com/r/tok", "dtok")
 	s, err := NewServer(sess, frontendFS, "", false, "", "Alice", "test", 0, "")
 	if err != nil {
@@ -227,8 +248,8 @@ func TestHandleUpsertPayload_PreviewIncludesPins(t *testing.T) {
 	if len(comments) != 1 {
 		t.Fatalf("expected 1 comment, got %d\nbody=%s", len(comments), rec.Body.String())
 	}
-	if got := comments[0].(map[string]any)["file"]; got != previewMainHTMLKey {
-		t.Errorf("comment file = %v, want %q", got, previewMainHTMLKey)
+	if got := comments[0].(map[string]any)["file"]; got != "test/fixtures/preview/index.html" {
+		t.Errorf("comment file = %v, want %q", got, "test/fixtures/preview/index.html")
 	}
 }
 

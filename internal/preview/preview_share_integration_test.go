@@ -188,10 +188,14 @@ func copyPreviewFixture(t *testing.T, dir string) string {
 	return filepath.Join(dir, "index.html")
 }
 
+// previewFixtureDir is resolved at package init, while the working directory
+// is still the package dir, so tests that t.Chdir can still read fixtures.
+var previewFixtureDir, _ = filepath.Abs(filepath.Join("..", "..", "test", "fixtures", "preview"))
+
 // readPreviewFixture reads a named file from the test/fixtures/preview directory.
 func readPreviewFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "preview", name))
+	data, err := os.ReadFile(filepath.Join(previewFixtureDir, name))
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}

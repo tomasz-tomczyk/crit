@@ -35,7 +35,12 @@ func TestParseShareFlagsPreview(t *testing.T) {
 // the network.
 func TestPostPreviewShareDispatch(t *testing.T) {
 	dir := t.TempDir()
-	writeSharePreviewFixture(t, dir)
+	site := filepath.Join(dir, "docs", "site")
+	if err := os.MkdirAll(site, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSharePreviewFixture(t, site)
+	t.Chdir(dir)
 
 	var got map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +56,7 @@ func TestPostPreviewShareDispatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	url, err := postPreviewShare(filepath.Join(dir, "index.html"), srv.URL, "", "", "")
+	url, err := postPreviewShare(filepath.Join("docs", "site", "index.html"), srv.URL, "", "", "")
 	if err != nil {
 		t.Fatalf("postPreviewShare: %v", err)
 	}
@@ -62,7 +67,8 @@ func TestPostPreviewShareDispatch(t *testing.T) {
 	if got["review_type"] != "preview" {
 		t.Errorf("review_type = %v, want preview", got["review_type"])
 	}
-	wantPath := filepath.Join(dir, "index.html")
+	// The title and the entry artifact both keep the original relative path.
+	const wantPath = "docs/site/index.html"
 	cliArgs, ok := got["cli_args"].([]any)
 	if !ok || len(cliArgs) != 2 || cliArgs[0] != "preview" || cliArgs[1] != wantPath {
 		t.Errorf("cli_args = %v, want [preview %s]", got["cli_args"], wantPath)
@@ -71,6 +77,14 @@ func TestPostPreviewShareDispatch(t *testing.T) {
 	files, ok := got["files"].([]any)
 	if !ok || len(files) == 0 {
 		t.Fatalf("files = %v, want non-empty slice", got["files"])
+	}
+	if p := files[0].(map[string]any)["path"]; p != wantPath {
+		t.Errorf("entry artifact path = %v, want %q", p, wantPath)
+	}
+	for _, f := range files[1:] {
+		if p, _ := f.(map[string]any)["path"].(string); !strings.HasPrefix(p, "docs/site/") {
+			t.Errorf("asset %q not keyed under the entry's directory docs/site/", p)
+		}
 	}
 	if !sharePreviewHasBase64(files) {
 		t.Errorf("expected at least one file with encoding=base64, got %v", files)

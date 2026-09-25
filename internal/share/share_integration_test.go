@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
-	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 // TestShareSyncMultiInstanceTargets exercises two independently-addressed
@@ -587,8 +586,9 @@ func documentFromAPI(t *testing.T, baseURL, token string) []map[string]any {
 // --- New test cases ---
 
 // TestShareSyncPreviewPreservesOriginalPath verifies the standalone preview
-// share keeps the source path as display metadata without renaming the crawled
-// entry HTML artifact.
+// share keeps the source path for both the crawled entry HTML artifact and the
+// review title (#983). internal/preview's TestShareSyncPreviewOriginalPath_*
+// cover assets, og tags, absolute paths and comment round-trips.
 func TestShareSyncPreviewPreservesOriginalPath(t *testing.T) {
 	baseURL := critWebURL(t)
 	binary := critBinary(t)
@@ -614,8 +614,8 @@ func TestShareSyncPreviewPreservesOriginalPath(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("expected 1 crawled file, got %d", len(files))
 	}
-	if files[0]["path"] != session.PreviewMainHTMLKey {
-		t.Errorf("preview artifact path = %v, want %q", files[0]["path"], session.PreviewMainHTMLKey)
+	if files[0]["path"] != filepath.ToSlash(originalPath) {
+		t.Errorf("preview artifact path = %v, want %q", files[0]["path"], filepath.ToSlash(originalPath))
 	}
 
 	resp, err := http.Get(fmt.Sprintf("%s/r/%s", baseURL, token))

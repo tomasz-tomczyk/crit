@@ -45,12 +45,13 @@ type unpublishFlags struct {
 }
 
 func postPreviewShare(htmlPath, svcURL, authToken, org, visibility string) (string, error) {
-	files, err := session.CrawlPreview(htmlPath)
+	entryPath := session.PreviewEntryPath(htmlPath, "")
+	files, err := session.CrawlPreview(htmlPath, entryPath)
 	if err != nil {
 		return "", fmt.Errorf("crawling preview assets: %w", err)
 	}
 
-	payload := BuildSharePayload(files, nil, 1, []string{"preview", htmlPath}, org, visibility, "preview")
+	payload := BuildSharePayload(files, nil, 1, []string{"preview", entryPath}, org, visibility, "preview")
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshaling preview payload: %w", err)

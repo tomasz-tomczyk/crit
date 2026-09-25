@@ -47,9 +47,9 @@ func TestExportWrappers_Smoke(t *testing.T) {
 	}
 
 	comments := []ShareComment{{Body: "x", File: "preview.html"}}
-	RemapPreviewCommentFiles(comments)
-	if comments[0].File != session.PreviewMainHTMLKey {
-		t.Errorf("remap preview file = %q, want %q", comments[0].File, session.PreviewMainHTMLKey)
+	RemapPreviewCommentFiles(comments, "docs/preview.html")
+	if comments[0].File != "docs/preview.html" {
+		t.Errorf("remap preview file = %q, want %q", comments[0].File, "docs/preview.html")
 	}
 
 	cfg := LoadShareConfig()

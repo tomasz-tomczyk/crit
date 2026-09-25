@@ -21,8 +21,6 @@ type (
 	shareFile    = share.ShareFile
 )
 
-const previewMainHTMLKey = session.PreviewMainHTMLKey
-
 var (
 	remapPreviewCommentFiles = share.RemapPreviewCommentFiles
 	crawlPreview             = session.CrawlPreview
