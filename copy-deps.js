@@ -1,6 +1,7 @@
 import { cpSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
 import { vendoredAssets } from "./scripts/vendored-assets.mjs";
+import { buildPierre } from "./scripts/build-pierre.mjs";
 
 const dest = "web";
 
@@ -58,6 +59,9 @@ execSync(`npx --no-install esbuild ${dmpEntry} --bundle --format=iife --minify -
 // Clean up temporary entry file
 unlinkSync(dmpEntry);
 
+// @pierre/diffs + Shiki — split ESM bundle, gzipped, in web/pierre/.
+await buildPierre();
+
 // Keep the generator, manifest, and embedded minified files in a closed set.
 // This prevents an ungenerated, self-attested *.min.js file from entering the
 // binary through web/embed.go's broad *.js pattern.
@@ -70,6 +74,7 @@ const manifestedAssets = readFileSync("ASSETS-PROVENANCE.txt", "utf8")
 const embeddedAssets = readdirSync(dest)
   .filter(name => name.endsWith(".min.js"))
   .map(name => `${dest}/${name}`)
+  .concat([`${dest}/pierre`])
   .sort();
 for (const [label, assets] of [["manifest", manifestedAssets], ["web directory", embeddedAssets]]) {
   if (JSON.stringify(assets) !== JSON.stringify(generatedAssets)) {

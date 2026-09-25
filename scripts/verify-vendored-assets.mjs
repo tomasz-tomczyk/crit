@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-import { vendoredAssets } from "./vendored-assets.mjs";
+import { fileURLToPath } from "node:url";
+import { hashAsset, vendoredAssets } from "./vendored-assets.mjs";
 
 const root = new URL("../", import.meta.url);
 const manifestPath = new URL("ASSETS-PROVENANCE.txt", root);
@@ -95,8 +96,7 @@ for (const [path, entry] of Object.entries(lock.packages ?? {})) {
 }
 
 for (const row of rows) {
-  const asset = new URL(row.path, root);
-  const actual = sha256(asset);
+  const actual = hashAsset(fileURLToPath(new URL(row.path, root)));
   if (actual !== row.hash) {
     console.error(`MODIFIED ${row.path}\n recorded: ${row.hash}\n actual:   ${actual}`);
     failed = true;

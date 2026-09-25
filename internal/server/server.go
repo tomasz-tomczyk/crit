@@ -214,6 +214,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 
 	// Static file serving (repo files need session; embedded assets do not)
 	mux.HandleFunc("/files/", s.withReady(s.handleFiles))
+	mux.Handle(precompressedPrefix, servePrecompressed(frontendFS))
 	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	s.mux = mux
