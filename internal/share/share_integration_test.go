@@ -2363,6 +2363,39 @@ func TestShareSyncOrgVisibility(t *testing.T) {
 	reviewDocInaccessible(t, baseURL, token)
 }
 
+// TestShareSyncPreviewOrgVisibility verifies `crit share --preview` sends
+// --org and --visibility instead of dropping them.
+func TestShareSyncPreviewOrgVisibility(t *testing.T) {
+	baseURL := critWebURL(t)
+	binary := critBinary(t)
+	dir := t.TempDir()
+	authToken, userID, _ := seedUser(t, baseURL, "Preview Vis Sharer")
+	slug := seedOrg(t, baseURL, userID, "Preview Vis Org", fmt.Sprintf("preview-vis-%d", time.Now().UnixNano()))
+
+	if err := os.WriteFile(filepath.Join(dir, "design.html"), []byte("<!doctype html><h1>Design</h1>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(binary, "share", "--share-url", baseURL, "--preview", "design.html", "--org", slug, "--visibility", "unlisted")
+	cmd.Dir = dir
+	cmd.Env = append(envWithout("CRIT_AUTH_TOKEN=", "HOME=", "CRIT_SHARE_URL="), "HOME="+t.TempDir(), "CRIT_AUTH_TOKEN="+authToken)
+	out, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(out))
+	if err != nil {
+		t.Fatalf("crit share --preview failed: %s\n%s", err, output)
+	}
+	logReview(t, output)
+	token := extractToken(t, output)
+
+	doc := reviewDocFromAPI(t, baseURL, token, authToken)
+	if visibility, _ := doc["visibility"].(string); visibility != "unlisted" {
+		t.Errorf("expected visibility 'unlisted', got %q", visibility)
+	}
+
+	// Org-scoped review should NOT be accessible without auth
+	reviewDocInaccessible(t, baseURL, token)
+}
+
 // TestShareSyncPersonalNoOrg verifies that sharing without --org produces a personal review with no org.
 func TestShareSyncPersonalNoOrg(t *testing.T) {
 	baseURL := critWebURL(t)

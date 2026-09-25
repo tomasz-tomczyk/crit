@@ -44,13 +44,13 @@ type unpublishFlags struct {
 	files            []string
 }
 
-func postPreviewShare(htmlPath, svcURL, authToken string) (string, error) {
+func postPreviewShare(htmlPath, svcURL, authToken, org, visibility string) (string, error) {
 	files, err := session.CrawlPreview(htmlPath)
 	if err != nil {
 		return "", fmt.Errorf("crawling preview assets: %w", err)
 	}
 
-	payload := BuildSharePayload(files, nil, 1, []string{"preview", htmlPath}, "", "", "preview")
+	payload := BuildSharePayload(files, nil, 1, []string{"preview", htmlPath}, org, visibility, "preview")
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshaling preview payload: %w", err)
@@ -139,6 +139,13 @@ func runSharePreview(sf shareFlags) error {
 	if len(sf.files) > 0 {
 		return clicmd.Usage("Error: --preview cannot be combined with file arguments")
 	}
+	// Preview shares keep no review file, so these flags have nothing to act on.
+	if sf.outputDir != "" {
+		return clicmd.Usage("Error: --preview cannot be combined with --output/-o")
+	}
+	if sf.sessionID != "" {
+		return clicmd.Usage("Error: --preview cannot be combined with --session")
+	}
 	cfg := LoadShareConfig()
 	target, ok, err := config.SelectShareTarget(sf.svcURL, sf.svcURLSet, cfg)
 	if err != nil {
@@ -150,11 +157,12 @@ func runSharePreview(sf shareFlags) error {
 	if target.ProxyAuth {
 		return proxyAuthCLIError("crit share")
 	}
-	url, err := postPreviewShare(sf.preview, target.URL, target.Auth.Token)
+	url, err := postPreviewShare(sf.preview, target.URL, target.Auth.Token, sf.org, sf.visibility)
 	if err != nil {
 		return err
 	}
 	fmt.Println(url)
+	printQR(url, sf.showQR)
 	return nil
 }
 
