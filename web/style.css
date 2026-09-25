@@ -3766,8 +3766,13 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
   /* Clip the comments panel when it slides past the right edge (margin-right:-W).
      Without this the off-canvas box extends scrollWidth and shows a horizontal
      scrollbar. clip (not hidden) avoids creating a scroll container that can
-     break position:sticky descendants. */
-  overflow-x: clip;
+     break position:sticky descendants.
+     Clip BOTH axes: single-axis overflow-x: clip on an element this tall makes
+     Chrome stop painting and hit-testing everything below ~4,194,304px (2^22)
+     of the document — the whole page below the header, sticky sidebar
+     included, goes white on 2k+ file reviews. The vertical clip is free here:
+     .main-layout ends where the page does. */
+  overflow: clip;
 }
 .main-content {
   flex: 1;
@@ -3803,7 +3808,7 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
 /* Comments panel collapsed — slide off the right edge.
    margin-right:-W zeros the flex contribution so main-content expands, and
    parks the box past the container's right edge (mirrored by the file tree's
-   margin-left:-W on the left). .main-layout { overflow-x: clip } prevents that
+   margin-left:-W on the left). .main-layout { overflow: clip } prevents that
    off-canvas box from creating a page scrollbar.
    (margin-left:-W was tried first; it collapses space without moving the panel,
    so there was nothing to animate.) */

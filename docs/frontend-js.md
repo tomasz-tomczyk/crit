@@ -28,6 +28,7 @@ Constants and settle semantics follow `@pierre/diffs` CodeView; Crit keeps the s
 | Overscan | paint window overscroll **200**; keep-alive margin **4000** (`1000×4`). |
 | Header estimate | file header **44** (or measured). |
 | Paged rebase | only when `maxScroll > 11e6` (`SCROLL_REBASE_*`); dormant otherwise. |
+| Tall documents | 2k+ file reviews exceed 2^22px (4,194,304). Never put a single-axis `overflow-x/y: clip` on a tall ancestor: GPU-composited Chrome stops painting and hit-testing below that line (whole page white). Use `overflow: clip` (both axes); stylelint enforces it. `*.huge.spec.ts` covers deep navigation (paint assertions only reproduce `--headed`). |
 | Small surfaces | `calculateWindow` keeps every row when viewport + 2×overscan covers the whole surface. Pierre's `createWindowFromScrollPosition` starts at `scrollTop` in that case, which is only safe when `scrollTop` is the scroller's own position — per-file surfaces use a local offset inside a taller page. |
 | Row re-render | `VirtualWindow.captureAnchor` records the anchor row's on-screen top; `restoreAnchor` corrects by that DOM delta after index math (a fresh controller's heights are estimates). |
 

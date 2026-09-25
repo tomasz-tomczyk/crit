@@ -16,6 +16,8 @@ const STUB_PORT = process.env.CRIT_TEST_STUB_PORT || '3133';
 const STUB2_PORT = process.env.CRIT_TEST_STUB2_PORT || '3135';
 // Large-review perf fixture (300 files / ~9k changed lines + big markdown).
 const PERF_PORT = process.env.CRIT_TEST_PERF_PORT || '3134';
+// Huge-review fixture (~2,500 files) whose flat document is taller than 2^22px.
+const HUGE_PORT = process.env.CRIT_TEST_HUGE_PORT || '3136';
 // Mobile project re-uses the git-mode fixture — no separate server needed.
 const MOBILE_PORT = GIT_PORT;
 const debug = !!process.env.E2E_DEBUG;
@@ -49,7 +51,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode|sharetransport|perf)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode|sharetransport|perf|huge)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -145,6 +147,17 @@ export default defineConfig({
         baseURL: `http://localhost:${PERF_PORT}`,
       },
     },
+    {
+      // Deep navigation in a review whose document exceeds 2^22px — the
+      // height at which Chrome stopped painting/hit-testing under a
+      // single-axis overflow clip.
+      name: 'huge',
+      testMatch: /\.huge\.spec\.ts$/,
+      use: {
+        browserName: 'chromium',
+        baseURL: `http://localhost:${HUGE_PORT}`,
+      },
+    },
   ],
 
   webServer: [
@@ -211,6 +224,13 @@ export default defineConfig({
       // Fixture generates 300 files (+ optional go build when CRIT_BIN is
       // unset, e.g. cold local runs outside run.sh which prebuilds).
       timeout: 120_000,
+      stdout: 'pipe',
+    },
+    {
+      command: `bash setup-fixtures-huge.sh ${HUGE_PORT}`,
+      url: `http://localhost:${HUGE_PORT}/api/session`,
+      reuseExistingServer: true,
+      timeout: 180_000,
       stdout: 'pipe',
     },
   ],

@@ -176,10 +176,10 @@ test('repeated sidebar jumps keep the mounted window bounded', async ({ page }) 
   const tree = page.locator('.tree-file');
   const count = await tree.count();
   for (const i of [40, 150, 260, 120, 207]) {
-    const target = tree.nth(Math.min(i, count - 1));
-    const path = await target.getAttribute('data-tree-path');
-    await target.scrollIntoViewIfNeeded();
-    await target.click();
+    const path = await tree.nth(Math.min(i, count - 1)).getAttribute('data-tree-path');
+    // Attribute locator + click (which scrolls and retries on detach): tree
+    // rows re-render while lazy files load, so a separate scroll step races.
+    await page.locator(`.tree-file[data-tree-path="${path}"]`).click();
     await expect(page.locator('[id="file-section-' + path + '"]')).toBeInViewport();
   }
   // Earlier jump targets must not stay pinned (each would keep a full file
