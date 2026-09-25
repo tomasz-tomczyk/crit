@@ -20,6 +20,9 @@ body {
   background: var(--crit-editor-bg);
   color: var(--crit-editor-fg);
   line-height: 1.7;
+  /* Pierre diffs/files default to 2-column tabs; keep the browser's 8 that
+     Crit's code views (and GitHub) have always used. */
+  --diffs-tab-size: 8;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -6008,7 +6011,7 @@ html[data-theme="light"] .toggle-btn.active {
 
   /* Chrome on mobile computes viewport width from getBoundingClientRect() of
      all descendants, including those inside overflow:clip containers. A
-     wrapping inline <span> (e.g. hljs-string) has a bounding rect that is
+     wrapping inline <span> (e.g. a syntax token) has a bounding rect that is
      the union of all its line boxes — so a span that starts at column 10 and
      wraps at column 80 reports right:80 even though its container clips at
      column 40. Converting these spans to inline-block + max-width:100% +

@@ -83,20 +83,30 @@
       // file-level annotation is Crit's rendered document (see app.js
       // buildPierreDocument). Pierre still owns header, collapse and scroll.
       if (!isStub && opts.isDocumentView && opts.isDocumentView(file)) {
-        return {
-          id: file.path,
-          type: 'file',
-          file: { name: file.path, contents: '', cacheKey: 'doc:' + file.path },
-          annotations: annotationsFor(file).map(function(a) { return { lineNumber: a.lineNumber, metadata: a.metadata }; }),
-          collapsed: !!file.collapsed,
-          version: nextVersion(file.path),
-        };
+        return fileItem(file, { name: file.path, contents: '', cacheKey: 'doc:' + file.path });
+      }
+      // Files-mode code file: the whole file, comments per line.
+      if (!isStub && opts.isFileView && opts.isFileView(file)) {
+        var cacheKey = 'file:' + file.path + ':' + (file.fileHash || '') + ':' + (versions.get(file.path) || 0);
+        return fileItem(file, adapter.buildFileContents(P, file, cacheKey));
       }
       return {
         id: file.path,
         type: 'diff',
         fileDiff: isStub ? stubDiffFor(file) : fileDiffFor(file),
         annotations: isStub ? [] : annotationsFor(file),
+        collapsed: !!file.collapsed,
+        version: nextVersion(file.path),
+      };
+    }
+
+    // File items are single-sided: annotations carry a line number only.
+    function fileItem(file, contents) {
+      return {
+        id: file.path,
+        type: 'file',
+        file: contents,
+        annotations: annotationsFor(file).map(function(a) { return { lineNumber: a.lineNumber, metadata: a.metadata }; }),
         collapsed: !!file.collapsed,
         version: nextVersion(file.path),
       };
@@ -221,6 +231,9 @@
     var unsubscribe = viewer.subscribeToScroll(hydrateVisible);
 
     function setFiles(files) {
+      // A full render can change what a rendered document shows (inter-round
+      // diff toggle, hide-resolved); rebuild those, keep threads and forms.
+      files.forEach(function(f) { forgetAnnotation('document:' + f.path); });
       order = files.map(function(f) { return f.path; });
       itemsByPath = new Map();
       var items = files.map(function(f) {

@@ -108,22 +108,25 @@ export function jsSection(page: Page) { return revealFile(page, 'handler.js'); }
 
 export type DiffSide = 'new' | 'old';
 
-// Content cell of one diff line. Split puts each side in its own
+// Content cell of one line. Split diffs put each side in its own
 // code[data-additions|data-deletions]; unified uses one code[data-unified]
-// where data-line is the line number on the row's own side.
+// where data-line is the line number on the row's own side; a whole-file
+// item (files mode) has a single side-less code[data-code].
+const FILE_CODE = 'code[data-code]:not([data-additions]):not([data-deletions]):not([data-unified])';
+
 export function diffLine(item: Locator, line: number, side: DiffSide = 'new'): Locator {
   const n = `[data-line="${line}"]`;
   return side === 'old'
     ? item.locator(`code[data-deletions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}[data-line-type="change-deletion"]`)
-    : item.locator(`code[data-additions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}:not([data-line-type="change-deletion"])`);
+    : item.locator(`code[data-additions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}:not([data-line-type="change-deletion"]), ${FILE_CODE} [data-content] > ${n}`);
 }
 
-// Line-number cell of one diff line (same side rules as diffLine).
+// Line-number cell of one line (same side rules as diffLine).
 export function diffLineNumber(item: Locator, line: number, side: DiffSide = 'new'): Locator {
   const n = `[data-column-number="${line}"]`;
   return side === 'old'
     ? item.locator(`code[data-deletions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}[data-line-type="change-deletion"]`)
-    : item.locator(`code[data-additions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}:not([data-line-type="change-deletion"])`);
+    : item.locator(`code[data-additions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}:not([data-line-type="change-deletion"]), ${FILE_CODE} [data-gutter] > ${n}`);
 }
 
 // Pierre pauses pointer events briefly after any scroll, and Playwright's

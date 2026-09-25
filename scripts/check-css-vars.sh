@@ -7,7 +7,9 @@ set -e
 # ── Allowlists ──────────────────────────────────────────────────────────────
 
 # Variables set dynamically via JS or intentionally unreferenced.
-# --diffs-* are read by @pierre/diffs inside its shadow root.
+# --diffs-* are read by @pierre/diffs inside its shadow root;
+# --diffs-token-light/-dark are also set inline on Shiki token spans in
+# fenced code (web/crit-code-highlight.js).
 DEAD_VAR_ALLOWLIST="
 --font-sans --header-height --file-tree-width --comments-panel-width --story-rail-width --p
 --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out
@@ -17,11 +19,11 @@ DEAD_VAR_ALLOWLIST="
 --crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow
 --crit-live-reanchor-active-outline
 --crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg
---diffs-font-family
+--diffs-font-family --diffs-tab-size --diffs-token-light --diffs-token-dark
 "
 
-# Variables that legitimately exist in only some theme blocks (e.g. hljs vars
-# are scoped to their own selector blocks, not the 4 custom-property blocks)
+# Variables that legitimately exist in only some theme blocks (not in all 4
+# custom-property blocks)
 BLOCK_ALLOWLIST="--crit-dur-base --crit-dur-fast --crit-dur-slow --crit-ease --crit-ease-in --crit-ease-out --crit-focus --crit-font-body --crit-font-mono --crit-r-lg --crit-r-md --crit-r-sm --crit-r-xl"
 
 # ── Extract refs and defs ───────────────────────────────────────────────────

@@ -2,16 +2,13 @@
   'use strict';
 
   // ===== Comment Markdown Renderer =====
+  // Fenced code renders plain here: comment HTML is sanitised (token styles
+  // would be stripped), so codeHighlight.upgrade() highlights the mounted
+  // <code class="language-x"> blocks afterwards (see watchCodeBlocks).
   const commentMd = window.markdownit({
     html: true,
     linkify: true,
     typographer: true,
-    highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch {}
-      }
-      return '';
-    }
   });
   // Disable (c)/(r)/(tm) → ©/®/™ replacements so enumerated options render
   // literally. Keep typographer (smart quotes) and disable only replacements.
@@ -269,15 +266,14 @@
   };
 
   // ===== Document Markdown Renderer =====
+  // Fences are highlighted by Shiki (window.crit.codeHighlight); loadSingleFile
+  // preloads each document's fence grammars before parsing.
   const documentMd = window.markdownit({
     html: true,
     typographer: true,
     linkify: true,
     highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch {}
-      }
-      return '';
+      return window.crit.codeHighlight.html(str, lang);
     }
   });
   // Disable (c)/(r)/(tm) → ©/®/™ replacements so enumerated options render
@@ -721,25 +717,17 @@
       fileHash: fileRes.file_hash || '',
     };
 
-    // Files-mode code files render as a highlight.js document view
-    // (buildCodeLineBlocks); git-mode diffs are highlighted by Pierre/Shiki.
-    if (f.fileType === 'code' && session.mode !== 'git') {
-      f.highlightCache = preHighlightFile(f);
-      f.lang = langFromPath(f.path);
-    }
-
-    // In file mode, build line blocks so code files render as document view
-    if (f.fileType === 'code' && session.mode !== 'git') {
-      f.lineBlocks = buildCodeLineBlocks(f);
-    }
-
-    // Parse markdown content into line blocks
+    // Parse markdown content into line blocks. Fenced code is tokenized in
+    // Pierre's workers first, so the blocks render highlighted.
     if (f.fileType === 'markdown') {
-      const parsed = parseMarkdown(f.content);
+      const current = parseMarkdownTokens(f.content);
+      const previous = f.previousContent ? parseMarkdownTokens(f.previousContent) : null;
+      await window.crit.codeHighlight.prime(fencesIn(current).concat(previous ? fencesIn(previous) : []));
+      const parsed = buildMarkdown(current, f.content);
       f.lineBlocks = parsed.blocks;
       f.tocItems = parsed.tocItems;
-      if (f.previousContent) {
-        f.previousLineBlocks = parseMarkdown(f.previousContent).blocks;
+      if (previous) {
+        f.previousLineBlocks = buildMarkdown(previous, f.previousContent).blocks;
       }
     }
 
@@ -883,6 +871,7 @@
 
   // ===== Init =====
   async function init() {
+    watchCodeBlocks();
     initTheme();
     initWidth();
     // Code font is a pure CSS-variable override; no mode-specific work here,
@@ -1183,74 +1172,21 @@
     }
   }
 
-  // ===== Syntax Highlighting for Diffs =====
-  // Most extensions are resolved via hljs's built-in alias system
-  // (e.g. .feature → gherkin, .md → markdown, .tsx → typescript, .toml → ini,
-  // .scss → scss, .h/.hpp → c/cpp, .yml → yaml, .kt → kotlin, .rb → ruby,
-  // .dockerfile → dockerfile, .makefile → makefile). Only extensions that hljs
-  // does NOT cover via aliases need entries here.
-  const EXT_OVERRIDES = {
-    tf: 'hcl',         // Terraform — hljs has no .tf alias
-    htm: 'xml',        // hljs aliases html but not htm
-    svg: 'xml',
-    cs: 'csharp',
-    sh: 'bash',
-    zig: 'zig',        // not a built-in alias in our bundle
-    md: 'markdown',    // normalize: callers compare lang against 'markdown'
-    heex: 'heex',
-    leex: 'heex',
-    vue: 'vue',        // third-party grammar (highlightjs-vue)
-    astro: 'astro',    // third-party grammar (highlightjs-astro-js)
-    rake: 'ruby',      // hljs has no .rake alias (Rakefiles are Ruby)
-  };
-  // Files identified by basename rather than extension.
-  const BASENAME_LANG = {
-    dockerfile: 'dockerfile',
-    makefile: 'makefile',
-    gemfile: 'ruby',
-    rakefile: 'ruby',
-  };
-  function langFromPath(filePath) {
-    if (!filePath) return null;
-    const base = filePath.split('/').pop() || '';
-    const baseLower = base.toLowerCase();
-    // Pure basename (no extension) — Dockerfile, Makefile, etc.
-    if (!baseLower.includes('.') && BASENAME_LANG[baseLower]) {
-      return BASENAME_LANG[baseLower];
-    }
-    const ext = baseLower.includes('.') ? baseLower.split('.').pop() : '';
-    if (ext && EXT_OVERRIDES[ext]) return EXT_OVERRIDES[ext];
-    if (ext && hljs.getLanguage(ext)) return ext;
-    // Fall back to basename match (catches Dockerfile.something edge cases too).
-    return BASENAME_LANG[baseLower] || null;
-  }
-
-  // Pre-highlight file content and return array of highlighted lines (1-indexed).
-  // highlightedLines[lineNum] = highlighted HTML for that line.
-  function preHighlightFile(file) {
-    if (!file.content) return null;
-    const lang = langFromPath(file.path);
-    if (!lang || !hljs.getLanguage(lang)) return null;
-    try {
-      const highlighted = hljs.highlight(file.content, { language: lang, ignoreIllegals: true }).value;
-      const htmlLines = splitHighlightedCode(highlighted);
-      const rawLines = file.content.split('\n');
-      // Return 1-indexed: result[1] = first line
-      const result = [null]; // index 0 unused
-      for (let i = 0; i < htmlLines.length; i++) {
-        result.push({ html: htmlLines[i], raw: rawLines[i] });
-      }
-      return result;
-    } catch {
-      return null;
-    }
-  }
-
   // ===== Markdown Parsing =====
-  function parseMarkdown(content) {
+  function parseMarkdownTokens(content) {
+    return documentMd.parse(rewriteFrontmatterAsYamlFence(content), {});
+  }
+
+  function fencesIn(tokens) {
+    return tokens.filter(function(t) { return t.type === 'fence'; }).map(function(t) {
+      return { code: t.content, lang: t.info.trim().split(/\s+/)[0] };
+    }).filter(function(f) { return f.lang && f.lang !== 'mermaid'; });
+  }
+
+  // Heading slugs are assigned while rendering, so the counter resets here,
+  // right before this synchronous build.
+  function buildMarkdown(tokens, content) {
     headingSlugCounter.clear();
-    const rewrittenContent = rewriteFrontmatterAsYamlFence(content);
-    const tokens = documentMd.parse(rewrittenContent, {});
     const blocks = buildLineBlocks(tokens, documentMd, content);
     const tocItems = extractTocItems(tokens);
     return { blocks, tocItems };
@@ -1271,8 +1207,6 @@
   }
 
   // Line-block building — extracted to crit-line-blocks.js (window.crit.lineBlocks)
-  const splitHighlightedCode = window.crit.lineBlocks.splitHighlightedCode;
-  const buildCodeLineBlocks = window.crit.lineBlocks.buildCodeLineBlocks;
   const buildLineBlocks = window.crit.lineBlocks.buildLineBlocks;
   const rewriteFrontmatterAsYamlFence = window.crit.lineBlocks.rewriteFrontmatterAsYamlFence;
 
@@ -1899,11 +1833,12 @@
   let pierreWorkerPool = null;
   let pierreUnsubscribeTree = null;
 
-  // Git mode always renders through Pierre. If the bundle failed to load
-  // there is no second diff engine to fall back to — renderAllFiles shows
-  // an error instead.
+  // The review list always renders through Pierre (git and files mode; the
+  // story pane hosts its own Pierre FileDiffs). If the bundle failed to load
+  // there is no second engine to fall back to — renderAllFiles shows an
+  // error instead.
   function pierreViewActive() {
-    return session.mode === 'git' && !storyActive();
+    return !storyActive();
   }
 
   function pierreThreadKey(commentId) { return 'thread:' + commentId; }
@@ -1934,6 +1869,17 @@
     return file.fileType === 'markdown' && file.viewMode === 'document';
   }
 
+  // Files-mode code file: the whole file as a Pierre file item.
+  function pierreIsFileView(file) {
+    return file.fileType === 'code' && file.viewMode === 'document' && !file.orphaned;
+  }
+
+  function pierreLineCount(file) {
+    const content = file.content || '';
+    if (!content) return 0;
+    return content.split('\n').length - (content.endsWith('\n') ? 1 : 0);
+  }
+
   function pierreAnnotationsFor(file) {
     const A = window.crit.pierreAdapter;
     const out = [];
@@ -1948,6 +1894,22 @@
       const fileForm = getFileComposeForm(file.path);
       if (fileForm && !fileForm.editingId) out.push(A.annotationForForm(fileForm));
       out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'document', id: file.path } });
+      return out;
+    }
+    if (pierreIsFileView(file)) {
+      const lineCount = pierreLineCount(file);
+      let beyondEnd = false;
+      for (let i = 0; i < (file.comments || []).length; i++) {
+        const c = file.comments[i];
+        if (hideResolved && c.resolved) continue;
+        if (c.scope !== 'file' && c.end_line > lineCount) { beyondEnd = true; continue; }
+        out.push(A.annotationForComment(c));
+      }
+      if (beyondEnd) out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'outdated', id: file.path } });
+      const fileForms = getFormsForFile(file.path);
+      for (let i = 0; i < fileForms.length; i++) {
+        if (!fileForms[i].editingId) out.push(A.annotationForForm(fileForms[i]));
+      }
       return out;
     }
     const lineKeys = renderedDiffLineKeys(pierrePreparedHunks(file));
@@ -2001,15 +1963,21 @@
     return el;
   }
 
+  // Is a line comment anchored to a line the current view renders?
+  function pierreCommentAnchored(file, c) {
+    if (c.scope === 'file') return true;
+    if (pierreIsFileView(file)) return c.end_line <= pierreLineCount(file);
+    return renderedDiffLineKeys(pierrePreparedHunks(file)).has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''));
+  }
+
   function buildPierreOutdated(filePath) {
     const file = getFileByPath(filePath);
     if (!file) return null;
-    const lineKeys = renderedDiffLineKeys(pierrePreparedHunks(file));
     const section = document.createElement('div');
     section.className = 'outdated-diff-comments';
     for (let i = 0; i < file.comments.length; i++) {
       const c = file.comments[i];
-      if (c.scope === 'file' || lineKeys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''))) continue;
+      if (pierreCommentAnchored(file, c)) continue;
       if (isHideResolved() && c.resolved) continue;
       const el = c.resolved ? createResolvedElement(c, filePath) : createCommentElement(c, filePath);
       el.classList.add('outdated-comment');
@@ -2096,6 +2064,7 @@
       annotations: pierreAnnotationsFor,
       prepareHunks: pierrePreparedHunks,
       isDocumentView: pierreIsDocumentView,
+      isFileView: pierreIsFileView,
       loadFile: loadPierreFile,
       buildHeader: buildPierreFileHeader,
       buildAnnotation: function(kind, filePath, id) {
@@ -2128,6 +2097,11 @@
       return (file.lineBlocks || []).map(function(b, i) {
         return { line: b.startLine, endLine: b.endLine, side: '', block: i };
       });
+    }
+    if (pierreIsFileView(file)) {
+      const rows = [];
+      for (let n = 1; n <= pierreLineCount(file); n++) rows.push({ line: n, side: '' });
+      return rows;
     }
     return window.crit.pierreAdapter.navRowsForHunks(pierrePreparedHunks(file), diffMode);
   }
@@ -2245,8 +2219,7 @@
       if (file.collapsed) pierreView.setCollapsed(file, false);
       const comment = (file.comments || []).find(function(c) { return c.id === commentId; });
       const inDocument = pierreIsDocumentView(file) && comment && comment.scope !== 'file';
-      const anchored = comment && comment.scope !== 'file' && !inDocument &&
-        renderedDiffLineKeys(pierrePreparedHunks(file)).has(comment.end_line + ':' + (comment.side === 'old' ? 'old' : ''));
+      const anchored = comment && comment.scope !== 'file' && !inDocument && pierreCommentAnchored(file, comment);
       ignoreTreeObserverUntil = Date.now() + 400;
       updateTreeActive(filePath);
       const scrolled = anchored
@@ -3514,8 +3487,6 @@
       file.tocItems = loaded.tocItems;
       file.lazy = false;
       file._lazyLoading = false;
-      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-      if (loaded.lang) file.lang = loaded.lang;
 
       const callbacks = file._lazyLoadCallbacks || [];
       file._lazyLoadCallbacks = [];
@@ -7741,10 +7712,7 @@
         // Find the line block matching this heading's start line
         const target = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
         if (target) {
-          const mainHeader = document.querySelector('.header');
-          const offset = (mainHeader ? mainHeader.offsetHeight : 49) + 8;
-          const y = target.getBoundingClientRect().top + window.scrollY - offset;
-          window.scrollTo({ top: y, behavior: 'smooth' });
+          scrollReviewToElement(target, 8, 'smooth');
         } else {
           scrollToFile(item.filePath);
         }
@@ -7757,16 +7725,38 @@
     setupTocScrollspy(allItems);
   }
 
+  // The review list scrolls inside Pierre's container (#filesContainer) when
+  // the Pierre view is active, otherwise with the window (story pane).
+  function reviewScroller() {
+    return pierreView && pierreViewActive() ? document.getElementById('filesContainer') : window;
+  }
+
+  // Top edge (viewport px) that scrolled content disappears under.
+  function reviewScrollerTop() {
+    const scroller = reviewScroller();
+    if (scroller !== window) return scroller.getBoundingClientRect().top;
+    return document.querySelector('.header')?.offsetHeight || 49;
+  }
+
+  // Scroll the review list so `el` sits `offset` px below its top edge.
+  function scrollReviewToElement(el, offset, behavior) {
+    const scroller = reviewScroller();
+    const delta = el.getBoundingClientRect().top - reviewScrollerTop() - offset;
+    if (scroller === window) window.scrollTo({ top: window.scrollY + delta, behavior: behavior });
+    else scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: behavior });
+  }
+
   let tocScrollHandler = null;
+  let tocScrollTarget = null;
   function setupTocScrollspy(items) {
     if (tocScrollHandler) {
-      window.removeEventListener('scroll', tocScrollHandler);
+      tocScrollTarget.removeEventListener('scroll', tocScrollHandler);
       tocScrollHandler = null;
     }
     if (!items || items.length === 0) return;
 
     tocScrollHandler = function() {
-      const headerHeight = (document.querySelector('.header')?.offsetHeight || 49) + 16;
+      const headerHeight = reviewScrollerTop() + 16;
       let activeItem = null;
 
       for (const item of items) {
@@ -7788,7 +7778,8 @@
       }
     };
 
-    window.addEventListener('scroll', tocScrollHandler, { passive: true });
+    tocScrollTarget = reviewScroller();
+    tocScrollTarget.addEventListener('scroll', tocScrollHandler, { passive: true });
     tocScrollHandler();
   }
 
@@ -7798,9 +7789,7 @@
     if (!hash || hash === '#') return;
     const target = document.getElementById(decodeURIComponent(hash.slice(1)));
     if (!target) return;
-    const headerHeight = (document.querySelector('.header')?.offsetHeight || 49) + 8;
-    const y = target.getBoundingClientRect().top + window.scrollY - headerHeight;
-    window.scrollTo({ top: y, behavior: 'instant' });
+    scrollReviewToElement(target, 8, 'instant');
   }
   window.addEventListener('hashchange', scrollToHashHeading);
 
@@ -7825,6 +7814,28 @@
     if (dataTheme === 'dark') return 'dark';
     // System theme: check prefers-color-scheme
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark';
+  }
+
+  // Fenced code outside rendered documents (comment cards, replies, the
+  // comments panel, PR description, story text) renders plain and is
+  // highlighted once its grammar has loaded. One observer covers every place
+  // such markdown is inserted; each block is upgraded once.
+  function watchCodeBlocks() {
+    const upgrade = window.crit.codeHighlight.upgrade;
+    window.crit.codeHighlight.configure({
+      pool: function() {
+        return window.critPierreReady.then(function(P) { return P ? ensurePierreWorkerPool() : null; });
+      },
+    });
+    upgrade(document.body);
+    new MutationObserver(function(records) {
+      for (let i = 0; i < records.length; i++) {
+        const added = records[i].addedNodes;
+        for (let j = 0; j < added.length; j++) {
+          if (added[j].nodeType === 1) upgrade(added[j].matches('pre') ? added[j].parentNode : added[j]);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
   }
 
   function renderMermaidBlocks() {
@@ -10616,8 +10627,6 @@
     clone.lazy = file.lazy;
     clone.generated = file.generated;
     clone.fileHash = file.fileHash;
-    clone.highlightCache = file.highlightCache;
-    clone.lang = file.lang;
     clone.viewMode = 'diff';
   }
 
@@ -10650,8 +10659,6 @@
       file.fileHash = loaded.fileHash;
       file.lazy = false;
       file._lazyLoading = false;
-      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-      if (loaded.lang) file.lang = loaded.lang;
       delete file._storyLazyPromise;
       // Drop clones built against the empty lazy placeholder.
       storyExpandedFileCache.clear();

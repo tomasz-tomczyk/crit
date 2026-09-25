@@ -7,11 +7,6 @@
       "note": "largest vendor dep (~70% of shipped JS); any mermaid bump shows here"
     },
     {
-      "path": "web/highlight.min.js",
-      "gzipBytes": 430000,
-      "note": "highlight.js vendor bundle"
-    },
-    {
       "path": "web/pierre/pierre-diffs.js.gz",
       "gzipBytes": 200000,
       "note": "@pierre/diffs + Shiki core entry (stored precompressed; measured as stored). Grammars are separate on-demand chunks."

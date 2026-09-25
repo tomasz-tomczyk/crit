@@ -308,10 +308,6 @@ test('renderCommentsPanel: live comments use code-review markdown semantics', ()
   const { panelBody, win } = setupDom();
   let commentMd;
   win.markdownit = markdownit;
-  win.hljs = {
-    getLanguage(lang) { return lang === 'js'; },
-    highlight(str) { return { value: '<span class="hl">' + str + '</span>' }; },
-  };
   win.crit.commentHtml = {
     normalizeCommentMarkdown(src) { return src; },
     sanitize(html) { return html; },
@@ -338,7 +334,7 @@ test('renderCommentsPanel: live comments use code-review markdown semantics', ()
     assert.doesNotMatch(commentMd.render('"hello" (c)'), /©/);
     assert.match(commentMd.render('first\nsecond'), /first\nsecond/);
     assert.doesNotMatch(commentMd.render('first\nsecond'), /<br>/);
-    assert.match(commentMd.render('```js\nconst x = 1;\n```'), /<span class="hl">const x = 1;/);
+    assert.match(commentMd.render('```js\nconst x = 1;\n```'), /<pre><code class="language-js">const x = 1;/);
   } finally {
     teardownDom(prev);
   }

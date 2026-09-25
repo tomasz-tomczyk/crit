@@ -73,12 +73,14 @@ const trimShiki = {
 const ENTRY = `\
 import {
   CodeView,
+  File,
   FileDiff,
   processFile,
   parseDiffFromFile,
   getFiletypeFromFileName,
   setLanguageOverride,
   preloadHighlighter,
+  getSharedHighlighter,
 } from '@pierre/diffs';
 import {
   getOrCreateWorkerPoolSingleton,
@@ -87,12 +89,14 @@ import {
 
 window.PierreDiffs = {
   CodeView,
+  File,
   FileDiff,
   processFile,
   parseDiffFromFile,
   getFiletypeFromFileName,
   setLanguageOverride,
   preloadHighlighter,
+  getSharedHighlighter,
   getOrCreateWorkerPoolSingleton,
   terminateWorkerPoolSingleton,
 };

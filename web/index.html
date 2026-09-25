@@ -450,7 +450,6 @@
       var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; v1.async = false; document.body.appendChild(v1);
       var dp = document.createElement('script'); dp.src = 'dompurify.min.js'; dp.async = false; document.body.appendChild(dp);
       var chm = document.createElement('script'); chm.src = 'comment-html.js'; chm.async = false; document.body.appendChild(chm);
-      var v2 = document.createElement('script'); v2.src = 'highlight.min.js'; v2.async = false; document.body.appendChild(v2);
       var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; v3.async = false; document.body.appendChild(v3);
       var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; v4.async = false; document.body.appendChild(v4);
       // Shared helpers (escapeHTML, fetchJSON, installSidebarResize, theme cookie, etc.)
@@ -471,7 +470,9 @@
       var sp = document.createElement('script'); sp.src = 'crit-settings-panes.js'; sp.async = false; document.body.appendChild(sp);
       // Shared settings-overlay shell (open/close/Esc/focus-trap/tab nav). Must load before app.js.
       var so = document.createElement('script'); so.src = 'crit-settings-overlay.js'; so.async = false; document.body.appendChild(so);
-      // Line-block building (buildLineBlocks, splitHighlightedCode). Must load before app.js.
+      // Shiki highlighting for fenced code (comments, documents), then line-block
+      // building (buildLineBlocks). Both must load before app.js.
+      var chl = document.createElement('script'); chl.src = 'crit-code-highlight.js'; chl.async = false; document.body.appendChild(chl);
       var lb = document.createElement('script'); lb.src = 'crit-line-blocks.js'; lb.async = false; document.body.appendChild(lb);
       // Word-level diff computation (pure functions). Must load before app.js.
       var df = document.createElement('script'); df.src = 'crit-diff-renderer.js'; df.async = false; document.body.appendChild(df);

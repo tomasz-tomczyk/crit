@@ -35,7 +35,7 @@ test-frontend:
 verify-assets:
 	npm run verify-assets:installed
 	npm run update-deps
-	git diff --exit-code -- web/dompurify.min.js web/markdown-it.min.js web/mermaid.min.js web/highlight.min.js web/diff-match-patch.min.js web/pierre
+	git diff --exit-code -- web/dompurify.min.js web/markdown-it.min.js web/mermaid.min.js web/diff-match-patch.min.js web/pierre
 	test -z "$$(git status --porcelain -- web/pierre)"
 
 # Run Go benchmarks locally. Compare against a base with:

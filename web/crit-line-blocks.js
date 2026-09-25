@@ -1,5 +1,5 @@
 // crit-line-blocks.js — Line block building for markdown and code files.
-// Dependencies: window.crit.commentCardHelpers.escapeHtml, window.hljs
+// Dependencies: window.crit.commentCardHelpers.escapeHtml, window.crit.codeHighlight
 (function () {
   'use strict';
 
@@ -7,7 +7,11 @@
   var escapeHtml = (typeof window !== 'undefined' && window.crit && window.crit.commentCardHelpers)
     ? window.crit.commentCardHelpers.escapeHtml
     : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
-  var hljs = (typeof window !== 'undefined') ? window.hljs : null;
+  // Shiki via Pierre's shared highlighter; fence grammars are preloaded by the
+  // caller (codeHighlight.ensureAll), otherwise fences render as plain text.
+  function codeHighlight() {
+    return (typeof window !== 'undefined' && window.crit && window.crit.codeHighlight) || null;
+  }
 
   function slugifyHeading(text) {
     return text
@@ -32,54 +36,6 @@
     }
 
     return content;
-  }
-
-  // Split highlighted HTML into per-line strings, preserving open spans across lines.
-  function splitHighlightedCode(html) {
-    var result = [];
-    var openSpans = [];
-    var lines = html.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      var prefix = openSpans.map(function(s) { return s; }).join('');
-      var line = lines[i];
-      var fullLine = prefix + line;
-
-      // Track open/close spans
-      var opens = line.match(/<span[^>]*>/g) || [];
-      var closes = line.match(/<\/span>/g) || [];
-      for (var oi = 0; oi < opens.length; oi++) openSpans.push(opens[oi]);
-      for (var ci = 0; ci < closes.length; ci++) openSpans.pop();
-
-      // Close any open spans at end of line
-      var suffix = '';
-      for (var si = 0; si < openSpans.length; si++) suffix += '</span>';
-      result.push(fullLine + suffix);
-    }
-    return result;
-  }
-
-  // Build line blocks for code files in file mode (document view)
-  function buildCodeLineBlocks(file) {
-    var lines = file.content.split('\n');
-    var blocks = [];
-    for (var i = 0; i < lines.length; i++) {
-      var lineNum = i + 1;
-      var html;
-      var cacheEntry = file.highlightCache ? file.highlightCache[lineNum] : null;
-      if (cacheEntry && cacheEntry.raw === (lines[i] || '')) {
-        html = '<code class="hljs">' + cacheEntry.html + '</code>';
-      } else {
-        html = '<code class="hljs">' + escapeHtml(lines[i] || '') + '</code>';
-      }
-      blocks.push({
-        startLine: lineNum,
-        endLine: lineNum,
-        html: html,
-        isEmpty: lines[i].trim() === '',
-        cssClass: 'code-line'
-      });
-    }
-    return blocks;
   }
 
   // ===== buildLineBlocks helpers =====
@@ -125,15 +81,10 @@
       return addGapLineBlocks(blocks, sourceLines, blockEnd, blockEnd);
     }
 
-    var highlighted = '';
-    if (lang && hljs && hljs.getLanguage(lang)) {
-      try { highlighted = hljs.highlight(token.content, { language: lang }).value; } catch (e) {}
-    }
-    if (!highlighted) highlighted = escapeHtml(token.content);
-
-    var codeLines = splitHighlightedCode(highlighted);
-    // Remove trailing empty line from fence
-    if (codeLines.length > 0 && codeLines[codeLines.length - 1] === '') codeLines.pop();
+    var ch = codeHighlight();
+    var codeLines = (lang && ch && ch.lines(token.content, lang)) ||
+      token.content.replace(/\n$/, '').split('\n').map(escapeHtml);
+    if (token.content === '') codeLines = [];
 
     // Opening fence line
     blocks.push({
@@ -150,7 +101,7 @@
       var isLast = (ci === codeLines.length - 1 && blockEnd <= ln);
       blocks.push({
         startLine: ln, endLine: ln,
-        html: '<code class="hljs">' + (codeLines[ci] || '&nbsp;') + '</code>',
+        html: '<code class="crit-code">' + (codeLines[ci] || '&nbsp;') + '</code>',
         isEmpty: false, cssClass: 'code-line' + (isLast ? ' code-last' : '')
       });
       coveredUpTo = ln;
@@ -543,9 +494,7 @@
   }
 
   var api = {
-    splitHighlightedCode: splitHighlightedCode,
     rewriteFrontmatterAsYamlFence: rewriteFrontmatterAsYamlFence,
-    buildCodeLineBlocks: buildCodeLineBlocks,
     buildLineBlocks: buildLineBlocks,
     findCloseToken: findCloseToken,
     addGapLineBlocks: addGapLineBlocks,

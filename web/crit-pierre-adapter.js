@@ -90,6 +90,28 @@
     return oldLines.join('\n') + (trailingNewline ? '\n' : '');
   }
 
+  // Extensions Pierre's filename detection leaves as plain text that Crit
+  // highlighted before (see docs/frontend-js.md, "Language coverage").
+  var LANGUAGE_OVERRIDES = {
+    heex: 'html',
+    leex: 'html',
+    svg: 'xml',
+    gradle: 'groovy',
+  };
+
+  function languageOverride(path) {
+    var base = String(path || '').split('/').pop().toLowerCase();
+    var dot = base.lastIndexOf('.');
+    return dot > 0 ? LANGUAGE_OVERRIDES[base.slice(dot + 1)] || null : null;
+  }
+
+  // Pierre FileContents for a whole file (files-mode code view).
+  function buildFileContents(P, file, cacheKey) {
+    var contents = { name: file.path, contents: file.content || '', cacheKey: cacheKey };
+    var lang = languageOverride(file.path);
+    return lang ? P.setLanguageOverride(contents, lang) : contents;
+  }
+
   // Pierre FileDiffMetadata for a Crit file and the hunks to show. With both
   // sides reconstructed Pierre gets a full (expandable) diff; if the content
   // and hunks disagree (file changed after the diff was computed) it falls
@@ -100,12 +122,15 @@
     var patch = hunksToPatch(model);
     var newContent = file.content || '';
     var oldContent = reconstructOldContent(newContent, hunks);
-    if (oldContent === null) return P.processFile(patch, { cacheKey: cacheKey });
-    return P.processFile(patch, {
-      cacheKey: cacheKey,
-      oldFile: { name: model.old_path || file.path, contents: oldContent },
-      newFile: { name: file.path, contents: newContent },
-    });
+    var diff = oldContent === null
+      ? P.processFile(patch, { cacheKey: cacheKey })
+      : P.processFile(patch, {
+        cacheKey: cacheKey,
+        oldFile: { name: model.old_path || file.path, contents: oldContent },
+        newFile: { name: file.path, contents: newContent },
+      });
+    var lang = languageOverride(file.path);
+    return lang ? P.setLanguageOverride(diff, lang) : diff;
   }
 
   // Estimated line count for a file whose hunks are not loaded yet (lazy).
@@ -204,6 +229,8 @@
     themeTypeFor: themeTypeFor,
     navRowsForHunks: navRowsForHunks,
     buildFileDiff: buildFileDiff,
+    buildFileContents: buildFileContents,
+    languageOverride: languageOverride,
   };
 
   if (typeof window !== 'undefined') {

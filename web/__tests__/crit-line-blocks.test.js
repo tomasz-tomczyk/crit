@@ -14,12 +14,15 @@ const sandbox = {
         escapeHtml: function(s) {
           return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
-      }
-    },
-    hljs: {
-      getLanguage: function(language) { return language === 'yaml'; },
-      highlight: function(content) {
-        return { value: content.replace(/^(\w+):/gm, '<span class="hljs-attr">$1</span>:') };
+      },
+      // Stand-in for crit-code-highlight.js: yaml "grammar" colours keys.
+      codeHighlight: {
+        lines: function(content, lang) {
+          if (lang !== 'yaml') return null;
+          return content.replace(/\n$/, '').split('\n').map(function(l) {
+            return l.replace(/^(\w+):/, '<span style="--diffs-token-light:#a00;--diffs-token-dark:#f66">$1</span>:');
+          });
+        }
       }
     }
   },
@@ -94,41 +97,10 @@ test('rewriteFrontmatterAsYamlFence preserves line count and document maps', () 
     assert.ok(blocks.some(block => block.startLine === line), `line ${line} is commentable`);
   }
   assert.equal(blocks[0].html, '<span class="fence-marker">﻿---</span>');
-  assert.match(blocks[1].html, /code class="hljs"/);
-  assert.match(blocks[1].html, /hljs-attr/);
+  assert.match(blocks[1].html, /code class="crit-code"/);
+  assert.match(blocks[1].html, /--diffs-token-light/);
   assert.equal(blocks[5].html, '<span class="fence-marker">---</span>');
   assert.ok(blocks.some(block => block.startLine === 8 && /<h1/.test(block.html)));
-});
-
-// --- splitHighlightedCode ---
-
-test('splitHighlightedCode splits multiline HTML preserving spans across lines', () => {
-  const html = '<span class="hljs-keyword">if</span> (x)\n  <span class="hljs-built_in">console</span>.log(y)';
-  const result = lineBlocks.splitHighlightedCode(html);
-  assert.equal(result.length, 2);
-  // First line: span opens and closes within the line
-  assert.equal(result[0], '<span class="hljs-keyword">if</span> (x)');
-  // Second line: no span wrapping needed since the span was closed on line 1
-  assert.equal(result[1], '  <span class="hljs-built_in">console</span>.log(y)');
-});
-
-test('splitHighlightedCode reopens spans that cross line boundaries', () => {
-  // A span that opens on line 1 but does NOT close until line 2
-  const html = '<span class="hljs-string">"hello\nworld"</span>';
-  const result = lineBlocks.splitHighlightedCode(html);
-  assert.equal(result.length, 2);
-  // Line 1: span opened, closed at end of line (synthetic close)
-  assert.equal(result[0], '<span class="hljs-string">"hello</span>');
-  // Line 2: span reopened at start, then closed properly
-  assert.equal(result[1], '<span class="hljs-string">world"</span>');
-});
-
-test('splitHighlightedCode handles plain text without spans', () => {
-  const result = lineBlocks.splitHighlightedCode('line1\nline2\nline3');
-  assert.equal(result.length, 3);
-  assert.equal(result[0], 'line1');
-  assert.equal(result[1], 'line2');
-  assert.equal(result[2], 'line3');
 });
 
 // --- findCloseToken ---
@@ -159,37 +131,6 @@ test('findCloseToken returns openIdx when no close found', () => {
     { type: 'inline' }
   ];
   assert.equal(lineBlocks.findCloseToken(tokens, 0), 0);
-});
-
-// --- buildCodeLineBlocks ---
-
-test('buildCodeLineBlocks produces one block per line with correct line numbers', () => {
-  const file = { content: 'line1\nline2\nline3' };
-  const blocks = lineBlocks.buildCodeLineBlocks(file);
-  assert.equal(blocks.length, 3);
-  assert.equal(blocks[0].startLine, 1);
-  assert.equal(blocks[0].endLine, 1);
-  assert.equal(blocks[1].startLine, 2);
-  assert.equal(blocks[2].startLine, 3);
-  // Each block should have code-line class
-  assert.equal(blocks[0].cssClass, 'code-line');
-});
-
-test('buildCodeLineBlocks marks empty lines', () => {
-  const file = { content: 'hello\n\nworld' };
-  const blocks = lineBlocks.buildCodeLineBlocks(file);
-  assert.equal(blocks[0].isEmpty, false);
-  assert.equal(blocks[1].isEmpty, true);
-  assert.equal(blocks[2].isEmpty, false);
-});
-
-test('buildCodeLineBlocks uses highlight cache when available', () => {
-  const file = {
-    content: 'var x = 1;',
-    highlightCache: { 1: { raw: 'var x = 1;', html: '<span>var</span> x = 1;' } }
-  };
-  const blocks = lineBlocks.buildCodeLineBlocks(file);
-  assert.equal(blocks[0].html, '<code class="hljs"><span>var</span> x = 1;</code>');
 });
 
 // --- addGapLineBlocks ---

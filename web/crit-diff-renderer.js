@@ -144,7 +144,7 @@
     while (i < html.length) {
       // Skip HTML tags (don't count them as visible characters).
       // Keep any open word-diff span across tags — closing/reopening at each tag
-      // boundary creates empty highlight spans inside nested hljs markup.
+      // boundary creates empty highlight spans inside nested syntax markup.
       if (html[i] === '<') {
         var tagEnd = html.indexOf('>', i);
         if (tagEnd === -1) { result += html.slice(i); break; }
