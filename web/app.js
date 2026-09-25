@@ -1963,6 +1963,13 @@
   // Pierre file item. Pierre owns the header, collapse and virtualization.
   // The wrapper keeps the classic section shape so document helpers (TOC,
   // visual selection, comment focus) find it by id.
+  function buildPierreLoading() {
+    const el = document.createElement('div');
+    el.className = 'diff-deleted-placeholder pierre-loading';
+    el.textContent = 'Loading diff\u2026';
+    return el;
+  }
+
   function buildPierrePlaceholder(filePath) {
     const file = getFileByPath(filePath);
     const text = file && pierrePlaceholderText(file);
@@ -2123,6 +2130,7 @@
         if (kind === 'outdated') return buildPierreOutdated(filePath);
         if (kind === 'document') return buildPierreDocument(filePath);
         if (kind === 'placeholder') return buildPierrePlaceholder(filePath);
+        if (kind === 'loading') return buildPierreLoading();
         return buildPierreThread(filePath, id);
       },
       buildListHeader: function() { return document.getElementById('reviewConversation'); },
@@ -2432,6 +2440,9 @@
   // gesture recognizer can't cancel the tap (see attachPierrePointerHandlers).
   const PIERRE_UNSAFE_CSS =
     '::highlight(' + PIERRE_QUOTE_HIGHLIGHT + ') { background-color: var(--crit-quote-highlight-bg); }' +
+    // An unfetched file's stub rows are blank filler sized to the real diff;
+    // show only its "Loading diff" note (crit-pierre-view.js stubDiffFor).
+    ':host([data-crit-stub]) [data-gutter], :host([data-crit-stub]) [data-content] { visibility: hidden; }' +
     // Line numbers default to 65% of the text colour, under WCAG AA on tinted
     // gutters (85% clears it); the "N unmodified lines" label sits on the
     // lighter separator strip, so it takes the full text colour.

@@ -39,6 +39,10 @@ export const SHIKI_LANGS = [
   "shellscript", "shellsession", "solidity", "sql", "ssh-config", "stylus", "svelte", "swift",
   "terraform", "tex", "toml", "tsv", "tsx", "twig", "typescript", "v", "vb", "viml", "vue", "vyper",
   "wasm", "wgsl", "xml", "yaml", "zig",
+  // Languages highlight.js covered that Shiki has (fenced code and files):
+  "actionscript-3", "ada", "asciidoc", "bsl", "common-lisp", "coq", "haxe", "hy", "llvm", "nsis",
+  "openscad", "pascal", "prolog", "puppet", "qml", "sas", "scheme", "smalltalk", "stata", "tcl",
+  "vala", "verilog", "vhdl", "wolfram",
 ];
 
 // Drop what Crit never loads: Shiki's bundled theme index (Crit registers the

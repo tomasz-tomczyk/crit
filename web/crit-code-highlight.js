@@ -34,8 +34,17 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // Fence names people wrote for highlight.js that Shiki knows under another
+  // id (Shiki's own aliases, like js/sh/yml, resolve without this).
+  var FENCE_ALIASES = {
+    '1c': 'bsl', actionscript: 'actionscript-3', arduino: 'cpp', delphi: 'pascal', dos: 'bat',
+    fortran: 'fortran-free-form', gradle: 'groovy', heex: 'html', leex: 'html', lisp: 'common-lisp',
+    mathematica: 'wolfram', vbscript: 'vb',
+  };
+
   function normalize(lang) {
-    return String(lang || '').trim().toLowerCase().split(/[\s{]/)[0];
+    var id = String(lang || '').trim().toLowerCase().split(/[\s{]/)[0];
+    return FENCE_ALIASES[id] || id;
   }
 
   function cacheKey(code, lang) {

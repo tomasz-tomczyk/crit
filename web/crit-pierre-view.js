@@ -68,6 +68,12 @@
       return adapter.buildFileDiff(P, file, hunks, cacheKey);
     }
 
+    // A file whose diff has not been fetched yet (server-side lazy). Pierre
+    // has no unloaded-item concept (its loadDiffFiles hydrates contents for
+    // an existing patch), so the stub is a patch of blank lines sized from
+    // numstat: the list keeps roughly its final height and deep jumps land
+    // right. The host is marked data-crit-stub; Crit's CSS hides the blank
+    // rows and a "Loading diff" annotation shows instead.
     function stubDiffFor(file) {
       var n = adapter.estimatedLineCount(file);
       var p = file.path;
@@ -94,7 +100,9 @@
         id: file.path,
         type: 'diff',
         fileDiff: isStub ? stubDiffFor(file) : fileDiffFor(file),
-        annotations: isStub ? [] : annotationsFor(file),
+        annotations: isStub
+          ? [{ side: 'additions', lineNumber: 0, metadata: metadataFor('loading', file.path) }]
+          : annotationsFor(file),
         collapsed: !!file.collapsed,
         version: nextVersion(file.path),
       };
@@ -204,7 +212,12 @@
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(clear); else clear();
       },
       onPostRender: function(node, instance, phase, context) {
-        if (opts.onPostRender) opts.onPostRender(pathOf(context), node, phase);
+        var path = pathOf(context);
+        if (node && node.dataset) {
+          if (phase !== 'unmount' && stubs.has(path)) node.dataset.critStub = '1';
+          else delete node.dataset.critStub;
+        }
+        if (opts.onPostRender) opts.onPostRender(path, node, phase);
       },
     };
     // setOptions replaces the whole options object, so keep the source of truth here.
