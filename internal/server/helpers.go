@@ -46,10 +46,6 @@ func loadCommentsForShare(critPath string, filePaths []string, fallbackAuthor st
 	return share.LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
 }
 
-func loadPreviewShareComments(critPath string, sessionPaths []string, fallbackAuthor, entryPath string) ([]shareComment, int) {
-	return share.LoadPreviewShareComments(critPath, sessionPaths, fallbackAuthor, entryPath)
-}
-
 func loadCliArgsFromReviewFile(critPath string) []string {
 	return share.LoadCliArgsFromReviewFile(critPath)
 }
@@ -60,10 +56,6 @@ func dedupWebComments(cj CritJSON, incoming []webComment) ([]webComment, map[str
 
 func mergeWebComments(critPath string, newComments []webComment, replyUpdates map[string][]webReply) error {
 	return share.MergeWebComments(critPath, newComments, replyUpdates)
-}
-
-func crawlPreview(origin, entryPath string) ([]ShareFile, error) {
-	return session.CrawlPreview(origin, entryPath)
 }
 
 func saveAttachment(reviewPath string, data []byte) (string, error) {

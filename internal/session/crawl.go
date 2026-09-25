@@ -27,10 +27,9 @@ func PreviewEntryPath(htmlPath, baseDir string) string {
 	p := filepath.Clean(htmlPath)
 	if filepath.IsAbs(p) {
 		if baseDir == "" {
+			// On a Getwd error baseDir stays "", Rel fails, and relWithin
+			// returns "..", so the basename fallback below applies.
 			baseDir, _ = os.Getwd()
-		}
-		if baseDir == "" {
-			return filepath.Base(p)
 		}
 		p = relWithin(baseDir, p)
 	}

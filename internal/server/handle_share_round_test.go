@@ -921,6 +921,13 @@ func TestRekeyPulledPreviewComments(t *testing.T) {
 		t.Errorf("review-level comment file = %q, want empty", got[2].FilePath)
 	}
 
+	empty := &Session{ReviewType: "preview"}
+	got = comments()
+	rekeyPulledPreviewComments(empty, got)
+	if got[0].FilePath != "page.html" {
+		t.Errorf("preview session without files re-keyed comments: %+v", got)
+	}
+
 	files := &Session{Files: []*FileEntry{{Path: "plan.md"}}}
 	got = comments()
 	rekeyPulledPreviewComments(files, got)
