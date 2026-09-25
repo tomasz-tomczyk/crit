@@ -76,6 +76,7 @@ type writeFilesSnapshot struct {
 	story                   *Story
 	pendingRemoteDeletes    []RemoteRef
 	lastLoadedRemoteDeletes map[RemoteRef]struct{}
+	deletedCommentIDs       map[string]map[string]struct{}
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
 	files []writeFileSnapshot
@@ -179,7 +180,32 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	for _, fs := range snap.files {
 		mergeFileSnapshotIntoCritJSON(&cj, fs)
 	}
+	applyDeletedCommentIDs(&cj, snap.deletedCommentIDs)
 	return cj
+}
+
+// applyDeletedCommentIDs removes explicitly deleted comments even when their
+// paths no longer have a FileEntry (for example, after a base change or rename).
+// Tombstones are authoritative over both disk-only and in-memory copies.
+func applyDeletedCommentIDs(cj *CritJSON, deletedByPath map[string]map[string]struct{}) {
+	for path, deletedIDs := range deletedByPath {
+		file, ok := cj.Files[path]
+		if !ok || len(deletedIDs) == 0 {
+			continue
+		}
+		comments := file.Comments[:0]
+		for _, c := range file.Comments {
+			if _, deleted := deletedIDs[c.ID]; !deleted {
+				comments = append(comments, c)
+			}
+		}
+		if len(comments) == 0 {
+			delete(cj.Files, path)
+			continue
+		}
+		file.Comments = comments
+		cj.Files[path] = file
+	}
 }
 
 func reconcilePendingRemoteDeletes(snap, disk []RemoteRef, lastLoaded map[RemoteRef]struct{}) []RemoteRef {
@@ -312,11 +338,13 @@ func (s *Session) writeFilesErr() error {
 		// may still be valid for the timeline; full-folder cleanup belongs to
 		// explicit cleanup paths (clearCritJSON, ClearAllComments,
 		// deleteStaleReviews, cleanupOnApproval).
-		os.Remove(paths.Review)
+		if err := os.Remove(paths.Review); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing empty review file: %w", err)
+		}
 		s.mu.Lock()
 		s.lastCritJSONMtime = time.Time{}
 		s.pendingWrite = false
-		s.deletedCommentIDs = nil
+		s.clearWrittenDeletedCommentIDs(snap.deletedCommentIDs)
 		s.pendingRemoteDeletes = nil
 		s.lastLoadedPendingDeletes = nil
 		s.mu.Unlock()
@@ -336,7 +364,7 @@ func (s *Session) writeFilesErr() error {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
 		s.pendingWrite = false
-		s.deletedCommentIDs = nil // written to disk, no longer needed
+		s.clearWrittenDeletedCommentIDs(snap.deletedCommentIDs)
 		// Sync in-memory pending-delete state to what we just wrote, so the
 		// next snapshot does not re-include IDs that a concurrent
 		// `crit push` already drained. See reconcilePendingRemoteDeletes.
@@ -348,6 +376,24 @@ func (s *Session) writeFilesErr() error {
 		s.mu.Unlock()
 	}
 	return nil
+}
+
+// clearWrittenDeletedCommentIDs acknowledges only tombstones included in a
+// completed write snapshot. Deletions recorded while that write was doing disk
+// I/O belong to a later write and must remain pending. Caller must hold s.mu.
+func (s *Session) clearWrittenDeletedCommentIDs(written map[string]map[string]struct{}) {
+	for path, ids := range written {
+		current := s.deletedCommentIDs[path]
+		for id := range ids {
+			delete(current, id)
+		}
+		if len(current) == 0 {
+			delete(s.deletedCommentIDs, path)
+		}
+	}
+	if len(s.deletedCommentIDs) == 0 {
+		s.deletedCommentIDs = nil
+	}
 }
 
 // snapshotForWrite captures all session state needed by WriteFiles under RLock.
@@ -363,6 +409,13 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	lastLoaded := make(map[RemoteRef]struct{}, len(s.lastLoadedPendingDeletes))
 	for ref := range s.lastLoadedPendingDeletes {
 		lastLoaded[ref] = struct{}{}
+	}
+	deletedByPath := make(map[string]map[string]struct{}, len(s.deletedCommentIDs))
+	for path, ids := range s.deletedCommentIDs {
+		deletedByPath[path] = make(map[string]struct{}, len(ids))
+		for id := range ids {
+			deletedByPath[path][id] = struct{}{}
+		}
 	}
 	snap := writeFilesSnapshot{
 		critPath:                critPath,
@@ -383,6 +436,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		story:                   s.story,
 		pendingRemoteDeletes:    pendDeletes,
 		lastLoadedRemoteDeletes: lastLoaded,
+		deletedCommentIDs:       deletedByPath,
 		files:                   make([]writeFileSnapshot, len(s.Files)),
 	}
 	for i, f := range s.Files {

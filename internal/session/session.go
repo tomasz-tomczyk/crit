@@ -2357,7 +2357,7 @@ func (s *Session) ClearAllComments() {
 
 // ChangeBaseBranch changes the diff base to the given branch, recomputes merge-base,
 // rebuilds the file list with new diffs, and notifies connected browsers via SSE.
-// Comments are preserved for files that still appear in the new diff.
+// Comments are preserved even when their files no longer appear in the new diff.
 func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // inherent complexity: rollback, recompute diffs, preserve comments
 	s.mu.RLock()
 	mode := s.Mode
@@ -2395,13 +2395,6 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 	ignorePatterns := s.IgnorePatterns
 	generatedRules := s.generatedRules
 
-	// Preserve existing comments keyed by file path
-	commentsByPath := make(map[string][]Comment, len(s.Files))
-	for _, f := range s.Files {
-		if len(f.Comments) > 0 {
-			commentsByPath[f.Path] = f.Comments
-		}
-	}
 	s.mu.Unlock()
 
 	// Re-detect changed files with new base
@@ -2422,6 +2415,12 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 	}
 	changes = config.FilterIgnored(changes, ignorePatterns)
 	changes = filterBinary(changes)
+	renamedPaths := make([]pathRename, 0)
+	for _, fc := range changes {
+		if fc.OldPath != "" && fc.OldPath != fc.Path {
+			renamedPaths = append(renamedPaths, pathRename{from: fc.OldPath, to: fc.Path})
+		}
+	}
 
 	// Build new file entries, preserving comments
 	var newFiles []*FileEntry
@@ -2429,14 +2428,12 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 		absPath := filepath.Join(repoRoot, fc.Path)
 		fe := &FileEntry{
 			Path:      fc.Path,
+			OldPath:   fc.OldPath,
 			AbsPath:   absPath,
 			Status:    fc.Status,
 			FileType:  detectFileType(fc.Path),
-			Comments:  commentsByPath[fc.Path],
+			Comments:  []Comment{},
 			Generated: vcs.IsGenerated(fc.Path, generatedRules),
-		}
-		if fe.Comments == nil {
-			fe.Comments = []Comment{}
 		}
 		if fc.Status != "deleted" {
 			if data, readErr := os.ReadFile(absPath); readErr == nil {
@@ -2455,8 +2452,46 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 	}
 
 	s.mu.Lock()
+	// Capture comments only when the replacement list is ready, so comment
+	// mutations made while the VCS work ran are included in the new entries.
+	commentsByPath := make(map[string][]Comment, len(s.Files))
+	for _, f := range s.Files {
+		if len(f.Comments) > 0 {
+			commentsByPath[f.Path] = f.Comments
+		}
+	}
+	// A persisted comment may still be keyed by the old path. Keep pending
+	// deletion tombstones valid after the review JSON key moves to the new path.
+	for _, rename := range renamedPaths {
+		ids := s.deletedCommentIDs[rename.from]
+		if len(ids) == 0 {
+			continue
+		}
+		if s.deletedCommentIDs[rename.to] == nil {
+			s.deletedCommentIDs[rename.to] = make(map[string]struct{}, len(ids))
+		}
+		for id := range ids {
+			s.deletedCommentIDs[rename.to][id] = struct{}{}
+		}
+	}
 	s.Files = newFiles
+	commentFiles := make(map[string]CritJSONFile, len(commentsByPath))
+	for path, comments := range commentsByPath {
+		commentFiles[path] = CritJSONFile{Comments: comments}
+	}
+	s.appendOrphanedFiles(commentFiles)
 	s.mu.Unlock()
+
+	if len(renamedPaths) > 0 {
+		s.writeMu.Lock()
+		rewriteReviewJSONRenames(s.critJSONPath(), renamedPaths)
+		s.writeMu.Unlock()
+	}
+
+	// Pick up comments that only exist on disk (for example, from a base change
+	// made before orphaned files were preserved). Existing paths are merged and
+	// missing paths become orphaned phantom entries.
+	s.restoreOrphanedComments()
 
 	s.notify(SSEEvent{Type: "base-changed"})
 	return nil
@@ -2672,11 +2707,17 @@ func (s *Session) loadSnapshotsFromSidecar(identity string) bool {
 	return true
 }
 
-// restoreOrphanedComments reads the review file and creates phantom FileEntry
-// objects for any paths that have comments but aren't in s.Files.
-// Safe to call multiple times — existing entries (including previous orphans) are skipped.
+// restoreOrphanedComments reads the review file, merges comments onto matching
+// FileEntry objects, and creates phantoms for commented paths absent from s.Files.
+// Safe to call multiple times — comments are merged by ID and phantoms are not duplicated.
 // Must be called with s.mu NOT held (acquires the lock internally).
 func (s *Session) restoreOrphanedComments() {
+	// Serialize the disk read and in-memory merge with review-file writes. If a
+	// delete write wins first, we read the updated file; if restore wins first,
+	// deletedCommentIDs remains available to filter the stale disk entry.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	data, err := os.ReadFile(ReviewPathsFor(s.critJSONPath()).Review)
 	if err != nil {
 		return
@@ -2691,45 +2732,72 @@ func (s *Session) restoreOrphanedComments() {
 	s.appendOrphanedFiles(cj.Files)
 }
 
-// appendOrphanedFiles creates phantom FileEntry objects for paths in critFiles
-// that have comments but no matching entry in s.Files. Must be called with
-// s.mu held or during init (before concurrent access).
+// appendOrphanedFiles merges comments onto matching FileEntry objects and creates
+// phantom entries for paths in critFiles that have comments but no match in s.Files.
+// Must be called with s.mu held or during init (before concurrent access).
 func (s *Session) appendOrphanedFiles(critFiles map[string]CritJSONFile) {
-	knownPaths := make(map[string]bool, len(s.Files))
+	byPath := make(map[string]*FileEntry, len(s.Files))
 	byOldPath := make(map[string]*FileEntry)
 	for _, f := range s.Files {
-		knownPaths[f.Path] = true
+		byPath[f.Path] = f
 		if f.OldPath != "" {
 			byOldPath[f.OldPath] = f
 		}
 	}
 	for path, cf := range critFiles {
-		if knownPaths[path] || len(cf.Comments) == 0 {
+		s.applyOrphanedCritFile(path, cf, byPath, byOldPath)
+	}
+}
+
+// applyOrphanedCritFile merges one review-JSON file's comments onto a live or
+// renamed FileEntry, or appends an orphaned phantom when no match exists.
+func (s *Session) applyOrphanedCritFile(path string, cf CritJSONFile, byPath, byOldPath map[string]*FileEntry) {
+	f := byPath[path]
+	if f == nil {
+		f = byOldPath[path]
+	}
+	comments := omitTombstonedComments(cf.Comments, s.deletedCommentIDs[path])
+	if f != nil && f.Path != path {
+		comments = omitTombstonedComments(comments, s.deletedCommentIDs[f.Path])
+	}
+	if len(comments) == 0 {
+		return
+	}
+	if f != nil {
+		f.Comments = mergeCommentSlices(f.Comments, comments)
+		defaultEmptyCommentScopes(f.Comments)
+		return
+	}
+	fe := &FileEntry{
+		Path:     path,
+		Status:   "removed",
+		FileType: detectFileType(path),
+		Comments: comments,
+		Orphaned: true,
+	}
+	defaultEmptyCommentScopes(fe.Comments)
+	s.Files = append(s.Files, fe)
+}
+
+func omitTombstonedComments(comments []Comment, deleted map[string]struct{}) []Comment {
+	if len(deleted) == 0 {
+		return comments
+	}
+	out := make([]Comment, 0, len(comments))
+	for _, c := range comments {
+		if _, ok := deleted[c.ID]; ok {
 			continue
 		}
-		// #917: comments keyed under a pre-rename path belong on the renamed entry.
-		if f, ok := byOldPath[path]; ok {
-			f.Comments = mergeCommentSlices(f.Comments, cf.Comments)
-			for i := range f.Comments {
-				if f.Comments[i].Scope == "" {
-					f.Comments[i].Scope = "line"
-				}
-			}
-			continue
+		out = append(out, c)
+	}
+	return out
+}
+
+func defaultEmptyCommentScopes(comments []Comment) {
+	for i := range comments {
+		if comments[i].Scope == "" {
+			comments[i].Scope = "line"
 		}
-		fe := &FileEntry{
-			Path:     path,
-			Status:   "removed",
-			FileType: detectFileType(path),
-			Comments: cf.Comments,
-			Orphaned: true,
-		}
-		for i := range fe.Comments {
-			if fe.Comments[i].Scope == "" {
-				fe.Comments[i].Scope = "line"
-			}
-		}
-		s.Files = append(s.Files, fe)
 	}
 }
 
