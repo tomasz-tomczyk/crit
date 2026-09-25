@@ -1521,6 +1521,16 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		return 0, 0, errNoSharedReview
 	}
 	critPath := sess.CritJSONPath()
+	// Flush pending edits and cancel the debounced save first. Otherwise a
+	// save firing after MergeWebComments rewrites the review file from
+	// in-memory state and drops the comments just pulled — and a re-share
+	// then deletes them on crit-web. Skip it when there is no review file,
+	// so a missing file still reports as an error below.
+	if _, statErr := os.Stat(review.ReviewPathsFor(critPath).Review); statErr == nil {
+		if err := sess.SyncWriteFiles(); err != nil {
+			return 0, 0, err
+		}
+	}
 	data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review)
 	if readErr != nil {
 		if os.IsNotExist(readErr) {
@@ -1547,11 +1557,33 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		sess.SyncCommentsFromDisk()
 		return 0, 0, nil
 	}
+	rekeyPulledPreviewComments(sess, fetched.NewComments)
 	if err := share.MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
 		return 0, 0, err
 	}
 	sess.SyncCommentsFromDisk()
 	return len(fetched.NewComments), len(fetched.ReplyUpdates), nil
+}
+
+// rekeyPulledPreviewComments files comments pulled into a preview session
+// under the previewed HTML's session path. crit-web keys them by the payload
+// path (the entry path, or "index.html" for older shares), which is not a
+// session file when the HTML is outside the session root. Under such a key
+// the session never loads them and drops them on its next save, and the next
+// re-share then deletes them on crit-web.
+func rekeyPulledPreviewComments(sess *Session, comments []share.WebComment) {
+	if sess == nil || sess.ReviewType != "preview" {
+		return
+	}
+	paths := sess.FilePathsSnapshot()
+	if len(paths) == 0 {
+		return
+	}
+	for i := range comments {
+		if comments[i].Scope != "review" && comments[i].FilePath != "" {
+			comments[i].FilePath = paths[0]
+		}
+	}
 }
 
 var (

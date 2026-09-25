@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/share"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -895,5 +896,35 @@ func TestHandleShareReshare_EmptyFiles(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRekeyPulledPreviewComments(t *testing.T) {
+	comments := func() []share.WebComment {
+		return []share.WebComment{
+			{Body: "entry", FilePath: "page.html"},
+			{Body: "legacy", FilePath: "index.html"},
+			{Body: "review-level", Scope: "review"},
+		}
+	}
+
+	preview := &Session{ReviewType: "preview", Files: []*FileEntry{
+		{Path: "../site/page.html", FileType: "code"},
+		{Path: "/preview-content", FileType: "live-route"},
+	}}
+	got := comments()
+	rekeyPulledPreviewComments(preview, got)
+	if got[0].FilePath != "../site/page.html" || got[1].FilePath != "../site/page.html" {
+		t.Errorf("per-file comments = %q, %q; want both on ../site/page.html", got[0].FilePath, got[1].FilePath)
+	}
+	if got[2].FilePath != "" {
+		t.Errorf("review-level comment file = %q, want empty", got[2].FilePath)
+	}
+
+	files := &Session{Files: []*FileEntry{{Path: "plan.md"}}}
+	got = comments()
+	rekeyPulledPreviewComments(files, got)
+	if got[0].FilePath != "page.html" || got[1].FilePath != "index.html" {
+		t.Errorf("non-preview session re-keyed comments: %+v", got)
 	}
 }

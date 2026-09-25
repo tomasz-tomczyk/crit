@@ -68,7 +68,7 @@ func TestShareSyncPreviewOriginalPath_CLI(t *testing.T) {
 			}
 			abs := writeNamedPreviewFixture(t, filepath.Join(siteRoot, "artifacts", "reports"), "docs-minimize.html")
 
-			cmd := exec.Command(binary, "share", "--share-url", baseURL, "--output", cwd, "--preview", tc.arg(cwd, abs))
+			cmd := exec.Command(binary, "share", "--share-url", baseURL, "--preview", tc.arg(cwd, abs))
 			cmd.Dir = cwd
 			cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
 			out, err := cmd.CombinedOutput()
