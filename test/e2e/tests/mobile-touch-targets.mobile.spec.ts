@@ -1,7 +1,7 @@
 import { test, expect, type Locator } from '@playwright/test';
 import {
   clearAllComments, loadPage, getMdPath, mdSection, switchToDocumentView,
-  waitForPointerEvents,
+  tapCenter,
 } from './helpers';
 
 async function expectTouchTargets(targets: Locator, expectedCount?: number) {
@@ -60,9 +60,7 @@ test.describe('Mobile touch targets (F2)', () => {
     // A line below the sticky file header / picker bar, centred on screen.
     const gutter = doc.locator('.line-comment-gutter').nth(2);
     await expect(gutter).toBeVisible();
-    await gutter.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    await waitForPointerEvents(page);
-    await gutter.tap();
+    await tapCenter(page, gutter);
 
     const textarea = page.locator('.comment-form textarea').first();
     await expect(textarea).toBeVisible();

@@ -59,8 +59,11 @@ test.describe('Viewed Checkbox — Git Mode', () => {
 
   test('each file section has a viewed checkbox', async ({ page }) => {
     // CodeView only mounts files near the viewport, so visit each one.
+    // Earlier specs can add files to the shared fixture; the tree must list
+    // exactly the session's files.
     const paths = await treePaths(page);
-    expect(paths.length).toBe(10);
+    const session = await (await page.request.get('/api/session?scope=all')).json();
+    expect(paths.length).toBe(session.files.length);
     for (const p of paths) {
       await revealFile(page, p);
       await expect(viewedBox(page, p)).toHaveCount(1);
@@ -225,8 +228,11 @@ test.describe('Collapse/Expand All — Git Mode', () => {
     await page.locator('.file-tree-collapse-btn').click();
 
     // Every file is expanded again (visit each — only nearby files mount).
+    // Earlier specs can add files to the shared fixture; the tree must list
+    // exactly the session's files.
     const paths = await treePaths(page);
-    expect(paths.length).toBe(10);
+    const session = await (await page.request.get('/api/session?scope=all')).json();
+    expect(paths.length).toBe(session.files.length);
     for (const p of paths) {
       await revealFile(page, p);
       await expect(fileHeader(page, p)).not.toHaveClass(/\bcollapsed\b/);

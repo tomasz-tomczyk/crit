@@ -2503,6 +2503,11 @@
     let start = null;
     host.shadowRoot.addEventListener('pointerdown', function(e) {
       start = e.pointerType === 'touch' ? { x: e.clientX, y: e.clientY } : null;
+      // A tap on a line number opens a form (pointerup below). Cancel the
+      // tap's compatibility mouse events, or their mousedown on the gutter
+      // cell takes focus from the form's textarea. The cell is
+      // touch-action:none, so this does not affect scrolling.
+      if (start && e.target.closest && e.target.closest('[data-gutter] > [data-column-number]')) e.preventDefault();
     });
     host.shadowRoot.addEventListener('pointerup', function(e) {
       if (e.pointerType !== 'touch' || !start) return;

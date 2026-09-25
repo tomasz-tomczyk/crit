@@ -185,12 +185,23 @@ export async function clickWhenHittable(page: Page, target: Locator) {
 export async function tapCenter(page: Page, target: Locator) {
   // The row can re-render under us (hover/selection state), so re-resolve
   // until it is on screen and measurable.
+  // Pierre can still be settling layout after the scroll (neighbours
+  // hydrating), so tap only once the row holds its position for a frame and
+  // is what the point hits.
   let box: { x: number; y: number; width: number; height: number } | null = null;
   await expect(async () => {
     await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     await waitForPointerEvents(page);
+    const first = await target.boundingBox();
+    await nextFrames(page);
     box = await target.boundingBox();
-    expect(box).not.toBeNull();
+    expect(first && box && Math.abs(first.y - box.y) < 1).toBe(true);
+    const hits = await target.evaluate((el, p) => {
+      const root = el.getRootNode() as Document | ShadowRoot;
+      const hit = root.elementFromPoint(p.x, p.y);
+      return !!hit && (hit === el || el.contains(hit));
+    }, { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 });
+    expect(hits).toBe(true);
   }).toPass({ timeout: 10_000 });
   await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
