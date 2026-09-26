@@ -22,7 +22,10 @@
     ':host([data-crit-document]) [data-content] { grid-column: 1 / -1; }' +
     ':host([data-crit-document]) [data-content] > * { grid-column: 1 / -1; }' +
     ':host([data-crit-document]) [data-content] > [data-line] { display: none; }' +
-    '::highlight(' + PIERRE_QUOTE_HIGHLIGHT + ') { background-color: var(--crit-quote-highlight-bg); }' +
+    // Match Crit's quoted-text cue without wrapping renderer-owned tokens.
+    // Highlight pseudos support text-decoration rather than border-bottom.
+    '::highlight(' + PIERRE_QUOTE_HIGHLIGHT + ') { background-color: var(--crit-quote-highlight-bg);' +
+    ' text-decoration: underline; text-decoration-color: var(--crit-quote-highlight-border); text-decoration-thickness: 1.5px; }' +
     '@media (pointer: coarse) {' +
     '  [data-gutter] > [data-column-number] { touch-action: none; }' +
     '  [data-gutter] > [data-column-number] [data-line-number-content]::before { content: "+"; display: inline-block; width: 1.2ch;' +
@@ -217,6 +220,17 @@
     const pierreRangeSheet = new CSSStyleSheet();
     const pierreQuoteRanges = new Map();
     let css = '';
+    let quoteSyncPending = false;
+    function schedulePierreQuoteHighlight() {
+      if (quoteSyncPending) return;
+      quoteSyncPending = true;
+      // Cached inline renders finish before the caller attaches their host.
+      // Publish after that DOM transaction, then prune hosts it removed.
+      queueMicrotask(function() {
+        quoteSyncPending = false;
+        syncPierreQuoteHighlight();
+      });
+    }
     function adoptPierreRangeSheet(root) {
       if (root && root.adoptedStyleSheets.indexOf(pierreRangeSheet) === -1) {
         root.adoptedStyleSheets = root.adoptedStyleSheets.concat(pierreRangeSheet);
@@ -258,9 +272,9 @@
         const had = pierreQuoteRanges.has(host);
         const ranges = pierreQuoteRangesFor(host, quoted);
         if (ranges.length) pierreQuoteRanges.set(host, ranges); else pierreQuoteRanges.delete(host);
-        if (had || ranges.length) syncPierreQuoteHighlight();
+        if (had || pierreQuoteRanges.size) schedulePierreQuoteHighlight();
       },
-      unmount(host) { if (pierreQuoteRanges.delete(host)) syncPierreQuoteHighlight(); },
+      unmount(host) { if (pierreQuoteRanges.delete(host)) schedulePierreQuoteHighlight(); },
     };
   }
 

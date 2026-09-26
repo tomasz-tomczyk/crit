@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   clearAllComments, loadPage, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile,
-  submitFileLevelComment,
+  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC,
 } from './helpers';
 import { stateFilePath } from './state-file';
 
@@ -213,6 +213,33 @@ test.describe('Story mode', () => {
   test.afterEach(async ({ request }) => {
     // Leave the shared server story-less for every other spec in this project.
     await clearStory(request);
+  });
+
+  test('selected words stay underlined in Slack Dark while commenting in a story', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome, { story: MERGED_HUNK_STORY });
+    await loadPage(page);
+    await page.locator('#settingsToggle').click();
+    await page.locator('[data-settings-theme="dark"]').click();
+    await page.locator('#darkPaletteSelect').selectOption('slack-dark');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('html')).toHaveAttribute('data-crit-palette', 'slack-dark');
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="server.go"]');
+    const selected = await selectInLineAndPressC(page, group, 24);
+    const textarea = group.locator('.comment-form textarea');
+    await expect(textarea).toBeFocused();
+    await expect.poll(() => page.evaluate(() =>
+      [...(CSS.highlights.get('crit-quote') || [])].map(range => range.toString()),
+    )).toEqual([selected.trim()]);
+    await expectPaintedQuote(page);
+    await textarea.fill('Story Slack Dark quote');
+    await textarea.press('Control+Enter');
+    await expect(group.locator('.comment-card', { hasText: 'Story Slack Dark quote' })).toBeVisible();
+    await expectPaintedQuote(page);
+    await railRow(page, 'overview').click();
+    await tocItem(page, 'ch1').click();
+    await expectPaintedQuote(page);
   });
 
   test('a review with no story renders the flat layout', async ({ page }) => {

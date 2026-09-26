@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page, Locator } from '@playwright/test';
 import {
   clearAllComments, getMdPath, loadPage, goSection, mdSection,
-  switchToDocumentView, diffLine, diffLineNumber, setDiffStyle,
+  switchToDocumentView, diffLine, setDiffStyle, expectPaintedQuote, selectInLineAndPressC,
 } from './helpers';
 
 // Helper: drag-select between two coordinates, then press `c` to comment.
@@ -44,76 +44,6 @@ function quoteHighlights(page: Page) {
       };
     });
   });
-}
-
-// Mouse-select part of one diff line's text (inside Pierre's shadow root),
-// then press c. Returns the selected text.
-//
-// Drag points come from the text itself (the gutter and hover "+" overlap the
-// start of the line box). Chromium occasionally ends a drag inside a shadow
-// root without a selection, so the gesture is retried from a slightly
-// different start until the browser reports a non-empty composed selection.
-async function selectInLineAndPressC(page: Page, item: Locator, lineNo: number): Promise<string> {
-  const line = diffLine(item, lineNo);
-  let attempt = 0;
-  let selected = '';
-  await expect(async () => {
-    attempt++;
-    // Scroll via the (narrow) line number: scrolling the wide line element
-    // also scrolls the code column sideways, under the sticky gutter.
-    await diffLineNumber(item, lineNo).scrollIntoViewIfNeeded({ timeout: 1000 });
-    const pts = await line.evaluate((el, offset) => {
-      const nodes: Text[] = [];
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-      let n: Node | null;
-      while ((n = walker.nextNode())) nodes.push(n as Text);
-      const text = nodes.map(t => t.data).join('');
-      const from = text.search(/\S/) + offset;
-      const to = Math.min(text.length - 2, from + 20);
-      const at = (idx: number) => {
-        let i = idx;
-        for (const t of nodes) {
-          if (i < t.data.length) {
-            const r = document.createRange();
-            r.setStart(t, i);
-            r.setEnd(t, i + 1);
-            const b = r.getBoundingClientRect();
-            return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-          }
-          i -= t.data.length;
-        }
-        return null;
-      };
-      const start = at(from);
-      const end = at(to);
-      if (!start || !end) return null;
-      // Only drag once Pierre has pointer events on (the document-level hit is
-      // the host) and the start point is this line's text.
-      const root = el.getRootNode() as ShadowRoot;
-      const hit = root.elementFromPoint(start.x, start.y);
-      if (document.elementFromPoint(start.x, start.y) !== root.host || !hit || !el.contains(hit)) return null;
-      return { start, end };
-    }, 1 + (attempt % 8));
-    expect(pts).toBeTruthy();
-    await page.mouse.move(pts!.start.x, pts!.start.y);
-    await page.mouse.down();
-    await page.mouse.move(pts!.end.x, pts!.end.y, { steps: 5 });
-    await page.mouse.up();
-    selected = await page.evaluate(() => {
-      const sel = window.getSelection()!;
-      const roots = Array.from(document.querySelectorAll('diffs-container'))
-        .map(h => h.shadowRoot).filter((r): r is ShadowRoot => !!r);
-      const [r] = sel.getComposedRanges({ shadowRoots: roots });
-      if (!r) return '';
-      const live = document.createRange();
-      live.setStart(r.startContainer, r.startOffset);
-      live.setEnd(r.endContainer, r.endOffset);
-      return live.toString();
-    });
-    expect(selected.trim()).not.toBe('');
-  }).toPass({ timeout: 15_000 });
-  await page.keyboard.press('c');
-  return selected;
 }
 
 test.describe('Select-to-comment (git mode)', () => {
@@ -509,6 +439,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await expect.poll(() => quoteHighlights(page)).toEqual([
         { text, line: 24, type: 'change-addition', column: 'new' },
       ]);
+      await expectPaintedQuote(page);
 
       // The quote is saved with the comment.
       await textarea.fill('split quote');
@@ -521,6 +452,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await expect.poll(() => quoteHighlights(page)).toEqual([
         { text, line: 24, type: 'change-addition', column: 'new' },
       ]);
+      await expectPaintedQuote(page);
     });
 
     test('quote highlight appears on addition line, not deletion line in unified diff (issue #133)', async ({ page }) => {
@@ -541,6 +473,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await expect.poll(() => quoteHighlights(page)).toEqual([
         { text: selected.trim(), line: 24, type: 'change-addition', column: 'new' },
       ]);
+      await expectPaintedQuote(page);
     });
 
     test('quote highlight appears in markdown diff view while form is open', async ({ page }) => {
@@ -555,6 +488,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       await expect.poll(() => quoteHighlights(page)).toEqual([
         { text: selected.trim(), line: 5, type: 'change-addition', column: 'new' },
       ]);
+      await expectPaintedQuote(page);
     });
   });
 });
