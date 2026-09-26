@@ -24,6 +24,9 @@ test('unified line and quote lookup resolve old context coordinates and avoid op
     if (!host) throw new Error('Pierre host did not mount');
     const decorations = dom.createDecorations();
     decorations.mount(host, 'audit.txt', [{ start: 4, end: 4, side: 'old', quote: 'four', offset: 0 }]);
+    // mount publishes CSS Custom Highlight via queueMicrotask so a cached
+    // FileDiff can attach its host in the same task first.
+    await Promise.resolve();
     const highlights = [...(CSS.highlights.get('crit-quote') || [])];
     const highlighted = highlights.map(range => {
       const el = range.startContainer.parentElement?.closest('[data-line]') as HTMLElement | null;

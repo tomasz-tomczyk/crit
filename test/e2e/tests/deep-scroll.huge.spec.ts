@@ -81,12 +81,17 @@ async function expectSettledAt(page: Page, path: string) {
   const header = fileHeader(page, path);
   await expect(header).toBeInViewport();
   // Pierre can remount the item once as it measures; start sampling when
-  // the header is back, then require it to hold.
-  await expect.poll(async () => (await header.boundingBox()) !== null).toBe(true);
+  // the header is back, then require it to hold. A remount mid-window
+  // (common on slower Windows CI) discards the partial samples.
   const tops: number[] = [];
-  for (let i = 0; i < 10; i++) {
+  while (tops.length < 10) {
+    await expect.poll(async () => (await header.boundingBox()) !== null).toBe(true);
     const box = await header.boundingBox();
-    tops.push(box ? Math.round(box.y) : NaN);
+    if (!box) {
+      tops.length = 0;
+      continue;
+    }
+    tops.push(Math.round(box.y));
     await page.waitForFunction(() => new Promise(r => setTimeout(() => r(true), 100)));
   }
   expect(Math.max(...tops) - Math.min(...tops), `header top samples ${tops.join(',')}`).toBeLessThanOrEqual(2);
