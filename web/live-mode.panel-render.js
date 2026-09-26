@@ -46,17 +46,12 @@
       var commentMd = null;
       try {
         if (typeof window.markdownit === 'function') {
+          // Same options as code review's comment renderer: fenced code
+          // renders plain (code review upgrades it with Shiki afterwards).
           commentMd = window.markdownit({
             html: true,
             linkify: true,
             typographer: true,
-            highlight: function (str, lang) {
-              var highlighter = window.hljs;
-              if (lang && highlighter && highlighter.getLanguage(lang)) {
-                try { return highlighter.highlight(str, { language: lang }).value; } catch (_) {}
-              }
-              return '';
-            },
           });
           commentMd.disable('replacements');
           commentMd.renderer.rules.image = function (tokens, idx, options, _env, self) {

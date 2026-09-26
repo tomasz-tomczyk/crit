@@ -2,16 +2,13 @@
   'use strict';
 
   // ===== Comment Markdown Renderer =====
+  // Fenced code renders plain here: comment HTML is sanitised (token styles
+  // would be stripped), so codeHighlight.upgrade() highlights the mounted
+  // <code class="language-x"> blocks afterwards (see watchCodeBlocks).
   const commentMd = window.markdownit({
     html: true,
     linkify: true,
     typographer: true,
-    highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch {}
-      }
-      return '';
-    }
   });
   // Disable (c)/(r)/(tm) → ©/®/™ replacements so enumerated options render
   // literally. Keep typographer (smart quotes) and disable only replacements.
@@ -85,38 +82,26 @@
   // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
   // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
   function scrollToCommentRef(id) {
-    let card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
-    if (!card) {
-      // Line cards live in deferred .file-body — mount the owning file and retry.
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        const comments = f.comments || [];
-        let found = false;
-        for (let j = 0; j < comments.length; j++) {
-          if (comments[j].id === id) { found = true; break; }
-        }
-        if (!found) continue;
-        const section = document.getElementById('file-section-' + f.path);
-        if (!section) continue;
-        section.open = true;
-        if (f.lazy) {
-          loadLazyFile(section, f, function() { scrollToCommentRef(id); });
-          return;
-        }
-        ensureFileBodyMounted(section, f);
-        card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
-        break;
-      }
+    if (pierreViewActive()) {
+      const owner = files.find(function(f) {
+        return (f.comments || []).some(function(c) { return c.id === id; });
+      });
+      if (owner) pierreJumpToComment(id, owner.path, flashCommentRefCard);
+      return;
     }
+    // Story view: the card is in the chapter pane when its chapter is shown.
+    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
     if (!card) return;
-    // Make sure any containing <details> file section is open
-    const section = card.closest('details');
-    if (section && !section.open) section.open = true;
+    flashCommentRefCard(card);
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function flashCommentRefCard(card) {
+    const id = card.dataset.commentId;
     if (card.classList.contains('collapsed')) {
       card.classList.remove('collapsed');
       if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
     }
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     card.classList.remove('comment-ref-flash');
     void card.offsetWidth;
     card.classList.add('comment-ref-flash');
@@ -257,15 +242,14 @@
   };
 
   // ===== Document Markdown Renderer =====
+  // Fences are highlighted by Shiki (window.crit.codeHighlight); loadSingleFile
+  // preloads each document's fence grammars before parsing.
   const documentMd = window.markdownit({
     html: true,
     typographer: true,
     linkify: true,
     highlight: function(str, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(str, { language: lang }).value; } catch {}
-      }
-      return '';
+      return window.crit.codeHighlight.html(str, lang);
     }
   });
   // Disable (c)/(r)/(tm) → ©/®/™ replacements so enumerated options render
@@ -433,7 +417,7 @@
       } else {
         diffMode = getSetting('diffMode', 'split');
       }
-      renderAllFilesKeepingPlace();
+      renderAllFiles();
     });
   }
   let diffScope = getSetting('diffScope', null); // null = no preference saved yet
@@ -520,6 +504,9 @@
 
   function removeForm(key) {
     activeForms = activeForms.filter(function(f) { return f.formKey !== key; });
+    // A reopened composer has the same key but a new model and empty draft.
+    // Do not reuse the old textarea or callbacks after submit/cancel.
+    if (pierreView) pierreView.forgetAnnotation('form:' + key);
   }
 
   function getFormsForFile(filePath) {
@@ -538,17 +525,12 @@
   }
   let selectionStart = null;
   let selectionEnd = null;
-  let unifiedVisualStart = null; // visual index range for unified drag (cross-number-space)
-  let unifiedVisualEnd = null;
   let focusedBlockIndex = null;
   let focusedFilePath = null;
   let focusedElement = null; // currently focused navigable element
   let navElements = []; // cached .kb-nav list, rebuilt on render
   // Stable j/k position across re-renders (DOM refs and block indices alone are not enough).
   let keyboardFocusTarget = null; // { filePath, blockIndex?, diffLineNum?, diffSide?, startLine?, endLine? }
-  // Vim-style visual line mode (entered with V).
-  // { kind: 'markdown'|'diff', filePath, anchorStartLine, anchorEndLine, anchorSide }
-  let visualMode = null;
   let changeGroups = [];      // [{elements: [DOM], filePath: string}]
   let currentChangeIdx = -1;
 
@@ -579,10 +561,22 @@
   // Fetch and build file objects from the API for a list of file infos.
   // Files marked as lazy by the backend are returned with metadata only;
   // their content/diff/comments are fetched on demand when expanded.
-  async function loadAllFileData(fileInfos, scope) {
-    const hasLazy = fileInfos.some(function(fi) { return fi.lazy; });
+  // The server's `lazy` flag only marks files it has not pre-loaded, and
+  // scoped sessions (e.g. scope=branch) never set it. Loading every file
+  // up front costs three requests per file — thousands on a large review —
+  // and the browser drops the overflow (ERR_INSUFFICIENT_RESOURCES), which
+  // then rendered as "No changes". Load at most EAGER_FILE_LIMIT files up
+  // front; the rest become lazy placeholders filled on demand. Orphaned
+  // files (comments only) are cheap and always load eagerly.
+  const EAGER_FILE_LIMIT = 25;
 
-    // If no lazy files, load everything eagerly (identical to previous behavior)
+  function loadsEagerly(fi, index) {
+    return !!fi.orphaned || (!fi.lazy && index < EAGER_FILE_LIMIT);
+  }
+
+  async function loadAllFileData(fileInfos, scope) {
+    const hasLazy = fileInfos.some(function(fi, i) { return !loadsEagerly(fi, i); });
+
     if (!hasLazy) {
       return Promise.all(fileInfos.map(function(fi) { return loadSingleFile(fi, scope); }));
     }
@@ -591,10 +585,10 @@
     const eager = [];
     const lazy = [];
     for (let i = 0; i < fileInfos.length; i++) {
-      if (fileInfos[i].lazy) {
-        lazy.push(fileInfos[i]);
-      } else {
+      if (loadsEagerly(fileInfos[i], i)) {
         eager.push(fileInfos[i]);
+      } else {
+        lazy.push(fileInfos[i]);
       }
     }
 
@@ -621,8 +615,6 @@
         deletions: fi.deletions || 0,
         lazy: true,
         generated: !!fi.generated,
-        diffTooLarge: false,
-        diffLoaded: false,
         fileHash: '',
       };
     });
@@ -631,7 +623,7 @@
   }
 
   // Load a single file's content, comments, and diff from the API.
-  async function loadSingleFile(fi, scope) {
+  async function loadSingleFile(fi, scope, signal) {
     // Orphaned files have no content or diff — only fetch comments
     if (fi.orphaned) {
       const comments = await fetch('/api/file/comments?path=' + enc(fi.path))
@@ -655,8 +647,6 @@
         lazy: false,
         orphaned: true,
         generated: false,
-        diffTooLarge: false,
-        diffLoaded: false,
         fileHash: '',
       };
     }
@@ -672,10 +662,11 @@
       diffUrl += '&w=1';
     }
     const [fileRes, commentsRes, diffRes] = await Promise.all([
-      fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
-      fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
-      fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
+      fetch('/api/file?path=' + enc(fi.path), { signal }).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
+      fetch('/api/file/comments?path=' + enc(fi.path), { signal }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+      fetch(diffUrl, { signal }).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
     ]);
+    if (signal && signal.aborted) return null;
     const content = Object.prototype.hasOwnProperty.call(diffRes, 'content')
       ? diffRes.content
       : (fileRes.content || '');
@@ -703,32 +694,17 @@
       fileHash: fileRes.file_hash || '',
     };
 
-    // Mark large diffs for deferred rendering
-    let diffLineCount = 0;
-    for (let h = 0; h < f.diffHunks.length; h++) {
-      diffLineCount += (f.diffHunks[h].Lines || []).length;
-    }
-    f.diffTooLarge = diffLineCount > 1000;
-    f.diffLoaded = !f.diffTooLarge;
-
-    // Pre-highlight code and markdown files for diff rendering
-    if (f.fileType === 'code' || f.fileType === 'markdown') {
-      f.highlightCache = preHighlightFile(f);
-      f.lang = langFromPath(f.path);
-    }
-
-    // In file mode, build line blocks so code files render as document view
-    if (f.fileType === 'code' && session.mode !== 'git') {
-      f.lineBlocks = buildCodeLineBlocks(f);
-    }
-
-    // Parse markdown content into line blocks
+    // Parse markdown content into line blocks. Fenced code is tokenized in
+    // Pierre's workers first, so the blocks render highlighted.
     if (f.fileType === 'markdown') {
-      const parsed = parseMarkdown(f.content);
+      const current = parseMarkdownTokens(f.content);
+      const previous = f.previousContent ? parseMarkdownTokens(f.previousContent) : null;
+      await window.crit.codeHighlight.prime(fencesIn(current).concat(previous ? fencesIn(previous) : []));
+      const parsed = buildMarkdown(current, f.content);
       f.lineBlocks = parsed.blocks;
       f.tocItems = parsed.tocItems;
-      if (f.previousContent) {
-        f.previousLineBlocks = parseMarkdown(f.previousContent).blocks;
+      if (previous) {
+        f.previousLineBlocks = buildMarkdown(previous, f.previousContent).blocks;
       }
     }
 
@@ -808,6 +784,11 @@
     saveViewedState();
     updateViewedCount();
     updateTreeViewedState();
+    if (pierreView && pierreViewActive()) {
+      // Header is rebuilt by the item update (checkbox state included).
+      pierreView.setCollapsed(file, file.viewed ? true : file.collapsed);
+      return;
+    }
     // Update the checkbox in the file header
     const section = document.getElementById('file-section-' + filePath);
     if (section) {
@@ -867,6 +848,7 @@
 
   // ===== Init =====
   async function init() {
+    watchCodeBlocks();
     initTheme();
     initWidth();
     // Code font is a pure CSS-variable override; no mode-specific work here,
@@ -887,8 +869,7 @@
     updateHeaderHeight();
     window.addEventListener('resize', updateHeaderHeight);
 
-    document.getElementById('filesContainer').innerHTML =
-      '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
+    showFilesMessage('Loading...');
 
     const initialResponses = await Promise.all([
       fetchWhenReady('/api/session' + (diffScope ? '?scope=' + enc(diffScope) : '')),
@@ -1126,6 +1107,9 @@
     applyAutoViewedOnce(autoViewedPatterns);
     updateDiffModeToggle();
     renderFileTree();
+    // The Pierre bundle loads as an ES module in parallel with this script.
+    if (window.critPierreReady) await window.critPierreReady;
+    applyCritPalette();
     renderAllFiles();
     buildToc();
     updateCommentCount();
@@ -1165,92 +1149,21 @@
     }
   }
 
-  // ===== Syntax Highlighting for Diffs =====
-  // Most extensions are resolved via hljs's built-in alias system
-  // (e.g. .feature → gherkin, .md → markdown, .tsx → typescript, .toml → ini,
-  // .scss → scss, .h/.hpp → c/cpp, .yml → yaml, .kt → kotlin, .rb → ruby,
-  // .dockerfile → dockerfile, .makefile → makefile). Only extensions that hljs
-  // does NOT cover via aliases need entries here.
-  const EXT_OVERRIDES = {
-    tf: 'hcl',         // Terraform — hljs has no .tf alias
-    htm: 'xml',        // hljs aliases html but not htm
-    svg: 'xml',
-    cs: 'csharp',
-    sh: 'bash',
-    zig: 'zig',        // not a built-in alias in our bundle
-    md: 'markdown',    // normalize: callers compare lang against 'markdown'
-    heex: 'heex',
-    leex: 'heex',
-    vue: 'vue',        // third-party grammar (highlightjs-vue)
-    astro: 'astro',    // third-party grammar (highlightjs-astro-js)
-    rake: 'ruby',      // hljs has no .rake alias (Rakefiles are Ruby)
-  };
-  // Files identified by basename rather than extension.
-  const BASENAME_LANG = {
-    dockerfile: 'dockerfile',
-    makefile: 'makefile',
-    gemfile: 'ruby',
-    rakefile: 'ruby',
-  };
-  function langFromPath(filePath) {
-    if (!filePath) return null;
-    const base = filePath.split('/').pop() || '';
-    const baseLower = base.toLowerCase();
-    // Pure basename (no extension) — Dockerfile, Makefile, etc.
-    if (!baseLower.includes('.') && BASENAME_LANG[baseLower]) {
-      return BASENAME_LANG[baseLower];
-    }
-    const ext = baseLower.includes('.') ? baseLower.split('.').pop() : '';
-    if (ext && EXT_OVERRIDES[ext]) return EXT_OVERRIDES[ext];
-    if (ext && hljs.getLanguage(ext)) return ext;
-    // Fall back to basename match (catches Dockerfile.something edge cases too).
-    return BASENAME_LANG[baseLower] || null;
-  }
-
-  // Pre-highlight file content and return array of highlighted lines (1-indexed).
-  // highlightedLines[lineNum] = highlighted HTML for that line.
-  function preHighlightFile(file) {
-    if (!file.content) return null;
-    const lang = langFromPath(file.path);
-    if (!lang || !hljs.getLanguage(lang)) return null;
-    try {
-      const highlighted = hljs.highlight(file.content, { language: lang, ignoreIllegals: true }).value;
-      const htmlLines = splitHighlightedCode(highlighted);
-      const rawLines = file.content.split('\n');
-      // Return 1-indexed: result[1] = first line
-      const result = [null]; // index 0 unused
-      for (let i = 0; i < htmlLines.length; i++) {
-        result.push({ html: htmlLines[i], raw: rawLines[i] });
-      }
-      return result;
-    } catch {
-      return null;
-    }
-  }
-
-  // Get highlighted HTML for a single diff line.
-  // Uses pre-highlighted cache for new-side lines, falls back to per-line for old-side.
-  // The cache is keyed by working-tree line number, but in branch/staged/commit-pinned
-  // diffs the diff's NewNum may address a different revision. Verify the cached source
-  // line matches `content` before trusting the cache hit.
-  function highlightDiffLine(content, lineNum, side, highlightCache, lang) {
-    if (highlightCache && lineNum > 0 && side !== 'old') {
-      const entry = highlightCache[lineNum];
-      if (entry && entry.raw === content) return entry.html;
-    }
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
-      } catch {}
-    }
-    return escapeHtml(content);
-  }
-
   // ===== Markdown Parsing =====
-  function parseMarkdown(content) {
+  function parseMarkdownTokens(content) {
+    return documentMd.parse(rewriteFrontmatterAsYamlFence(content), {});
+  }
+
+  function fencesIn(tokens) {
+    return tokens.filter(function(t) { return t.type === 'fence'; }).map(function(t) {
+      return { code: t.content, lang: t.info.trim().split(/\s+/)[0] };
+    }).filter(function(f) { return f.lang && f.lang !== 'mermaid'; });
+  }
+
+  // Heading slugs are assigned while rendering, so the counter resets here,
+  // right before this synchronous build.
+  function buildMarkdown(tokens, content) {
     headingSlugCounter.clear();
-    const rewrittenContent = rewriteFrontmatterAsYamlFence(content);
-    const tokens = documentMd.parse(rewrittenContent, {});
     const blocks = buildLineBlocks(tokens, documentMd, content);
     const tocItems = extractTocItems(tokens);
     return { blocks, tocItems };
@@ -1271,8 +1184,6 @@
   }
 
   // Line-block building — extracted to crit-line-blocks.js (window.crit.lineBlocks)
-  const splitHighlightedCode = window.crit.lineBlocks.splitHighlightedCode;
-  const buildCodeLineBlocks = window.crit.lineBlocks.buildCodeLineBlocks;
   const buildLineBlocks = window.crit.lineBlocks.buildLineBlocks;
   const rewriteFrontmatterAsYamlFence = window.crit.lineBlocks.rewriteFrontmatterAsYamlFence;
 
@@ -1332,26 +1243,8 @@
 
   // ===== File Tree Sidebar =====
   let activeTreePath = null;
-  let treeObserver = null;
-  let bodyMountObserver = null;
   let ignoreTreeObserverUntil = 0;
-  let ignoreBodyMountObserverUntil = 0;
-  let bodyMountSuppressTimer = null;
   const treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
-
-  // Suppress observer-driven mounts briefly (e.g. during scrollToFile) so
-  // adjacent bodies don't push the target out of view. When the window
-  // expires, remount anything still visible — IntersectionObserver will not
-  // re-fire for elements that stayed intersecting while we ignored callbacks.
-  function suppressBodyMountObserver(ms) {
-    ignoreBodyMountObserverUntil = Date.now() + ms;
-    if (bodyMountSuppressTimer) clearTimeout(bodyMountSuppressTimer);
-    bodyMountSuppressTimer = setTimeout(function() {
-      bodyMountSuppressTimer = null;
-      if (Date.now() < ignoreBodyMountObserverUntil) return;
-      mountVisibleDeferredBodies();
-    }, ms + 10);
-  }
 
   function buildFileTree(fileList) {
     // Build a nested tree from flat paths
@@ -1427,16 +1320,12 @@
       collapseBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 3.22a.75.75 0 0 1 1.06 0L8 5.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 4.28a.75.75 0 0 1 0-1.06zm0 5a.75.75 0 0 1 1.06 0L8 10.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 9.28a.75.75 0 0 1 0-1.06z"/></svg>';
       collapseBtn.addEventListener('click', function() {
         const anyExpanded = files.some(function(f) { return !f.collapsed; });
-        for (let i = 0; i < files.length; i++) {
-          files[i].collapsed = anyExpanded;
-        }
-        const sections = document.querySelectorAll('.file-section');
-        for (let i = 0; i < sections.length; i++) {
-          sections[i].open = !anyExpanded;
-        }
-        if (!anyExpanded) {
-          // Re-attach observer so it fires for newly visible sections and mounts their bodies.
-          setupBodyMountObserver();
+        if (pierreViewActive() && pierreView) {
+          pierreView.setAllCollapsed(files, anyExpanded);
+        } else {
+          for (let i = 0; i < files.length; i++) {
+            files[i].collapsed = anyExpanded;
+          }
         }
         collapseBtn.title = anyExpanded ? 'Expand all files' : 'Collapse all files';
         collapseBtn.classList.toggle('all-collapsed', anyExpanded);
@@ -1457,9 +1346,6 @@
     conversationSection.appendChild(buildReviewConversationTreeRow());
 
     renderTreeNode(body, tree, 0, '');
-
-    // Set up intersection observer for active file tracking
-    setupTreeObserver();
 
     renderMobileFilePicker();
   }
@@ -1495,10 +1381,7 @@
     if (!select._mobilePickerBound) {
       select._mobilePickerBound = true;
       select.addEventListener('change', function() {
-        const sectionEl = document.getElementById('file-section-' + select.value);
-        if (sectionEl) {
-          sectionEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        }
+        scrollToFile(select.value);
       });
     }
   }
@@ -1662,12 +1545,17 @@
     }
   }
 
-  function updateTreeCommentBadges() {
-    const allFiles = document.querySelectorAll('.tree-file');
+  // Unresolved-comment badges in the tree. Pass a path to update just that
+  // row (per-file changes; a full pass walks every row of a large tree).
+  function updateTreeCommentBadges(onlyPath) {
+    const allFiles = onlyPath
+      ? document.querySelectorAll('.tree-file[data-tree-path="' + CSS.escape(onlyPath) + '"]')
+      : document.querySelectorAll('.tree-file');
+    const byPath = new Map(files.map(function(f) { return [f.path, f]; }));
     for (let i = 0; i < allFiles.length; i++) {
       const el = allFiles[i];
       const path = el.dataset.treePath;
-      const file = getFileByPath(path);
+      const file = byPath.get(path);
       if (!file) continue;
       let badge = el.querySelector('.tree-comment-badge');
       const count = file.comments.filter(function(c) { return !c.resolved; }).length;
@@ -1712,364 +1600,874 @@
     }
   }
 
-  function setupTreeObserver() {
-    if (treeObserver) treeObserver.disconnect();
-    const sections = document.querySelectorAll('.file-section[id]');
-    const reviewSection = document.getElementById('reviewConversation');
-    if (sections.length === 0 && !reviewSection) return;
-
-    treeObserver = new IntersectionObserver(function(entries) {
-      // Skip observer updates briefly after a manual scrollToFile click
-      if (Date.now() < ignoreTreeObserverUntil) return;
-      // Find the topmost visible section
-      let bestPath = null;
-      let bestTop = Infinity;
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i].isIntersecting) {
-          const top = entries[i].boundingClientRect.top;
-          if (top < bestTop) {
-            bestTop = top;
-            const id = entries[i].target.id;
-            bestPath = id === 'reviewConversation'
-              ? REVIEW_CONVERSATION_PATH
-              : id.replace('file-section-', '');
-          }
-        }
-      }
-      if (bestPath) updateTreeActive(bestPath);
-    }, { rootMargin: '-60px 0px -70% 0px' });
-
-    if (reviewSection && !reviewSection.hidden) {
-      treeObserver.observe(reviewSection);
-    }
-    for (let i = 0; i < sections.length; i++) {
-      treeObserver.observe(sections[i]);
-    }
-  }
-
-  function setupBodyMountObserver() {
-    if (bodyMountObserver) bodyMountObserver.disconnect();
-    const sections = document.querySelectorAll('.file-section[id]');
-    if (sections.length === 0) return;
-
-    bodyMountObserver = new IntersectionObserver(function(entries) {
-      // Skip observer-driven mounts briefly after a manual scrollToFile so the
-      // requested file doesn't get pushed out of view by adjacent bodies mounting.
-      if (Date.now() < ignoreBodyMountObserverUntil) return;
-      let mountedAny = false;
-      for (let i = 0; i < entries.length; i++) {
-        if (!entries[i].isIntersecting) continue;
-        const section = entries[i].target;
-        if (!section.open) continue;
-        const path = section.id.replace('file-section-', '');
-        const file = getFileByPath(path);
-        if (!file) continue;
-        if (file.lazy) {
-          loadLazyFile(section, file);
-        } else {
-          mountDeferredBody(section, file);
-          mountedAny = true;
-        }
-      }
-      if (mountedAny) {
-        renderMermaidBlocks();
-        rebuildNavList();
-        applyHideResolved();
-      }
-    }, { rootMargin: '100% 0px 100% 0px' });
-
-    for (let i = 0; i < sections.length; i++) {
-      bodyMountObserver.observe(sections[i]);
-    }
-  }
-
-  function mountVisibleDeferredBodies() {
-    const sections = document.querySelectorAll('.file-section[id]');
-    if (sections.length === 0) return;
-    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-    let mountedAny = false;
-    for (let i = 0; i < sections.length; i++) {
-      const section = sections[i];
-      if (!section.open) continue;
-      const rect = section.getBoundingClientRect();
-      if (rect.bottom < -windowHeight || rect.top > windowHeight * 2) continue;
-      const path = section.id.replace('file-section-', '');
-      const file = getFileByPath(path);
-      if (!file) continue;
-      if (file.lazy) {
-        loadLazyFile(section, file);
-      } else {
-        mountDeferredBody(section, file);
-        mountedAny = true;
-      }
-    }
-    if (mountedAny) {
-      renderMermaidBlocks();
-      rebuildNavList();
-      applyHideResolved();
-    }
-  }
-
-  function scrollToFile(filePath) {
-    const sectionEl = document.getElementById('file-section-' + filePath);
-    if (!sectionEl) return;
-    // Uncollapse if collapsed
+  async function scrollToFile(filePath) {
+    // The tree remains available while a scope/view reload rebuilds the list.
+    // Preserve a click made during that reload instead of dropping it when
+    // the old viewer has already been disposed.
+    while (reloadInFlight) await reloadInFlight;
+    if (!pierreView || !pierreViewActive()) return;
     const file = getFileByPath(filePath);
-    if (file) file.collapsed = false;
-    sectionEl.open = true;
-    // toggle handler mounts deferred bodies; call explicitly so layout exists before scroll
-    if (file) {
-      if (file.lazy) {
-        // Scroll to header immediately while loading; re-scroll to the loaded section once
-        // the body mounts so the user lands reliably on the requested file.
-        sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
-        loadLazyFile(sectionEl, file, function onLoaded(newSection) {
-          const el = newSection || document.getElementById('file-section-' + filePath);
-          if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
-        });
-      } else {
-        ensureFileBodyMounted(sectionEl, file);
-      }
-    }
-    // Suppress observers briefly so adjacent bodies mounting don't push the
-    // requested file out of view after we scroll to it.
-    ignoreTreeObserverUntil = Date.now() + 200;
-    suppressBodyMountObserver(500);
-    if (!file || !file.lazy) {
-      sectionEl.scrollIntoView({ block: 'start', behavior: 'instant' });
-    }
+    if (file && file.collapsed) pierreView.setCollapsed(file, false);
+    ignoreTreeObserverUntil = Date.now() + 400;
     updateTreeActive(filePath);
+    return pierreView.scrollToFile(filePath);
   }
 
-  // ===== Render All File Sections =====
   function renderAllFiles() {
-    const container = document.getElementById('filesContainer');
-    container.innerHTML = '';
-
-    for (const f of files) {
-      container.appendChild(renderFileSection(f));
+    if (!storyActive()) {
+      renderPierreFiles();
+      return;
     }
-
-    // Render mermaid diagrams
-    renderMermaidBlocks();
-
-    // Render the inline Review Conversation section above filesContainer
+    // Story view renders chapters in its own pane and the review list is
+    // hidden; drop the list until the reader switches back to Diff.
+    disposePierreView();
+    document.getElementById('filesContainer').replaceChildren();
     renderReviewConversation();
-
-    // Re-attach intersection observers for file tree active tracking and
-    // deferred body mounting (keeps large reviews fast while leaving files open).
-    setupTreeObserver();
-    setupBodyMountObserver();
-    // Mount bodies that are already visible so first paint doesn't show empty
-    // open sections while the observer fires.
-    mountVisibleDeferredBodies();
     rebuildNavList();
     applyHideResolved();
   }
 
-  // A full rebuild hands back sections whose bodies are deferred, so every file
-  // the reader had already scrolled past collapses to nothing, the document
-  // ends up shorter than the current offset, and the browser clamps to the top.
-  // Use this for view toggles that must rebuild diffs (split/unified, rendered
-  // diff) and for the round-complete rebuild — anything that should leave the
-  // reader where they were. Remounts only bodies at
-  // or above the reading position — below-fold stays deferred — and pins the
-  // mid-viewport line (falling back to the topmost intersecting file section).
-  // Not for hide-resolved (CSS + highlight sync) or initial load / scope change.
-  function renderAllFilesKeepingPlace() {
-    const mounted = mountedFilePaths();
-    const sectionAnchor = topVisibleSectionAnchor();
-    const lineAnchor = readingLineAnchor();
+  // ===== Pierre review view (the review list, git and files mode) =====
+  // @pierre/diffs CodeView owns the multi-file surface: rendering,
+  // virtualization, Shiki highlighting (worker pool), word diffs, sticky
+  // headers and hunk expansion. Crit keeps the product model (comments,
+  // forms, drafts, viewed, keyboard) and hands Pierre annotations, a custom
+  // header and callbacks via window.crit.pierreView. See docs/frontend-js.md.
+  let pierreView = null;
+  let pierreWorkerController = null;
+  let pierreUnsubscribeTree = null;
 
-    renderAllFiles();
-
-    const remountThrough = remountThroughIndex(sectionAnchor, lineAnchor);
-    let remounted = false;
-    for (let i = 0; i < mounted.length; i++) {
-      const path = mounted[i];
-      const idx = files.findIndex(function(f) { return f.path === path; });
-      if (remountThrough >= 0 && idx > remountThrough) continue;
-      const file = getFileByPath(path);
-      const section = document.getElementById('file-section-' + path);
-      if (!file || !section || !section.open || file.lazy) continue;
-      mountDeferredBody(section, file);
-      remounted = true;
-    }
-    if (remounted) {
-      renderMermaidBlocks();
-      rebuildNavList();
-      applyHideResolved();
-    }
-
-    if (restoreReadingLineAnchor(lineAnchor)) return;
-    if (!sectionAnchor) return;
-    const section = document.getElementById(sectionAnchor.id);
-    if (!section) return;
-    const delta = section.getBoundingClientRect().top - sectionAnchor.top;
-    if (Math.abs(delta) < 1) return;
-    window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+  // The review list always renders through Pierre (git and files mode; the
+  // story pane hosts its own Pierre FileDiffs). If the bundle failed to load
+  // there is no second engine to fall back to — renderAllFiles shows an
+  // error instead.
+  function pierreViewActive() {
+    return !storyActive();
   }
 
-  function remountThroughIndex(sectionAnchor, lineAnchor) {
-    let through = -1;
-    if (sectionAnchor) {
-      const path = sectionAnchor.id.replace('file-section-', '');
-      through = Math.max(through, files.findIndex(function(f) { return f.path === path; }));
-    }
-    if (lineAnchor && lineAnchor.filePath) {
-      through = Math.max(through, files.findIndex(function(f) { return f.path === lineAnchor.filePath; }));
-    }
-    return through;
+  function pierreThreadKey(commentId) { return 'thread:' + commentId; }
+
+  // Hunks as Crit presents them: small gaps merged and gaps that hold a
+  // comment pulled in, so comment anchors stay visible. Same model the story
+  // view and outdated-comment logic use.
+  function pierrePreparedHunks(file) {
+    autoExpandSmallGaps(file);
+    expandHunksForComments(file);
+    return file.diffHunks || [];
   }
 
-  function mountedFilePaths() {
-    const paths = [];
-    const sections = document.querySelectorAll('#filesContainer .file-section[id]');
-    for (let i = 0; i < sections.length; i++) {
-      const body = sections[i].querySelector(':scope > .file-body');
-      if (body && body.getAttribute('data-body-deferred') !== '1') {
-        paths.push(sections[i].id.replace('file-section-', ''));
+  function renderedDiffLineKeys(hunks) {
+    const keys = new Set();
+    for (let i = 0; i < hunks.length; i++) {
+      const lines = hunks[i].Lines || [];
+      for (let j = 0; j < lines.length; j++) {
+        const line = lines[j];
+        if (line.Type !== 'add' && line.OldNum) keys.add(line.OldNum + ':old');
+        if (line.Type !== 'del' && line.NewNum) keys.add(line.NewNum + ':');
       }
     }
-    return paths;
+    return keys;
   }
 
-  // The first file section still touching the viewport, plus where its top sits
-  // relative to it — fallback when no mid-viewport line is available.
-  function topVisibleSectionAnchor() {
-    const sections = document.querySelectorAll('#filesContainer .file-section[id]');
-    for (let i = 0; i < sections.length; i++) {
-      const rect = sections[i].getBoundingClientRect();
-      if (rect.bottom > 0 && rect.top < window.innerHeight) {
-        return { id: sections[i].id, top: rect.top };
-      }
-    }
+  function pierreIsDocumentView(file) {
+    return file.fileType === 'markdown' && file.viewMode === 'document';
+  }
+
+  // A file with nothing to render gets Crit's placeholder text instead of an
+  // empty diff (same messages as the classic body).
+  function pierrePlaceholderText(file) {
+    if (file.lazy) return null;
+    if (file.orphaned) return 'This file is no longer part of the review.';
+    const noHunks = !file.diffHunks || file.diffHunks.length === 0;
+    if (file.viewMode === 'document' || !noHunks) return null;
+    if (file.status === 'deleted') return 'This file was deleted.';
+    if (file.status === 'renamed') return 'File renamed without changes.';
     return null;
   }
 
-  // The line/block closest to the vertical center of the viewport — preferred
-  // restore target so split↔unified doesn't slide the hunk the reader was on.
-  // Prefer the new/right side when both halves of a split row sit at the same
-  // Y: unified tags context/add lines by NewNum with an empty side, so an
-  // old-side capture often has nothing to restore to after the switch.
-  function readingLineAnchor() {
-    const midY = (window.innerHeight || 0) / 2;
-    const nodes = document.querySelectorAll(
-      '#filesContainer .diff-line[data-diff-line-num], ' +
-      '#filesContainer .diff-split-side[data-diff-line-num], ' +
-      '#filesContainer .line-block[data-start-line]'
-    );
-    let best = null;
-    let bestDist = Infinity;
-    for (let i = 0; i < nodes.length; i++) {
-      const el = nodes[i];
-      const rect = el.getBoundingClientRect();
-      if (rect.bottom <= 0 || rect.top >= (window.innerHeight || 0)) continue;
-      const dist = Math.abs((rect.top + rect.bottom) / 2 - midY);
-      const isBlock = el.classList.contains('line-block');
-      const side = el.dataset.diffSide || '';
-      const preferNew = !isBlock && side === '';
-      const bestPreferNew = best && best.kind === 'diff' && best.side === '';
-      if (dist > bestDist + 0.5) continue;
-      if (Math.abs(dist - bestDist) <= 0.5 && best && !(preferNew && !bestPreferNew)) continue;
-      bestDist = dist;
-      best = {
-        kind: isBlock ? 'block' : 'diff',
-        filePath: el.dataset.diffFilePath || el.dataset.filePath || '',
-        lineNum: parseInt(isBlock ? el.dataset.startLine : el.dataset.diffLineNum, 10),
-        side: side,
-        top: rect.top,
-      };
-    }
-    return best && best.filePath && best.lineNum > 0 ? best : null;
+  // Files-mode code file: the whole file as a Pierre file item.
+  function pierreIsFileView(file) {
+    return file.fileType === 'code' && file.viewMode === 'document' && !file.orphaned;
   }
 
-  function restoreReadingLineAnchor(anchor) {
-    if (!anchor) return false;
-    let el = null;
-    if (anchor.kind === 'block') {
-      const blocks = document.querySelectorAll(
-        '#filesContainer .line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"]'
-      );
-      for (let i = 0; i < blocks.length; i++) {
-        const start = parseInt(blocks[i].dataset.startLine, 10);
-        const end = parseInt(blocks[i].dataset.endLine, 10);
-        if (anchor.lineNum >= start && anchor.lineNum <= end) { el = blocks[i]; break; }
+  function pierreLineCount(file) {
+    const content = file.content || '';
+    if (!content) return 0;
+    return content.split('\n').length - (content.endsWith('\n') ? 1 : 0);
+  }
+
+  function pierreAnnotationsFor(file) {
+    const A = window.crit.pierreAdapter;
+    const out = [];
+    const hideResolved = isHideResolved();
+    if (pierrePlaceholderText(file)) {
+      // No lines to anchor to: file-level threads, every line comment as
+      // outdated, then the placeholder.
+      const lineComments = (file.comments || []).filter(function(c) {
+        return c.scope !== 'file' && !(hideResolved && c.resolved);
+      });
+      for (let i = 0; i < (file.comments || []).length; i++) {
+        const c = file.comments[i];
+        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
       }
-    } else {
-      const base =
-        '#filesContainer [data-diff-file-path="' + CSS.escape(anchor.filePath) + '"]' +
-        '[data-diff-line-num="' + anchor.lineNum + '"]';
-      el = document.querySelector(base + '[data-diff-side="' + CSS.escape(anchor.side) + '"]') ||
-        document.querySelector(base);
+      if (lineComments.length) out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'outdated', id: file.path } });
+      out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'placeholder', id: file.path } });
+      return out;
     }
+    if (pierreIsDocumentView(file)) {
+      // Line comments and forms live inside the rendered document; only
+      // file-level threads and the file form sit above it.
+      for (let i = 0; i < (file.comments || []).length; i++) {
+        const c = file.comments[i];
+        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
+      }
+      const fileForm = getFileComposeForm(file.path);
+      if (fileForm && !fileForm.editingId) out.push(A.annotationForForm(fileForm));
+      out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'document', id: file.path } });
+      return out;
+    }
+    if (pierreIsFileView(file)) {
+      const lineCount = pierreLineCount(file);
+      let beyondEnd = false;
+      for (let i = 0; i < (file.comments || []).length; i++) {
+        const c = file.comments[i];
+        if (hideResolved && c.resolved) continue;
+        if (c.scope !== 'file' && c.end_line > lineCount) { beyondEnd = true; continue; }
+        out.push(A.annotationForComment(c));
+      }
+      if (beyondEnd) out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'outdated', id: file.path } });
+      const fileForms = getFormsForFile(file.path);
+      for (let i = 0; i < fileForms.length; i++) {
+        if (!fileForms[i].editingId) out.push(A.annotationForForm(fileForms[i]));
+      }
+      return out;
+    }
+    const lineKeys = renderedDiffLineKeys(pierrePreparedHunks(file));
+    let outdated = false;
+    for (let i = 0; i < (file.comments || []).length; i++) {
+      const c = file.comments[i];
+      if (hideResolved && c.resolved) continue;
+      if (c.scope !== 'file' && !lineKeys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''))) {
+        outdated = true;
+        continue;
+      }
+      out.push(A.annotationForComment(c));
+    }
+    if (outdated) {
+      out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'outdated', id: file.path } });
+    }
+    const forms = getFormsForFile(file.path);
+    for (let i = 0; i < forms.length; i++) {
+      if (!forms[i].editingId) out.push(A.annotationForForm(forms[i]));
+    }
+    return out;
+  }
+
+  // Markdown Document view: Crit's rendered document (line blocks, inline
+  // comments, gutter drag, mermaid) as the file-level annotation of an empty
+  // Pierre file item. Pierre owns the header, collapse and virtualization.
+  // The wrapper keeps the classic section shape so document helpers (TOC,
+  // visual selection, comment focus) find it by id.
+  function buildPierreLoading() {
+    const el = document.createElement('div');
+    el.className = 'diff-deleted-placeholder pierre-loading';
+    el.textContent = 'Loading diff\u2026';
+    return el;
+  }
+
+  function buildPierrePlaceholder(filePath) {
+    const file = getFileByPath(filePath);
+    const text = file && pierrePlaceholderText(file);
+    if (!text) return null;
+    const el = document.createElement('div');
+    el.className = 'diff-deleted-placeholder' + (file.orphaned ? ' orphaned-placeholder' : '') +
+      (file.status === 'renamed' ? ' rename-placeholder' : '');
+    el.textContent = text;
+    return el;
+  }
+
+  function buildPierreDocument(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file || file.lazy) return null;
+    const section = document.createElement('div');
+    section.className = 'file-section pierre-document';
+    section.id = 'file-section-' + filePath;
+    section.open = true;
+    const body = document.createElement('div');
+    body.className = 'file-body';
+    section.appendChild(body);
+    populateDocumentBody(body, file);
+    highlightQuotesInSection(section, file);
+    return section;
+  }
+
+  // Re-render a mounted document's contents in place. Swapping the
+  // annotation element instead makes Pierre drop it before measuring the new
+  // one; the item collapses for a frame and the list scroll clamps to the top.
+  // A document scrolled out of the list is only marked stale; it re-renders
+  // when it mounts again (onPierrePostRender), so a full render never pays
+  // for off-screen plans.
+  const pierreStaleDocuments = new Set();
+  function refreshPierreDocument(filePath) {
+    const section = pierreView && pierreView.annotationElement('document:' + filePath);
+    if (!section) return;
+    if (!section.isConnected) { pierreStaleDocuments.add(filePath); return; }
+    pierreStaleDocuments.delete(filePath);
+    const file = getFileByPath(filePath);
+    if (!file || file.lazy || !pierreIsDocumentView(file)) return;
+    saveOpenFormContent(filePath);
+    const body = section.querySelector(':scope > .file-body');
+    populateDocumentBody(body, file);
+    highlightQuotesInSection(section, file);
+    if (section.isConnected) renderMermaidBlocks();
+  }
+
+  function buildPierreThread(filePath, commentId) {
+    const file = getFileByPath(filePath);
+    if (!file) return null;
+    const comment = file.comments.find(function(c) { return c.id === commentId; });
+    if (!comment) return null;
+    const el = comment.resolved ? createResolvedElement(comment, filePath) : createCommentElement(comment, filePath);
+    if (el) el.classList.add('pierre-annotation');
+    if (el && comment.scope === 'file') el.classList.add('pierre-file-level');
+    if (el && comment.scope !== 'file') el.classList.add(comment.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
+    return el;
+  }
+
+  // Is a line comment anchored to a line the current view renders?
+  // Predicate: is a comment anchored to a line this file's view renders?
+  // Built once per file so callers looping over comments do the work once.
+  function pierreAnchorTest(file) {
+    if (pierrePlaceholderText(file)) return function(c) { return c.scope === 'file'; };
+    if (pierreIsFileView(file)) {
+      const count = pierreLineCount(file);
+      return function(c) { return c.scope === 'file' || c.end_line <= count; };
+    }
+    const keys = renderedDiffLineKeys(pierrePreparedHunks(file));
+    return function(c) { return c.scope === 'file' || keys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : '')); };
+  }
+
+  function buildPierreOutdated(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file) return null;
+    const section = document.createElement('div');
+    section.className = 'outdated-diff-comments';
+    const anchored = pierreAnchorTest(file);
+    for (let i = 0; i < file.comments.length; i++) {
+      const c = file.comments[i];
+      if (anchored(c)) continue;
+      if (isHideResolved() && c.resolved) continue;
+      const el = c.resolved ? createResolvedElement(c, filePath) : createCommentElement(c, filePath);
+      el.classList.add('outdated-comment');
+      const headerLeft = el.querySelector('.comment-header-left');
+      if (headerLeft) {
+        const badge = document.createElement('span');
+        badge.className = 'outdated-badge';
+        badge.textContent = 'Outdated';
+        headerLeft.appendChild(badge);
+      }
+      section.appendChild(el);
+    }
+    return section;
+  }
+
+  function buildPierreForm(_filePath, key) {
+    const form = activeForms.find(function(f) { return f.formKey === key; });
+    if (!form) return null;
+    const el = form.scope === 'file' ? createFileCommentForm(form) : createCommentForm(form);
+    el.classList.add('pierre-annotation');
+    if (form.scope === 'file') el.classList.add('pierre-file-level');
+    if (form.scope !== 'file') el.classList.add(form.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
+    return el;
+  }
+
+  function buildPierreFileHeader(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file) return null;
+    const header = document.createElement('div');
+    header.className = 'file-header crit-review-file-header pierre-file-header' + (file.collapsed ? ' collapsed' : '');
+    header.dataset.filePath = filePath;
+    populateFileHeader(file, header);
+    header.addEventListener('click', function(e) {
+      if (e.target.closest('button, a, input, label, .file-header-toggle, .change-nav')) return;
+      pierreView.setCollapsed(file, !file.collapsed);
+    });
+    return header;
+  }
+
+  // Load a lazy file's diff/content without touching the DOM; Pierre swaps
+  // the stub item in place once this resolves.
+  const pierreLoader = window.crit.pierreRuntime.createLoader({
+    getFile: getFileByPath,
+    load: function(file, signal) {
+      return loadSingleFile({
+        path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType,
+        additions: file.additions, deletions: file.deletions, generated: file.generated,
+      }, currentFileDataScope(), signal);
+    },
+    changed: updateTreeCommentBadges,
+  });
+  const loadPierreFile = pierreLoader.load;
+
+  function pierreDisplayOptions() {
+    return Object.assign(window.crit.pierreAdapter.displayOptions(getSetting), {
+      theme: window.crit.themeBoost.themes(window.PierreDiffs,
+        window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
+        getSetting('boostContrast', 'off') === 'on'),
+    });
+  }
+
+  function pierreListLayout() {
+    const styles = getComputedStyle(document.getElementById('filesContainer'));
+    return {
+      gap: 18,
+      paddingTop: parseFloat(styles.getPropertyValue('--crit-review-pad-top')) || 26,
+      paddingBottom: parseFloat(styles.getPropertyValue('--crit-review-pad-bottom')) || 80,
+    };
+  }
+
+  function ensurePierreWorkerPool() {
+    if (!pierreWorkerController) {
+      pierreWorkerController = window.crit.pierreRuntime.createWorkerController({
+        create: function() {
+          const display = pierreDisplayOptions();
+          return window.PierreDiffs.getOrCreateWorkerPoolSingleton({
+            poolOptions: {
+              workerFactory: function() { return new Worker('pierre/pierre-worker.js', { type: 'module' }); },
+              poolSize: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1)),
+            },
+            highlighterOptions: {
+              theme: display.theme,
+              lineDiffType: display.lineDiffType,
+              preferredHighlighter: 'shiki-js',
+            },
+          });
+        },
+        onFailure: function(error) {
+          console.warn('Highlight workers unavailable; rendering without workers.', error);
+          window.crit.codeHighlight.configure({ pool: ensurePierreWorkerPool });
+          requestAnimationFrame(function() {
+            disposePierreView();
+            renderAllFiles();
+            if (storyActive()) renderStory();
+          });
+        },
+      });
+    }
+    return pierreWorkerController.get();
+  }
+
+  function ensurePierreView() {
+    if (pierreView) return pierreView;
+    const P = window.PierreDiffs;
+    const container = document.getElementById('filesContainer');
+    container.innerHTML = '';
+    const display = pierreDisplayOptions();
+    pierreView = window.crit.pierreView.createPierreView({
+      pierre: P,
+      root: container,
+      workerPool: ensurePierreWorkerPool(),
+      diffStyle: diffMode,
+      themeType: window.crit.pierreAdapter.themeTypeFor(getSetting('theme', 'system')),
+      ...display,
+      layout: pierreListLayout(),
+      itemMetrics: { paddingTop: 0, paddingBottom: 0 },
+      annotations: pierreAnnotationsFor,
+      prepareHunks: pierrePreparedHunks,
+      isDocumentView: function(file) { return pierreIsDocumentView(file) || !!pierrePlaceholderText(file); },
+      isFileView: pierreIsFileView,
+      loadFile: loadPierreFile,
+      buildHeader: buildPierreFileHeader,
+      buildAnnotation: function(kind, filePath, id) {
+        if (kind === 'form') return buildPierreForm(filePath, id);
+        if (kind === 'outdated') return buildPierreOutdated(filePath);
+        if (kind === 'document') return buildPierreDocument(filePath);
+        if (kind === 'placeholder') return buildPierrePlaceholder(filePath);
+        if (kind === 'loading') return buildPierreLoading();
+        return buildPierreThread(filePath, id);
+      },
+      buildListHeader: function() { return document.getElementById('reviewConversation'); },
+      onPostRender: onPierrePostRender,
+      unsafeCSS: PIERRE_UNSAFE_CSS,
+      onGutterUtilityClick: function(filePath, range) {
+        if (!filePath || !range) return;
+        openForm({ filePath: filePath, afterBlockIndex: null, startLine: range.startLine, endLine: range.endLine, side: range.side });
+      },
+      onLineNumberClick: function(props, filePath) { pierreTouchComment(props, filePath); },
+      onLineEnter: pierreLineEnter,
+    });
+    if (pierreUnsubscribeTree) pierreUnsubscribeTree();
+    let treeSyncQueued = false;
+    pierreUnsubscribeTree = pierreView.viewer.subscribeToScroll(function() {
+      if (treeSyncQueued) return;
+      treeSyncQueued = true;
+      requestAnimationFrame(function() { treeSyncQueued = false; syncTreeActiveFromPierre(); });
+    });
+    return pierreView;
+  }
+
+  // ----- Keyboard focus (model-driven; Pierre rows are virtualized) -----
+  let pierreFocus = null; // { path, line, side }
+  let pierreVisualAnchor = null; // same shape, set by Shift+V
+
+  // Keyboard rows for a file: diff rows, or the rendered document's blocks
+  // when a markdown file is in Document view (same stops as the classic view).
+  function pierreNavRows(file) {
+    if (pierreIsDocumentView(file)) {
+      return (file.lineBlocks || []).map(function(b, i) {
+        return { line: b.startLine, endLine: b.endLine, side: '', block: i };
+      });
+    }
+    if (pierreIsFileView(file)) {
+      const count = pierreLineCount(file);
+      const rows = new Array(count);
+      for (let n = 1; n <= count; n++) rows[n - 1] = { line: n, side: '' };
+      return rows;
+    }
+    return window.crit.pierreAdapter.navRowsForHunks(pierrePreparedHunks(file), diffMode);
+  }
+
+  // Blocks marked by a document visual range (Shift+V). Tracked so clearing
+  // them leaves drag and form selections (also .selected) alone.
+  let pierreDocVisualMarked = [];
+  function clearPierreDocVisual() {
+    pierreDocVisualMarked.forEach(function(b) { b.classList.remove('selected'); });
+    pierreDocVisualMarked = [];
+  }
+
+  function pierreDocBlockElement(path, blockIndex) {
+    return document.querySelector('#filesContainer .line-block.kb-nav[data-file-path="' + CSS.escape(path) +
+      '"][data-block-index="' + blockIndex + '"]');
+  }
+
+  // Document focus/visual range: the classic .focused/.selected classes on
+  // the rendered blocks. Returns false while the document is not mounted.
+  // `stay` re-marks without scrolling (after a rebuild).
+  function markPierreDocFocus(focus, anchor, stay) {
+    const el = pierreDocBlockElement(focus.path, focus.block);
     if (!el) return false;
-    const delta = el.getBoundingClientRect().top - anchor.top;
-    if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+    document.querySelectorAll('.kb-nav.focused').forEach(function(n) { n.classList.remove('focused'); });
+    el.classList.add('focused');
+    focusedElement = el;
+    clearPierreDocVisual();
+    if (anchor) {
+      const start = Math.min(anchor.line, focus.line);
+      const end = Math.max(anchor.endLine, focus.endLine);
+      el.closest('.pierre-document').querySelectorAll('.line-block.kb-nav').forEach(function(b) {
+        if (parseInt(b.dataset.startLine) >= start && parseInt(b.dataset.endLine) <= end) {
+          b.classList.add('selected');
+          pierreDocVisualMarked.push(b);
+        }
+      });
+    }
+    if (!stay) el.scrollIntoView({ block: 'nearest' });
     return true;
+  }
+
+  function showPierreFocus() {
+    if (!pierreView) return;
+    if (!pierreFocus) { pierreView.setSelectedLine(null); return; }
+    if (pierreFocus.block !== undefined) {
+      const focus = pierreFocus;
+      const anchor = pierreVisualAnchor && pierreVisualAnchor.path === focus.path ? pierreVisualAnchor : null;
+      pierreView.setSelectedLine(null);
+      keyboardFocusTarget = { filePath: focus.path, blockIndex: String(focus.block), startLine: String(focus.line), endLine: String(focus.endLine) };
+      focusedFilePath = focus.path;
+      focusedBlockIndex = focus.block;
+      if (!markPierreDocFocus(focus, anchor)) {
+        pierreView.scrollToFile(focus.path).then(function() {
+          whenMounted(function() { return pierreFocus !== focus || markPierreDocFocus(focus, anchor); });
+        });
+      }
+      updateTreeActive(focus.path);
+      return;
+    }
+    document.querySelectorAll('.kb-nav.focused').forEach(function(n) { n.classList.remove('focused'); });
+    keyboardFocusTarget = {
+      filePath: pierreFocus.path,
+      diffLineNum: String(pierreFocus.line),
+      diffSide: pierreFocus.side,
+    };
+    if (pierreVisualAnchor && pierreVisualAnchor.path === pierreFocus.path) {
+      const start = Math.min(pierreVisualAnchor.line, pierreFocus.line);
+      const end = Math.max(pierreVisualAnchor.line, pierreFocus.line);
+      const side = pierreVisualAnchor.side === 'old' ? 'deletions' : 'additions';
+      pierreView.viewer.setSelectedLines({ id: pierreFocus.path, range: { start: start, end: end, side: side, endSide: side } });
+    } else {
+      pierreView.setSelectedLine(pierreFocus.path, pierreFocus.line, pierreFocus.side);
+    }
+    pierreSelectionShown = true;
+    pierreView.scrollToLine(pierreFocus.path, pierreFocus.line, pierreFocus.side, 'nearest');
+    updateTreeActive(pierreFocus.path);
+  }
+
+  // j/k: next/previous diff row across files (collapsed files are skipped,
+  // lazy files load first). Visual mode stays within the anchor's file.
+  function navigatePierre(direction) {
+    const order = files.filter(function(f) { return !f.collapsed && !f.orphaned; });
+    if (order.length === 0) return;
+    const fileIdx = pierreFocus ? order.findIndex(function(f) { return f.path === pierreFocus.path; }) : -1;
+    function step(file, rows, fromIdx) {
+      const nextIdx = fromIdx + direction;
+      if (nextIdx >= 0 && nextIdx < rows.length) {
+        pierreFocus = Object.assign({ path: file.path }, rows[nextIdx]);
+        showPierreFocus();
+        return;
+      }
+      if (pierreVisualAnchor) return; // visual selection stays in one file
+      const nextFileIdx = order.indexOf(file) + direction;
+      if (nextFileIdx < 0 || nextFileIdx >= order.length) return;
+      enter(order[nextFileIdx]);
+    }
+    function enter(file) {
+      pierreView.ensureLoaded(file.path).then(function() {
+        const loaded = getFileByPath(file.path);
+        const rows = pierreNavRows(loaded);
+        if (rows.length === 0) { step(loaded, rows, direction > 0 ? -1 : 0); return; }
+        step(loaded, rows, direction > 0 ? -1 : rows.length);
+      });
+    }
+    if (fileIdx < 0) {
+      enter(order[direction > 0 ? 0 : order.length - 1]);
+      return;
+    }
+    const file = order[fileIdx];
+    const rows = pierreNavRows(file);
+    const cur = rows.findIndex(function(r) { return r.line === pierreFocus.line && r.side === pierreFocus.side; });
+    step(file, rows, cur < 0 ? (direction > 0 ? -1 : rows.length) : cur);
+  }
+
+  // After a Pierre scroll the target renders on a later frame: poll `find`
+  // once per frame (up to ~1s) and hand its truthy result to `found`
+  // (optional: `find` may do the work itself).
+  function whenMounted(find, found) {
+    let frames = 0;
+    (function poll() {
+      const hit = find();
+      if (hit) { if (found) found(hit); return; }
+      if (++frames < 60) requestAnimationFrame(poll);
+    })();
+  }
+
+  // Jump to a comment: load/expand its file, let Pierre scroll the anchor
+  // line into place, then hand the mounted card to `done` (flash/highlight).
+  // Outdated and file-level comments anchor at the file top.
+  function pierreJumpToComment(commentId, filePath, done) {
+    if (!pierreView) return;
+    const card = function() {
+      return document.querySelector('#filesContainer .comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+    };
+    pierreView.ensureLoaded(filePath).then(function() {
+      const file = getFileByPath(filePath);
+      if (!file) return;
+      if (file.collapsed) pierreView.setCollapsed(file, false);
+      const comment = (file.comments || []).find(function(c) { return c.id === commentId; });
+      const inDocument = pierreIsDocumentView(file) && comment && comment.scope !== 'file';
+      const anchored = comment && comment.scope !== 'file' && !inDocument && pierreAnchorTest(file)(comment);
+      ignoreTreeObserverUntil = Date.now() + 400;
+      updateTreeActive(filePath);
+      const scrolled = anchored
+        ? pierreView.scrollToLine(filePath, comment.end_line, comment.side, 'center')
+        : pierreView.scrollToFile(filePath);
+      scrolled.then(function() {
+        whenMounted(card, function(el) {
+          if (inDocument) el.scrollIntoView({ block: 'center' });
+          done(el);
+        });
+      });
+    });
+  }
+
+  // Inline (non-virtualized) Pierre FileDiff for a story chapter group
+  // (filtered hunks; #storyPane scrolls). The group keeps Crit's header and
+  // re-renders as a whole on comment changes, so no element cache is needed.
+  function renderPierreInlineDiff(clone) {
+    const P = window.PierreDiffs;
+    const container = document.createElement('div');
+    container.className = 'pierre-story-diff';
+    const annotations = pierreAnnotationsFor(clone).filter(function(a) { return a.lineNumber !== 0; });
+    const A = window.crit.pierreAdapter;
+    const diff = new P.FileDiff(Object.assign(A.baseOptions(A.themeTypeFor(getSetting('theme', 'system')), diffMode), pierreDisplayOptions(), {
+      disableFileHeader: true,
+      unsafeCSS: PIERRE_UNSAFE_CSS,
+      onLineNumberClick: function(props) { pierreTouchComment(props, clone.path); },
+      onLineEnter: pierreLineEnter,
+      onPostRender: function(node, _instance, phase) { onPierrePostRender(clone.path, node, phase); },
+      renderAnnotation: function(annotation) {
+        const m = annotation.metadata;
+        if (m.kind === 'form') return buildPierreForm(clone.path, m.id);
+        return buildPierreThread(clone.path, m.id);
+      },
+      onGutterUtilityClick: function(range) {
+        const r = A.formRangeFromSelection(range);
+        if (r) openForm({ filePath: clone.path, afterBlockIndex: null, startLine: r.startLine, endLine: r.endLine, side: r.side });
+      },
+    }), ensurePierreWorkerPool());
+    diff.render({
+      fileDiff: A.buildFileDiff(P, clone, clone.diffHunks, 'story:' + clone.path + ':' + (clone.fileHash || '') + ':' + clone.diffHunks.map(function(h) { return h.OldStart; }).join(','), clone.allDiffHunks),
+      lineAnnotations: annotations,
+      containerWrapper: container,
+    });
+    return container;
+  }
+
+  // Line element inside a Crit-hosted Pierre FileDiff (story group or
+  // files-mode inline diff). side: 'old' → deletions column.
+
+
+  // ----- Quote highlights inside Pierre (CSS Custom Highlight API) -----
+  // Comments created from a text selection carry `quote` (+ quote_offset).
+  // Pierre owns the code DOM (shadow roots, virtualized), so instead of
+  // wrapping text in <mark> we register Ranges with CSS.highlights; the
+  // ::highlight(crit-quote) rule is injected into Pierre via unsafeCSS.
+  const PIERRE_UNSAFE_CSS = window.crit.pierreDOM.unsafeCSS;
+  const pierreDecorations = window.crit.pierreDOM.createDecorations();
+
+  function pierreQuotedComments(file) {
+    if (!file) return [];
+    const quoted = (file.comments || []).filter(function(c) { return c.quote && !c.resolved && c.scope !== 'file'; })
+      .map(function(c) { return { start: c.start_line, end: c.end_line, side: c.side || '', quote: c.quote, offset: c.quote_offset }; })
+      .concat(getFormsForFile(file.path).filter(function(f) { return f.quote && !f.editingId; })
+        .map(function(f) { return { start: f.startLine, end: f.endLine, side: f.side || '', quote: f.quote, offset: f.quoteOffset }; }));
+    return quoted;
+  }
+
+  // Selectors for line ranges ({ start, end, old }) of a file's Pierre item.
+  // Split (and whole-file items) tint that side's lines only. Unified tints
+  // the range's rows plus the context between them, and for a new-side range
+  // the deletions inside it too, like the classic unified view. Additions are
+  // not pulled into an old-side range: Pierre places each deletion next to
+  // its most similar addition, so additions that sit between two deleted
+  // lines in git's order can be drawn outside the range.
+
+
+  // Line tints, like the classic views: lines a comment covers, and the range
+  // of each open form (form-selected, which wins). Pierre has no per-line
+  // decoration option, so this is CSS in its shadow roots keyed on the host's
+  // data-crit-path. Resolved comments drop out while hide-resolved is on.
+  // Selectors are cached per file (only the current layout's are emitted),
+  // so a refresh re-derives only files whose ranges or hunks changed.
+  const pierreRangeCache = new Map(); // path → { key, commented, forming }
+  function pierreCommentRangeCSS() {
+    const hideResolved = isHideResolved();
+    const unified = diffMode === 'unified';
+    const commented = [];
+    const forming = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const commentRanges = (f.comments || []).filter(function(c) {
+        return c.scope !== 'file' && !(hideResolved && c.resolved);
+      }).map(function(c) { return { start: c.start_line, end: c.end_line, old: c.side === 'old' }; });
+      const formRanges = getFormsForFile(f.path).filter(function(form) {
+        return form.scope !== 'file' && form.startLine && (form.afterBlockIndex === null || form.afterBlockIndex === undefined);
+      }).map(function(form) { return { start: form.startLine, end: form.endLine, old: form.side === 'old' }; });
+      if (!commentRanges.length && !formRanges.length) continue;
+      const key = (unified ? 'u' : 's') + JSON.stringify([commentRanges, formRanges]) +
+        (f.fileHash || '') + ':' + (f.diffHunks || []).length + ':' + f.viewMode;
+      let hit = pierreRangeCache.get(f.path);
+      if (!hit || hit.key !== key) {
+        hit = { key: key, commented: window.crit.pierreDOM.pierreLineSelectors(f, commentRanges, unified, pierreIsFileView(f), pierrePreparedHunks(f)), forming: window.crit.pierreDOM.pierreLineSelectors(f, formRanges, unified, pierreIsFileView(f), pierrePreparedHunks(f)) };
+        pierreRangeCache.set(f.path, hit);
+      }
+      commented.push.apply(commented, hit.commented);
+      forming.push.apply(forming, hit.forming);
+    }
+    let css = '';
+    if (commented.length) css += Array.from(new Set(commented)).join(',\n') + ' { background-color: var(--crit-comment-range-bg); }';
+    if (forming.length) css += Array.from(new Set(forming)).join(',\n') + ' { background-color: var(--crit-brand-subtle); }';
+    return css;
+  }
+
+  // The line tints live in one constructable stylesheet adopted by every
+  // Pierre shadow root (onPierrePostRender). Updating it restyles in place;
+  // changing Pierre's unsafeCSS option instead re-renders every item, and a
+  // tall rendered document loses its measured height mid-render (the list
+  // jumps).
+
+  function syncPierreCommentRanges() {
+    pierreDecorations.setRangeCSS(pierreCommentRangeCSS());
+  }
+  function onPierrePostRender(filePath, node, phase) {
+    const host = window.crit.pierreDOM.hostFor(node);
+    if (!host) return;
+    if (phase === 'unmount') { pierreDecorations.unmount(host); return; }
+    pierreDecorations.mount(host, filePath, pierreQuotedComments(getFileByPath(filePath)));
+    if (host.querySelector('.pierre-document')) {
+      if (pierreStaleDocuments.has(filePath)) refreshPierreDocument(filePath);
+      if (host.querySelector('.pierre-document code.language-mermaid')) renderMermaidBlocks();
+    }
+  }
+
+  // Public Pierre callbacks handle touch commenting and hover focus.
+  function pierreTouchComment(props, filePath) {
+    if (!props.event || props.event.pointerType !== 'touch' || !filePath) return;
+    props.event.preventDefault();
+    openForm({ filePath: filePath, afterBlockIndex: null, startLine: props.lineNumber, endLine: props.lineNumber,
+      side: props.annotationSide === 'deletions' ? 'old' : undefined });
+  }
+
+  function pierreLineEnter(props) {
+    if (props.event.pointerType === 'mouse' && !pierreVisualAnchor) hidePierreSelection();
+  }
+
+  // A form opened from a sticky file header (or the keyboard) may belong to
+  // a part of the file that is scrolled away — e.g. the file-level form sits
+  // at the top of a long file. Bring it into view, then focus it once Pierre
+  // has mounted the annotation. Line forms use 'nearest', so a gutter click
+  // on a visible line does not move the page.
+  function pierreRevealForm(form) {
+    if (!pierreView || !pierreViewActive() || !form) return;
+    const textarea = function() {
+      return document.querySelector('#filesContainer .comment-form[data-form-key="' + CSS.escape(form.formKey) + '"] textarea');
+    };
+    const root = document.getElementById('filesContainer').getBoundingClientRect();
+    const current = textarea();
+    const r = current && current.getBoundingClientRect();
+    if (r && r.height > 0 && r.top >= root.top && r.bottom <= root.bottom) {
+      current.focus({ preventScroll: true });
+      return; // already visible — don't move the page
+    }
+    if (r && r.height > 0) {
+      // Mounted but partly off screen: move just enough to show it.
+      current.scrollIntoView({ block: 'nearest' });
+      current.focus({ preventScroll: true });
+      return;
+    }
+    // Not mounted yet: have Pierre bring its line (or file) into the list.
+    // Forms in a rendered document have no Pierre line to target.
+    const file = getFileByPath(form.filePath);
+    const byFile = form.scope === 'file' || (file && pierreIsDocumentView(file));
+    const scrolled = byFile
+      ? pierreView.scrollToFile(form.filePath)
+      : pierreView.scrollToLine(form.filePath, form.endLine, form.side, 'nearest');
+    scrolled.then(function() {
+      whenMounted(function() {
+        const ta = textarea();
+        return ta && ta.getBoundingClientRect().height > 0 ? ta : null;
+      }, function(ta) {
+        if (byFile) ta.scrollIntoView({ block: 'nearest' });
+        ta.focus({ preventScroll: true });
+      });
+    });
+  }
+
+  function clearPierreFocus() {
+    pierreFocus = null;
+    pierreVisualAnchor = null;
+    hidePierreSelection();
+    clearPierreDocVisual();
+    document.querySelectorAll('#filesContainer .kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
+  }
+
+  // Keyboard focus in diffs is shown with Pierre's line selection. Pierre
+  // also anchors its hover "+" to a selected line, so the selection is
+  // dropped as soon as the mouse is over code; the focus model (pierreFocus)
+  // stays and j/k continue from it.
+  let pierreSelectionShown = false;
+  function hidePierreSelection() {
+    if (pierreView && pierreSelectionShown) pierreView.setSelectedLine(null);
+    pierreSelectionShown = false;
+  }
+
+  function syncTreeActiveFromPierre() {
+    if (Date.now() < ignoreTreeObserverUntil) return;
+    const paths = pierreView ? pierreView.renderedPaths() : [];
+    const viewer = pierreView && pierreView.viewer;
+    if (!viewer || paths.length === 0) return;
+    const top = viewer.getScrollTop();
+    // Above the first file sits the review conversation (the list header).
+    const conversation = document.getElementById('reviewConversation');
+    let best = conversation && !conversation.hidden && top + 60 < viewer.getTopForItem(paths[0])
+      ? REVIEW_CONVERSATION_PATH : paths[0];
+    for (let i = 0; i < paths.length; i++) {
+      if (viewer.getTopForItem(paths[i]) <= top + 60) best = paths[i];
+    }
+    updateTreeActive(best);
+  }
+
+  function disposePierreView() {
+    pierreLoader.invalidate();
+    if (pierreUnsubscribeTree) { pierreUnsubscribeTree(); pierreUnsubscribeTree = null; }
+    // The review conversation is CodeView's list header while the view is
+    // up; put it back in front of the list before the view goes away.
+    const conversation = document.getElementById('reviewConversation');
+    const container = document.getElementById('filesContainer');
+    if (conversation && container && container.contains(conversation)) {
+      container.parentNode.insertBefore(conversation, container);
+    }
+    if (pierreView) { pierreView.destroy(); pierreView = null; }
+    document.body.classList.remove('pierre-review');
+  }
+
+  // Replace the file list with a status message (loading, empty scope). Tears
+  // down the Pierre view first; the next render builds a fresh one.
+  function showFilesMessage(text) {
+    disposePierreView();
+    const message = document.createElement('div');
+    message.className = 'loading';
+    message.style.cssText = 'padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);';
+    message.textContent = text;
+    document.getElementById('filesContainer').replaceChildren(message);
+  }
+
+  function renderPierreFiles() {
+    if (!window.PierreDiffs) {
+      const container = document.getElementById('filesContainer');
+      container.innerHTML = '<div class="pierre-load-error" role="alert">The diff renderer failed to load. Reload the page; if this persists, rebuild crit (make build).</div>';
+      return;
+    }
+    document.body.classList.add('pierre-review');
+    renderReviewConversation();
+    const view = ensurePierreView();
+    view.setRenderOptions(Object.assign(pierreDisplayOptions(), { layout: pierreListLayout() }));
+    view.setDiffStyle(diffMode);
+    syncPierreCommentRanges();
+    view.setFiles(files);
+    files.forEach(function(f) { if (pierreIsDocumentView(f)) refreshPierreDocument(f.path); });
+    rebuildNavList();
+    applyHideResolved();
+  }
+
+  // Re-publish one file after a comment/form change. Thread cards are
+  // rebuilt (cheap, always current); open forms keep their cached element so
+  // focus, caret and typed text survive.
+  function refreshPierreFile(filePath) {
+    const file = getFileByPath(filePath);
+    if (!file || !pierreView) return;
+    const keys = [];
+    for (let i = 0; i < file.comments.length; i++) keys.push(pierreThreadKey(file.comments[i].id));
+    keys.push('outdated:' + filePath, 'placeholder:' + filePath);
+    pierreView.refreshFile(file, keys);
+    // The document keeps its element; its contents (line comments, forms,
+    // typed text via saveOpenFormContent) are rebuilt in place.
+    refreshPierreDocument(filePath);
+    syncPierreCommentRanges();
+    // Keep keyboard focus visible across the rebuild (and after a form on
+    // this file closes, where main left the commented line focused).
+    const focus = pierreFocus;
+    if (focus && focus.path === filePath) {
+      requestAnimationFrame(function() {
+        if (pierreFocus !== focus) return;
+        if (focus.block !== undefined) {
+          markPierreDocFocus(focus, pierreVisualAnchor && pierreVisualAnchor.path === filePath ? pierreVisualAnchor : null, true);
+        } else if (getFormsForFile(filePath).length === 0) {
+          pierreView.setSelectedLine(focus.path, focus.line, focus.side);
+          pierreSelectionShown = true;
+        }
+      });
+    }
   }
 
   // Hide-resolved: cards are CSS (`body.hide-resolved`). Line highlights are
   // baked in at render time via isHideResolved(), so toggle them in place on
   // currently-mounted bodies instead of wiping #filesContainer.
+  // Hide-resolved changes which threads show and which lines are tinted.
+  // The body class hides resolved cards (story included) and applyHideResolved
+  // re-syncs the tints; the review list also drops or restores the
+  // annotations themselves, in one batched render.
   function refreshHideResolvedView() {
     applyHideResolved();
-    const root = storyActive()
-      ? document.getElementById('storyPane')
-      : document.getElementById('filesContainer');
-    if (!root) return;
-    const sections = root.querySelectorAll('.file-section[id]');
-    for (let i = 0; i < sections.length; i++) {
-      const section = sections[i];
-      const path = section.dataset.storyFile ||
-        (section.id.indexOf('file-section-') === 0
-          ? section.id.slice('file-section-'.length)
-          : null);
-      if (!path) continue;
-      syncCommentHighlightsInSection(section, getFileByPath(path));
-    }
-  }
-
-  function syncCommentHighlightsInSection(section, file) {
-    if (!section || !file) return;
-    const body = section.querySelector(':scope > .file-body');
-    if (!body || body.getAttribute('data-body-deferred') === '1') return;
-
-    const lineBlocks = body.querySelectorAll('.line-block[data-start-line]');
-    if (lineBlocks.length > 0) {
-      const rangeSet = buildCommentIndices(file.comments || []).rangeSet;
-      for (let i = 0; i < lineBlocks.length; i++) {
-        const el = lineBlocks[i];
-        const start = parseInt(el.dataset.startLine, 10);
-        const end = parseInt(el.dataset.endLine, 10);
-        let inRange = false;
-        for (let ln = start; ln <= end; ln++) {
-          if (rangeSet.has(ln + ':')) { inRange = true; break; }
-        }
-        el.classList.toggle('has-comment', inRange);
-      }
-    }
-
-    const unified = body.querySelector('.diff-container.unified');
-    if (unified) {
-      const visualSet = buildUnifiedCommentVisualSet(file.diffHunks || [], file.comments || []);
-      const lines = unified.querySelectorAll('.diff-line[data-diff-visual-idx]');
-      for (let i = 0; i < lines.length; i++) {
-        const el = lines[i];
-        el.classList.toggle('has-comment', visualSet.has(parseInt(el.dataset.diffVisualIdx, 10)));
-      }
-    }
-
-    const split = body.querySelector('.diff-container.split');
-    if (split) {
-      const rangeSet = buildCommentIndices(file.comments || []).rangeSet;
-      const sides = split.querySelectorAll('.diff-split-side[data-diff-line-num]');
-      for (let i = 0; i < sides.length; i++) {
-        const el = sides[i];
-        const key = parseInt(el.dataset.diffLineNum, 10) + ':' + (el.dataset.diffSide || '');
-        el.classList.toggle('has-comment', rangeSet.has(key));
-      }
-    }
+    if (pierreView && pierreViewActive()) renderPierreFiles();
   }
 
   function rebuildNavList() {
@@ -2078,140 +2476,9 @@
     restoreKeyboardFocus();
   }
 
-  // Deferred / lazy file bodies are absent from .kb-nav and change-group
-  // queries. Keyboard nav (j/k, n/N) must mount the next file when it hits a
-  // section boundary so off-screen deferred content stays reachable.
-  function fileSectionNeedsMount(file) {
-    if (!file) return false;
-    const section = document.getElementById('file-section-' + file.path);
-    if (!section) return false;
-    if (file.lazy) return true;
-    const body = section.querySelector(':scope > .file-body');
-    return !!(body && body.getAttribute('data-body-deferred') === '1');
-  }
-
-  function fileLikelyHasChanges(file) {
-    if (!file) return false;
-    if (file.diffHunks && file.diffHunks.length > 0) return true;
-    // Lazy placeholders ship empty diffHunks until loadLazyFile; numstat
-    // additions/deletions are the only change signal available beforehand.
-    if (file.lazy && ((file.additions || 0) > 0 || (file.deletions || 0) > 0)) return true;
-    return false;
-  }
-
-  // Find the next deferred/lazy file between fromPath and towardPath.
-  // Optional predicate (e.g. fileLikelyHasChanges) skips mount candidates that
-  // would not qualify — so a deferred no-hunk file cannot block a later one.
-  function findDeferredFileForNav(fromPath, towardPath, direction, predicate) {
-    let fromIdx = -1;
-    let towardIdx = direction > 0 ? files.length : -1;
-    for (let i = 0; i < files.length; i++) {
-      if (files[i].path === fromPath) fromIdx = i;
-      if (towardPath && files[i].path === towardPath) towardIdx = i;
-    }
-    if (fromIdx < 0) return null;
-    if (direction > 0) {
-      for (let i = fromIdx + 1; i < towardIdx; i++) {
-        if (!fileSectionNeedsMount(files[i])) continue;
-        if (predicate && !predicate(files[i])) continue;
-        return files[i];
-      }
-    } else {
-      for (let i = fromIdx - 1; i > towardIdx; i--) {
-        if (!fileSectionNeedsMount(files[i])) continue;
-        if (predicate && !predicate(files[i])) continue;
-        return files[i];
-      }
-    }
-    return null;
-  }
-
-  function mountFileForNav(file, onReady) {
-    const section = document.getElementById('file-section-' + file.path);
-    if (!section) {
-      if (onReady) onReady(false);
-      return;
-    }
-    section.open = true;
-    if (file.lazy) {
-      loadLazyFile(section, file, function() { if (onReady) onReady(true); });
-      return;
-    }
-    ensureFileBodyMounted(section, file);
-    if (onReady) onReady(true);
-  }
-
-  function navElementFilePath(el) {
-    if (!el) return null;
-    return el.dataset.filePath || el.dataset.diffFilePath ||
-      (el.querySelector && (function() {
-        const side = el.querySelector('.diff-split-side[data-diff-file-path]');
-        return side ? side.dataset.diffFilePath : null;
-      })());
-  }
-
-  function navigateBlock(direction, _mountedPath) {
-    const allNav = navElements;
-    if (allNav.length === 0) {
-      const start = direction > 0 ? 0 : files.length - 1;
-      const step = direction > 0 ? 1 : -1;
-      for (let i = start; i >= 0 && i < files.length; i += step) {
-        const section = document.getElementById('file-section-' + files[i].path);
-        if (!section || !section.open) continue;
-        if (fileSectionNeedsMount(files[i]) && files[i].path !== _mountedPath) {
-          mountFileForNav(files[i], function() { navigateBlock(direction, files[i].path); });
-          return;
-        }
-      }
-      return;
-    }
-
-    let curIdx = focusedElement ? allNav.indexOf(focusedElement) : -1;
-    if (curIdx === -1) {
-      const match = findNavElementForFocusTarget(getKeyboardFocusTarget());
-      if (match) curIdx = allNav.indexOf(match);
-    }
-
-    let nextIdx;
-    if (curIdx === -1) {
-      nextIdx = direction > 0 ? 0 : allNav.length - 1;
-    } else {
-      nextIdx = curIdx + direction;
-      const curPath = focusedFilePath || navElementFilePath(focusedElement) || navElementFilePath(allNav[curIdx]);
-      if (nextIdx < 0 || nextIdx >= allNav.length) {
-        const deferred = curPath ? findDeferredFileForNav(curPath, null, direction) : null;
-        if (deferred && deferred.path !== _mountedPath) {
-          mountFileForNav(deferred, function() { navigateBlock(direction, deferred.path); });
-          return;
-        }
-        return;
-      }
-      const nextPath = navElementFilePath(allNav[nextIdx]);
-      if (curPath && nextPath && curPath !== nextPath) {
-        const deferred = findDeferredFileForNav(curPath, nextPath, direction);
-        if (deferred && deferred.path !== _mountedPath) {
-          mountFileForNav(deferred, function() { navigateBlock(direction, deferred.path); });
-          return;
-        }
-      }
-    }
-
-    document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
-    focusedElement = allNav[nextIdx];
-    focusedElement.classList.add('focused');
-    focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    if (focusedElement.dataset.filePath) {
-      focusedFilePath = focusedElement.dataset.filePath;
-      focusedBlockIndex = parseInt(focusedElement.dataset.blockIndex);
-    } else {
-      const navTarget = navFocusTargetFromElement(focusedElement);
-      if (navTarget) {
-        focusedFilePath = navTarget.filePath;
-        focusedBlockIndex = null;
-      }
-    }
-    rememberKeyboardFocusFromNav(focusedElement);
-    if (visualMode) extendVisualSelection();
+  // j/k. The review list is Pierre's; story chapters have their own keys.
+  function navigateBlock(direction) {
+    if (pierreView && pierreViewActive()) navigatePierre(direction);
   }
 
   function rememberKeyboardFocusTarget(target) {
@@ -2221,6 +2488,16 @@
 
   function rememberKeyboardFocusFromForm(formObj) {
     if (!formObj || !formObj.filePath || formObj.scope === 'file') return;
+    if (pierreViewActive()) {
+      // j/k continue from the commented line once the form closes.
+      const file = getFileByPath(formObj.filePath);
+      const bi = formObj.afterBlockIndex;
+      const block = file && bi !== null && bi !== undefined && file.lineBlocks ? file.lineBlocks[bi] : null;
+      pierreFocus = block
+        ? { path: formObj.filePath, line: block.startLine, endLine: block.endLine, side: '', block: bi }
+        : { path: formObj.filePath, line: formObj.endLine || formObj.startLine, side: formObj.side || '' };
+      pierreVisualAnchor = null;
+    }
     const target = { filePath: formObj.filePath };
     if (formObj.afterBlockIndex !== null && formObj.afterBlockIndex !== undefined) {
       target.blockIndex = String(formObj.afterBlockIndex);
@@ -2234,40 +2511,19 @@
     rememberKeyboardFocusTarget(target);
   }
 
+  // Focus target for a line-block nav element (Pierre diff rows are
+  // model-driven; see pierreFocus).
   function navFocusTargetFromElement(el) {
     if (!el) return null;
-    if (el.classList.contains('diff-split-row')) {
-      const rightSide = el.querySelector('.diff-split-side.right:not(.empty)[data-diff-line-num], .diff-split-side.addition[data-diff-line-num]');
-      const leftSide = el.querySelector('.diff-split-side.left[data-diff-line-num], .diff-split-side.deletion[data-diff-line-num]');
-      const sideEl = rightSide || leftSide;
-      if (!sideEl) return null;
-      const fp = sideEl.dataset.diffFilePath;
-      if (!fp) return null;
-      return {
-        filePath: fp,
-        diffLineNum: sideEl.dataset.diffLineNum,
-        diffSide: sideEl.dataset.diffSide || '',
-      };
-    }
-    const fp = el.dataset.filePath || el.dataset.diffFilePath;
+    const fp = el.dataset.filePath;
     if (!fp) return null;
     const target = { filePath: fp };
     if (el.dataset.blockIndex !== undefined) {
       target.blockIndex = el.dataset.blockIndex;
       if (el.dataset.startLine) target.startLine = el.dataset.startLine;
       if (el.dataset.endLine) target.endLine = el.dataset.endLine;
-      return target;
-    }
-    if (el.dataset.diffLineNum) {
-      target.diffLineNum = el.dataset.diffLineNum;
-      target.diffSide = el.dataset.diffSide || '';
     }
     return target;
-  }
-
-  function rememberKeyboardFocusFromNav(el) {
-    const target = navFocusTargetFromElement(el);
-    rememberKeyboardFocusTarget(target);
   }
 
   function clearKeyboardFocusTarget() {
@@ -2281,7 +2537,7 @@
       const fromEl = navFocusTargetFromElement(focusedElement);
       if (fromEl) return fromEl;
     }
-    const fp = focusedFilePath || (focusedElement && (focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath));
+    const fp = focusedFilePath || (focusedElement && focusedElement.dataset.filePath);
     if (!fp) return null;
     const target = { filePath: fp };
     if (focusedBlockIndex !== null && focusedBlockIndex !== undefined && !isNaN(focusedBlockIndex)) {
@@ -2303,72 +2559,21 @@
         return n;
       }
     }
-    if (!target.diffLineNum) return null;
-    const side = target.diffSide || '';
-    for (let i = 0; i < navElements.length; i++) {
-      const n = navElements[i];
-      if (n.classList.contains('diff-split-row')) {
-        const sides = n.querySelectorAll('.diff-split-side[data-diff-line-num]');
-        for (let si = 0; si < sides.length; si++) {
-          const sideEl = sides[si];
-          if (sideEl.dataset.diffFilePath !== target.filePath) continue;
-          if (sideEl.dataset.diffLineNum === target.diffLineNum &&
-              (sideEl.dataset.diffSide || '') === side) {
-            return n;
-          }
-        }
-        continue;
-      }
-      if (n.dataset.diffFilePath !== target.filePath) continue;
-      if (n.classList.contains('diff-line') &&
-          n.dataset.diffLineNum === target.diffLineNum &&
-          (n.dataset.diffSide || '') === side) {
-        return n;
-      }
-    }
     return null;
   }
 
+  // Line the keyboard focus sits on: a markdown block (files mode) or a
+  // Pierre diff row (keyboardFocusTarget.diffLineNum, set by pierreFocus).
   function getFocusedCommentLocation() {
     const target = getKeyboardFocusTarget();
-    if (target) {
-      return {
-        filePath: target.filePath,
-        blockIndex: target.blockIndex !== undefined ? parseInt(target.blockIndex) : undefined,
-        lineNum: target.diffLineNum ? parseInt(target.diffLineNum) :
-          (target.startLine ? parseInt(target.startLine) : undefined),
-        side: target.diffSide || '',
-      };
-    }
-    if (!focusedElement) return null;
-    const fromEl = navFocusTargetFromElement(focusedElement);
-    if (fromEl) {
-      return {
-        filePath: fromEl.filePath,
-        blockIndex: fromEl.blockIndex !== undefined ? parseInt(fromEl.blockIndex) : undefined,
-        lineNum: fromEl.diffLineNum ? parseInt(fromEl.diffLineNum) :
-          (fromEl.startLine ? parseInt(fromEl.startLine) : undefined),
-        side: fromEl.diffSide || '',
-      };
-    }
-    const filePath = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath;
-    if (!filePath) return null;
-    if (focusedElement.dataset.blockIndex !== undefined) {
-      return {
-        filePath: filePath,
-        blockIndex: parseInt(focusedElement.dataset.blockIndex),
-        lineNum: focusedElement.dataset.startLine ? parseInt(focusedElement.dataset.startLine) : undefined,
-        side: '',
-      };
-    }
-    if (focusedElement.dataset.diffLineNum) {
-      return {
-        filePath: filePath,
-        lineNum: parseInt(focusedElement.dataset.diffLineNum),
-        side: focusedElement.dataset.diffSide || '',
-      };
-    }
-    return null;
+    if (!target) return null;
+    return {
+      filePath: target.filePath,
+      blockIndex: target.blockIndex !== undefined ? parseInt(target.blockIndex) : undefined,
+      lineNum: target.diffLineNum ? parseInt(target.diffLineNum) :
+        (target.startLine ? parseInt(target.startLine) : undefined),
+      side: target.diffSide || '',
+    };
   }
 
   function restoreKeyboardFocus() {
@@ -2379,19 +2584,8 @@
     document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
     focusedElement = match;
     match.classList.add('focused');
-    if (match.dataset.filePath) {
-      focusedFilePath = match.dataset.filePath;
-      focusedBlockIndex = parseInt(match.dataset.blockIndex);
-    } else {
-      const navTarget = navFocusTargetFromElement(match);
-      if (navTarget) {
-        focusedFilePath = navTarget.filePath;
-        focusedBlockIndex = null;
-      } else if (match.dataset.diffFilePath) {
-        focusedFilePath = match.dataset.diffFilePath;
-        focusedBlockIndex = null;
-      }
-    }
+    focusedFilePath = match.dataset.filePath;
+    focusedBlockIndex = parseInt(match.dataset.blockIndex);
   }
 
   function changeNavAnchorFromIdx(idx) {
@@ -2421,12 +2615,19 @@
   }
 
   function buildChangeGroups() {
-    // Remounting a deferred/lazy body rebuilds groups and would otherwise wipe
+    // A document re-render rebuilds the groups and would otherwise wipe
     // currentChangeIdx, breaking atEnd/atStart and wrap chaining on retry.
     const prevAnchor = changeNavAnchorFromIdx(currentChangeIdx);
     changeGroups = [];
     // Document view: color-coded change blocks + deletion markers
-    const docEls = Array.from(document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker'))
+    // Crit owns and caches document annotations across Pierre unmounts. Keep
+    // their change groups available even when another file is in view.
+    const documents = pierreView && pierreViewActive()
+      ? files.map(function(file) { return pierreView.annotationElement('document:' + file.path); }).filter(Boolean)
+      : [document];
+    const docEls = documents.flatMap(function(root) {
+      return Array.from(root.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker'));
+    })
       .map(function(el) { return el.closest('.native-table-annotation') || el; })
       .filter(function(el, index, elements) { return elements.indexOf(el) === index; });
     // Diff view: diff-added and diff-removed blocks in rendered diff (file mode)
@@ -2474,35 +2675,8 @@
     return table && table.tBodies.length ? table.tBodies[0].firstElementChild : null;
   }
 
-  function navigateToChange(dir, _mountedPath) {
-    // Empty groups: try mounting a deferred file that has diffs, then retry.
-    if (changeGroups.length === 0) {
-      const start = dir > 0 ? 0 : files.length - 1;
-      const step = dir > 0 ? 1 : -1;
-      for (let i = start; i >= 0 && i < files.length; i += step) {
-        if (!fileLikelyHasChanges(files[i])) continue;
-        if (fileSectionNeedsMount(files[i]) && files[i].path !== _mountedPath) {
-          mountFileForNav(files[i], function() { navigateToChange(dir, files[i].path); });
-          return;
-        }
-      }
-      return;
-    }
-
-    // At the last/first mounted change group — mount deferred neighbors first
-    // so n/N can reach off-screen file bodies.
-    if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length) {
-      const atEnd = dir > 0 && currentChangeIdx === changeGroups.length - 1;
-      const atStart = dir < 0 && currentChangeIdx === 0;
-      if (atEnd || atStart) {
-        const curPath = changeGroups[currentChangeIdx].filePath;
-        const deferred = findDeferredFileForNav(curPath, null, dir, fileLikelyHasChanges);
-        if (deferred && deferred.path !== _mountedPath) {
-          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
-          return;
-        }
-      }
-    }
+  function navigateToChange(dir) {
+    if (changeGroups.length === 0) return;
 
     // Remove previous flash
     document.querySelectorAll('.change-flash').forEach(function(el) { el.classList.remove('change-flash'); });
@@ -2546,36 +2720,33 @@
       }
     }
 
-    // Crossing into another file: mount any deferred file between so its
-    // changes aren't skipped.
-    if (currentChangeIdx >= 0 && currentChangeIdx < changeGroups.length && targetIdx >= 0) {
-      const fromPath = changeGroups[currentChangeIdx].filePath;
-      const toPath = changeGroups[targetIdx].filePath;
-      const wrapping = (dir > 0 && targetIdx < currentChangeIdx) || (dir < 0 && targetIdx > currentChangeIdx);
-      if (wrapping) {
-        const deferred = findDeferredFileForNav(fromPath, null, dir, fileLikelyHasChanges);
-        if (deferred && deferred.path !== _mountedPath) {
-          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
-          return;
-        }
-      } else if (fromPath && toPath && fromPath !== toPath) {
-        const deferred = findDeferredFileForNav(fromPath, toPath, dir, fileLikelyHasChanges);
-        if (deferred && deferred.path !== _mountedPath) {
-          mountFileForNav(deferred, function() { navigateToChange(dir, deferred.path); });
-          return;
-        }
-      }
-    }
-
     currentChangeIdx = targetIdx;
     const group = changeGroups[currentChangeIdx];
-    group.elements[0].scrollIntoView({ block: 'center', behavior: 'instant' });
-    group.elements.forEach(function(el) { el.classList.add('change-flash'); });
-    focusedElement = group.elements[0];
-    focusedFilePath = group.filePath;
-    const bi = parseInt(group.elements[0].dataset.blockIndex);
-    if (!isNaN(bi)) focusedBlockIndex = bi;
-    updateChangeCounters();
+    const anchor = changeNavAnchorFromIdx(currentChangeIdx);
+    function focusGroup() {
+      // A stale document may have rebuilt while its file was mounting.
+      buildChangeGroups();
+      const index = findChangeIdxForAnchor(anchor);
+      if (index < 0) return;
+      currentChangeIdx = index;
+      const mounted = changeGroups[index];
+      if (!mounted.elements[0].isConnected) return;
+      mounted.elements[0].scrollIntoView({ block: 'center', behavior: 'instant' });
+      mounted.elements.forEach(function(el) { el.classList.add('change-flash'); });
+      focusedElement = mounted.elements[0];
+      focusedFilePath = mounted.filePath;
+      const bi = parseInt(mounted.elements[0].dataset.blockIndex);
+      if (!isNaN(bi)) focusedBlockIndex = bi;
+      updateChangeCounters();
+    }
+    if (!group.elements[0].isConnected && pierreView && pierreViewActive()) {
+      pierreView.scrollToFile(group.filePath).then(function() {
+        whenMounted(function() {
+          const annotation = pierreView && pierreView.annotationElement('document:' + group.filePath);
+          return annotation && annotation.isConnected;
+        }, focusGroup);
+      });
+    } else focusGroup();
   }
 
   function updateChangeCounters() {
@@ -2601,7 +2772,7 @@
   function saveOpenFormContent(filePath) {
     const fileForms = getFormsForFile(filePath);
     for (let i = 0; i < fileForms.length; i++) {
-      const ta = document.querySelector('.comment-form[data-form-key="' + fileForms[i].formKey + '"] textarea');
+      const ta = formTextarea(fileForms[i].formKey);
       if (ta) fileForms[i].draftBody = ta.value;
     }
     // Save expanded reply form state before DOM re-render
@@ -2618,11 +2789,7 @@
     }
   }
 
-  // opts.preserveDeferred keeps an off-screen body deferred across the
-  // re-render instead of mounting it, so a section above the viewport doesn't
-  // suddenly grow and shift what the reader is looking at. The mount observer
-  // fills it in once it scrolls near the viewport.
-  function renderFileByPath(filePath, opts) {
+  function renderFileByPath(filePath) {
     const file = getFileByPath(filePath);
     if (!file) return;
     saveOpenFormContent(filePath);
@@ -2630,22 +2797,9 @@
       if (!renderStoryFileByPath(filePath)) renderStory();
       return;
     }
-    const oldSection = document.getElementById('file-section-' + file.path);
-    if (!oldSection) { renderAllFiles(); return; }
-    const oldBody = oldSection.querySelector(':scope > .file-body');
-    const keepDeferred = !!(opts && opts.preserveDeferred) &&
-      !!oldBody && oldBody.getAttribute('data-body-deferred') === '1';
-    const newSection = renderFileSection(file);
-    oldSection.replaceWith(newSection);
-    if (newSection.open && !keepDeferred) {
-      if (file.lazy) loadLazyFile(newSection, file);
-      else ensureFileBodyMounted(newSection, file);
-    }
-    renderMermaidBlocks();
-    setupBodyMountObserver();
-    mountVisibleDeferredBodies();
-    rebuildNavList();
-    applyHideResolved();
+    if (!pierreView) { renderAllFiles(); return; }
+    refreshPierreFile(filePath);
+    updateTreeCommentBadges(filePath);
   }
 
   function currentRenderedFileSection(filePath) {
@@ -2662,55 +2816,10 @@
     return document.getElementById('file-section-' + filePath);
   }
 
-  function renderFileSection(file) {
-    // Use native <details>/<summary> for collapse — browser handles scroll natively
-    const section = document.createElement('details');
-    section.className = 'file-section';
-    section.id = 'file-section-' + file.path;
-    if (!file.collapsed) section.open = true;
-
-    const header = document.createElement('summary');
-    header.className = 'file-header';
-
-    // Intercept click to fix scroll BEFORE collapse (avoids flicker)
-    header.addEventListener('click', function(e) {
-      if (e.target.closest('.file-header-toggle') || e.target.closest('.file-header-viewed')) {
-        e.preventDefault();
-        return;
-      }
-      if (section.open) {
-        // Collapsing: correct scroll before content disappears
-        e.preventDefault();
-        if (section.getBoundingClientRect().top < 0) {
-          section.scrollIntoView({ behavior: 'instant' });
-        }
-        section.open = false;
-        file.collapsed = true;
-      }
-      // Expanding: let native <details> handle it
-    });
-    // Setting .open above queues a toggle event rather than firing one, so it
-    // arrives here after this listener is attached. Loading a lazy file for
-    // that synthetic event pulls in the whole review at once. Track the last
-    // state, not the first event — a real toggle always flips it.
-    let lastOpen = section.open;
-    section.addEventListener('toggle', function() {
-      const readerToggled = section.open !== lastOpen;
-      lastOpen = section.open;
-      file.collapsed = !section.open;
-      if (section.open) {
-        // Eager files mount either way — under the threshold the whole
-        // review is meant to render.
-        if (file.lazy) {
-          if (readerToggled) loadLazyFile(section, file);
-        } else {
-          ensureFileBodyMounted(section, file);
-        }
-      } else if (!fileHasOpenLineForms(file.path)) {
-        deferFileBody(section);
-      }
-    });
-
+  // Fill a file header (name, badge, stats, markdown toggle, change nav,
+  // file-comment button, viewed checkbox). Shared by the classic <summary>
+  // header and Pierre's custom header slot.
+  function populateFileHeader(file, header) {
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
@@ -2833,204 +2942,15 @@
       toggleViewed(file.path);
     });
     header.appendChild(viewedLabel);
-
-    section.appendChild(header);
-
-    // File-level comments container (between header and file body)
-    // For orphaned files, render ALL comments here (no line blocks to anchor to)
-    const isOrphaned = file.orphaned;
-    const fileComments = isOrphaned
-      ? file.comments
-      : file.comments.filter(function(c) { return c.scope === 'file'; });
-    const fileForm = getFileComposeForm(file.path);
-    if (fileComments.length > 0 || (fileForm && !isOrphaned)) {
-      const fileCommentsContainer = document.createElement('div');
-      fileCommentsContainer.className = 'file-comments';
-      for (let ci = 0; ci < fileComments.length; ci++) {
-        const comment = fileComments[ci];
-        let el;
-        if (comment.resolved) {
-          el = createResolvedElement(comment, file.path);
-        } else {
-          el = createCommentElement(comment, file.path);
-        }
-        if (isOrphaned) {
-          el.classList.add('outdated-comment');
-          const badge = document.createElement('span');
-          badge.className = 'outdated-badge';
-          badge.textContent = 'Outdated';
-          const headerLeft = el.querySelector('.comment-header-left');
-          if (headerLeft) headerLeft.appendChild(badge);
-        }
-        fileCommentsContainer.appendChild(el);
-      }
-      if (fileForm && !isOrphaned) {
-        fileCommentsContainer.appendChild(createFileCommentForm(fileForm));
-      }
-      section.appendChild(fileCommentsContainer);
-    }
-
-    // File body — mount heavy diff/document DOM only while expanded. Keeping
-    // <details> open by default (GitHub-style) but deferring the body until it
-    // scrolls near the viewport keeps first paint cheap on large PRs.
-    const body = document.createElement('div');
-    body.className = 'file-body';
-    section.appendChild(body);
-
-    body.setAttribute('data-body-deferred', '1');
-
-    return section;
   }
 
-  function fileHasOpenLineForms(filePath) {
-    return getFormsForFile(filePath).some(function(f) { return f.scope !== 'file'; });
-  }
-
-  function loadLazyFile(section, file, onLoaded) {
-    if (!section.open) return;
-    if (!file.lazy) {
-      if (onLoaded) onLoaded(section);
-      return;
-    }
-    if (!file._lazyLoadCallbacks) file._lazyLoadCallbacks = [];
-    if (onLoaded) file._lazyLoadCallbacks.push(onLoaded);
-    if (file._lazyLoading) return;
-    file._lazyLoading = true;
-    section.classList.add('file-section-loading');
-
-    loadSingleFile({
-      path: file.path,
-      old_path: file.oldPath,
-      status: file.status,
-      file_type: file.fileType,
-      additions: file.additions,
-      deletions: file.deletions,
-    }, effectiveDiffScope()).then(function(loaded) {
-      // Copy loaded data into the existing file object
-      file.oldPath = loaded.oldPath;
-      file.content = loaded.content;
-      file.previousContent = loaded.previousContent;
-      file.comments = loaded.comments;
-      file.diffHunks = loaded.diffHunks;
-      file._autoExpandDone = false;
-      file.lineBlocks = loaded.lineBlocks;
-      file.previousLineBlocks = loaded.previousLineBlocks;
-      file.tocItems = loaded.tocItems;
-      file.diffTooLarge = loaded.diffTooLarge;
-      file.diffLoaded = loaded.diffLoaded;
-      file.lazy = false;
-      file._lazyLoading = false;
-      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-      if (loaded.lang) file.lang = loaded.lang;
-
-      const callbacks = file._lazyLoadCallbacks || [];
-      file._lazyLoadCallbacks = [];
-
-      // Re-render this file section in place (prefer live node if caller raced).
-      let liveSection = section;
-      if (!section.isConnected) {
-        liveSection = document.getElementById('file-section-' + file.path);
-        if (!liveSection) {
-          for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
-          return;
-        }
-      }
-      liveSection.classList.remove('file-section-loading');
-      const newSection = renderFileSection(file);
-      newSection.open = liveSection.open;
-      liveSection.replaceWith(newSection);
-      // Always mount when open: observer may be suppressed (scrollToFile) and
-      // will not re-fire for an already-intersecting replacement section.
-      if (newSection.open) ensureFileBodyMounted(newSection, file);
-
-      // Update UI state
-      renderFileTree();
-      updateCommentCount();
-      setupBodyMountObserver();
-      rebuildNavList();
-      for (let i = 0; i < callbacks.length; i++) callbacks[i](newSection);
-    }).catch(function() {
-      file._lazyLoading = false;
-      const callbacks = file._lazyLoadCallbacks || [];
-      file._lazyLoadCallbacks = [];
-      // Guard against stale DOM node: only re-attach if still in the document
-      if (section.isConnected) section.classList.remove('file-section-loading');
-      for (let i = 0; i < callbacks.length; i++) callbacks[i](null);
-    });
-  }
-
-  function deferFileBody(section) {
-    const body = section.querySelector(':scope > .file-body');
-    if (!body || body.getAttribute('data-body-deferred') === '1') return;
-    body.innerHTML = '';
-    body.setAttribute('data-body-deferred', '1');
-    rebuildNavList();
-  }
-
-  function mountDeferredBody(section, file) {
-    const body = section.querySelector(':scope > .file-body');
-    if (!body || body.getAttribute('data-body-deferred') !== '1') return;
-    populateFileBody(body, file);
-    highlightQuotesInSection(section, file);
-  }
-
-  function ensureFileBodyMounted(section, file) {
-    if (!section || !file || file.lazy) return;
-    const body = section.querySelector(':scope > .file-body');
-    if (!body) return;
-    if (body.getAttribute('data-body-deferred') !== '1' && body.childElementCount > 0) return;
-    mountDeferredBody(section, file);
-    renderMermaidBlocks();
-    rebuildNavList();
-    applyHideResolved();
-  }
-
-  function populateFileBody(body, file) {
-    body.innerHTML = '';
-    body.removeAttribute('data-body-deferred');
-
-    const showDiff = file.viewMode === 'diff' || (file.fileType === 'code' && session.mode === 'git');
-
-    if (file.orphaned) {
-      const placeholder = document.createElement('div');
-      placeholder.className = 'diff-deleted-placeholder orphaned-placeholder';
-      placeholder.textContent = 'This file is no longer part of the review.';
-      body.appendChild(placeholder);
-    } else if (file.status === 'deleted' && (!file.diffHunks || file.diffHunks.length === 0)) {
-      const deleted = document.createElement('div');
-      deleted.className = 'diff-deleted-placeholder';
-      deleted.textContent = 'This file was deleted.';
-      body.appendChild(deleted);
-    } else if (file.status === 'renamed' && (!file.diffHunks || file.diffHunks.length === 0)) {
-      const renamed = document.createElement('div');
-      renamed.className = 'diff-deleted-placeholder rename-placeholder';
-      renamed.textContent = 'File renamed without changes.';
-      body.appendChild(renamed);
-    } else if (showDiff && file.diffTooLarge && !file.diffLoaded) {
-      let diffLineCount = 0;
-      if (file.diffHunks) {
-        for (let h = 0; h < file.diffHunks.length; h++) {
-          diffLineCount += (file.diffHunks[h].Lines || []).length;
-        }
-      }
-      const placeholder = document.createElement('div');
-      placeholder.className = 'diff-large-placeholder';
-      placeholder.innerHTML =
-        '<p>Large diff not rendered by default.</p>' +
-        '<p class="diff-large-meta">' + diffLineCount.toLocaleString() + ' lines changed</p>' +
-        '<button class="btn btn-sm">Load diff</button>';
-      placeholder.querySelector('button').addEventListener('click', function() {
-        file.diffLoaded = true;
-        renderFileByPath(file.path);
-      });
-      body.appendChild(placeholder);
-    } else if (showDiff) {
-      body.appendChild(renderDiffHunks(file));
-    } else if (diffActive && file.previousLineBlocks && file.previousLineBlocks.length > 0) {
-      body.appendChild(diffMode === 'split' ? renderRenderedDiffSplit(file) : renderRenderedDiffUnified(file));
-    } else {
-      body.appendChild(renderDocumentView(file));
-    }
+  // Body of a markdown file in Document view: the inter-round rendered diff
+  // when that toggle is on (files mode), otherwise the rendered document.
+  function populateDocumentBody(body, file) {
+    const roundDiff = diffActive && file.previousLineBlocks && file.previousLineBlocks.length > 0;
+    body.replaceChildren(roundDiff
+      ? (diffMode === 'split' ? renderRenderedDiffSplit(file) : renderRenderedDiffUnified(file))
+      : renderDocumentView(file));
   }
 
   // ===== Rendered Diff View (Markdown, file mode) =====
@@ -3483,17 +3403,9 @@
       commentGutter.dataset.endLine = block.endLine;
       commentGutter.dataset.filePath = file.path;
 
-      // Drag indicators: + at endpoints, blue line between
+      // Match Pierre: one gutter utility at the bottom of the selected range.
       if (dragState && dragState.filePath === file.path && selectionStart !== null && selectionEnd !== null) {
-        const isAnchorBlock = block.startLine <= dragState.anchorEndLine && block.endLine >= dragState.anchorStartLine;
-        const isCurrentBlock = block.startLine <= dragState.currentEndLine && block.endLine >= dragState.currentStartLine;
-        const inRange = block.startLine >= selectionStart && block.endLine <= selectionEnd;
-        if (isAnchorBlock || isCurrentBlock) commentGutter.classList.add('drag-endpoint');
-        if (inRange) {
-          commentGutter.classList.add('drag-range');
-          if (block.startLine === selectionStart) commentGutter.classList.add('drag-range-start');
-          if (block.endLine === selectionEnd) commentGutter.classList.add('drag-range-end');
-        }
+        if (block.startLine <= selectionEnd && block.endLine >= selectionEnd) commentGutter.classList.add('drag-endpoint');
       }
 
       const lineAdd = document.createElement('span');
@@ -3589,12 +3501,6 @@
     return container;
   }
 
-  // ===== Diff Hunk View (Code Files) =====
-  function renderDiffHunks(file) {
-    if (diffMode === 'split') return renderDiffSplit(file);
-    return renderDiffUnified(file);
-  }
-
 
   // Word-level diff — extracted to crit-diff-renderer.js (window.crit.diffRenderer)
   const bestWordDiffPairing = window.crit.diffRenderer.bestWordDiffPairing;
@@ -3602,240 +3508,11 @@
   const applyWordDiffToHtml = window.crit.diffRenderer.applyWordDiffToHtml;
   const htmlToText = window.crit.diffRenderer.htmlToText;
   const applyWordDiffPair = window.crit.diffRenderer.applyWordDiffPair;
-  const buildHunkWordDiffs = window.crit.diffRenderer.buildHunkWordDiffs;
-  const buildSplitChangeRows = window.crit.diffRenderer.buildSplitChangeRows;
-  const resolveUnifiedDragFormRange = window.crit.diffRenderer.resolveUnifiedDragFormRange;
   const resolveTextSelectionLineRange = window.crit.diffRenderer.resolveTextSelectionLineRange;
-  const preferredSideFromNode = window.crit.diffRenderer.preferredSideFromNode;
   const selectedTextWithinElements = window.crit.diffRenderer.selectedTextWithinElements;
 
 
   // ===== Diff Gutter Drag (multi-line comment selection) =====
-  let diffDragState = null; // { filePath, side, anchorLine, currentLine }
-
-  // Tag a diff line element with data attributes for drag detection + keyboard nav
-  // For split mode, navEl (the row) gets kb-nav only; el (the side) carries line attrs.
-  function tagDiffLine(el, filePath, lineNum, side, navEl) {
-    el.dataset.diffFilePath = filePath;
-    el.dataset.diffLineNum = lineNum;
-    el.dataset.diffSide = side || '';
-    const nav = navEl || el;
-    if (!nav.classList.contains('kb-nav')) {
-      nav.classList.add('kb-nav');
-    }
-    if (nav === el) {
-      nav.dataset.diffFilePath = filePath;
-      nav.dataset.diffLineNum = lineNum;
-      nav.dataset.diffSide = side || '';
-    }
-  }
-
-  // Creates a dedicated comment gutter column element with a + button.
-  // Returns the element to insert between line numbers and content.
-  function makeDiffCommentGutter(filePath, lineNum, side, visualIdx) {
-    const col = document.createElement('div');
-    col.className = 'diff-comment-gutter';
-    if (!lineNum) return col; // empty placeholder for lines without numbers
-
-    // During drag, show + at anchor and current line, blue line between
-    const sideMatch = diffMode === 'split' ? diffDragState && diffDragState.side === (side || '') : true;
-    if (diffDragState && diffDragState.filePath === filePath && sideMatch && selectionStart !== null && selectionEnd !== null) {
-      let isAnchor, isCurrent, inRange, isRangeStart, isRangeEnd;
-      if (diffMode !== 'split' && visualIdx !== undefined && unifiedVisualStart !== null) {
-        // Unified mode: use visual indices (old/new line numbers are in different spaces)
-        isAnchor = visualIdx === diffDragState.anchorVisualIdx;
-        isCurrent = visualIdx === diffDragState.currentVisualIdx;
-        inRange = visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
-        isRangeStart = visualIdx === unifiedVisualStart;
-        isRangeEnd = visualIdx === unifiedVisualEnd;
-      } else {
-        isAnchor = lineNum === diffDragState.anchorLine;
-        isCurrent = lineNum === diffDragState.currentLine;
-        inRange = lineNum >= selectionStart && lineNum <= selectionEnd;
-        isRangeStart = lineNum === selectionStart;
-        isRangeEnd = lineNum === selectionEnd;
-      }
-      if (isAnchor || isCurrent) col.classList.add('drag-endpoint');
-      if (inRange) {
-        col.classList.add('drag-range');
-        if (isRangeStart) col.classList.add('drag-range-start');
-        if (isRangeEnd) col.classList.add('drag-range-end');
-      }
-    }
-
-    const btn = document.createElement('button');
-    btn.className = 'diff-comment-btn';
-    btn.textContent = '+';
-    btn.dataset.filePath = filePath;
-    btn.dataset.lineNum = lineNum;
-    btn.dataset.side = side || '';
-    if (visualIdx !== undefined) btn.dataset.visualIdx = visualIdx;
-    // Mouse drag-init is delegated once on the diff container
-    // (attachDiffMouseHandler) rather than attached per-button. A large diff
-    // can contain thousands of these buttons, and one mousedown listener per
-    // button stalled the main thread for several seconds on render (#657).
-    col.appendChild(btn);
-    return col;
-  }
-
-  // Shared drag-init used by both the desktop mousedown handler on
-  // .diff-comment-btn and the touch pointerdown handler on .diff-gutter-num
-  // (added in attachDiffTouchHandler below for F4 mobile reliability).
-  function beginDiffCommentDrag(fp, ln, s, vi) {
-    diffDragState = { filePath: fp, side: s, anchorLine: ln, currentLine: ln, anchorVisualIdx: vi, currentVisualIdx: vi };
-    activeFilePath = fp;
-    selectionStart = ln;
-    selectionEnd = ln;
-    if (diffMode !== 'split' && vi !== undefined) {
-      unifiedVisualStart = vi;
-      unifiedVisualEnd = vi;
-    }
-    renderFileByPath(fp);
-    document.body.classList.add('dragging');
-  }
-
-  // F4: on touch devices, the desktop .diff-comment-btn affordance is
-  // invisible (no hover ever fires) and the user instead sees the `+`
-  // prefix that F3 puts on .diff-gutter-num. Make .diff-gutter-num itself
-  // a touch-tap target by delegating pointerdown on the diff container.
-  // The button's data attrs are co-located on the sibling .diff-comment-btn
-  // inside the same row's .diff-comment-gutter.
-  function attachDiffTouchHandler(container) {
-    container.addEventListener('pointerdown', function(e) {
-      if (e.pointerType !== 'touch') return;
-      const num = e.target.closest('.diff-gutter-num');
-      if (!num) return;
-      const row = num.closest('.diff-line, .diff-split-side');
-      if (!row) return;
-      const btn = row.querySelector('.diff-comment-btn');
-      if (!btn) return; // line not commentable
-      e.preventDefault();
-      e.stopPropagation();
-      const fp = btn.dataset.filePath;
-      const ln = parseInt(btn.dataset.lineNum);
-      const s = btn.dataset.side || '';
-      const vi = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
-      beginDiffCommentDrag(fp, ln, s, vi);
-      document.addEventListener('pointermove', handleDiffDragMove);
-      document.addEventListener('pointerup', handleDiffDragEnd);
-    });
-  }
-
-  // Desktop mouse path: delegate a single mousedown on the diff container
-  // instead of attaching one listener per .diff-comment-btn. On a large diff
-  // the per-button approach wired up thousands of listeners and stalled the
-  // main thread for several seconds on render (#657). One delegated handler is
-  // O(1) regardless of diff size. Mirrors attachDiffTouchHandler above.
-  function attachDiffMouseHandler(container) {
-    container.addEventListener('mousedown', function(e) {
-      const btn = e.target.closest('.diff-comment-btn');
-      if (!btn || !container.contains(btn)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const fp = btn.dataset.filePath;
-      const ln = parseInt(btn.dataset.lineNum);
-      const s = btn.dataset.side || '';
-      const vi = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
-      beginDiffCommentDrag(fp, ln, s, vi);
-      document.addEventListener('mousemove', handleDiffDragMove);
-      document.addEventListener('mouseup', handleDiffDragEnd);
-    });
-  }
-
-  function handleDiffDragMove(e) {
-    if (!diffDragState) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el) return;
-    // Find the nearest diff line with data attributes
-    const diffLine = el.closest('[data-diff-line-num]');
-    if (!diffLine || diffLine.dataset.diffFilePath !== diffDragState.filePath) return;
-    // In split mode, restrict to the same side; in unified, allow crossing add/del
-    if (diffMode === 'split') {
-      if ((diffLine.dataset.diffSide || '') !== diffDragState.side) return;
-    }
-
-    const hoverLine = parseInt(diffLine.dataset.diffLineNum);
-    if (isNaN(hoverLine) || hoverLine === 0) return;
-
-    diffDragState.currentLine = hoverLine;
-    selectionStart = Math.min(diffDragState.anchorLine, hoverLine);
-    selectionEnd = Math.max(diffDragState.anchorLine, hoverLine);
-
-    // Unified mode: track visual indices for cross-number-space drag
-    if (diffMode !== 'split' && diffLine.dataset.diffVisualIdx !== undefined) {
-      const hoverVisualIdx = parseInt(diffLine.dataset.diffVisualIdx);
-      diffDragState.currentVisualIdx = hoverVisualIdx;
-      unifiedVisualStart = Math.min(diffDragState.anchorVisualIdx, hoverVisualIdx);
-      unifiedVisualEnd = Math.max(diffDragState.anchorVisualIdx, hoverVisualIdx);
-    }
-    updateDragSelectionVisuals(diffDragState.filePath);
-  }
-
-  function handleDiffDragEnd() {
-    // Remove both mouse and pointer listeners — desktop attaches mouse
-    // listeners via the delegated mousedown handler on the diff container,
-    // touch attaches pointer listeners via attachDiffTouchHandler. Cleaning
-    // both is safe (removeEventListener is a no-op if not attached).
-    document.removeEventListener('mousemove', handleDiffDragMove);
-    document.removeEventListener('mouseup', handleDiffDragEnd);
-    document.removeEventListener('pointermove', handleDiffDragMove);
-    document.removeEventListener('pointerup', handleDiffDragEnd);
-    document.body.classList.remove('dragging');
-
-    if (!diffDragState) return;
-
-    let rangeStart = Math.min(diffDragState.anchorLine, diffDragState.currentLine);
-    let rangeEnd = Math.max(diffDragState.anchorLine, diffDragState.currentLine);
-    let side = diffDragState.side;
-    const fp = diffDragState.filePath;
-
-    // Unified mode may drag across old/new number spaces. Resolve to a
-    // single-side range from the visual selection so the form attaches under
-    // the selected change (see resolveUnifiedDragFormRange).
-    if (diffMode !== 'split' &&
-        typeof diffDragState.anchorVisualIdx === 'number' && !isNaN(diffDragState.anchorVisualIdx) &&
-        typeof diffDragState.currentVisualIdx === 'number' && !isNaN(diffDragState.currentVisualIdx)) {
-      const vLo = Math.min(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
-      const vHi = Math.max(diffDragState.anchorVisualIdx, diffDragState.currentVisualIdx);
-      const releaseVisualIdx = diffDragState.currentVisualIdx;
-      const selected = [];
-      const section = currentRenderedFileSection(fp);
-      if (section) {
-        const els = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
-        for (let i = 0; i < els.length; i++) {
-          const vi = parseInt(els[i].dataset.diffVisualIdx, 10);
-          if (isNaN(vi) || vi < vLo || vi > vHi) continue;
-          const ln = parseInt(els[i].dataset.diffLineNum, 10);
-          if (!ln) continue;
-          selected.push({
-            visualIdx: vi,
-            lineNum: ln,
-            side: els[i].dataset.diffSide || '',
-          });
-        }
-      }
-      const resolved = resolveUnifiedDragFormRange(selected, releaseVisualIdx, {
-        startLine: rangeStart,
-        endLine: rangeEnd,
-        side: side,
-      });
-      rangeStart = resolved.startLine;
-      rangeEnd = resolved.endLine;
-      side = resolved.side;
-    }
-
-    diffDragState = null;
-    unifiedVisualStart = null;
-    unifiedVisualEnd = null;
-    openForm({
-      filePath: fp,
-      afterBlockIndex: null,
-      startLine: rangeStart,
-      endLine: rangeEnd,
-      editingId: null,
-      side: side,
-    });
-  }
 
   // Pre-expand spacer gaps that contain comments so comments render inline
   // instead of falling through to the "outdated" section. Modifies file.diffHunks in place.
@@ -3908,327 +3585,6 @@
     return '@@ -' + oldStart + ',' + oldCount + ' +' + newStart + ',' + newCount + ' @@' + suffix;
   }
 
-  // Expand N context lines downward from the previous hunk (top of gap).
-  // Inserts a bridge hunk after prevIdx.
-  function expandDown(file, prevIdx, count) {
-    if (!file.content) return;
-    const hunks = file.diffHunks;
-    const prevHunk = hunks[prevIdx];
-    const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
-    const prevOldEnd = prevHunk.OldStart + prevHunk.OldCount;
-
-    const lines = buildContextLines(file, prevNewEnd, prevOldEnd, count);
-    const bridge = {
-      OldStart: prevOldEnd,
-      OldCount: count,
-      NewStart: prevNewEnd,
-      NewCount: count,
-      Header: buildHunkHeader(prevOldEnd, count, prevNewEnd, count, ''),
-      Lines: lines
-    };
-    hunks.splice(prevIdx + 1, 0, bridge);
-    renderFileByPath(file.path);
-  }
-
-  // Expand N context lines upward from the next hunk (bottom of gap).
-  // Inserts a bridge hunk before nextIdx.
-  function expandUp(file, nextIdx, count) {
-    if (!file.content) return;
-    const hunks = file.diffHunks;
-    const nextHunk = hunks[nextIdx];
-    const startNew = nextHunk.NewStart - count;
-    const startOld = nextHunk.OldStart - count;
-
-    const lines = buildContextLines(file, startNew, startOld, count);
-    const bridge = {
-      OldStart: startOld,
-      OldCount: count,
-      NewStart: startNew,
-      NewCount: count,
-      Header: buildHunkHeader(startOld, count, startNew, count, ''),
-      Lines: lines
-    };
-    hunks.splice(nextIdx, 0, bridge);
-    renderFileByPath(file.path);
-  }
-
-  // Expand all remaining context lines in a gap, merging prev + context + next into one hunk.
-  function expandAll(file, prevIdx, nextIdx) {
-    if (!file.content) return;
-    const hunks = file.diffHunks;
-    const prevHunk = hunks[prevIdx];
-    const nextHunk = hunks[nextIdx];
-    const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
-    const prevOldEnd = prevHunk.OldStart + prevHunk.OldCount;
-    const gap = nextHunk.NewStart - prevNewEnd;
-
-    const contextLines = buildContextLines(file, prevNewEnd, prevOldEnd, gap);
-    const mergedOldCount = (nextHunk.OldStart + nextHunk.OldCount) - prevHunk.OldStart;
-    const mergedNewCount = (nextHunk.NewStart + nextHunk.NewCount) - prevHunk.NewStart;
-    const merged = {
-      OldStart: prevHunk.OldStart,
-      OldCount: mergedOldCount,
-      NewStart: prevHunk.NewStart,
-      NewCount: mergedNewCount,
-      Header: buildHunkHeader(prevHunk.OldStart, mergedOldCount, prevHunk.NewStart, mergedNewCount, prevHunk.Header),
-      Lines: prevHunk.Lines.concat(contextLines, nextHunk.Lines)
-    };
-    hunks.splice(prevIdx, nextIdx - prevIdx + 1, merged);
-    renderFileByPath(file.path);
-  }
-
-  const EXPAND_STEP = 20;
-
-  // SVG icon paths for expand controls (GitHub-style)
-  const ICON_EXPAND_DOWN = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a.75.75 0 0 1-.53-.22l-3.5-3.5a.75.75 0 0 1 1.06-1.06L8 8.69l2.97-2.97a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-.53.22z"/></svg>';
-  const ICON_EXPAND_UP = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a.75.75 0 0 1 .53.22l3.5 3.5a.75.75 0 0 1-1.06 1.06L8 7.31 5.03 10.28a.75.75 0 0 1-1.06-1.06l3.5-3.5A.75.75 0 0 1 8 5.5z"/></svg>';
-  const ICON_EXPAND_ALL = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.177 14.323l2.896-2.896a.25.25 0 0 0-.177-.427H8.75V9.25a.75.75 0 0 0-1.5 0V11H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0zM7.823 1.677L4.927 4.573a.25.25 0 0 0 .177.427H7.25V6.75a.75.75 0 0 0 1.5 0V5h2.146a.25.25 0 0 0 .177-.427L8.177 1.677a.25.25 0 0 0-.354 0z"/></svg>';
-
-  // Helper: create a single expand button element
-  function createExpandBtn(iconHtml, ariaLabel, handler) {
-    const btn = document.createElement('button');
-    btn.className = 'expand-btn';
-    btn.setAttribute('aria-label', ariaLabel);
-    btn.innerHTML = iconHtml;
-    btn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      handler();
-    });
-    return btn;
-  }
-
-  // Helper: build the spacer DOM structure with gutter + hunk text
-  function buildSpacerElement(className, hunkHeaderText, buttons) {
-    const spacer = document.createElement('div');
-    spacer.className = className;
-
-    const gutter = document.createElement('div');
-    gutter.className = 'expand-gutter';
-    for (let i = 0; i < buttons.length; i++) {
-      gutter.appendChild(buttons[i]);
-    }
-    spacer.appendChild(gutter);
-
-    const text = document.createElement('span');
-    text.className = 'spacer-hunk-text';
-    text.textContent = hunkHeaderText || '';
-    spacer.appendChild(text);
-
-    return spacer;
-  }
-
-  // Helper: render hunk spacer with incremental expansion (GitHub-style)
-  // prevIdx/nextIdx are indices into file.diffHunks
-  // Returns spacer element (embeds the next hunk's header text) or null
-  function renderDiffSpacer(prevHunk, nextHunk, file, prevIdx, nextIdx) {
-    const prevNewEnd = prevHunk.NewStart + prevHunk.NewCount;
-    const gap = nextHunk.NewStart - prevNewEnd;
-    if (gap <= 0) return null;
-
-    const buttons = [];
-
-    if (gap <= EXPAND_STEP) {
-      // Small gap: single bidirectional button expands all
-      buttons.push(createExpandBtn(ICON_EXPAND_ALL, 'Expand all ' + gap + ' lines', function() {
-        expandAll(file, prevIdx, nextIdx);
-      }));
-    } else {
-      // Large gap: two stacked buttons — down, up (GitHub-style)
-      buttons.push(createExpandBtn(ICON_EXPAND_DOWN, 'Expand ' + EXPAND_STEP + ' lines down', function() {
-        expandDown(file, prevIdx, EXPAND_STEP);
-      }));
-      buttons.push(createExpandBtn(ICON_EXPAND_UP, 'Expand ' + EXPAND_STEP + ' lines up', function() {
-        expandUp(file, nextIdx, EXPAND_STEP);
-      }));
-    }
-
-    return buildSpacerElement('diff-spacer', nextHunk.Header || '', buttons);
-  }
-
-  // Helper: render leading spacer (before first hunk when it doesn't start at line 1)
-  // Returns the spacer element (includes the first hunk's header text)
-  function renderLeadingSpacer(firstHunk, file) {
-    // Only show if the first hunk doesn't start at line 1
-    if (firstHunk.NewStart <= 1 && firstHunk.OldStart <= 1) return null;
-    // For pure insertion (OldCount===0) or pure deletion (NewCount===0), git uses
-    // position-after semantics for the zero-count side — ignore it for gap calculation.
-    const newGap = firstHunk.NewCount > 0 ? firstHunk.NewStart - 1 : Infinity;
-    const oldGap = firstHunk.OldCount > 0 ? firstHunk.OldStart - 1 : Infinity;
-    const gap = Math.min(newGap, oldGap);
-    if (gap <= 0 || gap === Infinity) return null;
-
-    const expandCount = Math.min(gap, EXPAND_STEP);
-
-    const buttons = [];
-    buttons.push(createExpandBtn(ICON_EXPAND_UP, 'Expand ' + expandCount + ' lines above', function() {
-      if (!file.content) return;
-      const contentLines = file.content.split('\n');
-      const hunks = file.diffHunks;
-      const hunk = hunks[0];
-
-      // Expand from the bottom of the gap upward (closest to the hunk first)
-      const startNewLine = hunk.NewCount > 0 ? hunk.NewStart - expandCount : hunk.NewStart;
-      const startOldLine = hunk.OldCount > 0 ? hunk.OldStart - expandCount : hunk.OldStart;
-      const contextLines = [];
-      for (let i = 0; i < expandCount; i++) {
-        const newLineNum = startNewLine + i;
-        const oldLineNum = startOldLine + i;
-        const text = newLineNum > 0 && newLineNum <= contentLines.length ? contentLines[newLineNum - 1] : '';
-        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
-      }
-
-      hunk.Lines = contextLines.concat(hunk.Lines);
-      hunk.OldStart = startOldLine;
-      hunk.NewStart = startNewLine;
-      hunk.OldCount += expandCount;
-      hunk.NewCount += expandCount;
-      hunk.Header = buildHunkHeader(hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header);
-      renderFileByPath(file.path);
-    }));
-
-    return buildSpacerElement('diff-spacer diff-spacer-leading', firstHunk.Header || '', buttons);
-  }
-
-  // Helper: render trailing spacer (after last hunk when it doesn't reach EOF)
-  function renderTrailingSpacer(lastHunk, file) {
-    if (!file.content) return null;
-    const contentLines = file.content.split('\n');
-    let totalNewLines = contentLines.length;
-    if (totalNewLines > 0 && contentLines[totalNewLines - 1] === '') totalNewLines--;
-
-    const lastNewEnd = lastHunk.NewStart + lastHunk.NewCount;
-    const gap = totalNewLines - lastNewEnd + 1;
-    if (gap <= 0) return null;
-
-    const expandCount = Math.min(gap, EXPAND_STEP);
-
-    const buttons = [];
-    buttons.push(createExpandBtn(ICON_EXPAND_DOWN, 'Expand ' + expandCount + ' lines below', function() {
-      if (!file.content) return;
-      const lines = file.content.split('\n');
-      let totalLines = lines.length;
-      if (totalLines > 0 && lines[totalLines - 1] === '') totalLines--;
-      const hunks = file.diffHunks;
-      const hunk = hunks[hunks.length - 1];
-
-      const hunkNewEnd = hunk.NewStart + hunk.NewCount;
-      const hunkOldEnd = hunk.OldStart + hunk.OldCount;
-      const remaining = totalLines - hunkNewEnd + 1;
-      const count = Math.min(remaining, EXPAND_STEP);
-
-      const contextLines = [];
-      for (let i = 0; i < count; i++) {
-        const newLineNum = hunkNewEnd + i;
-        const oldLineNum = hunkOldEnd + i;
-        const text = newLineNum <= lines.length ? lines[newLineNum - 1] : '';
-        contextLines.push({ Type: 'context', Content: text, OldNum: oldLineNum, NewNum: newLineNum });
-      }
-
-      hunk.Lines = hunk.Lines.concat(contextLines);
-      hunk.OldCount += count;
-      hunk.NewCount += count;
-      hunk.Header = buildHunkHeader(hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header);
-      renderFileByPath(file.path);
-    }));
-
-    return buildSpacerElement('diff-spacer diff-spacer-trailing', '', buttons);
-  }
-
-  // Helper: render hunk header
-  function renderDiffHunkHeader(hunk) {
-    const hunkHeader = document.createElement('div');
-    hunkHeader.className = 'diff-hunk-header';
-    hunkHeader.innerHTML = '<div class="hunk-gutter"></div><span class="hunk-text">' + escapeHtml(hunk.Header) + '</span>';
-    return hunkHeader;
-  }
-
-  // Helper: append comments for a given line number and side
-  function appendDiffComments(container, filePath, lineNum, side, commentsMap) {
-    const key = lineNum + ':' + (side || '');
-    const lineComments = commentsMap[key] || [];
-    for (const comment of lineComments) {
-      const el = comment.resolved
-        ? createResolvedElement(comment, filePath)
-        : createCommentElement(comment, filePath);
-      if (side === 'old') el.classList.add('diff-comment-left');
-      else el.classList.add('diff-comment-right');
-      container.appendChild(el);
-    }
-  }
-
-  // Helper: append comment form if it targets this line and side.
-  // fileForms is threaded down from the top-level diff renders
-  // (renderDiffUnified/renderDiffSplit) — one filtered array per render.
-  function appendDiffForm(container, filePath, lineNum, side, fileForms) {
-    const forms = fileForms || getFormsForFile(filePath);
-    for (let fi = 0; fi < forms.length; fi++) {
-      const form = forms[fi];
-      const formSide = form.side || '';
-      if (!form.editingId && form.endLine === lineNum && formSide === (side || '')) {
-        const el = createCommentForm(form);
-        if (formSide === 'old') el.classList.add('diff-comment-left');
-        else el.classList.add('diff-comment-right');
-        container.appendChild(el);
-      }
-    }
-  }
-
-  // Helper: render comments whose line keys don't appear in any diff hunk.
-  // These are "outdated" — the comment exists but the line is gone from the current diff.
-  function appendOutdatedDiffComments(container, file, commentsMap, hunks) {
-    // Build set of all end_line:side keys present in the diff hunks
-    const renderedKeys = new Set();
-    for (const hunk of hunks) {
-      for (const line of hunk.Lines) {
-        if (line.Type === 'del' && line.OldNum) {
-          renderedKeys.add(line.OldNum + ':old');
-        }
-        if (line.Type === 'add' && line.NewNum) {
-          renderedKeys.add(line.NewNum + ':');
-        }
-        if (line.Type === 'context') {
-          if (line.OldNum) renderedKeys.add(line.OldNum + ':old');
-          if (line.NewNum) renderedKeys.add(line.NewNum + ':');
-        }
-      }
-    }
-
-    // Collect comments whose keys were not rendered
-    const outdatedComments = [];
-    for (const key of Object.keys(commentsMap)) {
-      if (!renderedKeys.has(key)) {
-        for (const comment of commentsMap[key]) {
-          if (comment.scope !== 'file') {
-            outdatedComments.push(comment);
-          }
-        }
-      }
-    }
-
-    if (outdatedComments.length === 0) return;
-
-    // Render outdated comments section at the bottom of the diff
-    const section = document.createElement('div');
-    section.className = 'outdated-diff-comments';
-
-    for (const comment of outdatedComments) {
-      const el = comment.resolved
-        ? createResolvedElement(comment, file.path)
-        : createCommentElement(comment, file.path);
-      el.classList.add('outdated-comment');
-      const headerLeft = el.querySelector('.comment-header-left');
-      if (headerLeft) {
-        const badge = document.createElement('span');
-        badge.className = 'outdated-badge';
-        badge.textContent = 'Outdated';
-        headerLeft.appendChild(badge);
-      }
-      section.appendChild(el);
-    }
-
-    container.appendChild(section);
-  }
-
   // ===== Unified diff (interleaved lines, single pane) =====
   // Pre-process diffHunks: merge adjacent hunks where the gap between them
   // is ≤ 8 unchanged lines. This removes visual noise from tiny spacers.
@@ -4295,352 +3651,6 @@
     }
   }
 
-  function renderDiffUnified(file) {
-    const container = document.createElement('div');
-    container.className = 'diff-container unified';
-    attachDiffTouchHandler(container);
-    attachDiffMouseHandler(container);
-
-    expandHunksForComments(file);
-
-    const hunks = file.diffHunks || [];
-    if (hunks.length === 0) {
-      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
-      return container;
-    }
-
-    autoExpandSmallGaps(file);
-
-    const { diffCommentsMap: commentsMap } = buildCommentIndices(file.comments);
-    const commentVisualSet = buildUnifiedCommentVisualSet(hunks, file.comments);
-    // Hoisted: one filtered array per render instead of one per diff line.
-    const fileForms = getFormsForFile(file.path);
-    let visualIdx = 0; // sequential index for unified drag (old/new nums are different spaces)
-
-    // Leading spacer before first hunk (includes hunk header text)
-    const leadingSpacer = renderLeadingSpacer(hunks[0], file);
-    if (leadingSpacer) container.appendChild(leadingSpacer);
-
-    for (let hi = 0; hi < hunks.length; hi++) {
-      const hunk = hunks[hi];
-      let spacerRendered = false;
-
-      if (hi > 0) {
-        const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) {
-          container.appendChild(spacer);
-          spacerRendered = true;
-        }
-      }
-
-      // Skip standalone hunk header when:
-      // - a spacer (which embeds the header) was rendered, or
-      // - the leading spacer covers the first hunk, or
-      // - this hunk is contiguous with the previous one (e.g. bridge hunks from expand)
-      const contiguous = hi > 0 && (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
-      if (!spacerRendered && !(hi === 0 && leadingSpacer) && !contiguous) {
-        container.appendChild(renderDiffHunkHeader(hunk));
-      }
-
-      const wordDiffMap = buildHunkWordDiffs(hunk);
-
-      for (let li = 0; li < hunk.Lines.length; li++) {
-        const line = hunk.Lines[li];
-        const lineEl = document.createElement('div');
-        lineEl.className = 'diff-line';
-        if (line.Type === 'add') lineEl.classList.add('addition');
-        if (line.Type === 'del') lineEl.classList.add('deletion');
-        lineEl.dataset.diffVisualIdx = visualIdx;
-
-        const commentLineNum = line.Type === 'del' ? line.OldNum : line.NewNum;
-        const lineSide = line.Type === 'del' ? 'old' : '';
-        if (commentVisualSet.has(visualIdx)) lineEl.classList.add('has-comment');
-
-        // Tag for drag detection and selection highlighting
-        if (commentLineNum) {
-          tagDiffLine(lineEl, file.path, commentLineNum, lineSide);
-          if (activeFilePath === file.path) {
-            const inCurrentDrag = diffDragState && unifiedVisualStart !== null && unifiedVisualEnd !== null &&
-                visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
-            const formSide = activeForms.length > 0 ? (activeForms[activeForms.length - 1].side || '') : '';
-            // Match against the line's number in the form's space (OldNum for old-side, NewNum otherwise)
-            // so context lines participate in old-side range selections.
-            const relevantNum = formSide === 'old' ? line.OldNum : line.NewNum;
-            const inCurrentForm = !diffDragState && selectionStart !== null && selectionEnd !== null &&
-                relevantNum > 0 && relevantNum >= selectionStart && relevantNum <= selectionEnd;
-            const inCurrentSelUnified = inCurrentDrag || inCurrentForm;
-            const hasFormUnified = fileForms.some(function(f) {
-              const fSide = f.side || '';
-              const fNum = fSide === 'old' ? line.OldNum : line.NewNum;
-              return !f.editingId && fNum > 0 && fNum >= f.startLine && fNum <= f.endLine;
-            });
-            if (inCurrentSelUnified) { lineEl.classList.add('selected'); }
-            if (hasFormUnified && !inCurrentSelUnified) { lineEl.classList.add('form-selected'); }
-          }
-        }
-
-        const gutter = document.createElement('div');
-        gutter.className = 'diff-gutter';
-
-        const oldNum = document.createElement('div');
-        oldNum.className = 'diff-gutter-num';
-        oldNum.textContent = line.OldNum || '';
-
-        const newNum = document.createElement('div');
-        newNum.className = 'diff-gutter-num';
-        newNum.textContent = line.NewNum || '';
-
-        gutter.appendChild(oldNum);
-        gutter.appendChild(newNum);
-
-        const commentGutter = makeDiffCommentGutter(file.path, commentLineNum, lineSide, visualIdx);
-
-        const sign = document.createElement('div');
-        sign.className = 'diff-gutter-sign';
-        sign.textContent = line.Type === 'add' ? '+' : line.Type === 'del' ? '-' : '';
-
-        const contentEl = document.createElement('div');
-        contentEl.className = 'diff-content';
-        const hlLine = highlightDiffLine(line.Content, line.Type === 'del' ? line.OldNum : line.NewNum, line.Type === 'del' ? 'old' : '', file.highlightCache, file.lang);
-        const wdInfo = wordDiffMap.get(li);
-        contentEl.innerHTML = wdInfo ? applyWordDiffToHtml(hlLine, wdInfo.ranges, wdInfo.cssClass) : hlLine;
-
-        lineEl.appendChild(gutter);
-        lineEl.appendChild(commentGutter);
-        lineEl.appendChild(sign);
-        lineEl.appendChild(contentEl);
-        container.appendChild(lineEl);
-
-        appendDiffComments(container, file.path, commentLineNum, lineSide, commentsMap);
-        appendDiffForm(container, file.path, commentLineNum, lineSide, fileForms);
-        visualIdx++;
-      }
-    }
-
-    // Trailing spacer after last hunk
-    const trailingSpacerUnified = renderTrailingSpacer(hunks[hunks.length - 1], file);
-    if (trailingSpacerUnified) container.appendChild(trailingSpacerUnified);
-
-    appendOutdatedDiffComments(container, file, commentsMap, hunks);
-
-    return container;
-  }
-
-  // ===== Split diff (side-by-side: old on left, new on right) =====
-  function renderDiffSplit(file) {
-    const container = document.createElement('div');
-    container.className = 'diff-container split';
-    attachDiffTouchHandler(container);
-    attachDiffMouseHandler(container);
-
-    expandHunksForComments(file);
-
-    const hunks = file.diffHunks || [];
-    if (hunks.length === 0) {
-      container.innerHTML = '<div class="diff-no-changes">No changes</div>';
-      return container;
-    }
-
-    autoExpandSmallGaps(file);
-
-    const { diffCommentsMap: commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
-    // Hoisted: one filtered array per render instead of one per diff line.
-    const fileForms = getFormsForFile(file.path);
-
-    // Leading spacer before first hunk (includes hunk header text)
-    const leadingSpacerSplit = renderLeadingSpacer(hunks[0], file);
-    if (leadingSpacerSplit) container.appendChild(leadingSpacerSplit);
-
-    for (let hi = 0; hi < hunks.length; hi++) {
-      const hunk = hunks[hi];
-      let spacerRenderedSplit = false;
-
-      if (hi > 0) {
-        const spacer = renderDiffSpacer(hunks[hi - 1], hunk, file, hi - 1, hi);
-        if (spacer) {
-          container.appendChild(spacer);
-          spacerRenderedSplit = true;
-        }
-      }
-
-      // Skip standalone hunk header when:
-      // - a spacer (which embeds the header) was rendered, or
-      // - the leading spacer covers the first hunk, or
-      // - this hunk is contiguous with the previous one (e.g. bridge hunks from expand)
-      const contiguousSplit = hi > 0 && (hunks[hi - 1].NewStart + hunks[hi - 1].NewCount) >= hunk.NewStart;
-      if (!spacerRenderedSplit && !(hi === 0 && leadingSpacerSplit) && !contiguousSplit) {
-        container.appendChild(renderDiffHunkHeader(hunk));
-      }
-
-      // Group hunk lines into segments: runs of context, or runs of del+add (change pairs)
-      const segments = [];
-      let i = 0;
-      const lines = hunk.Lines;
-      while (i < lines.length) {
-        if (lines[i].Type === 'context') {
-          segments.push({ type: 'context', lines: [lines[i]] });
-          i++;
-        } else {
-          // Collect consecutive dels then adds
-          const dels = [];
-          const adds = [];
-          while (i < lines.length && lines[i].Type === 'del') { dels.push(lines[i]); i++; }
-          while (i < lines.length && lines[i].Type === 'add') { adds.push(lines[i]); i++; }
-          segments.push({ type: 'change', dels: dels, adds: adds });
-        }
-      }
-
-      for (const seg of segments) {
-        if (seg.type === 'context') {
-          const line = seg.lines[0];
-          const row = makeSplitRow(
-            { num: line.OldNum, content: line.Content, type: 'context' },
-            { num: line.NewNum, content: line.Content, type: 'context' },
-            file, commentRangeSet, fileForms
-          );
-          container.appendChild(row.el);
-          // Context lines: form appears where clicked (left or right),
-          // but submitted comments always render on the right, like GitHub
-          const ctxComments = [
-            ...(commentsMap[line.OldNum + ':old'] || []),
-            ...(commentsMap[line.NewNum + ':'] || [])
-          ];
-          for (let ci = 0; ci < ctxComments.length; ci++) {
-            const el = ctxComments[ci].resolved
-              ? createResolvedElement(ctxComments[ci], file.path)
-              : createCommentElement(ctxComments[ci], file.path);
-            el.classList.add('diff-comment-right');
-            container.appendChild(el);
-          }
-          appendDiffForm(container, file.path, line.OldNum, 'old', fileForms);
-          appendDiffForm(container, file.path, line.NewNum, '', fileForms);
-        } else {
-          // Positional alignment (GitHub-style): del[i] beside add[i], surplus single-sided.
-          const splitRows = buildSplitChangeRows(seg.dels, seg.adds, wordDiff);
-
-          for (let j = 0; j < splitRows.length; j++) {
-            const sr = splitRows[j];
-            const del = sr.del;
-            const add = sr.add;
-            const wd = sr.wd;
-            const row = makeSplitRow(
-              del ? { num: del.OldNum, content: del.Content, type: 'del', wordRanges: wd ? wd.oldRanges : null } : null,
-              add ? { num: add.NewNum, content: add.Content, type: 'add', wordRanges: wd ? wd.newRanges : null } : null,
-              file, commentRangeSet, fileForms
-            );
-            container.appendChild(row.el);
-            // Comments for both sides (different keys)
-            if (del) appendDiffComments(container, file.path, del.OldNum, 'old', commentsMap);
-            if (add) appendDiffComments(container, file.path, add.NewNum, '', commentsMap);
-            // Form: render for whichever side was clicked
-            if (del) appendDiffForm(container, file.path, del.OldNum, 'old', fileForms);
-            if (add) appendDiffForm(container, file.path, add.NewNum, '', fileForms);
-          }
-        }
-      }
-    }
-
-    // Trailing spacer after last hunk
-    const trailingSpacerSplit = renderTrailingSpacer(hunks[hunks.length - 1], file);
-    if (trailingSpacerSplit) container.appendChild(trailingSpacerSplit);
-
-    appendOutdatedDiffComments(container, file, commentsMap, hunks);
-
-    return container;
-  }
-
-  // Build one split row: left (old) side + right (new) side
-  // left/right: { num, content, type } or null for empty
-  function makeSplitRow(left, right, file, commentRangeSet, fileForms) {
-    const row = document.createElement('div');
-    row.className = 'diff-split-row';
-
-    // Left side
-    const leftEl = document.createElement('div');
-    leftEl.className = 'diff-split-side left';
-    if (left && left.type === 'del') leftEl.classList.add('deletion');
-
-    const leftNum = document.createElement('div');
-    leftNum.className = 'diff-gutter-num';
-    leftNum.textContent = left ? (left.num || '') : '';
-
-    let leftCommentGutter;
-    if (left && left.num) {
-      leftCommentGutter = makeDiffCommentGutter(file.path, left.num, 'old');
-      tagDiffLine(leftEl, file.path, left.num, 'old', row);
-      if (commentRangeSet.has(left.num + ':old')) leftEl.classList.add('has-comment');
-      const selSide = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
-      const inCurrentSelLeft = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
-          left.num >= selectionStart && left.num <= selectionEnd && selSide === 'old';
-      const hasFormLeft = fileForms.some(function(f) {
-        return !f.editingId && left.num >= f.startLine && left.num <= f.endLine && (f.side || '') === 'old';
-      });
-      if (inCurrentSelLeft) { leftEl.classList.add('selected'); }
-      if (hasFormLeft && !inCurrentSelLeft) { leftEl.classList.add('form-selected'); }
-    } else {
-      leftCommentGutter = makeDiffCommentGutter(file.path, 0, '');
-    }
-
-    const leftContent = document.createElement('div');
-    leftContent.className = 'diff-content';
-    if (left) {
-      const hlHtml = highlightDiffLine(left.content, left.num, 'old', file.highlightCache, file.lang);
-      leftContent.innerHTML = left.wordRanges ? applyWordDiffToHtml(hlHtml, left.wordRanges, 'diff-word-del') : hlHtml;
-    }
-    if (!left) leftEl.classList.add('empty');
-
-    leftEl.appendChild(leftNum);
-    leftEl.appendChild(leftCommentGutter);
-    leftEl.appendChild(leftContent);
-
-    // Right side
-    const rightEl = document.createElement('div');
-    rightEl.className = 'diff-split-side right';
-    if (right && right.type === 'add') rightEl.classList.add('addition');
-
-    const rightNum = document.createElement('div');
-    rightNum.className = 'diff-gutter-num';
-    rightNum.textContent = right ? (right.num || '') : '';
-
-    let rightCommentGutter;
-    if (right && right.num) {
-      if (right.type === 'add' || right.type === 'context') {
-        rightCommentGutter = makeDiffCommentGutter(file.path, right.num, '');
-      } else {
-        rightCommentGutter = makeDiffCommentGutter(file.path, 0, '');
-      }
-      tagDiffLine(rightEl, file.path, right.num, '', row);
-      if (commentRangeSet.has(right.num + ':')) rightEl.classList.add('has-comment');
-      const selSideR = diffDragState ? diffDragState.side : (activeForms.length > 0 ? activeForms[activeForms.length - 1].side : null);
-      const inCurrentSelRight = activeFilePath === file.path && selectionStart !== null && selectionEnd !== null &&
-          right.num >= selectionStart && right.num <= selectionEnd && (selSideR || '') === '';
-      const hasFormRight = fileForms.some(function(f) {
-        return !f.editingId && right.num >= f.startLine && right.num <= f.endLine && (f.side || '') === '';
-      });
-      if (inCurrentSelRight) { rightEl.classList.add('selected'); }
-      if (hasFormRight && !inCurrentSelRight) { rightEl.classList.add('form-selected'); }
-    } else {
-      rightCommentGutter = makeDiffCommentGutter(file.path, 0, '');
-    }
-
-    const rightContent = document.createElement('div');
-    rightContent.className = 'diff-content';
-    if (right) {
-      const hlHtml = highlightDiffLine(right.content, right.num, right.type === 'del' ? 'old' : '', file.highlightCache, file.lang);
-      rightContent.innerHTML = right.wordRanges ? applyWordDiffToHtml(hlHtml, right.wordRanges, 'diff-word-add') : hlHtml;
-    }
-    if (!right) rightEl.classList.add('empty');
-
-    rightEl.appendChild(rightNum);
-    rightEl.appendChild(rightCommentGutter);
-    rightEl.appendChild(rightContent);
-
-    row.appendChild(leftEl);
-    row.appendChild(rightEl);
-
-    return { el: row };
-  }
-
   // ===== Comment Helpers =====
 
   // Single-pass builder that produces all three comment index structures:
@@ -4671,215 +3681,12 @@
     return { commentsMap: commentsMap, diffCommentsMap: diffCommentsMap, rangeSet: rangeSet };
   }
 
-  // For unified diff: build a Set of visual indices that should have has-comment.
-  // Anchor strictly to the comment's side so unrelated lines elsewhere in the
-  // hunk that happen to share a number on the opposite side are not included.
-  // Lines between the anchored start/end are highlighted regardless of type
-  // (so deletions within a multi-line range still get highlighted).
-  function buildUnifiedCommentVisualSet(hunks, comments) {
-    if (!comments.length) return new Set();
-    const lines = [];
-    for (const hunk of hunks) {
-      for (const line of hunk.Lines) {
-        lines.push({ type: line.Type, oldNum: line.OldNum, newNum: line.NewNum });
-      }
-    }
-    const set = new Set();
-    const hideResolved = isHideResolved();
-    for (const c of comments) {
-      if (c.scope === 'file') continue;
-      if (hideResolved && c.resolved) continue;
-      const side = c.side || '';
-      // Only lines that *belong* to the comment's side can anchor. For new-side
-      // comments that means add/context lines (with a real NewNum); for old-side
-      // it means del/context lines (with a real OldNum).
-      let startIdx = -1, endIdx = -1;
-      for (let i = 0; i < lines.length; i++) {
-        const ln = lines[i];
-        const num = side === 'old' ? ln.oldNum : ln.newNum;
-        const onSide = side === 'old'
-          ? (ln.type === 'del' || ln.type === 'context')
-          : (ln.type === 'add' || ln.type === 'context');
-        if (!onSide || !num) continue;
-        if (startIdx === -1 && num === c.start_line) startIdx = i;
-        if (num === c.end_line) endIdx = i;
-      }
-      if (startIdx !== -1 && endIdx !== -1) {
-        for (let i = startIdx; i <= endIdx; i++) set.add(i);
-      }
-    }
-    return set;
-  }
-
   function getCommentsForBlock(block, commentsMap) {
     const result = [];
     for (let ln = block.startLine; ln <= block.endLine; ln++) {
       if (commentsMap[ln]) result.push(...commentsMap[ln]);
     }
     return result;
-  }
-
-  // ===== Visual Line Mode (vim-style) =====
-  // Anchors on the currently focused block; j/k extend the range; Esc clears it.
-  function enterVisualMode() {
-    if (!focusedElement) return false;
-    const navTarget = navFocusTargetFromElement(focusedElement);
-    const fp = focusedElement.dataset.filePath || focusedElement.dataset.diffFilePath ||
-      (navTarget && navTarget.filePath);
-    if (!fp) return false;
-
-    if (focusedElement.dataset.blockIndex !== undefined && focusedElement.dataset.startLine) {
-      const startLine = parseInt(focusedElement.dataset.startLine);
-      const endLine = parseInt(focusedElement.dataset.endLine);
-      visualMode = { kind: 'markdown', filePath: fp, anchorStartLine: startLine, anchorEndLine: endLine };
-      activeFilePath = fp;
-      selectionStart = startLine;
-      selectionEnd = endLine;
-      // Clear any stale unified-diff drag state so it can't bleed into render paths.
-      unifiedVisualStart = null;
-      unifiedVisualEnd = null;
-      document.body.classList.add('visual-mode');
-      refreshVisualSelectionVisuals(fp);
-      return true;
-    }
-    if (focusedElement.dataset.diffLineNum || focusedElement.classList.contains('diff-split-row')) {
-      // Split rows carry both sides on child .diff-split-side elements. Prefer
-      // right (new) side; fall back to left for deleted-only rows. Unified rows
-      // are single-side, so just read directly.
-      let lineNum, side;
-      if (focusedElement.classList.contains('diff-split-row')) {
-        const right = focusedElement.querySelector('.diff-split-side.right:not(.empty)');
-        if (right && right.dataset.diffLineNum) {
-          lineNum = parseInt(right.dataset.diffLineNum);
-          side = '';
-        } else {
-          const left = focusedElement.querySelector('.diff-split-side.left:not(.empty)');
-          if (!left || !left.dataset.diffLineNum) return false;
-          lineNum = parseInt(left.dataset.diffLineNum);
-          side = 'old';
-        }
-      } else {
-        lineNum = parseInt(focusedElement.dataset.diffLineNum);
-        side = focusedElement.dataset.diffSide || '';
-      }
-      visualMode = { kind: 'diff', filePath: fp, anchorStartLine: lineNum, anchorEndLine: lineNum, anchorSide: side };
-      activeFilePath = fp;
-      selectionStart = lineNum;
-      selectionEnd = lineNum;
-      document.body.classList.add('visual-mode');
-      refreshVisualSelectionVisuals(fp);
-      return true;
-    }
-    return false;
-  }
-
-  function exitVisualMode(clearSelection) {
-    if (!visualMode) return;
-    const fp = visualMode.filePath;
-    visualMode = null;
-    document.body.classList.remove('visual-mode');
-    if (clearSelection) {
-      selectionStart = null;
-      selectionEnd = null;
-      unifiedVisualStart = null;
-      unifiedVisualEnd = null;
-      activeFilePath = null;
-      if (fp) refreshVisualSelectionVisuals(fp);
-    }
-  }
-
-  // After j/k moves focus, extend the visual selection from the anchor to the new focus.
-  function extendVisualSelection() {
-    if (!visualMode || !focusedElement) return;
-    const navTarget = navFocusTargetFromElement(focusedElement);
-    const fp = visualMode.kind === 'markdown'
-      ? focusedElement.dataset.filePath
-      : (focusedElement.dataset.diffFilePath || (navTarget && navTarget.filePath));
-    if (fp !== visualMode.filePath) {
-      // Crossed file boundary — exit visual mode (focus already moved by j/k).
-      exitVisualMode(true);
-      return;
-    }
-    if (visualMode.kind === 'markdown') {
-      if (focusedElement.dataset.blockIndex === undefined) return;
-      const sLine = parseInt(focusedElement.dataset.startLine);
-      const eLine = parseInt(focusedElement.dataset.endLine);
-      selectionStart = Math.min(visualMode.anchorStartLine, sLine);
-      selectionEnd = Math.max(visualMode.anchorEndLine, eLine);
-    } else {
-      // Find the line number on the anchor side. Split rows carry both sides
-      // on child .diff-split-side elements, so query them directly.
-      // Rows with no line on the anchor side (e.g. a deleted-only row when
-      // we anchored on the right) are skipped silently — selection stays put,
-      // visual mode stays active, focus continues moving with j/k.
-      let ln = null;
-      if (focusedElement.classList.contains('diff-split-row')) {
-        const sideSel = visualMode.anchorSide === 'old'
-          ? '.diff-split-side.left:not(.empty)'
-          : '.diff-split-side.right:not(.empty)';
-        const sideEl = focusedElement.querySelector(sideSel);
-        if (sideEl && sideEl.dataset.diffLineNum) {
-          ln = parseInt(sideEl.dataset.diffLineNum);
-        }
-      } else if (focusedElement.dataset.diffLineNum) {
-        // Unified mode — single-side per element, must match anchor.
-        const side = focusedElement.dataset.diffSide || '';
-        if (side !== visualMode.anchorSide) return;
-        ln = parseInt(focusedElement.dataset.diffLineNum);
-      }
-      if (ln === null) return;
-      selectionStart = Math.min(visualMode.anchorStartLine, ln);
-      selectionEnd = Math.max(visualMode.anchorEndLine, ln);
-    }
-    // Update .selected classes incrementally rather than re-rendering the whole
-    // file — re-rendering invalidates the focusedElement reference and trips
-    // the j/k stale-ref recovery (which can mis-resolve when blockIndex values
-    // collide across files).
-    refreshVisualSelectionVisuals(visualMode.filePath);
-  }
-
-  function refreshVisualSelectionVisuals(filePath) {
-    const section = document.getElementById('file-section-' + filePath);
-    if (!section) return;
-    const blocks = section.querySelectorAll('.line-block.kb-nav[data-file-path="' + filePath + '"]');
-    for (let i = 0; i < blocks.length; i++) {
-      const lb = blocks[i];
-      const sLine = parseInt(lb.dataset.startLine);
-      const eLine = parseInt(lb.dataset.endLine);
-      const inSel = selectionStart !== null && selectionEnd !== null
-        && sLine >= selectionStart && eLine <= selectionEnd;
-      lb.classList.toggle('selected', inSel);
-    }
-    // Split-mode diff sides: each side has its own line numbers + side tag.
-    // .selected only applies on the anchor-matching side (matches the render
-    // path in makeSplitRow, lines 3730 / 3772).
-    const splitSides = section.querySelectorAll('.diff-split-side[data-diff-file-path="' + filePath + '"]');
-    const anchorSide = visualMode && visualMode.kind === 'diff' ? visualMode.anchorSide : null;
-    for (let i = 0; i < splitSides.length; i++) {
-      const sEl = splitSides[i];
-      if (sEl.classList.contains('empty') || !sEl.dataset.diffLineNum) {
-        sEl.classList.toggle('selected', false);
-        continue;
-      }
-      const ln = parseInt(sEl.dataset.diffLineNum);
-      const side = sEl.dataset.diffSide || '';
-      const sideMatches = anchorSide === null || side === anchorSide;
-      const inSel = sideMatches && selectionStart !== null && selectionEnd !== null
-        && ln >= selectionStart && ln <= selectionEnd;
-      sEl.classList.toggle('selected', inSel);
-    }
-    // Unified-mode diff lines: single-side per element, side matches anchor.
-    const unifiedLines = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-file-path="' + filePath + '"]');
-    for (let i = 0; i < unifiedLines.length; i++) {
-      const ul = unifiedLines[i];
-      if (!ul.dataset.diffLineNum) continue;
-      const ln = parseInt(ul.dataset.diffLineNum);
-      const side = ul.dataset.diffSide || '';
-      const sideMatches = anchorSide === null || side === anchorSide;
-      const inSel = sideMatches && selectionStart !== null && selectionEnd !== null
-        && ln >= selectionStart && ln <= selectionEnd;
-      ul.classList.toggle('selected', inSel);
-    }
   }
 
   // ===== Gutter Drag Selection =====
@@ -4906,7 +3713,7 @@
     const startLine = parseInt(gutter.dataset.startLine);
     const endLine = parseInt(gutter.dataset.endLine);
     const filePath = gutter.dataset.filePath;
-    const blockEl = gutter.closest('.line-block') || gutter.closest('.diff-split-side') || gutter.parentElement;
+    const blockEl = gutter.closest('.line-block') || gutter.parentElement;
     const blockIndex = parseInt(blockEl.dataset.blockIndex);
 
     // Shift+click: extend selection
@@ -4949,10 +3756,6 @@
     const section = currentRenderedFileSection(filePath);
     if (!section) return;
 
-    // Hoisted: one filtered array per pass instead of one per line per
-    // mousemove frame (activeForms is stable within a synchronous pass).
-    const fileForms = getFormsForFile(filePath);
-
     // Markdown line blocks: toggle .selected on line-block, update comment gutter drag classes
     const lineBlocks = section.querySelectorAll('.line-block[data-file-path="' + filePath + '"]');
     for (let i = 0; i < lineBlocks.length; i++) {
@@ -4964,86 +3767,7 @@
       // Update the comment gutter within this line block
       const gutter = lb.querySelector('.line-comment-gutter');
       if (gutter && dragState && dragState.filePath === filePath && selectionStart !== null) {
-        const isAnchorBlock = startLine <= dragState.anchorEndLine && endLine >= dragState.anchorStartLine;
-        const isCurrentBlock = startLine <= dragState.currentEndLine && endLine >= dragState.currentStartLine;
-        const gutterInRange = startLine >= selectionStart && endLine <= selectionEnd;
-        gutter.classList.toggle('drag-endpoint', isAnchorBlock || isCurrentBlock);
-        gutter.classList.toggle('drag-range', gutterInRange);
-        gutter.classList.toggle('drag-range-start', gutterInRange && startLine === selectionStart);
-        gutter.classList.toggle('drag-range-end', gutterInRange && endLine === selectionEnd);
-      }
-    }
-
-    // Diff line elements: toggle .selected on diff lines and drag-range on gutters
-    if (diffDragState && diffDragState.filePath === filePath) {
-      // Unified mode: toggle .selected on .diff-line elements
-      const unifiedLines = section.querySelectorAll('.diff-container.unified .diff-line[data-diff-visual-idx]');
-      for (let ui = 0; ui < unifiedLines.length; ui++) {
-        const uLine = unifiedLines[ui];
-        const uVisualIdx = parseInt(uLine.dataset.diffVisualIdx);
-        const uSelected = unifiedVisualStart !== null && unifiedVisualEnd !== null &&
-                        uVisualIdx >= unifiedVisualStart && uVisualIdx <= unifiedVisualEnd;
-        const uLineNum = parseInt(uLine.dataset.diffLineNum);
-        const uSide = uLine.dataset.diffSide || '';
-        const uHasForm = fileForms.some(function(f) {
-          return !f.editingId && uLineNum >= f.startLine && uLineNum <= f.endLine && (f.side || '') === uSide;
-        });
-        uLine.classList.toggle('selected', uSelected);
-        uLine.classList.toggle('form-selected', uHasForm && !uSelected);
-      }
-
-      // Split mode: toggle .selected on .diff-split-side elements
-      const splitSides = section.querySelectorAll('.diff-container.split .diff-split-side[data-diff-line-num]');
-      for (let si = 0; si < splitSides.length; si++) {
-        const sSide = splitSides[si];
-        const sLineNum = parseInt(sSide.dataset.diffLineNum);
-        const sSideVal = sSide.dataset.diffSide || '';
-        const sSideMatch = diffDragState.side === sSideVal;
-        const sSelected = sSideMatch && selectionStart !== null && selectionEnd !== null &&
-                        sLineNum >= selectionStart && sLineNum <= selectionEnd;
-        const sHasForm = fileForms.some(function(f) {
-          return !f.editingId && sLineNum >= f.startLine && sLineNum <= f.endLine && (f.side || '') === sSideVal;
-        });
-        sSide.classList.toggle('selected', sSelected);
-        sSide.classList.toggle('form-selected', sHasForm && !sSelected);
-      }
-    }
-
-    // Diff gutter elements: toggle drag-range classes
-    const diffGutters = section.querySelectorAll('.diff-comment-gutter');
-    for (let j = 0; j < diffGutters.length; j++) {
-      const col = diffGutters[j];
-      const btn = col.querySelector('.diff-comment-btn');
-      if (!btn) continue;
-      const lineNum = parseInt(btn.dataset.lineNum);
-      const side = btn.dataset.side || '';
-      const visualIdx = btn.dataset.visualIdx !== undefined ? parseInt(btn.dataset.visualIdx) : undefined;
-      if (!lineNum) continue;
-
-      const sideMatch = diffMode === 'split' ? (diffDragState && diffDragState.side === side) : true;
-      const isActive = diffDragState && diffDragState.filePath === filePath && sideMatch && selectionStart !== null && selectionEnd !== null;
-
-      if (isActive) {
-        let isAnchor, isCurrent, dgInRange, isRangeStart, isRangeEnd;
-        if (diffMode !== 'split' && visualIdx !== undefined && unifiedVisualStart !== null) {
-          isAnchor = visualIdx === diffDragState.anchorVisualIdx;
-          isCurrent = visualIdx === diffDragState.currentVisualIdx;
-          dgInRange = visualIdx >= unifiedVisualStart && visualIdx <= unifiedVisualEnd;
-          isRangeStart = visualIdx === unifiedVisualStart;
-          isRangeEnd = visualIdx === unifiedVisualEnd;
-        } else {
-          isAnchor = lineNum === diffDragState.anchorLine;
-          isCurrent = lineNum === diffDragState.currentLine;
-          dgInRange = lineNum >= selectionStart && lineNum <= selectionEnd;
-          isRangeStart = lineNum === selectionStart;
-          isRangeEnd = lineNum === selectionEnd;
-        }
-        col.classList.toggle('drag-endpoint', isAnchor || isCurrent);
-        col.classList.toggle('drag-range', dgInRange);
-        col.classList.toggle('drag-range-start', dgInRange && isRangeStart);
-        col.classList.toggle('drag-range-end', dgInRange && isRangeEnd);
-      } else {
-        col.classList.remove('drag-endpoint', 'drag-range', 'drag-range-start', 'drag-range-end');
+        gutter.classList.toggle('drag-endpoint', startLine <= selectionEnd && endLine >= selectionEnd);
       }
     }
   }
@@ -5123,31 +3847,8 @@
       });
     });
 
-    document.querySelectorAll('[data-diff-line-num]').forEach(function(el) {
-      const ln = parseInt(el.dataset.diffLineNum);
-      if (!(ln > 0)) return;
-      if (el.closest('.comment-form-wrapper') || el.closest('.comment-card')) return;
-      if (!range.intersectsNode(el)) return;
-      candidates.push({
-        filePath: el.dataset.diffFilePath,
-        startLine: ln,
-        endLine: ln,
-        blockIndex: null,
-        // Keep '' for new-side so mixed-side resolution can filter ('' vs 'old').
-        side: el.dataset.diffSide || '',
-      });
-    });
-
     if (candidates.length === 0) return null;
-
-    // Prefer the side where the user started selecting (anchorNode). Range
-    // startContainer is document-order and wrong for reverse selections.
-    // Split multi-line / unified del+add often intersect both sides.
-    let preferredSide = preferredSideFromNode(selection.anchorNode);
-    if (preferredSide === undefined) {
-      preferredSide = preferredSideFromNode(range.startContainer);
-    }
-    return resolveTextSelectionLineRange(candidates, preferredSide);
+    return resolveTextSelectionLineRange(candidates, undefined);
   }
 
   function closeEmptyReviewForm() {
@@ -5157,12 +3858,22 @@
     cancelReviewCommentForm();
   }
 
+  // A form's textarea, typed text included, even when its file is scrolled
+  // out of Pierre's virtualized list: the view keeps the unmounted form
+  // element in its annotation cache.
+  function formTextarea(key) {
+    const live = document.querySelector('.comment-form[data-form-key="' + CSS.escape(key) + '"] textarea');
+    if (live) return live;
+    const cached = pierreView && pierreView.annotationElement('form:' + key);
+    return cached ? cached.querySelector('textarea') : null;
+  }
+
   function closeEmptyForms(exceptKey) {
     const toClose = [];
     activeForms.forEach(function(f) {
       if (f.formKey === exceptKey) return;
       if (f.editingId) return; // never auto-close edit-in-progress forms
-      const ta = document.querySelector('.comment-form[data-form-key="' + f.formKey + '"] textarea');
+      const ta = formTextarea(f.formKey);
       const text = ta ? ta.value : (f.draftBody || '');
       if (!text.trim()) toClose.push(f);
     });
@@ -5179,6 +3890,7 @@
       selectionEnd = newForm.endLine;
       renderFileByPath(newForm.filePath);
       focusCommentTextarea(existing.formKey);
+      pierreRevealForm(existing);
       return;
     }
     closeEmptyForms(fk);
@@ -5189,6 +3901,7 @@
     selectionEnd = newForm.endLine;
     renderFileByPath(newForm.filePath);
     focusCommentTextarea(newForm.formKey);
+    pierreRevealForm(newForm);
   }
 
   function openFileCommentForm(filePath) {
@@ -5204,6 +3917,7 @@
     if (existing) {
       renderFileByPath(filePath);
       focusCommentTextarea(existing.formKey);
+      pierreRevealForm(existing);
       return;
     }
     closeEmptyForms(fk);
@@ -5211,6 +3925,7 @@
     addForm(newForm);
     renderFileByPath(filePath);
     focusCommentTextarea(newForm.formKey);
+    pierreRevealForm(newForm);
   }
 
   function createFileCommentForm(formObj) {
@@ -5919,7 +4634,7 @@
   // before the autosave debounce fires.
   function confirmDiscardCommentForm(formObj) {
     if (!formObj) return true;
-    const ta = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
+    const ta = formTextarea(formObj.formKey);
     const text = ta ? ta.value : (formObj.draftBody || '');
     if (!text.trim()) return true;
     return window.confirm('Discard comment?');
@@ -5987,7 +4702,7 @@
 
   window.addEventListener('beforeunload', function() {
     activeForms.forEach(function(formObj) {
-      const el = document.querySelector('.comment-form[data-form-key="' + formObj.formKey + '"] textarea');
+      const el = formTextarea(formObj.formKey);
       if (el) saveDraft(el.value, formObj);
     });
     draftMod.flushAll();
@@ -6283,41 +4998,15 @@
         }
       }
     });
-    const diffLineMap = new Map(); // lineNum + side -> .diff-content elements
-    sectionEl.querySelectorAll('[data-diff-file-path="' + pathEsc + '"]').forEach(function(el) {
-      // Elements without data-diff-side never matched (undefined !== any
-      // comment side string), so they are left out of the index entirely.
-      if (el.dataset.diffSide === undefined) return;
-      const key = el.dataset.diffLineNum + '' + el.dataset.diffSide;
-      const content = el.querySelector('.diff-content');
-      if (!content) return;
-      let arr = diffLineMap.get(key);
-      if (!arr) {
-        arr = [];
-        diffLineMap.set(key, arr);
-      }
-      if (arr.indexOf(content) === -1) arr.push(content);
-    });
-
     allQuoted.forEach(function(comment) {
       // Find the content elements in this comment's line range
       const contentEls = [];
-      // Filter by side to avoid matching the wrong line in unified diff
-      // (deleted and added lines can share the same line number)
-      const commentSide = comment.side || '';
       for (let ln = comment.start_line; ln <= comment.end_line; ln++) {
         // Document view: line-blocks with data-file-path
         const docEls = docLineMap.get(ln);
         if (docEls) {
           for (let di = 0; di < docEls.length; di++) {
             if (contentEls.indexOf(docEls[di]) === -1) contentEls.push(docEls[di]);
-          }
-        }
-        // Diff view: diff lines with data-diff-line-num
-        const diffEls = diffLineMap.get(ln + '' + commentSide);
-        if (diffEls) {
-          for (let fi = 0; fi < diffEls.length; fi++) {
-            if (contentEls.indexOf(diffEls[fi]) === -1) contentEls.push(diffEls[fi]);
           }
         }
       }
@@ -7578,25 +6267,7 @@
       return;
     }
 
-    // Flat view: original behavior.
-    const section = document.getElementById('file-section-' + filePath);
-    if (!section) return;
-    if (!section.open) section.open = true;
-    const file = getFileByPath(filePath);
-    const flashCardIn = function(el) {
-      if (!el) return;
-      const commentCard = el.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-      if (commentCard) flashCommentCard(commentCard);
-    };
-    // Line comment cards live inside .file-body — mount (or lazy-load) first.
-    if (file && file.lazy) {
-      loadLazyFile(section, file, function onLoaded(newSection) {
-        flashCardIn(newSection || document.getElementById('file-section-' + filePath));
-      });
-      return;
-    }
-    if (file) ensureFileBodyMounted(section, file);
-    flashCardIn(section);
+    if (pierreView && pierreViewActive()) pierreJumpToComment(commentId, filePath, flashCommentCard);
   }
 
   // ===== PR Overview Panel =====
@@ -7958,7 +6629,6 @@
           prevState[files[pi].path] = {
             viewMode: files[pi].viewMode,
             collapsed: files[pi].collapsed,
-            diffLoaded: files[pi].diffLoaded,
             viewed: files[pi].viewed,
             fileHash: files[pi].fileHash,
           };
@@ -7985,7 +6655,6 @@
             files[fi].viewMode = prev.viewMode;
             // Lazy files must stay collapsed — they have no content to render
             if (!files[fi].lazy && !contentChanged) files[fi].collapsed = prev.collapsed;
-            if (prev.diffLoaded) files[fi].diffLoaded = prev.diffLoaded;
             if (prev.viewed && !contentChanged) files[fi].viewed = true;
           }
         }
@@ -8000,6 +6669,7 @@
         focusedBlockIndex = null;
         focusedFilePath = null;
         focusedElement = null;
+        clearPierreFocus();
         diffActive = false;
         reviewCommentFormActive = false;
         reviewCommentEditingId = null;
@@ -8009,7 +6679,7 @@
         updateHeaderRound();
         updateDiffModeToggle();
         renderFileTree();
-        renderAllFilesKeepingPlace();
+        renderAllFiles();
         buildToc();
         updateCommentCount();
         updateViewedCount();
@@ -8081,16 +6751,14 @@
           saveOpenFormContent(files[i].path);
         }
         checkAgentReplies(reviewComments);
-        // Re-render only the files whose comments actually changed. Rebuilding
-        // every section would re-defer all off-screen bodies, collapsing the
-        // document height and throwing the reader back to the top.
+        // Re-render only the files whose comments actually changed.
         const inStory = storyActive();
         for (let i = 0; i < files.length; i++) {
           const before = previousCommentSignatures.get(files[i].path) || '[]';
           const after = JSON.stringify(files[i].comments || []);
           if (before === after) continue;
           if (inStory) renderStoryFileByPath(files[i].path);
-          else renderFileByPath(files[i].path, { preserveDeferred: true });
+          else renderFileByPath(files[i].path);
         }
         if (!inStory && JSON.stringify(reviewComments || []) !== previousReviewSignature) {
           renderReviewConversation();
@@ -8323,10 +6991,7 @@
         // Find the line block matching this heading's start line
         const target = sectionEl && sectionEl.querySelector('.line-block[data-start-line="' + item.startLine + '"]');
         if (target) {
-          const mainHeader = document.querySelector('.header');
-          const offset = (mainHeader ? mainHeader.offsetHeight : 49) + 8;
-          const y = target.getBoundingClientRect().top + window.scrollY - offset;
-          window.scrollTo({ top: y, behavior: 'smooth' });
+          scrollReviewToElement(target, 8, 'smooth');
         } else {
           scrollToFile(item.filePath);
         }
@@ -8339,16 +7004,38 @@
     setupTocScrollspy(allItems);
   }
 
+  // The review list scrolls inside Pierre's container (#filesContainer) when
+  // the Pierre view is active, otherwise with the window (story pane).
+  function reviewScroller() {
+    return pierreView && pierreViewActive() ? document.getElementById('filesContainer') : window;
+  }
+
+  // Top edge (viewport px) that scrolled content disappears under.
+  function reviewScrollerTop() {
+    const scroller = reviewScroller();
+    if (scroller !== window) return scroller.getBoundingClientRect().top;
+    return document.querySelector('.header')?.offsetHeight || 49;
+  }
+
+  // Scroll the review list so `el` sits `offset` px below its top edge.
+  function scrollReviewToElement(el, offset, behavior) {
+    const scroller = reviewScroller();
+    const delta = el.getBoundingClientRect().top - reviewScrollerTop() - offset;
+    if (scroller === window) window.scrollTo({ top: window.scrollY + delta, behavior: behavior });
+    else scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: behavior });
+  }
+
   let tocScrollHandler = null;
+  let tocScrollTarget = null;
   function setupTocScrollspy(items) {
     if (tocScrollHandler) {
-      window.removeEventListener('scroll', tocScrollHandler);
+      tocScrollTarget.removeEventListener('scroll', tocScrollHandler);
       tocScrollHandler = null;
     }
     if (!items || items.length === 0) return;
 
     tocScrollHandler = function() {
-      const headerHeight = (document.querySelector('.header')?.offsetHeight || 49) + 16;
+      const headerHeight = reviewScrollerTop() + 16;
       let activeItem = null;
 
       for (const item of items) {
@@ -8370,7 +7057,8 @@
       }
     };
 
-    window.addEventListener('scroll', tocScrollHandler, { passive: true });
+    tocScrollTarget = reviewScroller();
+    tocScrollTarget.addEventListener('scroll', tocScrollHandler, { passive: true });
     tocScrollHandler();
   }
 
@@ -8380,9 +7068,7 @@
     if (!hash || hash === '#') return;
     const target = document.getElementById(decodeURIComponent(hash.slice(1)));
     if (!target) return;
-    const headerHeight = (document.querySelector('.header')?.offsetHeight || 49) + 8;
-    const y = target.getBoundingClientRect().top + window.scrollY - headerHeight;
-    window.scrollTo({ top: y, behavior: 'instant' });
+    scrollReviewToElement(target, 8, 'instant');
   }
   window.addEventListener('hashchange', scrollToHashHeading);
 
@@ -8409,12 +7095,47 @@
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark';
   }
 
+  function mermaidOptions() {
+    if (!document.documentElement.dataset.critPalette) return { startOnLoad: false, theme: getMermaidTheme() };
+    const css = getComputedStyle(document.documentElement);
+    const role = function(name) { return css.getPropertyValue('--crit-palette-' + name).trim(); };
+    return { startOnLoad: false, theme: 'base', themeVariables: {
+      darkMode: getMermaidTheme() === 'dark', background: role('bg'),
+      primaryColor: role('surface'), primaryTextColor: role('fg'), primaryBorderColor: role('border'),
+      secondaryColor: role('elevated'), tertiaryColor: role('bg'), lineColor: role('muted'),
+      textColor: role('fg'), mainBkg: role('surface'), nodeBorder: role('border'),
+      edgeLabelBackground: role('bg'), fontFamily: css.getPropertyValue('--crit-font-body').trim(),
+    } };
+  }
+
+  // Fenced code outside rendered documents (comment cards, replies, the
+  // comments panel, PR description, story text) renders plain and is
+  // highlighted once its grammar has loaded. One observer covers every place
+  // such markdown is inserted; each block is upgraded once.
+  function watchCodeBlocks() {
+    const upgrade = window.crit.codeHighlight.upgrade;
+    window.crit.codeHighlight.configure({
+      pool: function() {
+        return window.critPierreReady.then(function(P) { return P ? ensurePierreWorkerPool() : null; });
+      },
+    });
+    upgrade(document.body);
+    new MutationObserver(function(records) {
+      for (let i = 0; i < records.length; i++) {
+        const added = records[i].addedNodes;
+        for (let j = 0; j < added.length; j++) {
+          if (added[j].nodeType === 1) upgrade(added[j].matches('pre') ? added[j].parentNode : added[j]);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+
   function renderMermaidBlocks() {
     // Any document rebuild invalidates the detached overlay clone (and its
     // theme) — close the overlay rather than show a stale diagram.
     closeMermaidOverlay();
     if (typeof mermaid === 'undefined') return;
-    mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
+    mermaid.initialize(mermaidOptions());
     const codes = document.querySelectorAll('code.language-mermaid');
     codes.forEach(function(code) {
       const pre = code.parentElement;
@@ -8718,6 +7439,13 @@
   function initTheme() {
     const saved = getSetting('theme', 'system');
     applyTheme(saved);
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function() {
+      if (getSetting('theme', 'system') === 'system') window.applyTheme('system');
+    });
+  }
+
+  function applyCritPalette() {
+    window.crit.themePalette.applySaved();
   }
 
   window.applyTheme = function(choice) {
@@ -8725,12 +7453,15 @@
     if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
+    applyCritPalette();
+    if (pierreView) pierreView.setThemeType(window.crit.pierreAdapter.themeTypeFor(choice));
+    if (storyActive() && window.PierreDiffs) renderStory();
 
     // The fullscreen clone keeps the old theme's colors — close it.
     closeMermaidOverlay();
     // Re-initialize mermaid diagrams with updated theme
     if (typeof mermaid !== 'undefined') {
-      mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
+      mermaid.initialize(mermaidOptions());
       try { mermaid.run(); } catch {}
     }
   };
@@ -8795,7 +7526,7 @@
       document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.mode === mode);
       });
-      if (storyActive()) renderStory(); else renderAllFilesKeepingPlace();
+      if (storyActive()) renderStory(); else renderAllFiles();
     });
   });
 
@@ -8803,7 +7534,7 @@
   document.getElementById('diffToggle').addEventListener('click', function() {
     diffActive = !diffActive;
     updateDiffModeToggle();
-    renderAllFilesKeepingPlace();
+    renderAllFiles();
   });
 
   // ===== Compare chrome (target + commit range) =====
@@ -9469,8 +8200,7 @@
         // the final file content hash. Cached Story clones are keyed by that
         // hash, so invalidate them before loading the new scoped file data.
         storyExpandedFileCache.clear();
-        document.getElementById('filesContainer').innerHTML =
-          '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
+        showFilesMessage('Loading...');
 
         let sessionUrl = '/api/session?scope=' + enc(currentSessionFetchScope());
         if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
@@ -9491,8 +8221,7 @@
         }
 
         if (!session.files || session.files.length === 0) {
-          document.getElementById('filesContainer').innerHTML =
-            '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">No ' + diffScope + ' changes</div>';
+          showFilesMessage('No ' + diffScope + ' changes');
           files = [];
           renderFileTree();
           updateCommentCount();
@@ -9703,58 +8432,18 @@
   }
 
   function highlightNavComment(commentId, filePath) {
-    const panel = document.getElementById('commentsPanel');
-    function applyHighlight(root) {
-      if (!root) return false;
-      const candidates = root.querySelectorAll
-        ? root.querySelectorAll('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]')
-        : [];
-      let target = null;
-      for (let i = 0; i < candidates.length; i++) {
-        if (panel && panel.contains(candidates[i])) continue;
-        target = candidates[i];
-        break;
-      }
-      if (!target) return false;
-
+    if (!pierreView || !pierreViewActive()) return;
+    pierreJumpToComment(commentId, filePath, function(card) {
       if (navHighlightTimer) {
         clearTimeout(navHighlightTimer);
-        document.querySelectorAll('.comment-nav-highlight').forEach(function(el) {
-          el.classList.remove('comment-nav-highlight');
-        });
+        document.querySelectorAll('.comment-nav-highlight').forEach(function(el) { el.classList.remove('comment-nav-highlight'); });
       }
-
-      const header = document.querySelector('.header');
-      const headerHeight = header ? header.offsetHeight : 52;
-      const rect = target.getBoundingClientRect();
-      const fileSection = target.closest('.file-section');
-      const fileHeader = fileSection ? fileSection.querySelector('.file-header') : null;
-      const fileHeaderHeight = fileHeader ? fileHeader.offsetHeight : 0;
-      window.scrollTo({ top: rect.top + window.scrollY - headerHeight - fileHeaderHeight - 16, behavior: 'smooth' });
-      target.classList.add('comment-nav-highlight');
+      card.classList.add('comment-nav-highlight');
       navHighlightTimer = setTimeout(function() {
-        target.classList.remove('comment-nav-highlight');
+        card.classList.remove('comment-nav-highlight');
         navHighlightTimer = null;
       }, 1000);
-      return true;
-    }
-
-    const section = document.getElementById('file-section-' + filePath);
-    if (!section) return;
-    if (!section.open) section.open = true;
-
-    // File-scope cards sit outside .file-body and may already be mounted.
-    if (applyHighlight(section)) return;
-
-    const file = getFileByPath(filePath);
-    if (file && file.lazy) {
-      loadLazyFile(section, file, function onLoaded(newSection) {
-        applyHighlight(newSection || document.getElementById('file-section-' + filePath));
-      });
-      return;
-    }
-    if (file) ensureFileBodyMounted(section, file);
-    applyHighlight(section);
+    });
   }
 
   function navigateToComment(direction) {
@@ -9950,6 +8639,7 @@
     // State -> CSS via body class. Visibility rules live in style.css under
     // `body.hide-resolved .comment-block:has(.resolved-card)`. No DOM walk.
     document.body.classList.toggle('hide-resolved', isHideResolved());
+    syncPierreCommentRanges();
   }
 
   function renderSettingsPane(cfg) {
@@ -9970,6 +8660,23 @@
       syncPendingUpdateButtons: syncPendingUpdateButtons,
       announceCopy: announceCopy,
       escape: escapeHtml,
+      themePalettes: window.crit.palettes,
+      paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
+      onRendererSettingChange: async function(key, value) {
+        setSetting(key, value);
+        if (key === 'lightPalette' || key === 'darkPalette' || key === 'boostContrast') {
+          applyCritPalette();
+          const pool = ensurePierreWorkerPool();
+          if (pool) await pool.setRenderOptions({ theme: pierreDisplayOptions().theme });
+          window.crit.codeHighlight.configure({ pool: ensurePierreWorkerPool });
+          await reloadForScope();
+        } else {
+          const pool = ensurePierreWorkerPool();
+          if (key === 'inlineDiff' && pool) await pool.setRenderOptions({ lineDiffType: pierreDisplayOptions().lineDiffType });
+          renderAllFiles();
+          if (storyActive()) renderStory();
+        }
+      },
     };
     // Ignore-whitespace only applies to code diffs (git mode). Providing the
     // hooks + show flag only in git mode keeps the toggle out of file/preview
@@ -10066,45 +8773,41 @@
       }
       case 'visual_mode': {
         e.preventDefault();
-        if (visualMode) {
-          // Toggle off — preserve the focus on the current expansion point.
-          exitVisualMode(true);
-        } else {
-          enterVisualMode();
+        if (pierreView && pierreViewActive()) {
+          if (pierreVisualAnchor) {
+            pierreVisualAnchor = null;
+            document.body.classList.remove('visual-mode');
+          } else if (pierreFocus) {
+            pierreVisualAnchor = Object.assign({}, pierreFocus);
+            document.body.classList.add('visual-mode');
+          }
+          showPierreFocus();
         }
         break;
       }
       case 'comment': {
         e.preventDefault();
-        // Visual mode: comment on the active selection.
-        if (visualMode && selectionStart !== null && selectionEnd !== null) {
-          const fp = visualMode.filePath;
-          if (visualMode.kind === 'markdown') {
-            const file = getFileByPath(fp);
-            if (file && file.lineBlocks) {
-              let lastBlockIndex = -1;
-              for (let i = 0; i < file.lineBlocks.length; i++) {
-                if (file.lineBlocks[i].startLine >= selectionStart && file.lineBlocks[i].endLine <= selectionEnd) {
-                  lastBlockIndex = i;
-                }
-              }
-              if (lastBlockIndex >= 0) {
-                visualMode = null;
-                document.body.classList.remove('visual-mode');
-                openForm({ filePath: fp, afterBlockIndex: lastBlockIndex, startLine: selectionStart, endLine: selectionEnd, editingId: null });
-              }
-            }
-          } else {
-            const side = visualMode.anchorSide;
-            visualMode = null;
-            document.body.classList.remove('visual-mode');
-            openForm({ filePath: fp, afterBlockIndex: null, startLine: selectionStart, endLine: selectionEnd, editingId: null, side: side || undefined });
-          }
-          return;
-        }
         // If text is selected, comment on the selection (with quote).
         // Otherwise fall back to the focused block.
         if (tryOpenFormFromSelection()) return;
+        if (pierreView && pierreViewActive()) {
+          if (!pierreFocus) return;
+          const anchor = pierreVisualAnchor && pierreVisualAnchor.path === pierreFocus.path ? pierreVisualAnchor : pierreFocus;
+          const start = Math.min(anchor.line, pierreFocus.line);
+          pierreVisualAnchor = null;
+          document.body.classList.remove('visual-mode');
+          if (pierreFocus.block !== undefined) {
+            // Document blocks: the form sits after the last block of the range.
+            clearPierreDocVisual();
+            openForm({ filePath: pierreFocus.path, afterBlockIndex: Math.max(anchor.block, pierreFocus.block),
+              startLine: start, endLine: Math.max(anchor.endLine, pierreFocus.endLine), editingId: null });
+            return;
+          }
+          const end = Math.max(anchor.line, pierreFocus.line);
+          const side = anchor.side;
+          openForm({ filePath: pierreFocus.path, afterBlockIndex: null, startLine: start, endLine: end, editingId: null, side: side || undefined });
+          return;
+        }
         if (!focusedElement) return;
         // Markdown line block
         if (focusedElement.dataset.filePath && focusedElement.dataset.blockIndex !== undefined) {
@@ -10234,15 +8937,21 @@
           const form = activeForms[activeForms.length - 1];
           if (confirmDiscardCommentForm(form)) cancelComment(form);
         }
-        else if (visualMode) {
-          exitVisualMode(true);
-        }
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;
           selectionStart = null;
           selectionEnd = null;
           activeFilePath = null;
           if (clearPath) renderFileByPath(clearPath);
+        } else if (pierreVisualAnchor) {
+          // Leave visual mode, keep the focused line.
+          pierreVisualAnchor = null;
+          document.body.classList.remove('visual-mode');
+          showPierreFocus();
+        } else if (pierreFocus) {
+          clearPierreFocus();
+          document.body.classList.remove('visual-mode');
+          clearKeyboardFocusTarget();
         } else if (focusedElement) {
           document.querySelectorAll('.kb-nav.focused').forEach(function(el) { el.classList.remove('focused'); });
           focusedBlockIndex = null;
@@ -10261,6 +8970,17 @@
   // Returns true if a form was opened from an active selection.
   function tryOpenFormFromSelection() {
     const selection = window.getSelection();
+    // Code lines (Pierre shadow roots, list or story); otherwise the light
+    // DOM path below (rendered markdown documents).
+    const sel = window.crit.pierreDOM.pierreSelectionForComment(selection);
+    if (sel) {
+      selection.removeAllRanges();
+      openForm({
+        filePath: sel.filePath, afterBlockIndex: null, startLine: sel.startLine, endLine: sel.endLine,
+        editingId: null, side: sel.side || undefined, quote: sel.quote, quoteOffset: sel.quoteOffset,
+      });
+      return true;
+    }
     const range = getLineRangeFromSelection(selection);
     if (!range) return false;
 
@@ -10287,16 +9007,6 @@
                   contentEls.push(content);
                 }
               });
-            }
-          });
-          const selSide = range.side || '';
-          document.querySelectorAll('[data-diff-file-path][data-diff-line-num="' + ln + '"]').forEach(function(el) {
-            if (el.dataset.diffFilePath !== range.filePath) return;
-            if (el.dataset.diffSide !== selSide) return;
-            const content = el.querySelector('.diff-content');
-            if (content && contentEls.indexOf(content) === -1) {
-              fullText += (fullText ? '\n' : '') + content.textContent.trim();
-              contentEls.push(content);
             }
           });
         }
@@ -11152,11 +9862,7 @@
     clone.deletions = file.deletions;
     clone.lazy = file.lazy;
     clone.generated = file.generated;
-    clone.diffTooLarge = file.diffTooLarge;
-    clone.diffLoaded = file.diffLoaded;
     clone.fileHash = file.fileHash;
-    clone.highlightCache = file.highlightCache;
-    clone.lang = file.lang;
     clone.viewMode = 'diff';
   }
 
@@ -11186,13 +9892,9 @@
       file.lineBlocks = loaded.lineBlocks;
       file.previousLineBlocks = loaded.previousLineBlocks;
       file.tocItems = loaded.tocItems;
-      file.diffTooLarge = loaded.diffTooLarge;
-      file.diffLoaded = loaded.diffLoaded;
       file.fileHash = loaded.fileHash;
       file.lazy = false;
       file._lazyLoading = false;
-      if (loaded.highlightCache) file.highlightCache = loaded.highlightCache;
-      if (loaded.lang) file.lang = loaded.lang;
       delete file._storyLazyPromise;
       // Drop clones built against the empty lazy placeholder.
       storyExpandedFileCache.clear();
@@ -11240,6 +9942,9 @@
     const copiedHunks = filtered.map(copyDiffHunk);
     const clone = Object.assign({}, file, {
       diffHunks: copiedHunks,
+      // Every hunk of the file, so Pierre's old-side content is rebuilt
+      // correctly when the chapter shows only some of them.
+      allDiffHunks: expandedHunks,
       _autoExpandDone: false,
       // Force diff view for the group body regardless of markdown viewMode.
       viewMode: 'diff',
@@ -11605,7 +10310,7 @@
     if (!file || !file.collapsed) section.open = true;
 
     const header = document.createElement('summary');
-    header.className = 'file-header crit-story-file-header';
+    header.className = 'file-header crit-review-file-header crit-story-file-header';
     header.addEventListener('click', function (e) {
       if (e.target.closest('.file-header-toggle') || e.target.closest('.file-header-viewed') || e.target.closest('.file-comment-btn') || e.target.closest('.file-header-copy-path') || e.target.closest('.crit-story-elsewhere')) {
         e.preventDefault();
@@ -11727,7 +10432,7 @@
     const body = document.createElement('div');
     body.className = 'file-body';
     if (built && built.clone.diffHunks.length) {
-      body.appendChild(renderDiffHunks(built.clone));
+      body.appendChild(renderPierreInlineDiff(built.clone));
     } else {
       const empty = document.createElement('div');
       empty.className = 'crit-story-file-group__empty';
@@ -12163,12 +10868,17 @@
               const locate = function () {
                 const pane = document.getElementById('storyPane');
                 if (!pane || !displayAnchor) return;
-                const el = pane.querySelector('[data-diff-file-path="' + CSS.escape(anchor.filePath) + '"][data-diff-line-num="' + displayAnchor.line + '"][data-diff-side="' + displayAnchor.side + '"]') ||
+                const group = pane.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(anchor.filePath) + '"]');
+                const el = window.crit.pierreDOM.pierreLineElement(group, displayAnchor.line, displayAnchor.side) ||
                   (side !== 'old' ? pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]') : null);
                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
               };
               if (navigated) requestAnimationFrame(locate); else locate();
               return Promise.resolve();
+            }
+            if (pierreView && pierreViewActive()) {
+              if (anchor.scope === 'file') return pierreView.scrollToFile(anchor.filePath);
+              return pierreView.scrollToLine(anchor.filePath, anchor.endLine, anchor.side === 'old' ? 'old' : '', 'center');
             }
             const section = document.getElementById('file-section-' + anchor.filePath);
             if (!section) return Promise.resolve();

@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { clearAllComments, loadPage, mdSection, revealFile, diffLine } from './helpers';
 
 /** Get the fixture directory from the session API. */
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
@@ -90,7 +90,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.diff-view')).toBeVisible();
     await expect(section.locator('.document-wrapper')).toHaveCount(0);
   });
@@ -99,7 +99,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const labels = section.locator('.diff-view-side-label');
     await expect(labels).toHaveCount(2);
     await expect(labels.nth(0)).toHaveText('Previous round');
@@ -110,55 +110,61 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const addedBlocks = section.locator('.diff-view .line-block.diff-added');
-    const count = await addedBlocks.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(addedBlocks.first()).toBeVisible();
+    // The appended section shows up as added on the current side
+    await expect(addedBlocks.filter({ hasText: 'New content added at' }).last()).toBeVisible();
   });
 
   test('split view shows diff-removed blocks on previous side', async ({ page }) => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
-    const leftSide = section.locator('.diff-view-side').nth(0);
-    const removedBlocks = leftSide.locator('.line-block.diff-removed');
-    const count = await removedBlocks.count();
-    // The modification appends content, so removed blocks may or may not exist
-    expect(count).toBeGreaterThanOrEqual(0);
+    const section = await mdSection(page);
+    const diff = section.locator('.diff-view');
+    await expect(diff).toBeVisible();
+    // Cells alternate previous (even) / current (odd). Removed blocks only
+    // ever sit on the previous side, added blocks only on the current side.
+    const misplaced = await diff.evaluate(el => {
+      const cells = Array.from(el.querySelectorAll(':scope > .diff-view-cell'));
+      let bad = 0;
+      cells.forEach((cell, i) => {
+        if (i % 2 === 1 && cell.querySelector('.line-block.diff-removed')) bad++;
+        if (i % 2 === 0 && cell.querySelector('.line-block.diff-added')) bad++;
+      });
+      return { bad, cells: cells.length };
+    });
+    expect(misplaced.cells).toBeGreaterThan(0);
+    expect(misplaced.bad).toBe(0);
   });
 
   test('split view shows line numbers', async ({ page }) => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineNums = section.locator('.diff-view .line-num');
-    const count = await lineNums.count();
-    expect(count).toBeGreaterThan(0);
-
-    // Line numbers should be visible
     await expect(lineNums.first()).toBeVisible();
+    await expect(lineNums.first()).toHaveText(/^\d+$/);
   });
 
   test('left side has non-commentable gutters', async ({ page }) => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const noCommentGutters = section.locator('.diff-view .diff-no-comment');
-    const count = await noCommentGutters.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(noCommentGutters).not.toHaveCount(0);
   });
 
   test('right side has commentable gutters', async ({ page }) => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const commentGutters = section.locator('.diff-view .line-comment-gutter:not(.diff-no-comment)');
-    const count = await commentGutters.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(commentGutters).not.toHaveCount(0);
   });
 
   test('clicking Toggle Diff again returns to document view', async ({ page }) => {
@@ -166,7 +172,7 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     const btn = page.locator('#diffToggle');
     await btn.click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.diff-view')).toBeVisible();
 
     // Click again to return to document view
@@ -210,7 +216,7 @@ test.describe('Rendered Diff — File Mode — Unified View', () => {
     const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
     await unifiedBtn.click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.diff-view-unified')).toBeVisible();
     await expect(section.locator('.diff-view')).toHaveCount(0);
   });
@@ -220,10 +226,10 @@ test.describe('Rendered Diff — File Mode — Unified View', () => {
     await page.locator('#diffToggle').click();
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const addedBlocks = section.locator('.diff-view-unified .line-block.diff-added');
-    const count = await addedBlocks.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(addedBlocks.first()).toBeVisible();
+    await expect(addedBlocks.filter({ hasText: 'New content added at' }).last()).toBeVisible();
   });
 
   test('unified view shows line numbers', async ({ page }) => {
@@ -231,11 +237,10 @@ test.describe('Rendered Diff — File Mode — Unified View', () => {
     await page.locator('#diffToggle').click();
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineNums = section.locator('.diff-view-unified .line-num');
-    const count = await lineNums.count();
-    expect(count).toBeGreaterThan(0);
     await expect(lineNums.first()).toBeVisible();
+    await expect(lineNums.first()).toHaveText(/^\d+$/);
   });
 
   test('switching back to Split shows split view', async ({ page }) => {
@@ -243,7 +248,7 @@ test.describe('Rendered Diff — File Mode — Unified View', () => {
     await page.locator('#diffToggle').click();
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.diff-view-unified')).toBeVisible();
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="split"]').click();
@@ -265,7 +270,7 @@ test.describe('Rendered Diff — File Mode — Comments', () => {
     await loadPage(page);
     await page.locator('#diffToggle').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Find a commentable gutter (right/current side has commentable gutters)
     const gutter = section.locator('.diff-view .line-comment-gutter:not(.diff-no-comment)').first();
@@ -289,7 +294,7 @@ test.describe('Rendered Diff — File Mode — Comments', () => {
     await page.locator('#diffToggle').click();
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Find a commentable gutter (not diff-no-comment)
     const gutter = section.locator('.diff-view-unified .line-comment-gutter:not(.diff-no-comment)').first();
@@ -315,7 +320,7 @@ test.describe('Rendered Diff — File Mode — Comments', () => {
     await page.locator('#diffToggle').click();
 
     // Comment should be visible in split diff
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.comment-card')).toBeVisible();
 
     // Toggle off
@@ -390,7 +395,7 @@ test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () =
     await loadPage(page);
     await page.locator('#diffToggle').click();
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.diff-view-unified')).toBeVisible();
 
     // Collect all word-diff highlight text
@@ -398,22 +403,11 @@ test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () =
     const wordAddSpans = section.locator('.diff-word-add');
 
     // There should be word-diff spans (SQS was added)
-    await expect(async () => {
-      const addCount = await wordAddSpans.count();
-      expect(addCount).toBeGreaterThan(0);
-    }).toPass({ timeout: 5000 });
+    await expect(wordAddSpans).not.toHaveCount(0);
 
     // Collect the highlighted text from word-diff spans
-    const addTexts: string[] = [];
-    const addCount = await wordAddSpans.count();
-    for (let i = 0; i < addCount; i++) {
-      addTexts.push(((await wordAddSpans.nth(i).textContent()) || '').trim());
-    }
-    const delTexts: string[] = [];
-    const delCount = await wordDelSpans.count();
-    for (let i = 0; i < delCount; i++) {
-      delTexts.push(((await wordDelSpans.nth(i).textContent()) || '').trim());
-    }
+    const addTexts = (await wordAddSpans.allTextContents()).map(t => t.trim());
+    const delTexts = (await wordDelSpans.allTextContents()).map(t => t.trim());
 
     // "SQS" should be highlighted as added
     expect(addTexts.some(t => t.includes('SQS'))).toBeTruthy();
@@ -443,13 +437,15 @@ test.describe('Rendered Diff — File Mode — Non-markdown', () => {
     await page.locator('#diffToggle').click();
 
     // plan.md should show diff view
-    const md = mdSection(page);
+    const md = await mdSection(page);
     await expect(md.locator('.diff-view')).toBeVisible();
 
-    // server.go should NOT show diff-view
-    const goSection = page.locator('.file-section').filter({ hasText: 'server.go' });
+    // server.go should NOT show diff-view: it stays a whole-file code view
+    const goSection = await revealFile(page, 'server.go');
+    await expect(diffLine(goSection, 1)).toContainText('package main');
     await expect(goSection.locator('.diff-view')).toHaveCount(0);
     await expect(goSection.locator('.diff-view-unified')).toHaveCount(0);
+    await expect(goSection.locator('code[data-additions], code[data-deletions], code[data-unified]')).toHaveCount(0);
   });
 });
 
@@ -468,7 +464,7 @@ test.describe('Rendered Diff — File Mode — Round-Complete', () => {
     // Activate diff
     await page.locator('#diffToggle').click();
     await expect(page.locator('#diffToggle')).toHaveClass(/active/);
-    await expect(mdSection(page).locator('.diff-view')).toBeVisible();
+    await expect((await mdSection(page)).locator('.diff-view')).toBeVisible();
 
     // Trigger another round-complete (modify file again)
     const dir = await getFixtureDir(request);
@@ -484,7 +480,7 @@ test.describe('Rendered Diff — File Mode — Round-Complete', () => {
     // diffActive should be reset to false
     await expect(page.locator('#diffToggle')).not.toHaveClass(/active/);
     // Should show document view, not diff view
-    await expect(mdSection(page).locator('.document-wrapper')).toBeVisible();
+    await expect((await mdSection(page)).locator('.document-wrapper')).toBeVisible();
   });
 
   test('Toggle Diff button is visible after SSE round-complete with changes', async ({ page, request }) => {

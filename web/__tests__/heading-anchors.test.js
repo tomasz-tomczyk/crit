@@ -14,10 +14,6 @@ const sandbox = {
           return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
       }
-    },
-    hljs: {
-      getLanguage: function() { return null; },
-      highlight: function() { return { value: '' }; }
     }
   },
   document: {}

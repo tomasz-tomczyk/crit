@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, goSection, hoverLine, openLineComment, switchToDocumentView } from './helpers';
 
 // Desktop invariants — guards against mobile chrome work (F1) bleeding into
 // the desktop layout. Runs in the git-mode project at default viewport.
@@ -37,9 +37,10 @@ test.describe('Desktop chrome invariants', () => {
 
   test('diff defaults to split on desktop', async ({ page }) => {
     // F5 forces unified mode on mobile only; desktop must still default to split.
-    const goSec = page.locator('#file-section-server\\.go');
-    await expect(goSec).toBeVisible();
-    await expect(goSec.locator('.diff-container.split')).toBeVisible();
+    const goSec = await goSection(page);
+    await expect(goSec.locator('code[data-additions]')).toBeVisible();
+    await expect(goSec.locator('code[data-deletions]')).toBeVisible();
+    await expect(goSec.locator('code[data-unified]')).toHaveCount(0);
   });
 
   test('file-header-viewed checkbox remains visible on desktop', async ({ page }) => {
@@ -53,8 +54,8 @@ test.describe('Desktop chrome invariants', () => {
     // so they can shrink independently with ellipsis. The rule is universal
     // (not media-gated). Asserting on desktop guards against the JS template
     // regressing the markup.
-    const fileSection = page.locator('.file-section').first();
-    await expect(fileSection.locator('.file-header-name .filename')).toHaveCount(1);
+    const fileHeader = page.locator('.pierre-file-header').first();
+    await expect(fileHeader.locator('.file-header-name .filename')).toHaveCount(1);
   });
 
   test('header icon buttons stay compact on desktop', async ({ page }) => {
@@ -70,11 +71,13 @@ test.describe('Desktop chrome invariants', () => {
   });
 
   test('line-num ::before "+" prefix is not rendered on desktop', async ({ page }) => {
-    // F3 adds the ::before "+" prefix only under @media (pointer: coarse).
-    // On desktop the existing .line-add blue button on hover is the
+    // F3 adds the ::before "+" prefix to .line-num only under
+    // @media (pointer: coarse). On desktop the hover "+" button is the
     // affordance, NOT the ::before. The pseudo-element's content must
-    // be 'none' (the unset default) so nothing renders.
-    const lineNum = page.locator('.diff-gutter-num').first();
+    // be 'none' (the unset default) so nothing renders. .line-num lives in
+    // the rendered markdown document (Pierre owns diff gutters).
+    const doc = await switchToDocumentView(page);
+    const lineNum = doc.locator('.line-num').first();
     await expect(lineNum).toBeAttached();
     const content = await lineNum.evaluate((el) =>
       getComputedStyle(el, '::before').content
@@ -83,25 +86,17 @@ test.describe('Desktop chrome invariants', () => {
   });
 
   test('desktop diff blue + button appears on row hover', async ({ page }) => {
-    // F3 must not break the existing desktop diff affordance:
-    // .diff-comment-btn becomes visible when its parent diff line / split
-    // side is hovered.
-    const splitSide = page.locator('#file-section-server\\.go .diff-split-side.addition').first();
-    await expect(splitSide).toBeAttached();
-    await splitSide.scrollIntoViewIfNeeded();
-    await splitSide.hover();
-    const btn = splitSide.locator('.diff-comment-btn');
+    // F3 must not break the desktop diff affordance: the gutter "+"
+    // becomes visible when a diff line is hovered.
+    const item = await goSection(page);
+    const btn = await hoverLine(page, item, 1);
     await expect(btn).toBeVisible();
   });
 
   test('desktop click on diff + button opens comment form', async ({ page }) => {
-    // F4 must not break the existing desktop click path.
-    const splitSide = page.locator('#file-section-server\\.go .diff-split-side.addition').first();
-    await splitSide.scrollIntoViewIfNeeded();
-    await splitSide.hover();
-    const btn = splitSide.locator('.diff-comment-btn');
-    await expect(btn).toBeVisible();
-    await btn.click();
-    await expect(page.locator('.comment-form')).toBeVisible();
+    // F4 must not break the desktop click path.
+    const item = await goSection(page);
+    const form = await openLineComment(page, item, 1);
+    await expect(form).toBeVisible();
   });
 });

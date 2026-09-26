@@ -4,7 +4,8 @@ import { loadPage } from './helpers';
 test.describe('Page Loading', () => {
   test('page loads without errors, loading disappears, file sections appear', async ({ page }) => {
     await loadPage(page);
-    await expect(page.locator('.file-section')).not.toHaveCount(0);
+    await expect(page.locator('.pierre-file-header').first()).toBeVisible();
+    await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
   });
 
   test('branch name "feat/add-auth" is shown in header', async ({ page }) => {

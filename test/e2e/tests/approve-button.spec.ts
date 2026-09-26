@@ -48,7 +48,7 @@ test.describe('Approve Button Text', () => {
 
     // Switch to document view to access comment card
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Expand the resolved (collapsed) card
     await section.locator('.comment-collapse-btn').click();
@@ -73,7 +73,7 @@ test.describe('Approve Button Text', () => {
 
     // Switch to document view to interact with comment cards
     await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const cards = section.locator('.comment-card');
     await expect(cards).toHaveCount(2);
 

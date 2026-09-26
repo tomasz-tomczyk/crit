@@ -252,7 +252,7 @@ html[data-theme="light"] .crit-mode-live {
 
 .crit-live-iframe-frame {
   position: relative;
-  background: #fff;
+  background: #fff; /* iframe-frame-literal-ok: a page's default background */
   border: 1px solid var(--crit-live-iframe-frame);
   border-radius: var(--crit-r-md);
   box-shadow: var(--crit-shadow);

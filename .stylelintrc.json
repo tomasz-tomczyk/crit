@@ -3,16 +3,54 @@
     "block-no-empty": true,
     "color-no-invalid-hex": true,
     "declaration-block-no-duplicate-properties": true,
-    "no-duplicate-selectors": true
+    "no-duplicate-selectors": true,
+    "declaration-property-value-disallowed-list": [
+      {
+        "overflow-x": [
+          "clip"
+        ],
+        "overflow-y": [
+          "clip"
+        ],
+        "overflow": [
+          "/^clip\\s+\\S/",
+          "/\\S\\s+clip$/"
+        ]
+      },
+      {
+        "message": "Single-axis clip breaks Chrome paint/hit-testing past ~4.19M px on tall elements; use overflow: clip (both axes)."
+      }
+    ]
   },
   "overrides": [
     {
-      "files": ["web/style.css"],
+      "files": [
+        "web/style.css"
+      ],
       "rules": {
         "color-named": "never",
-        "declaration-property-value-disallowed-list": {
-          "/^color|^background|^border/": ["/^#/", "/^rgba/", "/^rgb/"]
-        }
+        "declaration-property-value-disallowed-list": [
+          {
+            "/^color|^background|^border/": [
+              "/^#/",
+              "/^rgba/",
+              "/^rgb/"
+            ],
+            "overflow-x": [
+              "clip"
+            ],
+            "overflow-y": [
+              "clip"
+            ],
+            "overflow": [
+              "/^clip\\s+\\S/",
+              "/\\S\\s+clip$/"
+            ]
+          },
+          {
+            "message": "Disallowed value (hardcoded colors must use theme vars; single-axis overflow clip breaks Chrome paint past ~4.19M px \u2014 use overflow: clip)."
+          }
+        ]
       }
     }
   ]

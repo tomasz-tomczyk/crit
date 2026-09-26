@@ -1,7 +1,9 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { execFileSync } from 'child_process';
+import { randomUUID } from 'crypto';
+import { clearAllComments, loadPage, mdSection, fileItem } from './helpers';
 
 // Get the fixture directory from the session API.
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
@@ -37,20 +39,26 @@ async function doRoundWithEdit(
   await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
 }
 
+// The review list scrolls inside #filesContainer (not the window); the
+// document-Y helpers below measure positions in that scroller.
+
 // Generate a unique modification of the original content.
 // Each call produces a different version to avoid stale-diff issues when
 // the server's in-memory content matches a previous modification.
-let modCounter = 0;
+let modificationId = '';
 function makeModified(original: string, areas: 'single' | 'multi' = 'single'): string {
-  modCounter++;
+  // A retried test runs in a new worker against the same daemon and disk.
+  // A process-local counter can repeat the previous edit, producing no diff.
+  const marker = randomUUID();
+  modificationId = marker;
   let result = original.replace(
     "We're adding API key authentication to the server. This is phase 1 of the auth system.",
-    `We're adding method-${modCounter} authentication to the server. This is variant ${modCounter} of the auth system.`,
+    `We're adding method-${marker} authentication to the server. This is variant ${marker} of the auth system.`,
   );
   if (areas === 'multi') {
     result = result.replace(
       '- **Week 1**: Middleware + key model',
-      `- **Week 1**: Method-${modCounter} middleware + token model`,
+      `- **Week 1**: Method-${marker} middleware + token model`,
     );
   }
   return result;
@@ -65,7 +73,11 @@ test.describe('Change Navigation — File Mode', () => {
 
   test.beforeAll(async ({ request }) => {
     fixtureDir = await getFixtureDir(request);
-    originalContent = fs.readFileSync(path.join(fixtureDir, 'plan.md'), 'utf-8');
+    // The working file may still contain the failed worker's edit. The
+    // fixture's committed baseline survives retries and suite restarts.
+    originalContent = execFileSync('git', ['show', 'HEAD:plan.md'], {
+      cwd: fixtureDir, encoding: 'utf-8',
+    });
   });
 
   test.afterAll(() => {
@@ -84,7 +96,7 @@ test.describe('Change Navigation — File Mode', () => {
 
   test('no change indicators in round 1 (before any edits)', async ({ page }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // No blocks should have any change indicator
@@ -93,7 +105,7 @@ test.describe('Change Navigation — File Mode', () => {
 
   test('no change-nav widget in round 1', async ({ page }) => {
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     await expect(section.locator('.change-nav')).toHaveCount(0);
@@ -105,14 +117,13 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // At least one block should have a change indicator (modified = amber for replacements)
     const changedBlocks = section.locator('.line-block-added, .line-block-modified');
     await expect(changedBlocks.first()).toBeVisible();
-    const count = await changedBlocks.count();
-    expect(count).toBeGreaterThan(0);
+    await expect(changedBlocks.first()).toContainText(`method-${modificationId} authentication`);
   });
 
   test('change-nav widget appears after round-complete with edits', async ({ page, request }) => {
@@ -121,7 +132,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Change nav widget should be visible
@@ -140,7 +151,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent, 'multi');
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     const label = section.locator('.change-nav-label');
@@ -161,7 +172,7 @@ test.describe('Change Navigation — File Mode', () => {
       '| a much longer visible choice | waiting for review |\n';
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const table = section.locator('table.native-table').last();
     await expect(table).toBeVisible();
     await expect(table.locator('.line-block-added')).toHaveCount(4);
@@ -205,7 +216,7 @@ test.describe('Change Navigation — File Mode', () => {
     expect(current).toContain(deletedRow);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', current.replace(deletedRow, ''));
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const annotation = section.locator('.native-table-annotation', {
       has: page.locator('.deletion-marker'),
     });
@@ -229,7 +240,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
     await expect(section.locator('.line-block-added, .line-block-modified')).not.toHaveCount(0);
 
@@ -247,7 +258,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
     await expect(section.locator('.line-block-added, .line-block-modified')).not.toHaveCount(0);
 
@@ -264,11 +275,14 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Scroll to the very bottom so all changes are above viewport
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.evaluate(() => document.getElementById('filesContainer')!.scrollTo(0, document.getElementById('filesContainer')!.scrollHeight));
+    // Exercise the virtualized path: a cached change's DOM cannot scroll
+    // itself back into view after Pierre has unmounted its file.
+    await expect(fileItem(page, 'plan.md')).toHaveCount(0);
 
     await page.keyboard.press('n');
 
@@ -283,7 +297,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Click the down arrow button
@@ -300,7 +314,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Click the up arrow button (wraps to last)
@@ -318,24 +332,24 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent, 'multi');
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Scroll to top so both changes are below
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => document.getElementById('filesContainer')!.scrollTo(0, 0));
 
     // Press n — should go to first change
     await page.keyboard.press('n');
     const firstFlashed = section.locator('.line-block.change-flash').first();
     await expect(firstFlashed).toBeVisible();
     // Record document-level Y of the first flashed element
-    const firstAbsY = await firstFlashed.evaluate(el => el.getBoundingClientRect().top + window.scrollY);
+    const firstAbsY = await firstFlashed.evaluate(el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop);
 
     // Press n again — should go to second change (further down the document)
     await page.keyboard.press('n');
     const secondFlashed = section.locator('.line-block.change-flash').first();
     await expect(secondFlashed).toBeVisible();
-    const secondAbsY = await secondFlashed.evaluate(el => el.getBoundingClientRect().top + window.scrollY);
+    const secondAbsY = await secondFlashed.evaluate(el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop);
 
     expect(secondAbsY).toBeGreaterThan(firstAbsY);
   });
@@ -346,21 +360,21 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent, 'multi');
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Navigate to first change from top
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => document.getElementById('filesContainer')!.scrollTo(0, 0));
     await page.keyboard.press('n');
     await expect(section.locator('.line-block.change-flash').first()).toBeVisible();
 
     // Get document-level Y of the first change group
     const firstChangeAbsY = await section.locator('.line-block-added, .line-block-modified').first().evaluate(
-      el => el.getBoundingClientRect().top + window.scrollY
+      el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop
     );
 
     // Manually scroll well past the first change
-    await page.evaluate((y) => window.scrollTo(0, y + 300), firstChangeAbsY);
+    await page.evaluate((y) => document.getElementById('filesContainer')!.scrollTo(0, y + 300), firstChangeAbsY);
 
     // Press n — should go forward to next change, not back to first
     await page.keyboard.press('n');
@@ -368,7 +382,7 @@ test.describe('Change Navigation — File Mode', () => {
     await expect(flashed).toBeVisible();
 
     // The flashed element should be below the first change in the document
-    const flashedAbsY = await flashed.evaluate(el => el.getBoundingClientRect().top + window.scrollY);
+    const flashedAbsY = await flashed.evaluate(el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop);
     expect(flashedAbsY).toBeGreaterThan(firstChangeAbsY);
   });
 
@@ -378,21 +392,21 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent, 'multi');
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Navigate forward twice to reach the second change
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => document.getElementById('filesContainer')!.scrollTo(0, 0));
     await page.keyboard.press('n');
     await expect(section.locator('.line-block.change-flash').first()).toBeVisible();
     const firstAbsY = await section.locator('.line-block.change-flash').first().evaluate(
-      el => el.getBoundingClientRect().top + window.scrollY
+      el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop
     );
 
     await page.keyboard.press('n');
     await expect(section.locator('.line-block.change-flash').first()).toBeVisible();
     const secondAbsY = await section.locator('.line-block.change-flash').first().evaluate(
-      el => el.getBoundingClientRect().top + window.scrollY
+      el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop
     );
     // Verify we actually moved forward
     expect(secondAbsY).toBeGreaterThan(firstAbsY);
@@ -401,7 +415,7 @@ test.describe('Change Navigation — File Mode', () => {
     await page.keyboard.press('Shift+N');
     const backFlashed = section.locator('.line-block.change-flash').first();
     await expect(backFlashed).toBeVisible();
-    const backAbsY = await backFlashed.evaluate(el => el.getBoundingClientRect().top + window.scrollY);
+    const backAbsY = await backFlashed.evaluate(el => el.getBoundingClientRect().top + document.getElementById('filesContainer')!.scrollTop);
     expect(backAbsY).toBeLessThan(secondAbsY);
   });
 
@@ -411,11 +425,11 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent, 'multi');
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Scroll to the very top
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => document.getElementById('filesContainer')!.scrollTo(0, 0));
 
     // Press N — no change above viewport center, should wrap to last
     await page.keyboard.press('Shift+N');
@@ -444,7 +458,7 @@ test.describe('Change Navigation — File Mode', () => {
     const modified = makeModified(originalContent);
     await doRoundWithEdit(page, request, fixtureDir, 'plan.md', modified);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const changedBlock = section.locator('.line-block-added, .line-block-modified').first();
     await expect(changedBlock).toBeVisible();
 

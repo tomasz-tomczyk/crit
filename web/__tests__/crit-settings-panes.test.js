@@ -69,6 +69,40 @@ function loadShared() {
   return loadPanes().panes;
 }
 
+function paletteHooks() {
+  return {
+    applyTheme: () => {},
+    themePalettes: [
+      { id: 'light-test', displayName: 'Test light', type: 'light' },
+      { id: 'dark-test', displayName: 'Test dark', type: 'dark' },
+    ],
+    paletteDefaults: { light: 'light-test', dark: 'dark-test' },
+    onRendererSettingChange: () => {},
+  };
+}
+
+test('renderSettingsTab: Syntax contrast preserves its opt-in saved preference', () => {
+  for (const value of ['off', 'on']) {
+    const { panes } = loadPanes('crit-settings=' + encodeURIComponent(JSON.stringify({ boostContrast: value })));
+    const pane = makePane();
+    panes.renderSettingsTab(pane, { mode: 'code-review', cfg: {}, hooks: paletteHooks() });
+    const select = pane.innerHTML.match(/<select[^>]*id="boostContrastSelect"[^>]*>([\s\S]*?)<\/select>/);
+    assert.ok(select, 'code review offers Syntax contrast');
+    assert.match(select[1], new RegExp('<option value="' + value + '" selected>'));
+    assert.match(select[1], />Theme default<\/option>/);
+    assert.match(select[1], />Increased<\/option>/);
+  }
+});
+
+test('renderSettingsTab: live mode offers both palettes and omits code renderer settings', () => {
+  const pane = makePane();
+  loadShared().renderSettingsTab(pane, { mode: 'live', cfg: {}, hooks: paletteHooks() });
+  const settings = [...pane.innerHTML.matchAll(/data-renderer-setting="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(settings, ['lightPalette', 'darkPalette']);
+  assert.match(pane.innerHTML, /<option value="light-test" selected>Test light<\/option>/);
+  assert.match(pane.innerHTML, /<option value="dark-test" selected>Test dark<\/option>/);
+});
+
 test('renderSettingsTab: code-review mode renders theme + width + hide-resolved', () => {
   const sp = loadShared();
   const pane = makePane();
@@ -504,7 +538,7 @@ test('renderShortcutsPane: code-review mode shows code-review-only shortcuts', (
   assert.match(html, /Story prologue/);
   assert.match(html, /Story support/);
   assert.match(html, /Jump to story chapter/);
-  assert.match(html, /Toggle story chapter list/);
+  assert.match(html, /Toggle sidebar \(story chapter list\)/);
   // Shared bindings present
   assert.match(html, /<kbd>Esc<\/kbd>/);
   assert.match(html, /<kbd>\?<\/kbd>/);

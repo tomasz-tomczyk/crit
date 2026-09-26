@@ -1,6 +1,7 @@
 import { cpSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
 import { vendoredAssets } from "./scripts/vendored-assets.mjs";
+import { buildPierre } from "./scripts/build-pierre.mjs";
 
 const dest = "web";
 
@@ -9,40 +10,6 @@ cpSync("node_modules/markdown-it/dist/browser/markdown-it.umd.min.js", `${dest}/
 
 // DOMPurify — used to sanitize HTML enabled in comment Markdown.
 cpSync("node_modules/dompurify/dist/purify.min.js", `${dest}/dompurify.min.js`);
-
-// highlight.js — bundle core + all languages + local patches into a single file.
-// Order: core (defines hljs) → languages (registers 'markdown') → patches
-// (re-registers 'markdown' with crit's fixes). See highlight-markdown-patch.js.
-const core = readFileSync("node_modules/@highlightjs/cdn-assets/highlight.min.js", "utf8");
-const langDir = "node_modules/@highlightjs/cdn-assets/languages";
-const langFiles = readdirSync(langDir).filter(f => f.endsWith(".min.js")).sort();
-const langs = langFiles.map(f => readFileSync(`${langDir}/${f}`, "utf8")).join("\n");
-const patch = readFileSync(`${dest}/highlight-markdown-patch.js`, "utf8");
-const heex = readFileSync("node_modules/highlightjs-heex/dist/heex.min.js", "utf8");
-const heexReg = heex + "\nhljs.registerLanguage('heex', hljsDefineHeex);";
-
-// highlightjs-vue@1.0.0 ships broken CJS/ESM (module$1.exports / CommonJS-in-.esm.js)
-// and a UMD build that never assigns window.hljsDefineVue. Extract the language
-// function and register it the same way we register HEEx.
-const vueSrc = readFileSync("node_modules/highlightjs-vue/dist/highlightjs-vue.esm.js", "utf8");
-const vueBody = vueSrc
-  .replace(/^[\s\S]*?(function hljsDefineVue)/, "$1")
-  .replace(/module\.exports[\s\S]*$/, "");
-const vueReg =
-  `var hljsDefineVue=(function(){\n${vueBody}\nreturn hljsDefineVue;\n})();\n` +
-  `hljs.registerLanguage('vue', hljsDefineVue);`;
-
-// highlightjs-astro-js dist/astro.js is a CDN build that self-registers on load.
-const astro = readFileSync("node_modules/highlightjs-astro-js/dist/astro.js", "utf8");
-
-// Some npm packages contain CRLF. Normalize generated bundles so their bytes are
-// identical on every platform and are not changed by Git's eol=lf policy.
-const lf = value => value.replace(/\r\n/g, "\n");
-
-writeFileSync(
-  `${dest}/highlight.min.js`,
-  lf(core + "\n" + langs + "\n" + patch + "\n" + heexReg + "\n" + vueReg + "\n" + astro)
-);
 
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
@@ -58,6 +25,9 @@ execSync(`npx --no-install esbuild ${dmpEntry} --bundle --format=iife --minify -
 // Clean up temporary entry file
 unlinkSync(dmpEntry);
 
+// @pierre/diffs + Shiki — split ESM bundle, gzipped, in web/pierre/.
+await buildPierre();
+
 // Keep the generator, manifest, and embedded minified files in a closed set.
 // This prevents an ungenerated, self-attested *.min.js file from entering the
 // binary through web/embed.go's broad *.js pattern.
@@ -70,6 +40,7 @@ const manifestedAssets = readFileSync("ASSETS-PROVENANCE.txt", "utf8")
 const embeddedAssets = readdirSync(dest)
   .filter(name => name.endsWith(".min.js"))
   .map(name => `${dest}/${name}`)
+  .concat([`${dest}/pierre`])
   .sort();
 for (const [label, assets] of [["manifest", manifestedAssets], ["web directory", embeddedAssets]]) {
   if (JSON.stringify(assets) !== JSON.stringify(generatedAssets)) {
@@ -77,4 +48,4 @@ for (const [label, assets] of [["manifest", manifestedAssets], ["web directory",
   }
 }
 
-console.log(`Frontend deps copied to web/ (${langFiles.length} highlight.js languages bundled)`);
+console.log("Frontend deps copied to web/");

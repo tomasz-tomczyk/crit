@@ -1,5 +1,20 @@
-import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, jsSection, mdSection, switchToDocumentView } from './helpers';
+import { test, expect, type Page, type Locator } from '@playwright/test';
+import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine } from './helpers';
+
+// server.go line 5 (the added "log" import) and handler.js line 1 are
+// additions. The two files are far enough apart that CodeView never mounts
+// both at once, so each is brought back into view before it is checked.
+async function openGoForm(page: Page, line = 5): Promise<Locator> {
+  const goSec = await goSection(page);
+  await openLineComment(page, goSec, line);
+  return goSec.locator(`.comment-form[data-form-key="server.go:${line}:${line}:"]`);
+}
+
+async function openJsForm(page: Page): Promise<Locator> {
+  const jsSec = await jsSection(page);
+  await openLineComment(page, jsSec, 1);
+  return jsSec.locator('.comment-form[data-form-key="handler.js:1:1:"]');
+}
 
 test.describe('Multi-Form Comments', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -8,205 +23,123 @@ test.describe('Multi-Form Comments', () => {
   });
 
   test('opening a new comment form does not close existing form', async ({ page }) => {
-    // Open form on server.go diff
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-
-    const firstForm = goSec.locator('.comment-form');
-    await expect(firstForm).toBeVisible();
-
-    // Type text in first form
-    const firstTextarea = firstForm.locator('textarea');
-    await firstTextarea.fill('Comment on server.go');
+    // Open form on server.go diff and type in it
+    const firstForm = await openGoForm(page);
+    await firstForm.locator('textarea').fill('Comment on server.go');
 
     // Open form on handler.js diff
-    const jsSec = jsSection(page);
-    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
-    await jsAddition.scrollIntoViewIfNeeded();
-    await jsAddition.hover();
-    await jsAddition.locator('.diff-comment-btn').click();
-
-    const secondForm = jsSec.locator('.comment-form');
-    await expect(secondForm).toBeVisible();
-
-    // Verify both forms visible
-    await expect(page.locator('.comment-form')).toHaveCount(2);
-
-    // First form retains text
-    await expect(firstForm.locator('textarea')).toHaveValue('Comment on server.go');
-
+    const secondForm = await openJsForm(page);
     // Second form textarea is focused
     await expect(secondForm.locator('textarea')).toBeFocused();
+
+    // First form is still open on server.go and retains its text
+    const goSec = await goSection(page);
+    await expect(goSec.locator('.comment-form')).toHaveCount(1);
+    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Comment on server.go');
+    const jsSec = await jsSection(page);
+    await expect(jsSec.locator('.comment-form')).toHaveCount(1);
   });
 
   test('opening a new comment form closes existing empty form', async ({ page }) => {
     // Open form on server.go (leave empty)
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-    await expect(goSec.locator('.comment-form')).toBeVisible();
+    await openGoForm(page);
 
     // Open form on handler.js without filling first
-    const jsSec = jsSection(page);
-    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
-    await jsAddition.scrollIntoViewIfNeeded();
-    await jsAddition.hover();
-    await jsAddition.locator('.diff-comment-btn').click();
+    const jsSec = await jsSection(page);
+    await openLineComment(page, jsSec, 1);
 
-    // First (empty) form should be closed; only second visible
-    await expect(jsSec.locator('.comment-form')).toBeVisible();
+    // First (empty) form should be closed; only second remains
+    await expect(jsSec.locator('.comment-form')).toHaveCount(1);
+    const goSec = await goSection(page);
+    await expect(goSec.locator('.pierre-file-header')).toBeVisible();
     await expect(goSec.locator('.comment-form')).toHaveCount(0);
-    await expect(page.locator('.comment-form')).toHaveCount(1);
   });
 
   test('submitting one form does not affect other open forms', async ({ page }) => {
-    // Open form on server.go
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-    const firstForm = goSec.locator('.comment-form');
+    const firstForm = await openGoForm(page);
     await firstForm.locator('textarea').fill('Keep this open');
 
-    // Open form on handler.js
-    const jsSec = jsSection(page);
-    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
-    await jsAddition.scrollIntoViewIfNeeded();
-    await jsAddition.hover();
-    await jsAddition.locator('.diff-comment-btn').click();
-    const secondForm = jsSec.locator('.comment-form');
+    const secondForm = await openJsForm(page);
     await secondForm.locator('textarea').fill('Submit this one');
-
-    // Submit second form
     await secondForm.locator('.btn-primary').click();
 
     // Second becomes a comment card
+    const jsSec = await jsSection(page);
     await expect(jsSec.locator('.comment-card')).toBeVisible();
     await expect(jsSec.locator('.comment-form')).toHaveCount(0);
 
     // First form still open with text
-    await expect(goSec.locator('.comment-form')).toBeVisible();
+    const goSec = await goSection(page);
     await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
+    await expect(goSec.locator('.comment-card')).toHaveCount(0);
   });
 
   test('cancelling one form does not affect other open forms', async ({ page }) => {
-    // Open form on server.go
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-    const firstForm = goSec.locator('.comment-form');
+    const firstForm = await openGoForm(page);
     await firstForm.locator('textarea').fill('Keep this open');
 
-    // Open form on handler.js
-    const jsSec = jsSection(page);
-    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
-    await jsAddition.scrollIntoViewIfNeeded();
-    await jsAddition.hover();
-    await jsAddition.locator('.diff-comment-btn').click();
-    const secondForm = jsSec.locator('.comment-form');
-    await expect(secondForm).toBeVisible();
-
-    // Cancel second form
+    const secondForm = await openJsForm(page);
     await secondForm.getByRole('button', { name: 'Cancel' }).click();
 
-    // Second form gone
+    const jsSec = await jsSection(page);
     await expect(jsSec.locator('.comment-form')).toHaveCount(0);
 
-    // First still open with text
-    await expect(goSec.locator('.comment-form')).toBeVisible();
+    const goSec = await goSection(page);
     await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
   });
 
   test('Escape in textarea cancels only that form', async ({ page }) => {
-    // Open form on server.go
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-    const firstForm = goSec.locator('.comment-form');
+    const firstForm = await openGoForm(page);
     await firstForm.locator('textarea').fill('Keep this open');
 
-    // Open form on handler.js
-    const jsSec = jsSection(page);
-    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
-    await jsAddition.scrollIntoViewIfNeeded();
-    await jsAddition.hover();
-    await jsAddition.locator('.diff-comment-btn').click();
-    const secondForm = jsSec.locator('.comment-form');
-    await expect(secondForm).toBeVisible();
-
-    // Press Escape in second form's textarea
+    const secondForm = await openJsForm(page);
     await secondForm.locator('textarea').press('Escape');
 
-    // Second form gone
+    const jsSec = await jsSection(page);
     await expect(jsSec.locator('.comment-form')).toHaveCount(0);
 
-    // First still open with text
-    await expect(goSec.locator('.comment-form')).toBeVisible();
+    const goSec = await goSection(page);
     await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
   });
 
   test('Ctrl+Enter in textarea submits only that form', async ({ page }) => {
-    // Open form on server.go
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-    const firstForm = goSec.locator('.comment-form');
+    const firstForm = await openGoForm(page);
     await firstForm.locator('textarea').fill('Keep this open');
 
-    // Open form on handler.js
-    const jsSec = jsSection(page);
-    const jsAddition = jsSec.locator('.diff-split-side.addition').first();
-    await jsAddition.scrollIntoViewIfNeeded();
-    await jsAddition.hover();
-    await jsAddition.locator('.diff-comment-btn').click();
-    const secondForm = jsSec.locator('.comment-form');
+    const secondForm = await openJsForm(page);
     await secondForm.locator('textarea').fill('Submit via shortcut');
-
-    // Ctrl+Enter in second form
     await secondForm.locator('textarea').press('Control+Enter');
 
-    // Second becomes a comment card
+    const jsSec = await jsSection(page);
     await expect(jsSec.locator('.comment-card')).toBeVisible();
+    await expect(jsSec.locator('.comment-card .comment-body')).toContainText('Submit via shortcut');
     await expect(jsSec.locator('.comment-form')).toHaveCount(0);
 
-    // First form still open with text
-    await expect(goSec.locator('.comment-form')).toBeVisible();
+    const goSec = await goSection(page);
     await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
+    await expect(goSec.locator('.comment-card')).toHaveCount(0);
   });
 
   test('clicking same gutter line twice does not duplicate form', async ({ page }) => {
-    const goSec = goSection(page);
-    const goAddition = goSec.locator('.diff-split-side.addition').first();
-
-    // Open form
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
-    const form = goSec.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    // Type text
+    const goSec = await goSection(page);
+    const form = await openLineComment(page, goSec, 5);
     await form.locator('textarea').fill('Some text');
 
-    // Click same gutter again
-    await goAddition.hover();
-    await goAddition.locator('.diff-comment-btn').click();
+    // Click the same line's gutter "+" again
+    const button = await hoverLine(page, goSec, 5);
+    const box = await button.boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 
-    // Still only one form, text preserved
+    // Still only one form, text preserved and focused
     await expect(goSec.locator('.comment-form')).toHaveCount(1);
     await expect(goSec.locator('.comment-form textarea')).toHaveValue('Some text');
+    await expect(goSec.locator('.comment-form textarea')).toBeFocused();
   });
 
   test('multiple forms on same file at different lines', async ({ page }) => {
     // Switch to document view for markdown file
-    await switchToDocumentView(page);
-
-    const section = mdSection(page);
+    const section = await switchToDocumentView(page);
 
     // Open form on first gutter
     const firstLineBlock = section.locator('.line-block').first();
@@ -222,13 +155,13 @@ test.describe('Multi-Form Comments', () => {
     await thirdLineBlock.hover();
     await section.locator('.line-comment-gutter').nth(2).click();
 
-    // Verify two forms exist
+    // Verify two forms exist, first keeps its text
     await expect(section.locator('.comment-form')).toHaveCount(2);
+    await expect(section.locator('.comment-form textarea').first()).toHaveValue('First line comment');
   });
 
   test('first form range gets form-selected highlight when second form opens on same file (document view)', async ({ page }) => {
-    await switchToDocumentView(page);
-    const section = mdSection(page);
+    const section = await switchToDocumentView(page);
 
     const firstLineBlock = section.locator('.line-block').first();
     await firstLineBlock.hover();
@@ -249,34 +182,21 @@ test.describe('Multi-Form Comments', () => {
     await expect(thirdLineBlock).toHaveClass(/selected/);
   });
 
-  test('first form range gets form-selected highlight when second form opens on same file (split diff)', async ({ page }) => {
-    const goSec = goSection(page);
-    const additions = goSec.locator('.diff-split-side.right[data-diff-line-num]');
+  test('second form on another line of the same file keeps the first open (split diff)', async ({ page }) => {
+    const goSec = await goSection(page);
+    // Two distinct commentable addition lines in the same hunk.
+    await expect(diffLine(goSec, 5)).toHaveAttribute('data-line-type', 'change-addition');
+    await expect(diffLine(goSec, 7)).toHaveAttribute('data-line-type', 'change-addition');
 
-    // The deterministic fixture must expose at least two commentable lines.
-    // Requiring the second row prevents this test from silently passing when
-    // fixture drift removes the behavior it promises to exercise.
-    await expect(additions.nth(1)).toBeAttached();
-
-    const firstAdd = additions.first();
-    const secondAdd = additions.nth(1);
-
-    // Open form on first addition
-    await firstAdd.hover();
-    await firstAdd.locator('.diff-comment-btn').click();
+    const first = await openLineComment(page, goSec, 5);
     await expect(goSec.locator('.comment-form')).toHaveCount(1);
     // Fill so it isn't auto-closed when the second form opens
-    await goSec.locator('.comment-form textarea').fill('first');
+    await first.locator('textarea').fill('first');
 
-    // Open form on second addition
-    await secondAdd.scrollIntoViewIfNeeded();
-    await secondAdd.hover();
-    await secondAdd.locator('.diff-comment-btn').click();
+    await openLineComment(page, goSec, 7);
     await expect(goSec.locator('.comment-form')).toHaveCount(2);
-
-    // First addition's line should now be form-selected
-    await expect(firstAdd).toHaveClass(/form-selected/);
-    // Second addition's line should be selected
-    await expect(secondAdd).toHaveClass(/selected/);
+    await expect(goSec.locator('.comment-form-header')).toHaveText(['Comment on Line 5', 'Comment on Line 7']);
+    await expect(goSec.locator('.comment-form textarea').first()).toHaveValue('first');
+    await expect(goSec.locator('.comment-form textarea').nth(1)).toBeFocused();
   });
 });

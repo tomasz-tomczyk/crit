@@ -19,7 +19,7 @@ test.describe('Send to Agent', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     const gutterBtn = section.locator('.line-comment-gutter').first();
@@ -34,7 +34,7 @@ test.describe('Send to Agent', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     const gutterBtn = section.locator('.line-comment-gutter').first();

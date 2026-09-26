@@ -1,8 +1,56 @@
-import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { test, expect, type Page, type Locator, type APIRequestContext } from '@playwright/test';
+import {
+  clearAllComments, loadPage, goSection, jsSection, revealFile, diffLine,
+  diffLineNumber, openLineComment, showLine, setDiffStyle, reviewScroller,
+} from './helpers';
 
-function serverSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+// server.go has three git hunks (new 2..11, 20..57, 64..71). The gaps between
+// them are 8 lines (new 12..19 ↔ old 9..16) and 6 lines (new 58..63 ↔ old
+// 33..38) — both ≤ 8, so Crit merges them into one hunk before handing the
+// diff to Pierre. Without that merge Pierre would collapse each gap behind a
+// separator.
+const SERVER_LAST_LINE = 71;
+const GAP_LINES = [12, 13, 14, 15, 16, 17, 18, 19, 58, 59, 60, 61, 62, 63];
+
+async function fileLines(request: APIRequestContext, path: string): Promise<string[]> {
+  const res = await request.get(`/api/file?path=${encodeURIComponent(path)}`);
+  expect(res.ok()).toBeTruthy();
+  return ((await res.json()).content as string).split('\n');
+}
+
+// Scroll through a file and record, in visual order, every new-side line
+// number and every separator Pierre renders, until `last` has been seen.
+async function scanFile(page: Page, item: Locator, last: number): Promise<{ rows: string[] }> {
+  const seen = new Map<string, number>();
+  const rowsOf = () => item.locator('code[data-additions] [data-content], code[data-unified] [data-content]').evaluateAll(codes => {
+    const out: { key: string; top: number }[] = [];
+    const scroller = document.getElementById('filesContainer')!;
+    for (const content of codes) {
+      for (const el of Array.from(content.children)) {
+        const top = Math.round(el.getBoundingClientRect().top + scroller.scrollTop);
+        if (el.hasAttribute('data-separator')) out.push({ key: `sep@${top}`, top });
+        else if (el.hasAttribute('data-line') && el.getAttribute('data-line-type') !== 'change-deletion') {
+          out.push({ key: el.getAttribute('data-line')!, top });
+        }
+      }
+    }
+    return out;
+  });
+  // Start from the file's top (the header re-mounts while the file hydrates).
+  await expect(async () => {
+    await item.locator('.pierre-file-header').scrollIntoViewIfNeeded({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+  await expect.poll(async () => {
+    for (const r of await rowsOf()) seen.set(r.key, r.top);
+    if (seen.has(String(last))) return true;
+    await reviewScroller(page).evaluate(el => el.scrollBy(0, 200));
+    return false;
+  }, { timeout: 15_000 }).toBe(true);
+  return { rows: [...seen.entries()].sort((a, b) => a[1] - b[1]).map(e => e[0]) };
+}
+
+function range(from: number, to: number): string[] {
+  return Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
 }
 
 // ============================================================
@@ -14,93 +62,55 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
     await loadPage(page);
   });
 
-  test('small gaps between hunks are auto-expanded (no spacer visible)', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
+  test('small gaps between hunks are auto-expanded (no separator visible)', async ({ page }) => {
+    const item = await goSection(page);
+    const { rows } = await scanFile(page, item, SERVER_LAST_LINE);
 
-    // server.go has gaps of 8 and 5 lines between its 3 hunks — both ≤ 8,
-    // so no inter-hunk spacers should be rendered (leading/trailing spacers may still appear)
-    await expect(section.locator('.diff-spacer:not(.diff-spacer-leading):not(.diff-spacer-trailing)')).toHaveCount(0);
+    expect(rows.filter(r => r.startsWith('sep'))).toEqual([]);
+    for (const n of GAP_LINES) expect(rows).toContain(String(n));
+    await expect(item.locator('[data-separator]')).toHaveCount(0);
   });
 
-  test('auto-expanded context lines render with correct line numbers', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
+  test('auto-expanded context lines render with correct line numbers', async ({ page, request }) => {
+    const content = await fileLines(request, 'server.go');
+    const item = await goSection(page);
 
-    // After auto-expansion, the context lines between hunks should be visible
-    // as regular diff rows with line numbers.
-    // Look for context rows (not addition, not deletion, not empty) with line numbers.
-    const contextRows = section.locator('.diff-split-row');
-    await expect(contextRows.first()).toBeVisible();
-    const count = await contextRows.count();
-
-    // Find a context row: both sides present, neither addition nor deletion
-    let foundContext = false;
-    for (let i = 0; i < count; i++) {
-      const row = contextRows.nth(i);
-      const right = row.locator('.diff-split-side.right');
-      const isAddition = await right.evaluate(el => el.classList.contains('addition'));
-      const isDeletion = await right.evaluate(el => el.classList.contains('deletion'));
-      const isEmpty = await right.evaluate(el => el.classList.contains('empty'));
-      if (!isAddition && !isDeletion && !isEmpty) {
-        const numText = await right.locator('.diff-gutter-num').textContent();
-        if (numText && numText.trim()) {
-          foundContext = true;
-          // Verify line number is a positive integer
-          expect(parseInt(numText.trim(), 10)).toBeGreaterThan(0);
-          break;
-        }
-      }
-    }
-    expect(foundContext).toBe(true);
-  });
-
-  test('auto-expanded context lines are commentable (gutter + button works)', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
-
-    // Find a context line in the expanded gap area and verify commenting works
-    const rows = section.locator('.diff-split-row');
-    await expect(rows.first()).toBeVisible();
-    const count = await rows.count();
-
-    for (let i = 0; i < count; i++) {
-      const row = rows.nth(i);
-      const right = row.locator('.diff-split-side.right');
-      const isAddition = await right.evaluate(el => el.classList.contains('addition'));
-      const isDeletion = await right.evaluate(el => el.classList.contains('deletion'));
-      const isEmpty = await right.evaluate(el => el.classList.contains('empty'));
-      if (!isAddition && !isDeletion && !isEmpty) {
-        const numText = await right.locator('.diff-gutter-num').textContent();
-        if (numText && numText.trim()) {
-          await right.hover();
-          const commentBtn = right.locator('.diff-comment-btn');
-          await expect(commentBtn).toBeVisible();
-          await commentBtn.click();
-
-          const textarea = page.locator('.comment-form textarea');
-          await expect(textarea).toBeVisible();
-          await textarea.fill('Comment on auto-expanded context line');
-          await page.locator('.comment-form .btn-primary').click();
-
-          const card = section.locator('.comment-card');
-          await expect(card).toBeVisible();
-          await expect(card.locator('.comment-body')).toContainText('Comment on auto-expanded context line');
-          break;
-        }
-      }
+    // First line of each merged gap, paired with its old-side number.
+    for (const [newNum, oldNum] of [[12, 9], [19, 16], [58, 33], [63, 38]]) {
+      await showLine(page, diffLine(item, newNum));
+      await expect(diffLine(item, newNum)).toHaveAttribute('data-line-type', /^context/);
+      await expect(diffLineNumber(item, newNum)).toHaveText(String(newNum));
+      await expect(diffLineNumber(item, oldNum, 'old')).toHaveText(String(oldNum));
+      const expected = content[newNum - 1];
+      await expect(diffLine(item, newNum)).toHaveText(expected.length ? expected : /^\s*$/);
+      await expect(diffLine(item, oldNum, 'old')).toHaveText(expected.length ? expected : /^\s*$/);
+      // Same visual row on both sides.
+      const a = await diffLine(item, newNum).boundingBox();
+      const b = await diffLine(item, oldNum, 'old').boundingBox();
+      expect(Math.abs(a!.y - b!.y)).toBeLessThan(2);
     }
   });
 
-  test('only one hunk header remains after merging all small gaps', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
+  test('auto-expanded context lines are commentable (gutter + button works)', async ({ page, request }) => {
+    const item = await goSection(page);
+    await showLine(page, diffLine(item, 15));
 
-    // With all gaps ≤ 8, all hunks merge into one contiguous block.
-    // The leading spacer embeds the first hunk's header, and subsequent
-    // hunks are contiguous — so no standalone hunk headers are rendered.
-    const hunkHeaders = section.locator('.diff-hunk-header');
-    await expect(hunkHeaders).toHaveCount(0);
+    const form = await openLineComment(page, item, 15);
+    await form.locator('textarea').fill('Comment on auto-expanded context line');
+    await form.locator('.btn-primary').click();
+
+    await expect(item.locator('.comment-card .comment-body')).toContainText('Comment on auto-expanded context line');
+    await expect.poll(async () => {
+      const comments = await (await request.get('/api/file/comments?path=server.go')).json();
+      return comments.map((c: { start_line: number; end_line: number; side?: string }) => `${c.start_line}-${c.end_line}:${c.side || ''}`);
+    }).toEqual(['15-15:']);
+  });
+
+  test('all hunks merge into one contiguous block', async ({ page }) => {
+    const item = await goSection(page);
+    const { rows } = await scanFile(page, item, SERVER_LAST_LINE);
+    // Every new-side line from 1 to EOF, in order, with nothing collapsed.
+    expect(rows).toEqual(range(1, SERVER_LAST_LINE));
   });
 });
 
@@ -108,78 +118,64 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await unifiedBtn.click();
-    // Wait for the unified container inside server.go (which is always expanded).
-    // deleted.txt also has a .diff-container.unified but is inside a collapsed
-    // <details> (status=deleted), so .first() would pick the hidden one.
-    await expect(serverSection(page).locator('.diff-container.unified')).toBeVisible();
+    await setDiffStyle(page, 'unified');
+    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
   });
 
-  test('small gaps are auto-expanded in unified mode (no spacer)', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
-
-    await expect(section.locator('.diff-spacer:not(.diff-spacer-leading):not(.diff-spacer-trailing)')).toHaveCount(0);
+  test('small gaps are auto-expanded in unified mode (no separator)', async ({ page }) => {
+    const item = await goSection(page);
+    const { rows } = await scanFile(page, item, SERVER_LAST_LINE);
+    expect(rows.filter(r => r.startsWith('sep'))).toEqual([]);
+    for (const n of GAP_LINES) expect(rows).toContain(String(n));
   });
 
-  test('auto-expanded context lines in unified mode have correct line numbers', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
+  test('auto-expanded context lines in unified mode have correct line numbers', async ({ page, request }) => {
+    const content = await fileLines(request, 'server.go');
+    const item = await goSection(page);
 
-    // Find a context line (not addition, not deletion)
-    const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
-    await expect(contextLine).toBeVisible();
-
-    // Both old and new line numbers should be present
-    const gutterNums = contextLine.locator('.diff-gutter-num');
-    const oldNum = await gutterNums.nth(0).textContent();
-    const newNum = await gutterNums.nth(1).textContent();
-    expect(oldNum && oldNum.trim()).toBeTruthy();
-    expect(newNum && newNum.trim()).toBeTruthy();
+    for (const [newNum, oldNum] of [[12, 9], [58, 33]]) {
+      const line = diffLine(item, newNum);
+      await showLine(page, line);
+      await expect(line).toHaveAttribute('data-line-type', /^context/);
+      await expect(diffLineNumber(item, newNum)).toHaveText(String(newNum));
+      // The unified row carries its old-side number too.
+      await expect(line).toHaveAttribute('data-alt-line', String(oldNum));
+      const expected = content[newNum - 1];
+      await expect(line).toHaveText(expected.length ? expected : /^\s*$/);
+    }
   });
 
-  test('auto-expanded context lines are commentable in unified mode', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
+  test('auto-expanded context lines are commentable in unified mode', async ({ page, request }) => {
+    const item = await goSection(page);
+    await showLine(page, diffLine(item, 15));
 
-    const contextLine = section.locator('.diff-container.unified .diff-line:not(.addition):not(.deletion)').first();
-    await expect(contextLine).toBeVisible();
-    await contextLine.hover();
+    const form = await openLineComment(page, item, 15);
+    await form.locator('textarea').fill('Unified auto-expanded comment');
+    await form.locator('.btn-primary').click();
 
-    const commentBtn = contextLine.locator('.diff-comment-btn');
-    await expect(commentBtn).toBeVisible();
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('Unified auto-expanded comment');
-    await page.locator('.comment-form .btn-primary').click();
-
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Unified auto-expanded comment');
+    await expect(item.locator('.comment-card .comment-body')).toContainText('Unified auto-expanded comment');
+    await expect.poll(async () => {
+      const comments = await (await request.get('/api/file/comments?path=server.go')).json();
+      return comments.map((c: { start_line: number; end_line: number; side?: string }) => `${c.start_line}-${c.end_line}:${c.side || ''}`);
+    }).toEqual(['15-15:']);
   });
 });
 
-test.describe('Large gaps still show spacer', () => {
+test.describe('Large gaps still show separator', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
   });
 
-  test('large gaps (> 8 lines) still show spacer with expand controls', async ({ page }) => {
-    // routes.go has a gap of >20 unchanged lines between its two hunks,
-    // so the spacer should still be visible after auto-expansion, showing
-    // directional expand controls and the hunk header text.
-    const treeEntry = page.locator('.tree-file-name', { hasText: 'routes.go' });
-    await treeEntry.click();
-
-    const routesSection = page.locator('#file-section-routes\\.go');
-    const spacer = routesSection.locator('.diff-spacer').first();
-    await expect(spacer).toBeVisible();
-    // Spacer now embeds the @@ hunk header instead of "unchanged line" text
-    await expect(spacer.locator('.spacer-hunk-text')).toContainText('@@');
+  test('large gaps (> 8 lines) still show separator with expand controls', async ({ page }) => {
+    // routes.go has 37 unchanged lines (new 15..51) between its two hunks.
+    const item = await revealFile(page, 'routes.go');
+    const label = item.locator('[data-separator] [data-unmodified-lines]').filter({ visible: true }).first();
+    await expect(label).toHaveText('37 unmodified lines');
+    await expect(item.locator('[data-separator] [data-expand-button][data-expand-up]').filter({ visible: true }).first()).toBeVisible();
+    await expect(item.locator('[data-separator] [data-expand-button][data-expand-down]').filter({ visible: true }).first()).toBeVisible();
+    await expect(diffLine(item, 14)).toBeVisible();
+    await expect(diffLine(item, 15)).toHaveCount(0);
   });
 });
 
@@ -190,23 +186,10 @@ test.describe('Auto-expand does not break other files', () => {
   });
 
   test('handler.js (new file, single hunk) renders correctly', async ({ page }) => {
-    const handlerSection = page.locator('#file-section-handler\\.js');
-    await expect(handlerSection).toBeVisible();
-
-    // New file should have all addition lines, no spacers
-    await expect(handlerSection.locator('.diff-spacer')).toHaveCount(0);
-    const additionSide = handlerSection.locator('.diff-split-side.addition');
-    await expect(additionSide.first()).toBeVisible();
-  });
-
-  test('auto-expanded file still renders hunk header in spacer', async ({ page }) => {
-    const section = serverSection(page);
-    await expect(section).toBeVisible();
-
-    // After merging, standalone hunk headers are suppressed — the leading
-    // spacer embeds the first hunk's @@ header text instead.
-    const leadingSpacer = section.locator('.diff-spacer-leading');
-    await expect(leadingSpacer).toBeVisible();
-    await expect(leadingSpacer.locator('.spacer-hunk-text')).toContainText('@@');
+    const item = await jsSection(page);
+    const { rows } = await scanFile(page, item, 19);
+    expect(rows).toEqual(range(1, 19));
+    await expect(diffLine(item, 1)).toHaveAttribute('data-line-type', 'change-addition');
+    await expect(item.locator('[data-content] > [data-line-type^="context"]')).toHaveCount(0);
   });
 });

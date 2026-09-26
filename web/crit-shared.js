@@ -78,6 +78,8 @@
     const html = document.documentElement;
     if (t === 'light' || t === 'dark') html.setAttribute('data-theme', t);
     else html.removeAttribute('data-theme');
+    // UI palette for the chosen light/dark theme (crit-theme-palette.js).
+    if (window.crit && window.crit.themePalette) window.crit.themePalette.applySaved(html);
   }
 
   // Generic crit-settings JSON cookie accessors (mirror app.js semantics).

@@ -222,6 +222,7 @@
     }
     // code-review default
     return {
+      themePreview: true,   // "Preview all themes" link under the theme selects
       width: true,
       hideResolved: true,
       ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
@@ -572,6 +573,38 @@
       html += '</div>';
     }
 
+    if (hooks.themePalettes && hooks.onRendererSettingChange) {
+      var rendererSelects = [
+        { key: 'lineNumbers', label: 'Code line numbers', fallback: 'on', options: [{ id: 'on', name: 'On' }, { id: 'off', name: 'Off' }] },
+        { key: 'lightPalette', label: 'Light theme (UI + code)', fallback: hooks.paletteDefaults.light, options: hooks.themePalettes.filter(function(p) { return p.type === 'light'; }) },
+        { key: 'darkPalette', label: 'Dark theme (UI + code)', fallback: hooks.paletteDefaults.dark, options: hooks.themePalettes.filter(function(p) { return p.type === 'dark'; }) },
+        { key: 'boostContrast', label: 'Syntax contrast', fallback: 'off', options: [{ id: 'off', name: 'Theme default' }, { id: 'on', name: 'Increased' }] },
+        { key: 'codeOverflow', label: 'Long code lines', fallback: 'scroll', options: [{ id: 'scroll', name: 'Horizontal scrolling' }, { id: 'wrap', name: 'Wrap lines' }] },
+        { key: 'inlineDiff', label: 'Inline diff highlighting', fallback: 'word-alt', options: [{ id: 'word-alt', name: 'Words (alternate)' }, { id: 'word', name: 'Words' }, { id: 'char', name: 'Characters' }, { id: 'none', name: 'Off' }] },
+        { key: 'changeIndicators', label: 'Change indicators', fallback: 'bars', options: [{ id: 'bars', name: 'Bars' }, { id: 'classic', name: '+ / − markers' }, { id: 'none', name: 'None' }] },
+        { key: 'unchangedContext', label: 'Unchanged context', fallback: 'collapsed', options: [{ id: 'collapsed', name: 'Collapsed (expandable)' }, { id: 'expanded', name: 'Expand all' }] },
+      ];
+      // Live/preview mode has no code view: only the theme choice applies.
+      if (opts.mode === 'live') {
+        rendererSelects = rendererSelects.filter(function(s) { return s.key === 'lightPalette' || s.key === 'darkPalette'; });
+      }
+      rendererSelects.forEach(function(s) {
+        if (s.key === 'lightPalette' || s.key === 'darkPalette') s.options = s.options.slice().sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
+        var value = getSetting(s.key, s.fallback);
+        if (s.key === 'lightPalette' || s.key === 'darkPalette') value = s.fallback; // the validated saved theme (unknown ids fall back to defaults)
+        html += '<div class="settings-display-row"><label class="settings-display-label" for="' + s.key + 'Select">' + esc(s.label) + '</label>';
+        html += '<select class="settings-select" id="' + s.key + 'Select" data-renderer-setting="' + s.key + '">';
+        s.options.forEach(function(o) {
+          html += '<option value="' + esc(o.id) + '"' + (value === o.id ? ' selected' : '') + '>' + esc(o.displayName || o.name || o.id) + '</option>';
+        });
+        html += '</select></div>';
+        if (s.key === 'darkPalette' && show.themePreview) {
+          html += '<div class="settings-display-row"><span class="settings-display-label"></span>' +
+            '<a class="settings-theme-preview-link" href="/themes" target="_blank" rel="noopener">Preview all themes</a></div>';
+        }
+      });
+    }
+
     // Width row (file-mode in code review; off in live)
     if (show.width) {
       html += '<div class="settings-display-row">';
@@ -790,6 +823,16 @@
       }
     }
 
+    pane.querySelectorAll('[data-renderer-setting]').forEach(function(select) {
+      select.addEventListener('change', function() {
+        select.disabled = true;
+        Promise.resolve(hooks.onRendererSettingChange(select.dataset.rendererSetting, select.value)).catch(function(err) {
+          console.error('Could not update display settings', err);
+          var s = sharedApi();
+          if (s.showToast) s.showToast('Could not update display settings. Try again.', { kind: 'error' });
+        }).finally(function() { select.disabled = false; });
+      });
+    });
     wireConfigCardActions(pane, hooks);
   }
 

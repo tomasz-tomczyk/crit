@@ -5,12 +5,12 @@ test.describe('Drag Selection — File Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    const section = mdSection(page);
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
   });
 
   test('markdown gutter drag opens multi-line comment form in file mode', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const gutters = section.locator('.line-comment-gutter');
     const firstGutter = gutters.nth(0);
     const thirdGutter = gutters.nth(2);

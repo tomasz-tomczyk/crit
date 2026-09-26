@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView, mdDocument } from './helpers';
 
 test.describe('Markdown Rendering — plan.md', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -9,7 +9,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders h1 and h2 headings', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // h1: "Authentication Plan"
     const h1 = section.locator('h1', { hasText: 'Authentication Plan' });
@@ -28,7 +28,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders tables with th and td elements', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // Table elements should be present
     const tables = section.locator('table');
@@ -53,22 +53,26 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders code blocks with syntax highlighting', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // Code lines should be visible (per-line rendering of code blocks)
-    const codeLines = section.locator('.line-content.code-line');
+    const codeLines = section.locator('.line-block:has(> .line-content.code-line)');
     await expect(codeLines.first()).toBeVisible();
 
-    // There should be multiple code lines (the Go code block has ~10 lines)
-    await expect(codeLines).not.toHaveCount(0);
+    // The Go block renders one commentable block per source line
+    const funcLine = codeLines.filter({ hasText: 'func authMiddleware' });
+    await expect(funcLine).toHaveCount(1);
+    await expect(codeLines.filter({ hasText: 'return func(w http.ResponseWriter' })).toHaveCount(1);
 
-    // Syntax highlighting: hljs-* spans should be present within code elements
-    const hljsSpans = section.locator('.line-content.code-line [class^="hljs-"]');
-    await expect(hljsSpans.first()).toBeVisible();
+    // Syntax highlighting: Shiki token spans carry light/dark token colors
+    const tokens = funcLine.locator('code.crit-code span[style*="--diffs-token"]');
+    await expect(tokens.first()).toBeVisible();
+    // `func` keyword is its own colored token, distinct from the plain text
+    await expect(tokens.filter({ hasText: /^func$/ }).first()).toBeVisible();
   });
 
   test('renders ordered lists', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // Ordered list elements
     const olElements = section.locator('ol');
@@ -84,7 +88,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders task list items with checked and unchecked markers', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // markdown-it renders task list items as <li> with literal [ ] and [x] text
     // At least one unchecked item: "[ ] Create migration..."
@@ -97,7 +101,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('renders blockquotes', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // Blockquote element should be visible
     const blockquotes = section.locator('blockquote');
@@ -108,7 +112,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('nested bullet items are split into individually-commentable line blocks', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // Each nested bullet from the "Nested Tasks" fixture should produce its own
     // .line-block with a unique data-start-line, so users can comment on each
@@ -144,7 +148,7 @@ test.describe('Markdown Rendering — plan.md', () => {
   });
 
   test('line gutters exist in DOM with visible line numbers', async ({ page }) => {
-    const section = mdSection(page);
+    const section = mdDocument(page);
 
     // Line gutters exist in the DOM (needed for comment interaction)
     const lineGutters = section.locator('.line-gutter');

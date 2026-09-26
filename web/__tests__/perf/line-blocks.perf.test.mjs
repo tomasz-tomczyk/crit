@@ -28,10 +28,6 @@ function loadLineBlocks() {
             String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
         },
       },
-      hljs: {
-        getLanguage: () => false,
-        highlight: (content) => ({ value: content }),
-      },
     },
     document: {},
   };

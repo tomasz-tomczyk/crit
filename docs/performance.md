@@ -66,24 +66,47 @@ rather than skipping the gate. The gate's own parser is locked by
 budgets (10–50× measured) that only fail on algorithmic regressions:
 
 - markdown-it parse + `buildLineBlocks` on a 10k-line plan fixture.
-- `splitHighlightedCode` on a 2000-line highlighted block.
-- `bestWordDiffPairing` (capped 4×4) + `wordDiff` (capped ~500-char lines).
+- Fenced-code highlighting: Shiki runs in Pierre's workers, so the bench covers
+  the main-thread half, turning a 2000-line fence's tokens into HTML
+  (`code-highlight.perf.test.mjs`, ~5ms; Shiki on the main thread took
+  ~350ms for the same fence, which is why it doesn't run there).
+- `bestWordDiffPairing` (capped 4×4) + `wordDiff` (capped ~500-char lines),
+  used by the files-mode rendered markdown diff.
 
 Each bench asserts its fixture does real work (e.g. `wordDiff` returns
 non-null) so budgets can't silently assert against an early-out path.
 
 ## Playwright perf specs
 
+The review list is Pierre's `CodeView` (see `docs/frontend-js.md`), so the
+invariants are about what Pierre mounts, not Crit DOM.
+
 `test/e2e/tests/large-review.perf.spec.ts` (project `perf`, port 3134,
 fixture `test/e2e/setup-fixtures-perf.sh`: 300 files / ~9k changed lines +
-one large markdown, mirroring the 27f33c8 measurement). Wired into `run.sh`
-like every other project. Asserts structural invariants, not wall clock:
+one large markdown). Asserts structural invariants, not wall clock:
 
-- mounted `.file-body` sections ≤ 40 (eager set is 25).
-- DOM nodes < 200,000.
-- longtask TBT (Σ(duration − 50ms)) < 8000ms for load and for a full scroll.
+| Invariant | Budget | Measured (M4 Max, 2026-09) |
+| --- | --- | --- |
+| Mounted Pierre items (`diffs-container`) | ≤ 15 | 3 at load, ≤ 7 while scrolling |
+| Rendered code rows (`[data-line]`) | ≤ 400 | 33 at load, ≤ 84 while scrolling |
+| DOM nodes, shadow roots included | < 12,000 | ~3.4k at load, ~3.8k scrolling |
+| Files loaded after load / after a full scroll | ≤ 30 / < 100 | 25 / 40 |
+| Longtask TBT, load and full scroll | < 4,000ms | 36ms load (≈700ms at 6× CPU throttle), 0ms scroll |
+| Tree jump to the deepest file | header holds within 2px while it settles | — |
 
-Measured steady state: 25 mounted bodies, ~12k DOM nodes, 0ms TBT.
+The large markdown is never fetched unless scrolled to. A "mount
+everything" or "load everything" regression breaks these by an order of
+magnitude.
+
+`test/e2e/tests/deep-scroll.huge.spec.ts` (project `huge`, port 3136,
+`setup-fixtures-huge.sh`: ~2,500 files, list taller than 2^22px) guards deep
+navigation where GPU-composited Chrome once stopped painting: deep tree jumps
+land, settle and hit-test; the bottom paints; after deep jumps ≤ 40 items
+are mounted (measured 2) and the page stays under 60k nodes (the 2,500-row
+file tree is most of the ~20k measured); a reload after the server has
+loaded every file keeps in-flight `/api/file` requests ≤ 100 (measured 76)
+with none failing. Paint assertions only bite headed
+(`bash run.sh --project=huge --headed`).
 
 ## Asset + binary budgets
 
@@ -92,8 +115,10 @@ weight and binary size together. Caps live in `asset-budget.json`
 (~15–20% above measured); `scripts/check-asset-budget.sh` enforces them in
 the `asset-budget` CI job:
 
-- per-file gzip caps (mermaid, highlight, app.js, live-mode.js, style.css,
-  markdown-it, …),
+- per-file gzip caps (mermaid, app.js, live-mode.js, style.css,
+  markdown-it, the Pierre entry and worker, …),
+- `web/pierre` total (entry, worker and every Shiki grammar chunk, stored
+  gzipped),
 - glob totals (`web/crit-*.js` shared modules),
 - total `web/*.js` gzip cap,
 - linux/amd64 binary cap (trimpath, `-s -w`).
@@ -129,11 +154,12 @@ the delta, and update the caps in `asset-budget.json`.
 
 From external review of this branch; each needs its own PR with measurements:
 
-1. **Full `renderFileByPath` on gutter mousedown.** Delegation removed the
-   listener cost, but the first click on a 10k-line plan still pays a full
-   file remount to start a selection (`beginDocGutterDrag`). Highest remaining
+1. **Full document re-render on gutter mousedown.** Delegation removed the
+   listener cost, but the first click on a 10k-line plan still re-renders the
+   whole rendered document to start a selection (`beginDocGutterDrag` →
+   `renderFileByPath` → `refreshPierreDocument`). Highest remaining
    interaction cost for large markdown — update drag visuals without a full
-   remount, or defer non-selection work.
+   re-render, or defer non-selection work.
 2. **Mermaid on mount paths.** `renderMermaidBlocks()` runs after many
    remounts with no budget; diagrams on large plans can dominate TBT.
    Consider lazy-rendering mermaid (only when `code.language-mermaid`
@@ -142,9 +168,11 @@ From external review of this branch; each needs its own PR with measurements:
    / `RefreshFileList` (eager ×25 + numstat for N files, gating daemon
    readiness) is not. Needs a temp-git-repo fixture — keep it out of the
    hermetic bench set until readiness latency shows up in practice.
-4. **Progressive mount after "Load diff".** The `diffTooLarge` placeholder is
-   good, but clicking it mounts all hunk DOM synchronously. Progressive
-   append (rAF batches) or in-file IntersectionObserver for the loaded path.
+4. **Rendered markdown is not virtualized inside the document.** Pierre
+   virtualizes the list and every diff's rows, but a Document-view markdown
+   file is one annotation element, fully mounted while any of it is on
+   screen (as before Pierre). A 10k-line plan in Document view is the
+   largest single DOM in a review.
 5. **`file-changed` full reload.** The handler re-fetches everything; lazy
    stubs soften it, but nothing asserts files past the threshold stay
    `lazy: true` after round-complete. A Go unit test on the refresh path

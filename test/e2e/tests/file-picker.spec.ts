@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView, mdDocument } from './helpers';
 
 test.describe('File Picker Autocomplete — Git Mode', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -15,7 +15,7 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
 
   /** Helper: open a comment form on the first markdown line block and return the textarea. */
   async function openCommentForm(page: import('@playwright/test').Page) {
-    const section = mdSection(page);
+    const section = mdDocument(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     const gutterBtn = section.locator('.line-comment-gutter').first();
@@ -60,11 +60,11 @@ test.describe('File Picker Autocomplete — Git Mode', () => {
     // All visible items should contain "server" (case-insensitive)
     const items = dropdown.locator('.file-picker-item');
     await expect(items.first()).toBeVisible();
-    const count = await items.count();
-    for (let i = 0; i < count; i++) {
-      const text = await items.nth(i).textContent();
-      expect(text!.toLowerCase()).toContain('server');
-    }
+    await expect(async () => {
+      const texts = await items.allTextContents();
+      expect(texts.length).toBeGreaterThan(0);
+      for (const text of texts) expect(text.toLowerCase()).toContain('server');
+    }).toPass();
   });
 
   test('selecting a file inserts path into textarea', async ({ page }) => {

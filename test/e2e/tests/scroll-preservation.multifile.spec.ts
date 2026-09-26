@@ -1,11 +1,23 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { clearAllComments, loadPage, addComment, getReviewFilePath, waitForScrollStable } from './helpers';
+import {
+  clearAllComments, loadPage, addComment, getReviewFilePath, revealFile,
+  waitForScrollStable, waitUntilHittable, reviewScroller,
+} from './helpers';
 
 // Rebuilding every file section hands back deferred (empty) bodies, so the
 // document collapses shorter than the current offset and the browser clamps the
 // scroll to the top. Replying and deleting used to trigger that via the
-// comments-changed SSE event.
+// comments-changed SSE event. The review list scrolls inside #filesContainer
+// (Pierre CodeView), so offsets below are that pane's scrollTop.
+
+// Pane scroll offset plus the element's on-screen top.
+function measure(el: Locator) {
+  return el.evaluate(node => ({
+    scrollTop: document.getElementById('filesContainer')!.scrollTop,
+    top: node.getBoundingClientRect().top,
+  }));
+}
 test.describe('Scroll position across comment updates', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
@@ -21,18 +33,17 @@ test.describe('Scroll position across comment updates', () => {
 
     await loadPage(page);
 
-    const card = page.locator('.comment-card').first();
+    const item = await revealFile(page, lastFile);
+    const card = item.locator('.comment-card').first();
     await expect(card).toBeVisible();
 
-    // Park the thread mid-viewport and let deferred bodies settle so the
-    // measurement below isn't racing the mount observer.
+    // Park the thread mid-viewport and let virtualized items settle so the
+    // measurement below isn't racing the mount.
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
     await waitForScrollStable(page);
-    const before = await card.evaluate(el => ({
-      scrollY: window.scrollY,
-      top: el.getBoundingClientRect().top,
-    }));
-    expect(before.scrollY).toBeGreaterThan(100);
+    await waitUntilHittable(card.locator('.reply-input'));
+    const before = await measure(card);
+    expect(before.scrollTop).toBeGreaterThan(100);
 
     await card.locator('.reply-input').click();
     await card.locator('.reply-textarea').fill('replying without losing my place');
@@ -42,11 +53,8 @@ test.describe('Scroll position across comment updates', () => {
     // The jump happened when the SSE event landed, after the local re-render.
     await waitForScrollStable(page);
 
-    const after = await card.evaluate(el => ({
-      scrollY: window.scrollY,
-      top: el.getBoundingClientRect().top,
-    }));
-    expect(after.scrollY).toBeGreaterThan(100);
+    const after = await measure(card);
+    expect(after.scrollTop).toBeGreaterThan(100);
     expect(Math.abs(after.top - before.top)).toBeLessThan(50);
   });
 
@@ -60,28 +68,23 @@ test.describe('Scroll position across comment updates', () => {
 
     await loadPage(page);
 
-    const card = page.locator('.comment-card').first();
-    const section = page.locator('.file-section').last();
+    const section = await revealFile(page, lastFile);
+    const card = section.locator('.comment-card').first();
     await expect(card).toBeVisible();
 
     await card.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
     await waitForScrollStable(page);
-    // The card itself disappears, so anchor the measurement to its file section.
-    const before = await section.evaluate(el => ({
-      scrollY: window.scrollY,
-      top: el.getBoundingClientRect().top,
-    }));
-    expect(before.scrollY).toBeGreaterThan(100);
+    await waitUntilHittable(card.locator('.comment-actions .delete-btn'));
+    // The card itself disappears, so anchor the measurement to its file.
+    const before = await measure(section);
+    expect(before.scrollTop).toBeGreaterThan(100);
 
     await card.locator('.comment-actions .delete-btn').click();
     await expect(page.locator('.comment-card')).toHaveCount(0);
     await waitForScrollStable(page);
 
-    const after = await section.evaluate(el => ({
-      scrollY: window.scrollY,
-      top: el.getBoundingClientRect().top,
-    }));
-    expect(after.scrollY).toBeGreaterThan(100);
+    const after = await measure(section);
+    expect(after.scrollTop).toBeGreaterThan(100);
     expect(Math.abs(after.top - before.top)).toBeLessThan(50);
   });
 
@@ -97,14 +100,11 @@ test.describe('Scroll position across comment updates', () => {
 
     await loadPage(page);
 
-    const section = page.locator('.file-section').last();
+    const section = await revealFile(page, lastFile);
     await section.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
     await waitForScrollStable(page);
-    const before = await section.evaluate(el => ({
-      scrollY: window.scrollY,
-      top: el.getBoundingClientRect().top,
-    }));
-    expect(before.scrollY).toBeGreaterThan(100);
+    const before = await measure(section);
+    expect(before.scrollTop).toBeGreaterThan(100);
 
     await page.locator('#finishBtn').click();
     const overlay = page.locator('#waitingOverlay');
@@ -114,12 +114,9 @@ test.describe('Scroll position across comment updates', () => {
     await expect(overlay).not.toHaveClass(/active/, { timeout: 5_000 });
     await waitForScrollStable(page);
 
-    // The rebuild replaces the section node; the locator re-resolves to the new one.
-    const after = await section.evaluate(el => ({
-      scrollY: window.scrollY,
-      top: el.getBoundingClientRect().top,
-    }));
-    expect(after.scrollY).toBeGreaterThan(100);
+    // The rebuild may replace the item node; the locator re-resolves to the new one.
+    const after = await measure(section);
+    expect(after.scrollTop).toBeGreaterThan(100);
     expect(Math.abs(after.top - before.top)).toBeLessThan(50);
   });
 
@@ -131,10 +128,13 @@ test.describe('Scroll position across comment updates', () => {
     expect(response.ok()).toBeTruthy();
     const reviewPath = await getReviewFilePath(request);
     await loadPage(page);
-    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    const pane = reviewScroller(page);
+    await pane.evaluate(el => el.scrollTo({ top: 0, behavior: 'instant' }));
     await waitForScrollStable(page);
-    expect(await page.locator('.file-section').first().evaluate(
-      el => el.getBoundingClientRect().top >= window.innerHeight,
+    await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
+    // Every file starts below the fold (unmounted, or mounted off-screen).
+    expect(await page.locator('#filesContainer diffs-container').evaluateAll(
+      els => els.every(el => el.getBoundingClientRect().top >= window.innerHeight),
     )).toBe(true);
 
     await page.locator('#finishBtn').click();
@@ -157,28 +157,30 @@ test.describe('Scroll position across comment updates', () => {
 
     // A file below the viewport must not become the scroll anchor when the
     // conversation grows: the reader is still at the top of the conversation.
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await pane.evaluate(el => el.scrollTop)).toBe(0);
   });
 
   // Hide-resolved is CSS for cards plus a highlight sync — it must not wipe
   // #filesContainer. A full rebuild was both unnecessary and the scroll bug.
-  test('toggling hide-resolved preserves file section DOM nodes', async ({ page }) => {
+  test('toggling hide-resolved preserves file item DOM nodes', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 400 });
     await loadPage(page);
 
-    await page.evaluate(() => window.scrollTo({ top: 2000, behavior: 'instant' }));
+    await reviewScroller(page).evaluate(el => el.scrollTo({ top: 2000, behavior: 'instant' }));
     await waitForScrollStable(page);
 
     const before = await page.evaluate(() => {
-      const sections = [...document.querySelectorAll('#filesContainer .file-section[id]')];
-      const top = sections.find(s => s.getBoundingClientRect().bottom > 0);
-      if (!top) return null;
+      const pane = document.getElementById('filesContainer')!;
+      const headers = [...pane.querySelectorAll('.pierre-file-header[data-file-path]')] as HTMLElement[];
+      const header = headers.find(h => h.closest('diffs-container')!.getBoundingClientRect().bottom > 0);
+      if (!header) return null;
+      const item = header.closest('diffs-container') as HTMLElement;
       // Stamp the live node so we can tell a rebuild from an in-place update.
-      (top as HTMLElement).dataset.critPreserveProbe = '1';
-      return { id: top.id, top: top.getBoundingClientRect().top, scrollY: window.scrollY };
+      item.dataset.critPreserveProbe = '1';
+      return { id: header.dataset.filePath!, top: item.getBoundingClientRect().top, scrollTop: pane.scrollTop };
     });
     expect(before).toBeTruthy();
-    expect(before!.scrollY).toBeGreaterThan(100);
+    expect(before!.scrollTop).toBeGreaterThan(100);
 
     const wasHidden = await page.evaluate(() => document.body.classList.contains('hide-resolved'));
     await page.keyboard.press('h');
@@ -188,15 +190,18 @@ test.describe('Scroll position across comment updates', () => {
     ).toBe(!wasHidden);
 
     const after = await page.evaluate((id: string) => {
-      const section = document.getElementById(id);
+      const pane = document.getElementById('filesContainer')!;
+      const header = [...pane.querySelectorAll('.pierre-file-header[data-file-path]')]
+        .find(h => (h as HTMLElement).dataset.filePath === id);
+      const item = header ? header.closest('diffs-container') as HTMLElement : null;
       return {
-        sameNode: !!(section && section.dataset.critPreserveProbe === '1'),
-        top: section ? section.getBoundingClientRect().top : null,
-        scrollY: window.scrollY,
+        sameNode: !!(item && item.dataset.critPreserveProbe === '1'),
+        top: item ? item.getBoundingClientRect().top : null,
+        scrollTop: pane.scrollTop,
       };
     }, before!.id);
     expect(after.sameNode).toBe(true);
-    expect(after.scrollY).toBeGreaterThan(100);
+    expect(after.scrollTop).toBeGreaterThan(100);
     expect(Math.abs((after.top ?? 0) - before!.top)).toBeLessThan(5);
   });
 });

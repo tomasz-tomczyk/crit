@@ -1,0 +1,169 @@
+/* Palette overrides for code-review UI and rendered Markdown. The runtime
+   supplies foundation values on html[data-crit-palette]. */
+:root[data-crit-palette] {
+  /* Public renderer colour override: comment/selection cues share the UI accent. */
+  --diffs-modified-color-override: var(--crit-palette-accent);
+  /* Global chrome surfaces and foregrounds */
+  --crit-bg-page: var(--crit-palette-bg);
+  --crit-bg-card: var(--crit-palette-surface);
+  --crit-bg-elevated: var(--crit-palette-elevated);
+  --crit-fg-primary: var(--crit-palette-fg);
+  --crit-fg-secondary: var(--crit-palette-muted);
+  --crit-fg-muted: var(--crit-palette-muted);
+  --crit-fg-on-brand: var(--crit-palette-on-accent);
+  --crit-brand: var(--crit-palette-accent);
+  --crit-brand-hover: color-mix(in srgb, var(--crit-palette-accent) 88%, var(--crit-palette-fg));
+  --crit-brand-subtle: color-mix(in srgb, var(--crit-palette-accent) 10%, transparent);
+  --crit-brand-bg: color-mix(in srgb, var(--crit-palette-accent) 18%, transparent);
+  --crit-line-focus-bg: color-mix(in srgb, var(--crit-palette-accent) 12%, transparent);
+  --crit-brand-cta: var(--crit-palette-accent);
+  --crit-brand-cta-hover: color-mix(in srgb, var(--crit-palette-accent) 88%, var(--crit-palette-fg));
+
+  /* Header pills and segmented controls */
+  --crit-pill-bg: var(--crit-palette-surface);
+  --crit-pill-bg-hover: color-mix(in srgb, var(--crit-palette-surface) 94%, var(--crit-palette-fg));
+  --crit-pill-fg: var(--crit-palette-fg);
+  --crit-pill-fg-muted: var(--crit-palette-muted);
+  --crit-pill-border: var(--crit-palette-border);
+  --crit-seg-track: color-mix(in srgb, var(--crit-palette-accent) 7%, var(--crit-palette-bg));
+  --crit-seg-active: color-mix(in srgb, var(--crit-palette-accent) 12%, transparent);
+  --crit-seg-active-fg: var(--crit-palette-accent);
+  --crit-rail-fg: var(--crit-palette-muted);
+  --crit-rail-arrow: color-mix(in srgb, var(--crit-palette-muted) 72%, var(--crit-palette-bg));
+
+  /* Editor and Markdown surfaces */
+  --crit-editor-bg: var(--crit-palette-bg);
+  --crit-editor-bg-card: var(--crit-palette-surface);
+  --crit-editor-bg-elevated: var(--crit-palette-elevated);
+  --crit-editor-bg-hover: color-mix(in srgb, var(--crit-palette-elevated) 95%, var(--crit-palette-fg));
+  --crit-editor-bg-gutter: var(--crit-palette-surface);
+  --crit-editor-code-bg: var(--crit-palette-bg);
+  --crit-editor-comment-bg: color-mix(in srgb, var(--crit-palette-accent) 12%, var(--crit-palette-bg));
+  --crit-editor-fg: var(--crit-palette-fg);
+  --crit-editor-fg-secondary: var(--crit-palette-muted);
+  --crit-editor-fg-muted: var(--crit-palette-muted);
+  --crit-editor-scrollbar-bg: var(--crit-palette-bg);
+  --crit-editor-scrollbar-thumb: color-mix(in srgb, var(--crit-palette-border) 72%, var(--crit-palette-muted));
+
+  /* Semantic colors and borders */
+  --crit-green: var(--crit-palette-green);
+  --crit-red: var(--crit-palette-red);
+  --crit-orange: var(--crit-palette-orange);
+  --crit-yellow: var(--crit-palette-yellow);
+  --crit-purple: var(--crit-palette-purple);
+  --crit-live-badge-bg: color-mix(in srgb, var(--crit-palette-green) 10%, transparent);
+  /* Live / preview mode chrome. Pin markers and focus/flash cues keep their
+     fixed colours: they sit on top of an arbitrary web app. */
+  --crit-live-iframe-frame: var(--crit-palette-border);
+  --crit-live-iframe-bg: var(--crit-palette-bg);
+  --crit-live-composer-bg: var(--crit-palette-elevated);
+  --crit-live-composer-border: var(--crit-palette-border);
+  --crit-live-composer-input-bg: var(--crit-palette-bg);
+  --crit-live-composer-error-fg: var(--crit-palette-red);
+  --crit-live-ancestor-menu-bg: var(--crit-palette-elevated);
+  --crit-live-ancestor-menu-fg: var(--crit-palette-fg);
+  --crit-live-ancestor-menu-hover-bg: color-mix(in srgb, var(--crit-palette-accent) 12%, var(--crit-palette-elevated));
+  --crit-live-toast-bg: var(--crit-palette-elevated);
+  --crit-live-toast-fg: var(--crit-palette-fg);
+  --crit-live-toast-border: var(--crit-palette-border);
+  --crit-live-tooltip-bg: var(--crit-palette-elevated);
+  --crit-live-tooltip-fg: var(--crit-palette-fg);
+  --crit-live-tooltip-border: var(--crit-palette-border);
+  --crit-live-menu-highlight-bg: color-mix(in srgb, var(--crit-palette-accent) 18%, transparent);
+  --crit-live-menu-highlight-fg: var(--crit-palette-fg);
+  /* Author tags: the theme's terminal colours, kept distinct (see crit-theme-palette.mjs). */
+  --author-0-fg: var(--crit-palette-author-0);
+  --author-0-bg: color-mix(in srgb, var(--crit-palette-author-0) 15%, transparent);
+  --author-0-border: color-mix(in srgb, var(--crit-palette-author-0) 35%, transparent);
+  --author-1-fg: var(--crit-palette-author-1);
+  --author-1-bg: color-mix(in srgb, var(--crit-palette-author-1) 15%, transparent);
+  --author-1-border: color-mix(in srgb, var(--crit-palette-author-1) 35%, transparent);
+  --author-2-fg: var(--crit-palette-author-2);
+  --author-2-bg: color-mix(in srgb, var(--crit-palette-author-2) 15%, transparent);
+  --author-2-border: color-mix(in srgb, var(--crit-palette-author-2) 35%, transparent);
+  --author-3-fg: var(--crit-palette-author-3);
+  --author-3-bg: color-mix(in srgb, var(--crit-palette-author-3) 15%, transparent);
+  --author-3-border: color-mix(in srgb, var(--crit-palette-author-3) 35%, transparent);
+  --author-4-fg: var(--crit-palette-author-4);
+  --author-4-bg: color-mix(in srgb, var(--crit-palette-author-4) 15%, transparent);
+  --author-4-border: color-mix(in srgb, var(--crit-palette-author-4) 35%, transparent);
+  --author-5-fg: var(--crit-palette-author-5);
+  --author-5-bg: color-mix(in srgb, var(--crit-palette-author-5) 15%, transparent);
+  --author-5-border: color-mix(in srgb, var(--crit-palette-author-5) 35%, transparent);
+  --crit-visual-accent: var(--crit-palette-yellow);
+  --crit-border: var(--crit-palette-border);
+  --crit-border-strong: color-mix(in srgb, var(--crit-palette-border) 72%, var(--crit-palette-fg));
+  --crit-border-comment: color-mix(in srgb, var(--crit-palette-accent) 35%, var(--crit-palette-bg));
+  --crit-shadow: 0 2px 8px var(--crit-palette-shadow);
+  --crit-focus: 0 0 0 2px var(--crit-palette-bg), 0 0 0 4px var(--crit-palette-accent);
+
+  /* Diff and Markdown-specific emphasis */
+  --crit-diff-add-bg: color-mix(in srgb, var(--crit-palette-green) 9%, transparent);
+  --crit-diff-add-line-bg: color-mix(in srgb, var(--crit-palette-green) 20%, transparent);
+  --crit-diff-del-bg: color-mix(in srgb, var(--crit-palette-red) 8%, transparent);
+  --crit-diff-del-line-bg: color-mix(in srgb, var(--crit-palette-red) 17%, transparent);
+  --crit-diff-word-add-bg: color-mix(in srgb, var(--crit-palette-green) 23%, transparent);
+  --crit-diff-word-del-bg: color-mix(in srgb, var(--crit-palette-red) 23%, transparent);
+  --crit-comment-range-bg: color-mix(in srgb, var(--crit-palette-yellow) 17%, transparent);
+  --crit-table-stripe: color-mix(in srgb, var(--crit-palette-accent) 4%, transparent);
+  --crit-blockquote-border: var(--crit-palette-accent);
+  --crit-blockquote-bg: color-mix(in srgb, var(--crit-palette-accent) 8%, transparent);
+
+  /* Badges, comment states, and other review feedback */
+  --crit-badge-resolved-bg: color-mix(in srgb, var(--crit-palette-green) 14%, transparent);
+  --crit-badge-modified-bg: color-mix(in srgb, var(--crit-palette-yellow) 14%, transparent);
+  --crit-badge-deleted-bg: color-mix(in srgb, var(--crit-palette-red) 12%, transparent);
+  --crit-badge-removed-bg: color-mix(in srgb, var(--crit-palette-muted) 14%, transparent);
+  --crit-badge-removed-color: var(--crit-palette-muted);
+  --crit-badge-removed-border: color-mix(in srgb, var(--crit-palette-muted) 30%, transparent);
+  --crit-yellow-subtle: color-mix(in srgb, var(--crit-palette-yellow) 9%, transparent);
+  --crit-yellow-bg: color-mix(in srgb, var(--crit-palette-yellow) 16%, transparent);
+  --crit-yellow-border: color-mix(in srgb, var(--crit-palette-yellow) 24%, transparent);
+  --crit-drift-badge-fg: var(--crit-palette-orange);
+  --crit-drift-badge-bg: color-mix(in srgb, var(--crit-palette-orange) 16%, transparent);
+  --crit-drift-badge-border: color-mix(in srgb, var(--crit-palette-orange) 32%, transparent);
+  --crit-drift-card-border: color-mix(in srgb, var(--crit-palette-orange) 28%, transparent);
+  --crit-green-subtle: color-mix(in srgb, var(--crit-palette-green) 11%, transparent);
+  --crit-finish-pill-bg: color-mix(in srgb, var(--crit-palette-green) 11%, transparent);
+  --crit-finish-pill-border: color-mix(in srgb, var(--crit-palette-green) 22%, transparent);
+  --crit-finish-pill-fg: var(--crit-palette-green);
+  --crit-finish-body-fg: var(--crit-palette-muted);
+  --crit-overlay-bg: var(--crit-palette-overlay);
+  --crit-btn-danger-hover-bg: color-mix(in srgb, var(--crit-palette-red) 12%, transparent);
+  --crit-toast-error-bg: color-mix(in srgb, var(--crit-palette-red) 16%, transparent);
+  --crit-toast-ghost-hover-bg: color-mix(in srgb, var(--crit-palette-fg) 7%, transparent);
+  --crit-btn-success-border: color-mix(in srgb, var(--crit-palette-green) 40%, transparent);
+  --crit-btn-success-hover-bg: color-mix(in srgb, var(--crit-palette-green) 10%, transparent);
+  --crit-share-confirm-bg: color-mix(in srgb, var(--crit-palette-red) 9%, transparent);
+  --crit-share-confirm-border: color-mix(in srgb, var(--crit-palette-red) 18%, transparent);
+  --crit-change-flash-bg: color-mix(in srgb, var(--crit-palette-orange) 17%, transparent);
+  --crit-resolve-hover-bg: color-mix(in srgb, var(--crit-palette-green) 12%, transparent);
+  --crit-quote-highlight-bg: color-mix(in srgb, var(--crit-palette-yellow) 14%, transparent);
+  --crit-quote-highlight-border: color-mix(in srgb, var(--crit-palette-yellow) 44%, transparent);
+  --crit-comment-ref-color: var(--crit-palette-accent);
+  --crit-comment-ref-color-hover: color-mix(in srgb, var(--crit-palette-accent) 84%, var(--crit-palette-fg));
+  --crit-comment-ref-underline: color-mix(in srgb, var(--crit-palette-accent) 38%, transparent);
+  --crit-comment-ref-flash-bg: color-mix(in srgb, var(--crit-palette-yellow) 38%, transparent);
+  --crit-comment-ref-flash-ring: color-mix(in srgb, var(--crit-palette-yellow) 84%, transparent);
+  --crit-option-hover: color-mix(in srgb, var(--crit-palette-accent) 7%, transparent);
+  --crit-option-selected-bg: color-mix(in srgb, var(--crit-palette-accent) 10%, transparent);
+  --crit-focus-ring: color-mix(in srgb, var(--crit-palette-accent) 54%, transparent);
+  --crit-vis-org-bg: color-mix(in srgb, var(--crit-palette-accent) 12%, transparent);
+  --crit-vis-org-fg: var(--crit-palette-accent);
+  --crit-vis-unlisted-bg: color-mix(in srgb, var(--crit-palette-orange) 12%, transparent);
+  --crit-vis-unlisted-fg: var(--crit-palette-orange);
+  --crit-vis-public-bg: color-mix(in srgb, var(--crit-palette-green) 12%, transparent);
+  --crit-vis-public-fg: var(--crit-palette-green);
+
+  /* Story and low-contrast surface layers */
+  --crit-story-chapter-bg: var(--crit-palette-surface);
+  --crit-story-accent: var(--crit-palette-accent);
+  --crit-story-num-bg: color-mix(in srgb, var(--crit-palette-accent) 17%, transparent);
+  --crit-story-support-fg: var(--crit-palette-muted);
+  --crit-l-surface: color-mix(in srgb, var(--crit-palette-fg) 2%, transparent);
+  --crit-l-surface-2: color-mix(in srgb, var(--crit-palette-fg) 4%, transparent);
+  --crit-l-hover: color-mix(in srgb, var(--crit-palette-fg) 6%, transparent);
+  --crit-l-active: color-mix(in srgb, var(--crit-palette-accent) 12%, transparent);
+  --crit-l-hairline: color-mix(in srgb, var(--crit-palette-border) 60%, transparent);
+  --crit-l-hairline-strong: color-mix(in srgb, var(--crit-palette-border) 92%, transparent);
+}

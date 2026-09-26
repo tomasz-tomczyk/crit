@@ -5818,3 +5818,19 @@ func TestHandleFileCommentsGitHubID(t *testing.T) {
 		t.Errorf("response missing github_id field:\n%s", body)
 	}
 }
+
+func TestThemesPage_ServedWithoutSession(t *testing.T) {
+	s, err := NewServer(nil, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/themes", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /themes = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "crit-theme-preview.js") {
+		t.Errorf("GET /themes did not serve the theme preview page")
+	}
+}

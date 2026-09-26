@@ -1,5 +1,18 @@
-import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { loadPage, revealFile, mdSection, diffLine } from './helpers';
+
+// The file list is virtualized, so an off-screen file has no DOM. Check that
+// every file-mode file is listed and renders its content when brought into
+// view: markdown as a rendered document, code as whole-file lines.
+async function expectAllFilesRender(page: Page) {
+  await expect(page.locator('.tree-file')).toHaveCount(3);
+  const md = await mdSection(page);
+  await expect(md.locator('.document-wrapper .line-block').first()).toBeVisible();
+  const go = await revealFile(page, 'server.go');
+  await expect(diffLine(go, 1)).toContainText('package main');
+  const js = await revealFile(page, 'handler.js');
+  await expect(diffLine(js, 1)).toContainText('Request handler');
+}
 
 test.describe('File Mode — Page Loading', () => {
   test.beforeEach(async ({ page }) => {
@@ -7,7 +20,7 @@ test.describe('File Mode — Page Loading', () => {
   });
 
   test('page loads and shows file sections', async ({ page }) => {
-    await expect(page.locator('.file-section')).toHaveCount(3);
+    await expectAllFilesRender(page);
   });
 
   test('no branch name shown in header (file mode)', async ({ page }) => {
@@ -39,6 +52,6 @@ test.describe('File Mode — Scope Cookie Resilience', () => {
     ]);
     await page.goto('/');
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-    await expect(page.locator('.file-section')).toHaveCount(3);
+    await expectAllFilesRender(page);
   });
 });

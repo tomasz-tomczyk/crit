@@ -1,5 +1,14 @@
-import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { test, expect, type Locator } from '@playwright/test';
+import {
+  clearAllComments, loadPage, mdSection, goSection, fileHeader, mdDocument, setDiffStyle,
+  switchToDocumentView, submitFileLevelComment,
+} from './helpers';
+
+// File-level threads and the file compose form are Pierre annotations on
+// line 0 (above the first line), so they render in that slot of the item.
+function fileLevel(item: Locator): Locator {
+  return item.locator('[slot="annotation-additions-0"]');
+}
 
 // ============================================================
 // File-Level Comments (git mode)
@@ -10,21 +19,49 @@ test.describe('File-level comments — Git Mode', () => {
     await loadPage(page);
   });
 
-  test('can add a file-level comment via header button', async ({ page }) => {
-    // Find a file section's header and click the file comment button
-    const fileCommentBtn = page.locator('.file-comment-btn').first();
-    await fileCommentBtn.click();
+  test('can add a file-level comment via header button', async ({ page, request }) => {
+    const section = await goSection(page);
+    await fileHeader(page, 'server.go').locator('.file-comment-btn').click();
 
     // Fill and submit the form
-    const textarea = page.locator('.file-comments .comment-form textarea');
+    const textarea = fileLevel(section).locator('.comment-form textarea');
     await expect(textarea).toBeVisible();
+    await expect(fileLevel(section).locator('.comment-form')).toHaveCount(1);
     await textarea.fill('This file needs restructuring');
-    await page.locator('.file-comments .comment-form .btn-primary').click();
+    await fileLevel(section).locator('.comment-form .btn-primary').click();
 
-    // Verify comment appears
-    const fileComments = page.locator('.file-comments .comment-card');
+    // Verify comment appears above the code, and the form closes
+    const fileComments = fileLevel(section).locator('.comment-card');
     await expect(fileComments).toHaveCount(1);
     await expect(fileComments.first()).toContainText('This file needs restructuring');
+    await expect(section.locator('.comment-form')).toHaveCount(0);
+
+    // Stored as a file-scope comment on server.go
+    await expect.poll(async () => {
+      const comments = await (await request.get('/api/file/comments?path=server.go')).json();
+      return comments.map((c: { scope: string; body: string }) => `${c.scope}:${c.body}`);
+    }).toEqual(['file:This file needs restructuring']);
+  });
+
+  // The card must land on screen above the file's content, including a
+  // second submit on the same file (the composer DOM is not reused).
+  for (const style of ['split', 'unified'] as const) {
+    test(`file-level comments show above line 1 in ${style} diffs, twice in a row`, async ({ page }) => {
+      await setDiffStyle(page, style);
+      const section = await goSection(page);
+      const opts = { header: fileHeader(page, 'server.go'), scope: fileLevel(section), content: section.locator('[data-line="1"]').first() };
+      await submitFileLevelComment(page, { ...opts, body: `First ${style} file comment` });
+      await submitFileLevelComment(page, { ...opts, body: `Second ${style} file comment` });
+    });
+  }
+
+  test('file-level comments show above a rendered document, twice in a row', async ({ page }) => {
+    await switchToDocumentView(page);
+    const section = await mdSection(page);
+    // Document view is a single-sided file item: its file-level slot has no side.
+    const opts = { header: fileHeader(page, 'plan.md'), scope: section.locator('[slot="annotation-0"]'), content: mdDocument(page) };
+    await submitFileLevelComment(page, { ...opts, body: 'First document file comment' });
+    await submitFileLevelComment(page, { ...opts, body: 'Second document file comment' });
   });
 
   test('file-level comment added via API renders on load', async ({ page, request }) => {
@@ -33,7 +70,8 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const fileComments = page.locator('.file-comments .comment-card');
+    const section = await mdSection(page);
+    const fileComments = fileLevel(section).locator('.comment-card');
     await expect(fileComments).toHaveCount(1);
     await expect(fileComments.first()).toContainText('file comment via api');
   });
@@ -46,6 +84,7 @@ test.describe('File-level comments — Git Mode', () => {
 
     const badge = page.locator('#commentCount');
     await expect(badge).toBeVisible();
+    await expect(page.locator('#commentCountNumber')).toHaveText('1');
   });
 
   test('can delete a file-level comment', async ({ page, request }) => {
@@ -54,13 +93,15 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const card = page.locator('.file-comments .comment-card').first();
+    const section = await mdSection(page);
+    const card = fileLevel(section).locator('.comment-card').first();
     await expect(card).toBeVisible();
 
     // Click the delete button
     await card.locator('.comment-actions .delete-btn').click();
 
-    await expect(page.locator('.file-comments .comment-card')).toHaveCount(0);
+    await expect(fileLevel(section).locator('.comment-card')).toHaveCount(0);
+    await expect.poll(async () => (await (await request.get('/api/file/comments?path=plan.md')).json()).length).toBe(0);
   });
 
   test('can edit a file-level comment', async ({ page, request }) => {
@@ -69,8 +110,8 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const section = mdSection(page);
-    const card = section.locator('.file-comments .comment-card').first();
+    const section = await mdSection(page);
+    const card = fileLevel(section).locator('.comment-card').first();
     await expect(card).toBeVisible();
 
     // Click Edit
@@ -78,7 +119,7 @@ test.describe('File-level comments — Git Mode', () => {
 
     // Regression: editing must open one form (inline editor), not both the
     // file-scope compose form and the inline editor at once.
-    const forms = section.locator('.file-comments .comment-form');
+    const forms = section.locator('.comment-form');
     await expect(forms).toHaveCount(1);
     await expect(forms.locator('.comment-form-header')).toHaveText('Editing file comment');
     await expect(forms.locator('.btn-primary')).toHaveText('Update Comment');
@@ -91,7 +132,8 @@ test.describe('File-level comments — Git Mode', () => {
     await textarea.fill('updated file comment');
     await forms.locator('.btn-primary').click();
 
-    await expect(section.locator('.file-comments .comment-card .comment-body')).toContainText('updated file comment');
+    await expect(fileLevel(section).locator('.comment-card .comment-body')).toContainText('updated file comment');
+    await expect(section.locator('.comment-form')).toHaveCount(0);
   });
 
   test('multiple file-level comments on different files', async ({ page, request }) => {
@@ -103,7 +145,13 @@ test.describe('File-level comments — Git Mode', () => {
     });
     await loadPage(page);
 
-    const allFileComments = page.locator('.file-comments .comment-card');
-    await expect(allFileComments).toHaveCount(2);
+    // Each file shows only its own file-level comment.
+    const plan = await mdSection(page);
+    await expect(fileLevel(plan).locator('.comment-card')).toHaveCount(1);
+    await expect(fileLevel(plan).locator('.comment-card')).toContainText('comment on plan');
+
+    const server = await goSection(page);
+    await expect(fileLevel(server).locator('.comment-card')).toHaveCount(1);
+    await expect(fileLevel(server).locator('.comment-card')).toContainText('comment on server');
   });
 });

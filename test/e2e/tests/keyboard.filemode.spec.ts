@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, mdSection } from './helpers';
 
 test.describe('Keyboard Comment Shortcuts — File Mode', () => {
   test.beforeEach(async ({ request }) => {
@@ -12,7 +12,7 @@ test.describe('Keyboard Comment Shortcuts — File Mode', () => {
     });
 
     await loadPage(page);
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
+    const section = await mdSection(page);
     await expect(section.locator('.document-wrapper')).toBeVisible();
 
     // Navigate to the first block and edit

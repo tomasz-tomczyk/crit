@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileHeader, goSection, openLineComment, reviewScroller } from './helpers';
 
 // ============================================================
 // File Tree Panel — Git Mode
@@ -134,13 +134,14 @@ test.describe('File Tree — Git Mode', () => {
     });
     await treeFile.click();
 
-    const section = page.locator('#file-section-handler\\.js');
-    await expect(section).toBeInViewport();
+    await expect(fileHeader(page, 'handler.js')).toBeInViewport();
   });
 
   test('clicking a file in tree scrolls its header to the top of viewport', async ({ page }) => {
-    // Scroll to the bottom so we need to scroll back up
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    // Scroll to the bottom so we need to scroll back up. CodeView scrolls
+    // #filesContainer, not the window.
+    await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(fileHeader(page, 'plan.md')).not.toBeInViewport();
 
     // Click the first file (plan.md) in the tree
     const treeFile = page.locator('.tree-file', {
@@ -149,8 +150,7 @@ test.describe('File Tree — Git Mode', () => {
     await treeFile.click();
 
     // The file header should be near the top of the viewport (below the sticky header)
-    const section = page.locator('.file-section').filter({ hasText: 'plan.md' });
-    const header = section.locator('.file-header');
+    const header = fileHeader(page, 'plan.md');
     await expect(async () => {
       const box = await header.boundingBox();
       expect(box).toBeTruthy();
@@ -215,12 +215,10 @@ test.describe('File Tree Comment Badges — Git Mode', () => {
 
   test('comment badge appears after adding a comment', async ({ page }) => {
     // Add a comment on server.go (diff file)
-    const section = page.locator('#file-section-server\\.go');
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Badge test');
-    await page.locator('.comment-form .btn-primary').click();
+    const section = await goSection(page);
+    const form = await openLineComment(page, section, 1);
+    await form.locator('textarea').fill('Badge test');
+    await form.locator('.btn-primary').click();
     await expect(section.locator('.comment-card')).toBeVisible();
 
     // Tree should now show a badge on server.go
@@ -234,12 +232,10 @@ test.describe('File Tree Comment Badges — Git Mode', () => {
 
   test('comment badge updates when comment is deleted', async ({ page }) => {
     // Add a comment on server.go
-    const section = page.locator('#file-section-server\\.go');
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
-    await page.locator('.comment-form textarea').fill('Badge delete test');
-    await page.locator('.comment-form .btn-primary').click();
+    const section = await goSection(page);
+    const form = await openLineComment(page, section, 1);
+    await form.locator('textarea').fill('Badge delete test');
+    await form.locator('.btn-primary').click();
     await expect(section.locator('.comment-card')).toBeVisible();
 
     // Verify badge exists

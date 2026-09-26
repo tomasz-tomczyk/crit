@@ -1,5 +1,8 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, getMdPath } from './helpers';
+import {
+  clearAllComments, loadPage, getMdPath, mdSection, switchToDocumentView,
+  tapCenter,
+} from './helpers';
 
 async function expectTouchTargets(targets: Locator, expectedCount?: number) {
   if (expectedCount !== undefined) {
@@ -51,18 +54,13 @@ test.describe('Mobile touch targets (F2)', () => {
   });
 
   test('comment textarea uses font-size >= 16px (iOS zoom prevention)', async ({ page }) => {
-    // Open a comment form to expose its textarea. The mobile file picker
-    // gives us a known file; we tap a line gutter to open a form.
-    // Actually simpler: post a comment so a reply input renders, OR open
-    // the review-conversation form. Easiest is to tap a markdown line.
-    const fileSec = page.locator('.file-section').filter({ hasText: '.md' }).first();
-    await expect(fileSec).toBeVisible();
-    // Switch to document view so .line-comment-gutter is the affordance.
-    const docBtn = fileSec.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
-    if (await docBtn.isVisible()) await docBtn.click();
-    const gutter = fileSec.locator('.line-comment-gutter').first();
+    // Open a comment form to expose its textarea: tap a markdown line's
+    // comment gutter in Document view.
+    const doc = await switchToDocumentView(page);
+    // A line below the sticky file header / picker bar, centred on screen.
+    const gutter = doc.locator('.line-comment-gutter').nth(2);
     await expect(gutter).toBeVisible();
-    await gutter.tap();
+    await tapCenter(page, gutter);
 
     const textarea = page.locator('.comment-form textarea').first();
     await expect(textarea).toBeVisible();
@@ -87,6 +85,7 @@ test.describe('Mobile touch targets (F2)', () => {
 
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await mdSection(page);
 
     const replyActions = page.locator('.reply-actions');
     await expect(replyActions).toBeVisible();

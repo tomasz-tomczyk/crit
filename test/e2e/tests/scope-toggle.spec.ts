@@ -1,5 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments } from './helpers';
+import { loadPage, clearAllComments, fileHeader, revealFile } from './helpers';
+
+// Pierre file items currently mounted in the diff pane. CodeView virtualizes
+// long lists, so exact counts are only meaningful for short (fully mounted)
+// file lists; the file tree is the authority for the full list.
+function paneFiles(page: Page) {
+  return page.locator('#filesContainer .pierre-file-header');
+}
 
 async function switchScope(page: Page, scope: string) {
   const responsePromise = page.waitForResponse(resp =>
@@ -44,40 +51,45 @@ test.describe('Scope Toggle', () => {
     await loadPage(page);
     await switchScope(page, 'branch');
     // Branch: server.go, deleted.txt, plan.md, skill.md, handler.js, routes.go, legacy.go (7 committed)
-    await expect(page.locator('.file-section')).toHaveCount(7);
-    await expect(page.locator('.file-section', { hasText: 'server.go' })).toBeVisible();
-    await expect(page.locator('.file-section', { hasText: 'plan.md' })).toBeVisible();
+    await expect(page.locator('.tree-file')).toHaveCount(7);
+    await expect(page.locator('.tree-file[data-tree-path="utils.go"]')).toHaveCount(0);
+    await expect(page.locator('.tree-file[data-tree-path="config.yaml"]')).toHaveCount(0);
+    // The diff pane re-renders with the branch files (first in order on top)
+    await expect(fileHeader(page, 'deleted.txt')).toBeVisible();
+    await expect(fileHeader(page, 'config.yaml')).toHaveCount(0);
+    await revealFile(page, 'server.go');
+    await revealFile(page, 'plan.md');
   });
 
   test('switching to staged scope shows only staged files', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
     // Staged: utils.go, login.feature
-    await expect(async () => {
-      await expect(page.locator('.file-section')).toHaveCount(2);
-    }).toPass({ timeout: 5000 });
-    await expect(page.locator('.file-section', { hasText: 'utils.go' })).toBeVisible();
+    await expect(paneFiles(page)).toHaveCount(2);
+    await expect(fileHeader(page, 'utils.go')).toBeVisible();
+    await expect(fileHeader(page, 'login.feature')).toBeVisible();
   });
 
   test('switching to unstaged scope shows only unstaged files', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'unstaged');
     // Unstaged: config.yaml only
-    await expect(async () => {
-      await expect(page.locator('.file-section')).toHaveCount(1);
-    }).toPass({ timeout: 5000 });
-    await expect(page.locator('.file-section', { hasText: 'config.yaml' })).toBeVisible();
+    await expect(paneFiles(page)).toHaveCount(1);
+    await expect(fileHeader(page, 'config.yaml')).toBeVisible();
   });
 
   test('switching back to all scope restores full file list', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.file-section')).toHaveCount(2);
+    await expect(paneFiles(page)).toHaveCount(2);
     await switchScope(page, 'all');
     await expect(async () => {
-      const count = await page.locator('.file-section').count();
+      const count = await page.locator('.tree-file').count();
       expect(count).toBeGreaterThanOrEqual(5);
     }).toPass({ timeout: 5000 });
+    // The pane shows the full list again: branch + unstaged files render
+    await expect(fileHeader(page, 'config.yaml')).toBeVisible();
+    await revealFile(page, 'server.go');
   });
 
   test('active button styling updates on click', async ({ page }) => {
@@ -90,11 +102,12 @@ test.describe('Scope Toggle', () => {
   test('scope persists across page reload', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
-    await expect(page.locator('.file-section')).toHaveCount(2);
+    await expect(paneFiles(page)).toHaveCount(2);
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).toHaveClass(/active/);
-    await expect(page.locator('.file-section')).toHaveCount(2);
+    await expect(paneFiles(page)).toHaveCount(2);
+    await expect(fileHeader(page, 'utils.go')).toBeVisible();
   });
 
   test('file tree updates when scope changes', async ({ page }) => {
@@ -176,10 +189,9 @@ test.describe('Scope Toggle', () => {
     // Should fall back to "all" and re-fetch — files must render
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).not.toHaveClass(/active/);
-    await expect(async () => {
-      const count = await page.locator('.file-section').count();
-      expect(count).toBeGreaterThanOrEqual(1);
-    }).toPass({ timeout: 5000 });
+    await expect(paneFiles(page).first()).toBeVisible({ timeout: 5000 });
+    // "all" includes the unstaged config.yaml, which branch scope would not
+    await expect(fileHeader(page, 'config.yaml')).toBeVisible();
     // Must have made at least 2 session requests: initial (branch) + corrected (all)
     expect(requestCount).toBeGreaterThanOrEqual(2);
   });

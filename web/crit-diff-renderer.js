@@ -144,7 +144,7 @@
     while (i < html.length) {
       // Skip HTML tags (don't count them as visible characters).
       // Keep any open word-diff span across tags — closing/reopening at each tag
-      // boundary creates empty highlight spans inside nested hljs markup.
+      // boundary creates empty highlight spans inside nested syntax markup.
       if (html[i] === '<') {
         var tagEnd = html.indexOf('>', i);
         if (tagEnd === -1) { result += html.slice(i); break; }
@@ -216,96 +216,6 @@
     if (newText.length > 0 && newChangedChars / newText.length > 0.7) return;
     oldBlock.wordDiffHtml = applyWordDiffToHtml(oldBlock.html, wd.oldRanges, 'diff-word-del');
     newBlock.wordDiffHtml = applyWordDiffToHtml(newBlock.html, wd.newRanges, 'diff-word-add');
-  }
-
-  // Pre-compute word diffs for all paired del/add runs in a hunk.
-  // Returns a Map<lineIndex, { ranges, cssClass }> mapping hunk line indices to word-diff info.
-  function buildHunkWordDiffs(hunk) {
-    var wordDiffMap = new Map();
-    var lines = hunk.Lines;
-    var i = 0;
-    while (i < lines.length) {
-      if (lines[i].Type === 'del') {
-        // Collect consecutive dels
-        var delStart = i;
-        while (i < lines.length && lines[i].Type === 'del') i++;
-        // Collect consecutive adds
-        var addStart = i;
-        while (i < lines.length && lines[i].Type === 'add') i++;
-        // Pair by similarity so word diffs highlight the right counterpart
-        var delCount = addStart - delStart;
-        var addCount = i - addStart;
-        var delTexts = [];
-        for (var d = 0; d < delCount; d++) delTexts.push(lines[delStart + d].Content);
-        var addTexts = [];
-        for (var a = 0; a < addCount; a++) addTexts.push(lines[addStart + a].Content);
-        var pairs = bestWordDiffPairing(delTexts, addTexts);
-        for (var p = 0; p < pairs.length; p++) {
-          var dIdx = delStart + pairs[p][0];
-          var aIdx = addStart + pairs[p][1];
-          var wd = wordDiff(lines[dIdx].Content, lines[aIdx].Content);
-          if (wd) {
-            wordDiffMap.set(dIdx, { ranges: wd.oldRanges, cssClass: 'diff-word-del' });
-            wordDiffMap.set(aIdx, { ranges: wd.newRanges, cssClass: 'diff-word-add' });
-          }
-        }
-      } else {
-        i++;
-      }
-    }
-    return wordDiffMap;
-  }
-
-  // Build split-view rows for a del/add run using positional alignment (GitHub-style).
-  // Pairs del[i] with add[i]; surplus dels or adds become single-sided rows.
-  // wordDiffFn(oldContent, newContent) is called for each paired row only.
-  function buildSplitChangeRows(dels, adds, wordDiffFn) {
-    var rows = [];
-    var minLen = Math.min(dels.length, adds.length);
-    for (var i = 0; i < minLen; i++) {
-      var wd = wordDiffFn(dels[i].Content, adds[i].Content);
-      rows.push({ del: dels[i], add: adds[i], wd: wd });
-    }
-    for (var d = minLen; d < dels.length; d++) {
-      rows.push({ del: dels[d], add: null, wd: null });
-    }
-    for (var a = minLen; a < adds.length; a++) {
-      rows.push({ del: null, add: adds[a], wd: null });
-    }
-    return rows;
-  }
-
-  // Resolve a unified-diff drag into a single-side form range.
-  // Unified drag may cross old/new number spaces (del OldNum vs add NewNum).
-  // Mixing those with Math.min/max while keeping the anchor side produces a
-  // form that appendDiffForm cannot attach (invisible until split re-render).
-  // selectedLines: [{ visualIdx, lineNum, side }, ...] in visual order.
-  // releaseVisualIdx: the line where the pointer was released.
-  // fallback: { startLine, endLine, side } used when selection is empty.
-  function resolveUnifiedDragFormRange(selectedLines, releaseVisualIdx, fallback) {
-    if (!selectedLines || selectedLines.length === 0) return fallback;
-    var release = null;
-    for (var i = 0; i < selectedLines.length; i++) {
-      if (selectedLines[i].visualIdx === releaseVisualIdx) {
-        release = selectedLines[i];
-        break;
-      }
-    }
-    if (!release) release = selectedLines[selectedLines.length - 1];
-    var side = release.side || '';
-    var nums = [];
-    for (var j = 0; j < selectedLines.length; j++) {
-      var line = selectedLines[j];
-      if ((line.side || '') === side && line.lineNum > 0) {
-        nums.push(line.lineNum);
-      }
-    }
-    if (nums.length === 0) return fallback;
-    return {
-      startLine: Math.min.apply(null, nums),
-      endLine: Math.max.apply(null, nums),
-      side: side,
-    };
   }
 
   // Text select-to-comment can intersect both diff sides (split DOM-order
@@ -404,19 +314,6 @@
     return parts.join('\n').trim();
   }
 
-  // Walk from a selection start node to the nearest commentable line and
-  // return its diff side ('' for new, 'old' for old, undefined for markdown).
-  function preferredSideFromNode(node) {
-    if (!node) return undefined;
-    // Element nodes (and element-like stubs) expose closest; text nodes use parent.
-    var el = typeof node.closest === 'function' ? node : node.parentElement;
-    if (!el || typeof el.closest !== 'function') return undefined;
-    var diffLine = el.closest('[data-diff-line-num]');
-    if (diffLine) return diffLine.dataset.diffSide || '';
-    if (el.closest('.line-block[data-file-path]')) return undefined;
-    return undefined;
-  }
-
   var api = {
     lineSimilarity: lineSimilarity,
     bestWordDiffPairing: bestWordDiffPairing,
@@ -424,11 +321,7 @@
     applyWordDiffToHtml: applyWordDiffToHtml,
     htmlToText: htmlToText,
     applyWordDiffPair: applyWordDiffPair,
-    buildHunkWordDiffs: buildHunkWordDiffs,
-    buildSplitChangeRows: buildSplitChangeRows,
-    resolveUnifiedDragFormRange: resolveUnifiedDragFormRange,
     resolveTextSelectionLineRange: resolveTextSelectionLineRange,
-    preferredSideFromNode: preferredSideFromNode,
     selectedTextWithinElements: selectedTextWithinElements,
   };
   if (typeof window !== 'undefined') {

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, diffLine, loadPage, openLineComment, revealFile } from './helpers';
 import { stateFilePath } from './state-file';
 
 // Read fixture state written by setup-fixtures.sh
@@ -34,7 +34,7 @@ async function switchScope(page: Page, scope: string) {
 const FIXTURE_UNSTAGED_FILE = 'config.yaml';
 
 function configSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: FIXTURE_UNSTAGED_FILE });
+  return revealFile(page, FIXTURE_UNSTAGED_FILE);
 }
 
 // unstaged-test.py is created at runtime AFTER the server is already running.
@@ -53,7 +53,7 @@ if __name__ == "__main__":
 `;
 
 function runtimeSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: RUNTIME_UNSTAGED_FILE });
+  return revealFile(page, RUNTIME_UNSTAGED_FILE);
 }
 
 // ============================================================
@@ -74,19 +74,11 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('can add a comment on a pre-existing unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
-    await expect(section).toBeVisible();
+    const section = await configSection(page);
 
     // config.yaml is untracked, shown as all-addition diff
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await expect(additionSide).toBeVisible();
-    await additionSide.hover();
-
-    const commentBtn = additionSide.locator('.diff-comment-btn');
-    await expect(commentBtn).toBeVisible();
-    await commentBtn.click();
-
-    const form = page.locator('.comment-form');
+    await expect(diffLine(section, 1)).toHaveAttribute('data-line-type', 'change-addition');
+    const form = await openLineComment(page, section, 1);
     await expect(form).toBeVisible();
 
     const textarea = page.locator('.comment-form textarea');
@@ -102,16 +94,13 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('comment count badge updates for unstaged file comment', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
-    await expect(section).toBeVisible();
+    const section = await configSection(page);
 
     const countEl = page.locator('#commentCount');
     await expect(page.locator('#commentCountNumber')).toHaveText('');
 
     // Add a comment
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
+    await openLineComment(page, section, 1);
 
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Badge test');
@@ -125,12 +114,9 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('file tree shows comment badge for unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
-    await expect(section).toBeVisible();
+    const section = await configSection(page);
 
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
+    await openLineComment(page, section, 1);
 
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Tree badge test');
@@ -146,12 +132,9 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
   test('unstaged comment persists after page reload', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = configSection(page);
-    await expect(section).toBeVisible();
+    const section = await configSection(page);
 
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
+    await openLineComment(page, section, 1);
 
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Persistent unstaged comment');
@@ -166,8 +149,7 @@ test.describe('Unstaged File Comments — pre-existing file', () => {
     // Scope persists via cookie
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="unstaged"]')).toHaveClass(/active/);
 
-    const reloadedSection = configSection(page);
-    await expect(reloadedSection).toBeVisible();
+    const reloadedSection = await configSection(page);
     await expect(reloadedSection.locator('.comment-card')).toBeVisible();
     await expect(reloadedSection.locator('.comment-body')).toContainText('Persistent unstaged comment');
   });
@@ -213,28 +195,25 @@ test.describe('Unstaged File Comments — runtime-created file (bug reproduction
   test('runtime-created unstaged file renders diff with addition lines (not "No changes")', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = runtimeSection(page);
-    await expect(section).toBeVisible();
+    const section = await runtimeSection(page);
 
     // BUG: The file shows "No changes" instead of an all-addition diff.
     // This assertion will FAIL if the bug is present.
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await expect(additionSide).toBeVisible({ timeout: 5000 });
+    const first = diffLine(section, 1);
+    await expect(first).toBeVisible({ timeout: 5000 });
+    await expect(first).toHaveAttribute('data-line-type', 'change-addition');
+    await expect(first).toContainText('# Unstaged test file');
+    await expect(diffLine(section, 10)).toContainText('goodbye()');
   });
 
   test('can comment on runtime-created unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
 
-    const section = runtimeSection(page);
-    await expect(section).toBeVisible();
+    const section = await runtimeSection(page);
 
     // BUG: Cannot comment because no diff lines are rendered.
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await expect(additionSide).toBeVisible({ timeout: 5000 });
-    await additionSide.hover();
-
-    const commentBtn = additionSide.locator('.diff-comment-btn');
-    await commentBtn.click();
+    await expect(diffLine(section, 1)).toBeVisible({ timeout: 5000 });
+    await openLineComment(page, section, 1);
 
     const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Comment on runtime unstaged file');

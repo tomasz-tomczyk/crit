@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, fileHeader } from './helpers';
 
 // F1: mobile chrome layout — at ≤768px viewport, the file-tree and comments
 // sidebars are hidden and a sticky <select> file picker takes the file-tree's
@@ -93,10 +93,7 @@ test.describe('Mobile chrome layout (F1)', () => {
     const targetPath = options[options.length - 1];
     await picker.selectOption(targetPath);
 
-    // The file's section should be visible after the scroll. Use an attribute
-    // selector instead of an ID selector so we don't need CSS.escape (which
-    // isn't available in the Node test runtime).
-    const targetSection = page.locator(`[id="file-section-${targetPath}"]`);
-    await expect(targetSection).toBeInViewport();
+    // The file's header should be on screen after the jump.
+    await expect(fileHeader(page, targetPath)).toBeInViewport();
   });
 });

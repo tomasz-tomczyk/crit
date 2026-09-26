@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, goSection, jsSection, switchToDocumentView } from './helpers';
+import {
+  clearAllComments, loadPage, mdSection, goSection, jsSection,
+  switchToDocumentView, openLineComment, hoverLine, diffLine, setDiffStyle,
+} from './helpers';
 
 // ============================================================
 // Markdown Comments (git mode — plan.md in document view)
@@ -12,7 +15,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('gutter opens a focused comment form for the exact source line', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     const startLine = await lineBlock.getAttribute('data-start-line');
     const endLine = await lineBlock.getAttribute('data-end-line');
@@ -36,7 +39,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('submitting comment creates a comment card', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
 
@@ -56,7 +59,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('comment with fenced code block gets syntax highlighting', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -67,14 +70,15 @@ test.describe('Markdown Comments — Git Mode', () => {
 
     const body = section.locator('.comment-card .comment-body');
     await expect(body).toBeVisible();
-    // hljs should produce spans with hljs-* classes inside the code block
+    // Shiki upgrades the block asynchronously; tokens carry theme colors.
     const codeBlock = body.locator('pre code');
     await expect(codeBlock).toBeVisible();
-    await expect(codeBlock.locator('span[class^="hljs-"]').first()).toBeVisible();
+    await expect(codeBlock).toHaveAttribute('data-crit-code', 'highlighted');
+    await expect(codeBlock.locator('span[style*="--diffs-token"]').first()).toBeVisible();
   });
 
   test('comment with URL renders styled link', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -93,7 +97,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('Ctrl+Enter submits comment', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -109,7 +113,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('editing a comment opens editor with existing text and saves changes', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Create a comment first
     const lineBlock = section.locator('.line-block').first();
@@ -140,7 +144,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('Ctrl+Enter saves edits to a comment', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
 
     // Create a comment first
     const lineBlock = section.locator('.line-block').first();
@@ -165,7 +169,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('deleting a comment removes it and updates count', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const countEl = page.locator('#commentCount');
 
     // Create a comment
@@ -187,7 +191,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('pressing Escape closes the comment form', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -203,7 +207,7 @@ test.describe('Markdown Comments — Git Mode', () => {
   });
 
   test('comment body renders markdown (bold, links, code)', async ({ page }) => {
-    const section = mdSection(page);
+    const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
@@ -229,6 +233,7 @@ test.describe('Markdown Comments — Git Mode', () => {
 // ============================================================
 // Diff Comments (git mode — code files in split/unified modes)
 // ============================================================
+// server.go line 5 is the added "log" import; handler.js is all additions.
 test.describe('Diff Comments — Split Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
@@ -236,78 +241,67 @@ test.describe('Diff Comments — Split Mode', () => {
   });
 
   test('hovering a diff line shows the + button', async ({ page }) => {
-    const section = goSection(page);
-    await expect(section).toBeVisible();
+    const section = await goSection(page);
+    await expect(diffLine(section, 5)).toHaveAttribute('data-line-type', 'change-addition');
 
-    // Find an addition line in split mode
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await expect(additionSide).toBeVisible();
-    await additionSide.hover();
-
-    const commentBtn = additionSide.locator('.diff-comment-btn');
+    const commentBtn = await hoverLine(page, section, 5);
     await expect(commentBtn).toBeVisible();
+    // The button sits on the hovered row, not elsewhere in the file.
+    const btnBox = await commentBtn.boundingBox();
+    const lineBox = await diffLine(section, 5).boundingBox();
+    expect(btnBox && lineBox).toBeTruthy();
+    const mid = btnBox!.y + btnBox!.height / 2;
+    expect(mid).toBeGreaterThanOrEqual(lineBox!.y);
+    expect(mid).toBeLessThanOrEqual(lineBox!.y + lineBox!.height);
   });
 
   test('clicking + button on a diff line opens comment form', async ({ page }) => {
-    const section = goSection(page);
-
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-
-    const commentBtn = additionSide.locator('.diff-comment-btn');
-    await commentBtn.click();
-
-    const form = page.locator('.comment-form');
+    const section = await goSection(page);
+    const form = await openLineComment(page, section, 5);
     await expect(form).toBeVisible();
+    await expect(section.locator('.comment-form')).toHaveCount(1);
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 5');
+    await expect(form.locator('textarea')).toBeFocused();
   });
 
   test('submitting a diff comment creates a comment card', async ({ page }) => {
-    const section = goSection(page);
-
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    const commentBtn = additionSide.locator('.diff-comment-btn');
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Diff comment in split mode');
-    await page.locator('.comment-form .btn-primary').click();
+    const section = await goSection(page);
+    const form = await openLineComment(page, section, 5);
+    await form.locator('textarea').fill('Diff comment in split mode');
+    await form.locator('.btn-primary').click();
 
     // Comment card should appear in the diff section
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toContainText('Diff comment in split mode');
+    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
   });
 
-  test('comments work on addition lines in split mode', async ({ page }) => {
+  test('comments work on addition lines in split mode', async ({ page, request }) => {
     // Use handler.js which is an all-addition file
-    const section = jsSection(page);
-    await expect(section).toBeVisible();
+    const section = await jsSection(page);
+    await expect(diffLine(section, 1)).toHaveAttribute('data-line-type', 'change-addition');
 
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    const commentBtn = additionSide.locator('.diff-comment-btn');
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Comment on new code');
-    await page.locator('.comment-form .btn-primary').click();
+    const form = await openLineComment(page, section, 1);
+    await form.locator('textarea').fill('Comment on new code');
+    await form.locator('.btn-primary').click();
 
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.comment-body')).toContainText('Comment on new code');
+
+    // Persisted against the right file and line.
+    await expect.poll(async () => {
+      const comments = await (await request.get('/api/file/comments?path=handler.js')).json();
+      return comments.map((c: { start_line: number; body: string }) => `${c.start_line}:${c.body}`);
+    }).toEqual(['1:Comment on new code']);
   });
 
   test('diff comment body renders markdown', async ({ page }) => {
-    const section = goSection(page);
-
-    const additionSide = section.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('This has **bold**, `code`, and a [link](https://test.com)');
-    await page.locator('.comment-form .btn-primary').click();
+    const section = await goSection(page);
+    const form = await openLineComment(page, section, 5);
+    await form.locator('textarea').fill('This has **bold**, `code`, and a [link](https://test.com)');
+    await form.locator('.btn-primary').click();
 
     const body = section.locator('.comment-card .comment-body');
     await expect(body).toBeVisible();
@@ -324,27 +318,20 @@ test.describe('Diff Comments — Unified Mode', () => {
     await clearAllComments(request);
     await loadPage(page);
     // Switch to unified mode
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await unifiedBtn.click();
-    // Wait for the unified container inside server.go (which is always expanded).
-    // deleted.txt also has a .diff-container.unified but is inside a collapsed
-    // <details> (status=deleted), so .first() would pick the hidden one.
-    await expect(goSection(page).locator('.diff-container.unified')).toBeVisible();
+    await setDiffStyle(page, 'unified');
+    const section = await goSection(page);
+    await expect(section.locator('code[data-unified]')).toBeVisible();
+    await expect(section.locator('code[data-additions]')).toHaveCount(0);
   });
 
   test('comments work on addition lines in unified mode', async ({ page }) => {
-    const section = goSection(page);
+    const section = await goSection(page);
+    await expect(diffLine(section, 5)).toHaveAttribute('data-line-type', 'change-addition');
 
-    const additionLine = section.locator('.diff-container.unified .diff-line.addition').first();
-    await expect(additionLine).toBeVisible();
-    await additionLine.hover();
-
-    const commentBtn = additionLine.locator('.diff-comment-btn');
-    await commentBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Unified mode comment');
-    await page.locator('.comment-form .btn-primary').click();
+    const form = await openLineComment(page, section, 5);
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 5');
+    await form.locator('textarea').fill('Unified mode comment');
+    await form.locator('.btn-primary').click();
 
     const card = section.locator('.comment-card');
     await expect(card).toBeVisible();
@@ -352,12 +339,10 @@ test.describe('Diff Comments — Unified Mode', () => {
   });
 
   test('comment form in unified mode has capped max-width', async ({ page }) => {
-    const section = goSection(page);
-
-    const additionLine = section.locator('.diff-container.unified .diff-line.addition').first();
-    await additionLine.hover();
-    const commentBtn = additionLine.locator('.diff-comment-btn');
-    await commentBtn.click();
+    // Wide enough that an uncapped form would exceed --content-width.
+    await page.setViewportSize({ width: 1800, height: 900 });
+    const section = await goSection(page);
+    await openLineComment(page, section, 5);
 
     const formWrapper = section.locator('.comment-form-wrapper');
     await expect(formWrapper).toBeVisible();
@@ -381,29 +366,24 @@ test.describe('Cross-File Comments', () => {
     await loadPage(page);
 
     // Open comment form on server.go (diff file)
-    const serverSection = goSection(page);
-    const additionSide = serverSection.locator('.diff-split-side.addition').first();
-    await additionSide.hover();
-    await additionSide.locator('.diff-comment-btn').click();
-
-    // Form should be open
-    await expect(serverSection.locator('.comment-form')).toBeVisible();
-    await expect(page.locator('.comment-form')).toHaveCount(1);
+    const serverSection = await goSection(page);
+    const serverForm = await openLineComment(page, serverSection, 5);
+    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(1);
     // Fill so it isn't auto-closed when the second form opens
-    await serverSection.locator('.comment-form textarea').fill('first');
+    await serverForm.locator('textarea').fill('first');
 
     // Now open comment form on handler.js
-    const handlerSection = jsSection(page);
-    const jsAdditionSide = handlerSection.locator('.diff-split-side.addition').first();
-    await jsAdditionSide.hover();
-    await jsAdditionSide.locator('.diff-comment-btn').click();
-
-    // Both forms should be visible
-    await expect(page.locator('.comment-form')).toHaveCount(2);
-
-    // Both file sections should have their form
-    await expect(serverSection.locator('.comment-form')).toBeVisible();
+    const handlerSection = await jsSection(page);
+    await openLineComment(page, handlerSection, 1);
     await expect(handlerSection.locator('.comment-form')).toBeVisible();
+
+    // Back on server.go, its draft form is still open with its text.
+    const serverAgain = await goSection(page);
+    await expect(serverAgain.locator('.comment-form textarea')).toHaveValue('first');
+    await expect(serverAgain.locator('.comment-form')).toHaveCount(1);
+    // And handler.js still has its own form.
+    const handlerAgain = await jsSection(page);
+    await expect(handlerAgain.locator('.comment-form')).toHaveCount(1);
   });
 });
 
@@ -497,7 +477,7 @@ test.describe('Author Badges', () => {
 
     await loadPage(page);
 
-    const section = goSection(page);
+    const section = await goSection(page);
     const badge = section.locator('.comment-author-badge');
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('@reviewer1');

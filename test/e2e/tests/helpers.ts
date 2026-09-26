@@ -47,29 +47,299 @@ export async function loadPage(page: Page) {
   await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 }
 
-// Scope selectors to the plan.md file section.
-export function mdSection(page: Page) {
-  return page.locator('.file-section').filter({ hasText: 'plan.md' });
+// ----- Pierre diff surface -----
+//
+// Git-mode files render through @pierre/diffs CodeView. Each file is a
+// <diffs-container> item: Crit's header (.pierre-file-header) and annotations
+// (comment cards, forms, the rendered markdown document) are light-DOM
+// children; the code lines live in its open shadow root, which Playwright
+// CSS locators pierce. CodeView virtualizes the list, so a file far from
+// the viewport has no DOM until it is scrolled to — use the async section
+// helpers, which bring the file into view first.
+
+function cssAttr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-// Scope selectors to the server.go file section.
-export function goSection(page: Page) {
-  return page.locator('#file-section-server\\.go');
+/** A file's Pierre item. Only resolves while the file is mounted. */
+export function fileItem(page: Page, filePath: string): Locator {
+  return page.locator('diffs-container').filter({
+    has: page.locator(`.pierre-file-header[data-file-path="${cssAttr(filePath)}"]`),
+  });
 }
 
-// Scope selectors to the handler.js file section.
-export function jsSection(page: Page) {
-  return page.locator('#file-section-handler\\.js');
+/** A file's Crit header inside its Pierre item. */
+export function fileHeader(page: Page, filePath: string): Locator {
+  return page.locator(`.pierre-file-header[data-file-path="${cssAttr(filePath)}"]`);
 }
 
-// In git mode, markdown defaults to diff view. Click the Document toggle to switch.
-export async function switchToDocumentView(page: Page) {
-  const section = mdSection(page);
-  await expect(section).toBeVisible();
-  const docBtn = section.locator('.file-header-toggle .toggle-btn[data-mode="document"]');
+/**
+ * Bring a file into view (tree click, or the mobile file picker) and return
+ * its item. Leaves the page alone when the file is already on screen.
+ */
+export async function revealFile(page: Page, filePath: string): Promise<Locator> {
+  const item = fileItem(page, filePath);
+  const header = fileHeader(page, filePath);
+  const onScreen = async () => {
+    if (await header.count() === 0) return false;
+    return item.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    }).catch(() => false);
+  };
+  if (!(await onScreen())) {
+    const picker = page.locator('#mobileFilePicker');
+    if (await picker.isVisible()) {
+      await picker.selectOption(filePath);
+    } else {
+      const tree = page.locator(`.tree-file[data-tree-path="${cssAttr(filePath)}"]`);
+      await expect(tree).toBeVisible({ timeout: 10_000 });
+      await tree.click();
+    }
+  }
+  await expect(header).toBeVisible({ timeout: 15_000 });
+  return item;
+}
+
+// The fixture's usual files, brought into view.
+export function mdSection(page: Page) { return revealFile(page, 'plan.md'); }
+export function goSection(page: Page) { return revealFile(page, 'server.go'); }
+export function jsSection(page: Page) { return revealFile(page, 'handler.js'); }
+
+export type DiffSide = 'new' | 'old';
+
+// Content cell of one line. Split diffs put each side in its own
+// code[data-additions|data-deletions]; unified uses one code[data-unified]
+// where data-line is the line number on the row's own side; a whole-file
+// item (files mode) has a single side-less code[data-code].
+const FILE_CODE = 'code[data-code]:not([data-additions]):not([data-deletions]):not([data-unified])';
+
+export function diffLine(item: Locator, line: number, side: DiffSide = 'new'): Locator {
+  const n = `[data-line="${line}"]`;
+  return side === 'old'
+    ? item.locator(`code[data-deletions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}[data-line-type="change-deletion"]`)
+    : item.locator(`code[data-additions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}:not([data-line-type="change-deletion"]), ${FILE_CODE} [data-content] > ${n}`);
+}
+
+// Line-number cell of one line (same side rules as diffLine).
+export function diffLineNumber(item: Locator, line: number, side: DiffSide = 'new'): Locator {
+  const n = `[data-column-number="${line}"]`;
+  return side === 'old'
+    ? item.locator(`code[data-deletions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}[data-line-type="change-deletion"]`)
+    : item.locator(`code[data-additions] [data-gutter] > ${n}, code[data-unified] [data-gutter] > ${n}:not([data-line-type="change-deletion"]), ${FILE_CODE} [data-gutter] > ${n}`);
+}
+
+// ----- Waiting out Pierre -----
+//
+// Pierre pauses pointer events on the list for a moment after any scroll
+// (it sets an inline pointer-events style under #filesContainer), and
+// virtualizes both files and the lines inside long files.
+
+/** The review pane: git mode scrolls #filesContainer (CodeView's scroll root), not the window. */
+export function reviewScroller(page: Page): Locator {
+  return page.locator('#filesContainer');
+}
+
+/** Wait two animation frames (let the virtualizer mount what scrolled into view). */
+export async function nextFrames(page: Page) {
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+}
+
+/** Wait until Pierre's post-scroll pointer-events pause lifts. */
+export async function waitForPointerEvents(page: Page) {
+  await expect.poll(() => page.evaluate(() =>
+    !document.querySelector('#filesContainer [style*="pointer-events"]'),
+  )).toBe(true);
+}
+
+// Whether a hit test at the element's centre lands on it (or inside it).
+// Uses the element's own root so shadow-DOM lines hit-test correctly.
+function hitsCentre(target: Locator, timeout?: number): Promise<boolean> {
+  return target.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    const root = el.getRootNode() as Document | ShadowRoot;
+    const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!hit && el.contains(hit);
+  }, undefined, { timeout });
+}
+
+/** Wait until the element receives pointer hits at its centre (the list is interactive again). */
+export async function waitUntilHittable(target: Locator) {
+  await expect.poll(() => hitsCentre(target)).toBe(true);
+}
+
+/**
+ * Click only once the element is actually the hit target at its centre, so
+ * the click lands exactly once (Pierre ignores pointer events after a scroll).
+ */
+export async function clickWhenHittable(page: Page, target: Locator) {
+  await expect(async () => {
+    await target.scrollIntoViewIfNeeded({ timeout: 1000 });
+    expect(await hitsCentre(target, 1000)).toBe(true);
+  }).toPass({ timeout: 10_000 });
+  const box = await target.boundingBox();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+}
+
+/** Scroll `target` to the centre, wait for pointer events, and tap its centre. */
+export async function tapCenter(page: Page, target: Locator) {
+  // The row can re-render under us (hover/selection state), so re-resolve
+  // until it is on screen and measurable.
+  // Pierre can still be settling layout after the scroll (neighbours
+  // hydrating), so tap only once the row holds its position for a frame and
+  // is what the point hits.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect(async () => {
+    await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await waitForPointerEvents(page);
+    const first = await target.boundingBox();
+    await nextFrames(page);
+    box = await target.boundingBox();
+    expect(first && box && Math.abs(first.y - box.y) < 1).toBe(true);
+    const hits = await target.evaluate((el, p) => {
+      const root = el.getRootNode() as Document | ShadowRoot;
+      const hit = root.elementFromPoint(p.x, p.y);
+      return !!hit && (hit === el || el.contains(hit));
+    }, { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 });
+    expect(hits).toBe(true);
+  }).toPass({ timeout: 10_000 });
+  await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+}
+
+/**
+ * Pierre virtualizes lines inside long files: scroll the pane down until the
+ * line is rendered, then bring it on screen.
+ */
+export async function showLine(page: Page, line: Locator) {
+  await expect.poll(async () => {
+    if (await line.count() > 0) return true;
+    await reviewScroller(page).evaluate(el => el.scrollBy(0, 200));
+    return false;
+  }, { timeout: 15_000 }).toBe(true);
+  // The row can re-mount while the list settles; retry until it holds.
+  await expect(async () => {
+    await line.first().scrollIntoViewIfNeeded({ timeout: 1000 });
+    await expect(line.first()).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+}
+
+/**
+ * Wait until the review pane's scroll offset and height hold still for a few
+ * frames (re-layout after an update, virtualized items mounting).
+ */
+export async function waitForScrollStable(page: Page) {
+  await reviewScroller(page).evaluate((el) => new Promise<void>((resolve) => {
+    let last = '';
+    let stable = 0;
+    const check = () => {
+      const now = `${el.scrollTop}:${el.scrollHeight}`;
+      if (now === last) {
+        if (++stable >= 5) return resolve();
+      } else {
+        stable = 0;
+        last = now;
+      }
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  }));
+}
+
+/**
+ * Switch the global Split/Unified toggle and wait until the mounted Pierre
+ * items have re-rendered in that layout.
+ */
+export async function setDiffStyle(page: Page, mode: 'split' | 'unified') {
+  const btn = page.locator(`#diffModeToggle .toggle-btn[data-mode="${mode}"]`);
+  await expect(btn).toBeVisible();
+  await btn.click();
+  await expect(btn).toHaveClass(/active/);
+  const unified = reviewScroller(page).locator('diffs-container code[data-unified]');
+  if (mode === 'unified') await expect(unified.first()).toBeAttached();
+  else await expect(unified).toHaveCount(0);
+}
+
+// Settle, then press at coordinates: Playwright's actionability scroll
+// counts as a scroll for Pierre's pointer-events pause.
+async function pressAt(page: Page, target: Locator) {
+  // A row can intersect the viewport while the sticky file header covers it.
+  // Centre it rather than trusting native actionability's visible rectangle.
+  await target.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await waitForPointerEvents(page);
+  await waitUntilHittable(target);
+  await expect.poll(async () => {
+    const box = await target.boundingBox();
+    if (!box) return false;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    return true;
+  }).toBe(true);
+  await nextFrames(page);
+}
+
+/** The gutter "+" for a line: hover the line, then the utility button. */
+export async function hoverLine(page: Page, item: Locator, line: number, side: DiffSide = 'new'): Promise<Locator> {
+  const content = diffLine(item, line, side).first();
+  await expect(content).toBeVisible();
+  const button = item.locator('[data-utility-button]');
+  await expect(async () => {
+    await pressAt(page, content);
+    await expect(button).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 10_000 });
+  return button;
+}
+
+/** Open a line comment form through the gutter "+" and return the form. */
+export async function openLineComment(page: Page, item: Locator, line: number, side: DiffSide = 'new'): Promise<Locator> {
+  // Layout/highlighting can remount the utility between the hover assertion
+  // and measuring it. Retry preparation, then click exactly once.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect(async () => {
+    const button = await hoverLine(page, item, line, side);
+    box = await button.boundingBox();
+    expect(box).toBeTruthy();
+    expect(await hitsCentre(button)).toBe(true);
+  }).toPass({ timeout: 10_000 });
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  const form = page.locator('#filesContainer .comment-form').last();
+  await expect(form.locator('textarea')).toBeVisible();
+  return form;
+}
+
+/** Drag the gutter "+" from one line to another to open a range form. */
+export async function dragLineRange(page: Page, item: Locator, from: number, to: number, side: DiffSide = 'new'): Promise<Locator> {
+  const button = await hoverLine(page, item, from, side);
+  const start = await button.boundingBox();
+  const end = await diffLineNumber(item, to, side).first().boundingBox();
+  expect(start && end).toBeTruthy();
+  await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start!.x + start!.width / 2, end!.y + end!.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const form = page.locator('#filesContainer .comment-form').last();
+  await expect(form.locator('textarea')).toBeVisible();
+  return form;
+}
+
+/** The line Pierre marks selected (keyboard focus / visual range). */
+export function selectedLines(page: Page): Locator {
+  return page.locator('diffs-container [data-content] > [data-selected-line]');
+}
+
+/** plan.md's rendered document (Document view). */
+export function mdDocument(page: Page): Locator {
+  return page.locator('[id="file-section-plan.md"].pierre-document');
+}
+
+// In git mode, markdown defaults to diff view. Switch plan.md to Document
+// view and return the rendered document (.pierre-document).
+export async function switchToDocumentView(page: Page): Promise<Locator> {
+  await mdSection(page);
+  const docBtn = fileHeader(page, 'plan.md').locator('.file-header-toggle .toggle-btn[data-mode="document"]');
   await expect(docBtn).toBeVisible();
   await docBtn.click();
-  await expect(section.locator('.document-wrapper')).toBeVisible();
+  const doc = mdDocument(page);
+  await expect(doc.locator('.document-wrapper')).toBeVisible();
+  return doc;
 }
 
 // Perform a mouse drag between two elements (for gutter range selection).
@@ -93,12 +363,6 @@ export async function clearFocus(page: Page) {
   await page.locator('body').click({ position: { x: 0, y: 0 } });
 }
 
-export async function focusKbNavByJ(page: Page, presses: number) {
-  for (let i = 0; i < presses; i++) {
-    await page.keyboard.press('j');
-  }
-}
-
 async function kbNavIndex(page: Page, locator: ReturnType<Page['locator']>) {
   return locator.evaluate(el => Array.from(document.querySelectorAll('.kb-nav')).indexOf(el));
 }
@@ -107,7 +371,34 @@ export async function focusKbNavElement(page: Page, locator: ReturnType<Page['lo
   await clearFocus(page);
   const index = await kbNavIndex(page, locator);
   expect(index).toBeGreaterThanOrEqual(0);
-  await focusKbNavByJ(page, index + 1);
+  for (let i = 0; i <= index; i++) await page.keyboard.press('j');
+}
+
+/**
+ * Press `key` until `reached()` holds, at most `max` times. With `state`,
+ * wait after each press until its value changes, so a slow re-render can't
+ * make the loop overshoot the target.
+ */
+export async function pressUntil(
+  page: Page,
+  key: string,
+  reached: () => Promise<boolean>,
+  { max = 200, state }: { max?: number; state?: () => Promise<unknown> } = {},
+): Promise<void> {
+  for (let i = 0; i < max; i++) {
+    if (await reached()) return;
+    const before = state && JSON.stringify(await state());
+    await page.keyboard.press(key);
+    if (state) await expect.poll(async () => JSON.stringify(await state())).not.toBe(before);
+  }
+  throw new Error(`pressed ${key} ${max} times without reaching the target`);
+}
+
+/** File paths in the file tree, in tree order. */
+export async function treePaths(page: Page): Promise<string[]> {
+  const tree = page.locator('.tree-file[data-tree-path]');
+  await expect(tree.first()).toBeVisible();
+  return tree.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.treePath!));
 }
 
 // Add a comment via API and return the created comment object.
@@ -127,25 +418,146 @@ export async function getMdPath(request: APIRequestContext): Promise<string> {
   return mdFile.path;
 }
 
-// Wait for document scroll height to stop changing (deferred bodies settled,
-// SSE-triggered rebuilds complete, etc.). Polls via requestAnimationFrame and
-// requires the height to be stable across consecutive frames.
-export async function waitForScrollStable(page: Page, { timeout = 5000 } = {}) {
-  await page.waitForFunction(() => {
-    return new Promise<boolean>(resolve => {
-      let lastH = -1;
-      let stableCount = 0;
-      const check = () => {
-        const h = document.documentElement.scrollHeight;
-        if (h === lastH && h > 0) {
-          if (++stableCount >= 3) return resolve(true);
-        } else {
-          stableCount = 0;
-          lastH = h;
-        }
-        requestAnimationFrame(check);
-      };
-      requestAnimationFrame(check);
+/**
+ * Submit a file-level comment from a file header, then check the new card is
+ * where the reader expects it: on screen and above the file's content (first
+ * line or rendered document). Counting cards is not enough: a card placed
+ * below a long document, or at a wrong scroll offset, still counts.
+ *
+ * `scope` holds the file-level threads and form (a Pierre item, or a story
+ * file group); `content` is the file's first visible line or document.
+ */
+export async function submitFileLevelComment(
+  page: Page,
+  opts: { header: Locator; scope: Locator; content: Locator; body: string },
+): Promise<Locator> {
+  await opts.header.locator('.file-comment-btn').click();
+  const textarea = opts.scope.locator('.comment-form textarea');
+  await expect(textarea).toBeVisible();
+  // A reopened composer must be empty, not the previous submitted form.
+  await expect(textarea).toHaveValue('');
+  // The composer lines up with the file's existing comments.
+  const existing = opts.scope.locator('.comment-card').first();
+  if (await existing.count()) {
+    const form = await opts.scope.locator('.comment-form').boundingBox();
+    const card = await existing.boundingBox();
+    expect(Math.abs(form!.x - card!.x), 'form and comments share a left edge').toBeLessThan(2);
+    expect(Math.abs(form!.width - card!.width), 'form and comments share a width').toBeLessThan(2);
+  }
+  await textarea.fill(opts.body);
+  await opts.scope.locator('.comment-form .btn-primary').click();
+  await expect(opts.scope.locator('.comment-form')).toHaveCount(0);
+
+  const card = opts.scope.locator('.comment-card', { hasText: opts.body });
+  await expect(card).toHaveCount(1);
+  await expect(card).toBeInViewport();
+  await expect.poll(async () => {
+    const c = await card.boundingBox();
+    const t = await opts.content.boundingBox();
+    return !!c && !!t && c.y + c.height <= t.y + 1;
+  }, { message: 'file-level card should sit above the file content' }).toBe(true);
+  // Centered in its area (like classic Crit), with some margin on each side.
+  const gaps = await card.evaluate(el => {
+    const item = el.closest('.pierre-file-level, .file-comments > *')!;
+    const area = item.parentElement!;
+    const cs = getComputedStyle(area);
+    const a = area.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return {
+      left: r.left - (a.left + parseFloat(cs.paddingLeft)),
+      right: (a.right - parseFloat(cs.paddingRight)) - r.right,
+      outer: r.left - a.left,
+    };
+  });
+  expect(Math.abs(gaps.left - gaps.right), 'file-level card is centered').toBeLessThan(2);
+  expect(gaps.outer, 'file-level card has a left margin').toBeGreaterThanOrEqual(12);
+  return card;
+}
+
+// A registered range can still be detached or have no visible styling. Check
+// the mounted text and the underline that distinguishes it from the line tint.
+export async function expectPaintedQuote(page: Page) {
+  await expect.poll(() => page.evaluate(() => {
+    const ranges = [...(CSS.highlights.get('crit-quote') || [])];
+    return ranges.length > 0 && ranges.every(range => {
+      if (!(range instanceof Range) || !range.startContainer.isConnected) return false;
+      const element = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer as Element : range.startContainer.parentElement;
+      if (!element) return false;
+      const style = getComputedStyle(element, '::highlight(crit-quote)');
+      const box = range.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+        style.textDecorationLine === 'underline' && style.textDecorationThickness === '1.5px';
     });
-  }, { timeout });
+  })).toBe(true);
+}
+
+// Mouse-select part of one diff line's text (inside Pierre's shadow root),
+// then press c. Returns the selected text.
+//
+// Drag points come from the text itself (the gutter and hover "+" overlap the
+// start of the line box). Chromium occasionally ends a drag inside a shadow
+// root without a selection, so the gesture is retried from a slightly
+// different start until the browser reports a non-empty composed selection.
+export async function selectInLineAndPressC(page: Page, item: Locator, lineNo: number): Promise<string> {
+  const line = diffLine(item, lineNo);
+  let attempt = 0;
+  let selected = '';
+  await expect(async () => {
+    attempt++;
+    // Scroll via the (narrow) line number: scrolling the wide line element
+    // also scrolls the code column sideways, under the sticky gutter.
+    await diffLineNumber(item, lineNo).scrollIntoViewIfNeeded({ timeout: 1000 });
+    const pts = await line.evaluate((el, offset) => {
+      const nodes: Text[] = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      while ((n = walker.nextNode())) nodes.push(n as Text);
+      const text = nodes.map(t => t.data).join('');
+      const from = text.search(/\S/) + offset;
+      const to = Math.min(text.length - 2, from + 20);
+      const at = (idx: number) => {
+        let i = idx;
+        for (const t of nodes) {
+          if (i < t.data.length) {
+            const r = document.createRange();
+            r.setStart(t, i);
+            r.setEnd(t, i + 1);
+            const b = r.getBoundingClientRect();
+            return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+          }
+          i -= t.data.length;
+        }
+        return null;
+      };
+      const start = at(from);
+      const end = at(to);
+      if (!start || !end) return null;
+      // Only drag once Pierre has pointer events on (the document-level hit is
+      // the host) and the start point is this line's text.
+      const root = el.getRootNode() as ShadowRoot;
+      const hit = root.elementFromPoint(start.x, start.y);
+      if (document.elementFromPoint(start.x, start.y) !== root.host || !hit || !el.contains(hit)) return null;
+      return { start, end };
+    }, 1 + (attempt % 8));
+    expect(pts).toBeTruthy();
+    await page.mouse.move(pts!.start.x, pts!.start.y);
+    await page.mouse.down();
+    await page.mouse.move(pts!.end.x, pts!.end.y, { steps: 5 });
+    await page.mouse.up();
+    selected = await page.evaluate(() => {
+      const sel = window.getSelection()!;
+      const roots = Array.from(document.querySelectorAll('diffs-container'))
+        .map(h => h.shadowRoot).filter((r): r is ShadowRoot => !!r);
+      const [r] = sel.getComposedRanges({ shadowRoots: roots });
+      if (!r) return '';
+      const live = document.createRange();
+      live.setStart(r.startContainer, r.startOffset);
+      live.setEnd(r.endContainer, r.endOffset);
+      return live.toString();
+    });
+    expect(selected.trim()).not.toBe('');
+  }).toPass({ timeout: 15_000 });
+  await page.keyboard.press('c');
+  return selected;
 }
