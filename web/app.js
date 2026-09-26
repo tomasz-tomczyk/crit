@@ -504,6 +504,9 @@
 
   function removeForm(key) {
     activeForms = activeForms.filter(function(f) { return f.formKey !== key; });
+    // A reopened composer has the same key but a new model and empty draft.
+    // Do not reuse the old textarea or callbacks after submit/cancel.
+    if (pierreView) pierreView.forgetAnnotation('form:' + key);
   }
 
   function getFormsForFile(filePath) {
@@ -620,7 +623,7 @@
   }
 
   // Load a single file's content, comments, and diff from the API.
-  async function loadSingleFile(fi, scope) {
+  async function loadSingleFile(fi, scope, signal) {
     // Orphaned files have no content or diff — only fetch comments
     if (fi.orphaned) {
       const comments = await fetch('/api/file/comments?path=' + enc(fi.path))
@@ -659,10 +662,11 @@
       diffUrl += '&w=1';
     }
     const [fileRes, commentsRes, diffRes] = await Promise.all([
-      fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
-      fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
-      fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
+      fetch('/api/file?path=' + enc(fi.path), { signal }).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
+      fetch('/api/file/comments?path=' + enc(fi.path), { signal }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+      fetch(diffUrl, { signal }).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
     ]);
+    if (signal && signal.aborted) return null;
     const content = Object.prototype.hasOwnProperty.call(diffRes, 'content')
       ? diffRes.content
       : (fileRes.content || '');
@@ -1105,6 +1109,7 @@
     renderFileTree();
     // The Pierre bundle loads as an ES module in parallel with this script.
     if (window.critPierreReady) await window.critPierreReady;
+    applyCritPalette();
     renderAllFiles();
     buildToc();
     updateCommentCount();
@@ -1595,13 +1600,17 @@
     }
   }
 
-  function scrollToFile(filePath) {
+  async function scrollToFile(filePath) {
+    // The tree remains available while a scope/view reload rebuilds the list.
+    // Preserve a click made during that reload instead of dropping it when
+    // the old viewer has already been disposed.
+    while (reloadInFlight) await reloadInFlight;
     if (!pierreView || !pierreViewActive()) return;
     const file = getFileByPath(filePath);
     if (file && file.collapsed) pierreView.setCollapsed(file, false);
     ignoreTreeObserverUntil = Date.now() + 400;
     updateTreeActive(filePath);
-    pierreView.scrollToFile(filePath);
+    return pierreView.scrollToFile(filePath);
   }
 
   function renderAllFiles() {
@@ -1625,7 +1634,7 @@
   // forms, drafts, viewed, keyboard) and hands Pierre annotations, a custom
   // header and callbacks via window.crit.pierreView. See docs/frontend-js.md.
   let pierreView = null;
-  let pierreWorkerPool = null;
+  let pierreWorkerController = null;
   let pierreUnsubscribeTree = null;
 
   // The review list always renders through Pierre (git and files mode; the
@@ -1819,6 +1828,8 @@
     const comment = file.comments.find(function(c) { return c.id === commentId; });
     if (!comment) return null;
     const el = comment.resolved ? createResolvedElement(comment, filePath) : createCommentElement(comment, filePath);
+    if (el) el.classList.add('pierre-annotation');
+    if (el && comment.scope === 'file') el.classList.add('pierre-file-level');
     if (el && comment.scope !== 'file') el.classList.add(comment.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
     return el;
   }
@@ -1864,6 +1875,8 @@
     const form = activeForms.find(function(f) { return f.formKey === key; });
     if (!form) return null;
     const el = form.scope === 'file' ? createFileCommentForm(form) : createCommentForm(form);
+    el.classList.add('pierre-annotation');
+    if (form.scope === 'file') el.classList.add('pierre-file-level');
     if (form.scope !== 'file') el.classList.add(form.side === 'old' ? 'diff-comment-left' : 'diff-comment-right');
     return el;
   }
@@ -1872,7 +1885,7 @@
     const file = getFileByPath(filePath);
     if (!file) return null;
     const header = document.createElement('div');
-    header.className = 'file-header pierre-file-header' + (file.collapsed ? ' collapsed' : '');
+    header.className = 'file-header crit-review-file-header pierre-file-header' + (file.collapsed ? ' collapsed' : '');
     header.dataset.filePath = filePath;
     populateFileHeader(file, header);
     header.addEventListener('click', function(e) {
@@ -1884,37 +1897,64 @@
 
   // Load a lazy file's diff/content without touching the DOM; Pierre swaps
   // the stub item in place once this resolves.
-  function loadPierreFile(filePath) {
-    const file = getFileByPath(filePath);
-    if (!file || !file.lazy) return Promise.resolve(file);
-    return loadSingleFile({
-      path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType,
-      additions: file.additions, deletions: file.deletions, generated: file.generated,
-    }, currentFileDataScope()).then(function(loaded) {
-      const current = getFileByPath(filePath);
-      if (!current) return null;
-      const keep = { viewed: current.viewed, collapsed: current.collapsed };
-      Object.assign(current, loaded, keep, { lazy: false });
-      updateTreeCommentBadges(filePath);
-      return current;
+  const pierreLoader = window.crit.pierreRuntime.createLoader({
+    getFile: getFileByPath,
+    load: function(file, signal) {
+      return loadSingleFile({
+        path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType,
+        additions: file.additions, deletions: file.deletions, generated: file.generated,
+      }, currentFileDataScope(), signal);
+    },
+    changed: updateTreeCommentBadges,
+  });
+  const loadPierreFile = pierreLoader.load;
+
+  function pierreDisplayOptions() {
+    return Object.assign(window.crit.pierreAdapter.displayOptions(getSetting), {
+      theme: window.crit.themeBoost.themes(window.PierreDiffs,
+        window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
+        getSetting('boostContrast', 'off') === 'on'),
     });
   }
 
+  function pierreListLayout() {
+    const styles = getComputedStyle(document.getElementById('filesContainer'));
+    return {
+      gap: 18,
+      paddingTop: parseFloat(styles.getPropertyValue('--crit-review-pad-top')) || 26,
+      paddingBottom: parseFloat(styles.getPropertyValue('--crit-review-pad-bottom')) || 80,
+    };
+  }
+
   function ensurePierreWorkerPool() {
-    if (!pierreWorkerPool) {
-      pierreWorkerPool = window.PierreDiffs.getOrCreateWorkerPoolSingleton({
-        poolOptions: {
-          workerFactory: function() { return new Worker('pierre/pierre-worker.js', { type: 'module' }); },
-          poolSize: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1)),
+    if (!pierreWorkerController) {
+      pierreWorkerController = window.crit.pierreRuntime.createWorkerController({
+        create: function() {
+          const display = pierreDisplayOptions();
+          return window.PierreDiffs.getOrCreateWorkerPoolSingleton({
+            poolOptions: {
+              workerFactory: function() { return new Worker('pierre/pierre-worker.js', { type: 'module' }); },
+              poolSize: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1)),
+            },
+            highlighterOptions: {
+              theme: display.theme,
+              lineDiffType: display.lineDiffType,
+              preferredHighlighter: 'shiki-js',
+            },
+          });
         },
-        highlighterOptions: {
-          theme: window.crit.pierreAdapter.THEME,
-          lineDiffType: 'word-alt',
-          preferredHighlighter: 'shiki-js',
+        onFailure: function(error) {
+          console.warn('Highlight workers unavailable; rendering without workers.', error);
+          window.crit.codeHighlight.configure({ pool: ensurePierreWorkerPool });
+          requestAnimationFrame(function() {
+            disposePierreView();
+            renderAllFiles();
+            if (storyActive()) renderStory();
+          });
         },
       });
     }
-    return pierreWorkerPool;
+    return pierreWorkerController.get();
   }
 
   function ensurePierreView() {
@@ -1922,12 +1962,16 @@
     const P = window.PierreDiffs;
     const container = document.getElementById('filesContainer');
     container.innerHTML = '';
+    const display = pierreDisplayOptions();
     pierreView = window.crit.pierreView.createPierreView({
       pierre: P,
       root: container,
       workerPool: ensurePierreWorkerPool(),
       diffStyle: diffMode,
       themeType: window.crit.pierreAdapter.themeTypeFor(getSetting('theme', 'system')),
+      ...display,
+      layout: pierreListLayout(),
+      itemMetrics: { paddingTop: 0, paddingBottom: 0 },
       annotations: pierreAnnotationsFor,
       prepareHunks: pierrePreparedHunks,
       isDocumentView: function(file) { return pierreIsDocumentView(file) || !!pierrePlaceholderText(file); },
@@ -1949,6 +1993,8 @@
         if (!filePath || !range) return;
         openForm({ filePath: filePath, afterBlockIndex: null, startLine: range.startLine, endLine: range.endLine, side: range.side });
       },
+      onLineNumberClick: function(props, filePath) { pierreTouchComment(props, filePath); },
+      onLineEnter: pierreLineEnter,
     });
     if (pierreUnsubscribeTree) pierreUnsubscribeTree();
     let treeSyncQueued = false;
@@ -2132,68 +2178,6 @@
     });
   }
 
-  // Select-to-comment inside Pierre's shadow roots. window.getSelection()
-  // can't see into them; getComposedRanges() can. Produces the same quote /
-  // quoteOffset semantics as the light-DOM path (tryOpenFormFromSelection).
-  function pierreSelectionForComment(selection) {
-    // Chromium reports a selection inside a shadow root as collapsed on the
-    // Selection itself; only the composed range knows its real extent.
-    if (!selection || selection.rangeCount === 0 || typeof selection.getComposedRanges !== 'function') return null;
-    // Every Pierre host: the review list and story chapter diffs.
-    const hosts = Array.from(document.querySelectorAll('diffs-container'));
-    const ranges = selection.getComposedRanges({ shadowRoots: hosts.map(function(h) { return h.shadowRoot; }).filter(Boolean) });
-    if (!ranges || ranges.length === 0 || ranges[0].collapsed) return null;
-    const r = ranges[0];
-    const lineEl = function(node) {
-      const el = node && (node.nodeType === 1 ? node : node.parentElement);
-      return el ? el.closest('[data-line]') : null;
-    };
-    const startEl = lineEl(r.startContainer);
-    const endEl = lineEl(r.endContainer);
-    if (!startEl || !endEl) return null;
-    const root = endEl.getRootNode();
-    if (root !== startEl.getRootNode() || !root.host) return null;
-    const filePath = root.host.dataset.critPath;
-    if (!filePath) return null;
-    const isOld = function(el) { return !!el.closest('code[data-deletions]') || el.dataset.lineType === 'change-deletion'; };
-    const side = isOld(endEl) ? 'old' : '';
-    const a = parseInt(startEl.dataset.line, 10);
-    const b = parseInt(endEl.dataset.line, 10);
-    const startLine = Math.min(a, b);
-    const endLine = Math.max(a, b);
-
-    // Line elements for the range on the chosen side, in order.
-    const contentEls = Array.from(root.querySelectorAll('[data-line]')).filter(function(el) {
-      const n = parseInt(el.dataset.line, 10);
-      return n >= startLine && n <= endLine && isOld(el) === (side === 'old');
-    });
-    const live = document.createRange();
-    live.setStart(r.startContainer, r.startOffset);
-    live.setEnd(r.endContainer, r.endOffset);
-    const selectedText = live.toString().trim();
-    const fullText = contentEls.map(function(el) { return el.textContent.trim(); }).join('\n');
-    let quote = null;
-    let quoteOffset = null;
-    if (selectedText && selectedText.replace(/\s+/g, ' ') !== fullText.trim().replace(/\s+/g, ' ') && selectedText.length <= 300) {
-      quote = selectedText;
-      let charsBefore = 0;
-      for (let i = 0; i < contentEls.length; i++) {
-        if (i > 0) charsBefore++;
-        if (!contentEls[i].contains(r.startContainer)) { charsBefore += contentEls[i].textContent.length; continue; }
-        const walker = document.createTreeWalker(contentEls[i], NodeFilter.SHOW_TEXT, null);
-        let tn;
-        while ((tn = walker.nextNode())) {
-          if (tn === r.startContainer) { charsBefore += r.startOffset; break; }
-          charsBefore += tn.textContent.length;
-        }
-        const rawAll = contentEls.map(function(el) { return el.textContent; }).join(' ');
-        quoteOffset = rawAll.slice(0, charsBefore).replace(/\s+/g, ' ').trimStart().length;
-        break;
-      }
-    }
-    return { filePath: filePath, startLine: startLine, endLine: endLine, side: side, quote: quote, quoteOffset: quoteOffset };
-  }
-
   // Inline (non-virtualized) Pierre FileDiff for a story chapter group
   // (filtered hunks; #storyPane scrolls). The group keeps Crit's header and
   // re-renders as a whole on comment changes, so no element cache is needed.
@@ -2203,9 +2187,11 @@
     container.className = 'pierre-story-diff';
     const annotations = pierreAnnotationsFor(clone).filter(function(a) { return a.lineNumber !== 0; });
     const A = window.crit.pierreAdapter;
-    const diff = new P.FileDiff(Object.assign(A.baseOptions(A.themeTypeFor(getSetting('theme', 'system')), diffMode), {
+    const diff = new P.FileDiff(Object.assign(A.baseOptions(A.themeTypeFor(getSetting('theme', 'system')), diffMode), pierreDisplayOptions(), {
       disableFileHeader: true,
       unsafeCSS: PIERRE_UNSAFE_CSS,
+      onLineNumberClick: function(props) { pierreTouchComment(props, clone.path); },
+      onLineEnter: pierreLineEnter,
       onPostRender: function(node, _instance, phase) { onPierrePostRender(clone.path, node, phase); },
       renderAnnotation: function(annotation) {
         const m = annotation.metadata;
@@ -2227,43 +2213,24 @@
 
   // Line element inside a Crit-hosted Pierre FileDiff (story group or
   // files-mode inline diff). side: 'old' → deletions column.
-  function pierreLineElement(container, line, side) {
-    const host = container && container.querySelector('diffs-container');
-    const root = host && host.shadowRoot;
-    if (!root) return null;
-    const column = side === 'old' ? 'code[data-deletions]' : 'code[data-additions]';
-    return root.querySelector(column + ' [data-line="' + line + '"]') ||
-      root.querySelector('[data-line="' + line + '"][data-line-type' + (side === 'old' ? '="change-deletion"' : '') + ']');
-  }
+
 
   // ----- Quote highlights inside Pierre (CSS Custom Highlight API) -----
   // Comments created from a text selection carry `quote` (+ quote_offset).
   // Pierre owns the code DOM (shadow roots, virtualized), so instead of
   // wrapping text in <mark> we register Ranges with CSS.highlights; the
   // ::highlight(crit-quote) rule is injected into Pierre via unsafeCSS.
-  const PIERRE_QUOTE_HIGHLIGHT = 'crit-quote';
-  // Styles injected into Pierre's shadow roots: quote highlights, readable
-  // line numbers, and on touch
-  // (no hover, so no hover "+") the same "+" cue before commentable line
-  // numbers as the classic views, with touch-action:none so the browser's
-  // gesture recognizer can't cancel the tap (see attachPierrePointerHandlers).
-  const PIERRE_UNSAFE_CSS =
-    '::highlight(' + PIERRE_QUOTE_HIGHLIGHT + ') { background-color: var(--crit-quote-highlight-bg); }' +
-    // An unfetched file's stub rows are blank filler sized to the real diff;
-    // show only its "Loading diff" note (crit-pierre-view.js stubDiffFor).
-    ':host([data-crit-stub]) [data-gutter], :host([data-crit-stub]) [data-content] { visibility: hidden; }' +
-    // Line numbers default to 65% of the text colour, under WCAG AA on tinted
-    // gutters (85% clears it); the "N unmodified lines" label sits on the
-    // lighter separator strip, so it takes the full text colour.
-    ':host { --diffs-fg-number-override: color-mix(in lab, var(--diffs-fg) 85%, var(--diffs-bg)); }' +
-    '[data-unmodified-lines] { color: var(--diffs-fg); }' +
-    '@media (pointer: coarse) {' +
-    '  [data-gutter] > [data-column-number] { touch-action: none; }' +
-    '  [data-gutter] > [data-column-number] [data-line-number-content]::before { content: "+"; display: inline-block; width: 1.2ch;' +
-    '    color: var(--crit-editor-fg-muted); opacity: 0.6; font-weight: 700; pointer-events: none; }' +
-    '  [data-utility-button] { display: none; }' +
-    '}';
-  const pierreQuoteRanges = new Map(); // host element → Range[]
+  const PIERRE_UNSAFE_CSS = window.crit.pierreDOM.unsafeCSS;
+  const pierreDecorations = window.crit.pierreDOM.createDecorations();
+
+  function pierreQuotedComments(file) {
+    if (!file) return [];
+    const quoted = (file.comments || []).filter(function(c) { return c.quote && !c.resolved && c.scope !== 'file'; })
+      .map(function(c) { return { start: c.start_line, end: c.end_line, side: c.side || '', quote: c.quote, offset: c.quote_offset }; })
+      .concat(getFormsForFile(file.path).filter(function(f) { return f.quote && !f.editingId; })
+        .map(function(f) { return { start: f.startLine, end: f.endLine, side: f.side || '', quote: f.quote, offset: f.quoteOffset }; }));
+    return quoted;
+  }
 
   // Selectors for line ranges ({ start, end, old }) of a file's Pierre item.
   // Split (and whole-file items) tint that side's lines only. Unified tints
@@ -2272,49 +2239,7 @@
   // not pulled into an old-side range: Pierre places each deletion next to
   // its most similar addition, so additions that sit between two deleted
   // lines in git's order can be drawn outside the range.
-  function pierreLineSelectors(file, ranges, unified) {
-    const host = ':host([data-crit-path="' + CSS.escape(file.path) + '"]) ';
-    const row = function(code, n, type) {
-      return host + code + ' [data-content] > [data-line="' + n + '"]' + (type ? '[data-line-type="' + type + '"]' : '');
-    };
-    const out = [];
-    if (pierreIsFileView(file)) {
-      ranges.forEach(function(r) {
-        for (let ln = r.start; ln <= r.end; ln++) out.push(row('code[data-code]', ln));
-      });
-      return out;
-    }
-    if (!unified) {
-      ranges.forEach(function(r) {
-        const code = r.old ? 'code[data-deletions]' : 'code[data-additions]';
-        for (let ln = r.start; ln <= r.end; ln++) out.push(row(code, ln));
-      });
-      return out;
-    }
-    // Unified: walk the displayed rows in order (per hunk: context, then the
-    // deletions of a change block, then its additions).
-    const rows = [];
-    const hunks = pierrePreparedHunks(file);
-    for (let h = 0; h < hunks.length; h++) rows.push.apply(rows, hunks[h].Lines || []);
-    ranges.forEach(function(r) {
-      const inRange = function(l) {
-        const n = r.old ? (l.Type === 'add' ? null : l.OldNum) : (l.Type === 'del' ? null : l.NewNum);
-        return n !== null && n >= r.start && n <= r.end;
-      };
-      let first = -1;
-      let last = -1;
-      for (let i = 0; i < rows.length; i++) {
-        if (inRange(rows[i])) { if (first < 0) first = i; last = i; }
-      }
-      for (let i = first; first >= 0 && i <= last; i++) {
-        const l = rows[i];
-        if (l.Type === 'del') out.push(row('code[data-unified]', l.OldNum, 'change-deletion'));
-        else if (l.Type === 'add') { if (!r.old) out.push(row('code[data-unified]', l.NewNum, 'change-addition')); }
-        else out.push(row('code[data-unified]', l.NewNum, 'context'));
-      }
-    });
-    return out;
-  }
+
 
   // Line tints, like the classic views: lines a comment covers, and the range
   // of each open form (form-selected, which wins). Pierre has no per-line
@@ -2341,7 +2266,7 @@
         (f.fileHash || '') + ':' + (f.diffHunks || []).length + ':' + f.viewMode;
       let hit = pierreRangeCache.get(f.path);
       if (!hit || hit.key !== key) {
-        hit = { key: key, commented: pierreLineSelectors(f, commentRanges, unified), forming: pierreLineSelectors(f, formRanges, unified) };
+        hit = { key: key, commented: window.crit.pierreDOM.pierreLineSelectors(f, commentRanges, unified, pierreIsFileView(f), pierrePreparedHunks(f)), forming: window.crit.pierreDOM.pierreLineSelectors(f, formRanges, unified, pierreIsFileView(f), pierrePreparedHunks(f)) };
         pierreRangeCache.set(f.path, hit);
       }
       commented.push.apply(commented, hit.commented);
@@ -2358,172 +2283,31 @@
   // changing Pierre's unsafeCSS option instead re-renders every item, and a
   // tall rendered document loses its measured height mid-render (the list
   // jumps).
-  const pierreRangeSheet = new CSSStyleSheet();
-  let pierreRangeCSS = '';
 
   function syncPierreCommentRanges() {
-    const css = pierreCommentRangeCSS();
-    if (css === pierreRangeCSS) return;
-    pierreRangeCSS = css;
-    pierreRangeSheet.replaceSync(css);
+    pierreDecorations.setRangeCSS(pierreCommentRangeCSS());
   }
-
-  function adoptPierreRangeSheet(root) {
-    if (root && root.adoptedStyleSheets.indexOf(pierreRangeSheet) === -1) {
-      root.adoptedStyleSheets = root.adoptedStyleSheets.concat(pierreRangeSheet);
-    }
-  }
-
-  function syncPierreQuoteHighlight() {
-    if (typeof CSS === 'undefined' || !CSS.highlights || typeof Highlight === 'undefined') return;
-    const all = [];
-    pierreQuoteRanges.forEach(function(ranges, host) {
-      if (!host.isConnected) { pierreQuoteRanges.delete(host); return; }
-      for (let i = 0; i < ranges.length; i++) all.push(ranges[i]);
-    });
-    if (all.length === 0) CSS.highlights.delete(PIERRE_QUOTE_HIGHLIGHT);
-    else CSS.highlights.set(PIERRE_QUOTE_HIGHLIGHT, new Highlight(...all));
-  }
-
-  // Ranges for every quoted comment/form of `file` rendered in `host`.
-  function pierreQuoteRangesFor(host, file) {
-    const root = host && host.shadowRoot;
-    if (!root || !file) return [];
-    const quoted = (file.comments || []).filter(function(c) { return c.quote && !c.resolved && c.scope !== 'file'; })
-      .map(function(c) { return { start: c.start_line, end: c.end_line, side: c.side || '', quote: c.quote, offset: c.quote_offset }; })
-      .concat(getFormsForFile(file.path).filter(function(f) { return f.quote && !f.editingId; })
-        .map(function(f) { return { start: f.startLine, end: f.endLine, side: f.side || '', quote: f.quote, offset: f.quoteOffset }; }));
-    const ranges = [];
-    for (let q = 0; q < quoted.length; q++) {
-      const item = quoted[q];
-      const column = item.side === 'old' ? 'code[data-deletions]' : 'code[data-additions]';
-      const lineEls = [];
-      for (let ln = item.start; ln <= item.end; ln++) {
-        const el = root.querySelector(column + ' [data-line="' + ln + '"]') ||
-          root.querySelector('code:not([data-deletions]):not([data-additions]) [data-line="' + ln + '"]');
-        if (el) lineEls.push(el);
-      }
-      const range = rangeForQuote(lineEls, item.quote, item.offset);
-      if (range) ranges.push(range);
-    }
-    return ranges;
-  }
-
-  // Find `quote` in the text of lineEls (joined by '\n') and return a Range
-  // over the matching text nodes. quote_offset (whitespace-normalized) picks
-  // between duplicate occurrences; the first match is the fallback.
-  function rangeForQuote(lineEls, quote, offset) {
-    if (lineEls.length === 0 || !quote) return null;
-    const nodes = [];
-    let text = '';
-    for (let i = 0; i < lineEls.length; i++) {
-      if (i > 0) text += '\n';
-      const walker = document.createTreeWalker(lineEls[i], NodeFilter.SHOW_TEXT, null);
-      let tn;
-      while ((tn = walker.nextNode())) {
-        nodes.push({ node: tn, start: text.length });
-        text += tn.textContent;
-      }
-    }
-    let at = -1;
-    if (typeof offset === 'number') {
-      let normalized = 0;
-      let lastWasSpace = true;
-      for (let i = 0; i < text.length && at < 0; i++) {
-        if (normalized >= offset && text.startsWith(quote, i)) at = i;
-        const space = /\s/.test(text[i]);
-        if (!(space && lastWasSpace)) normalized++;
-        lastWasSpace = space;
-      }
-    }
-    if (at < 0) at = text.indexOf(quote);
-    if (at < 0) return null;
-    const end = at + quote.length;
-    const locate = function(pos) {
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        if (nodes[i].start <= pos) return { node: nodes[i].node, offset: Math.min(pos - nodes[i].start, nodes[i].node.textContent.length) };
-      }
-      return null;
-    };
-    const a = locate(at);
-    const b = locate(end);
-    if (!a || !b) return null;
-    const range = new Range();
-    range.setStart(a.node, a.offset);
-    range.setEnd(b.node, b.offset);
-    return range;
-  }
-
   function onPierrePostRender(filePath, node, phase) {
-    const host = node && (node.shadowRoot ? node : (node.getRootNode && node.getRootNode().host));
+    const host = window.crit.pierreDOM.hostFor(node);
     if (!host) return;
-    const hadQuotes = pierreQuoteRanges.has(host);
-    if (phase === 'unmount') {
-      pierreQuoteRanges.delete(host);
-      if (hadQuotes) syncPierreQuoteHighlight();
-      return;
-    }
-    // Hosts are recycled across files; the handlers read the current one.
-    host.dataset.critPath = filePath;
-    adoptPierreRangeSheet(host.shadowRoot);
-    labelPierreControls(host.shadowRoot);
-    attachPierrePointerHandlers(host);
-    const ranges = pierreQuoteRangesFor(host, getFileByPath(filePath));
-    if (ranges.length) pierreQuoteRanges.set(host, ranges); else pierreQuoteRanges.delete(host);
-    if (hadQuotes || ranges.length) syncPierreQuoteHighlight();
+    if (phase === 'unmount') { pierreDecorations.unmount(host); return; }
+    pierreDecorations.mount(host, filePath, pierreQuotedComments(getFileByPath(filePath)));
     if (host.querySelector('.pierre-document')) {
       if (pierreStaleDocuments.has(filePath)) refreshPierreDocument(filePath);
       if (host.querySelector('.pierre-document code.language-mermaid')) renderMermaidBlocks();
     }
   }
 
-  // Pierre's icon-only controls have no accessible name.
-  function labelPierreControls(root) {
-    if (!root) return;
-    root.querySelectorAll('[data-expand-button]:not([aria-label])').forEach(function(b) {
-      b.setAttribute('aria-label', b.hasAttribute('data-expand-up') ? 'Expand up'
-        : b.hasAttribute('data-expand-down') ? 'Expand down' : 'Expand all hidden lines');
-    });
-    root.querySelectorAll('[data-utility-button]:not([aria-label])').forEach(function(b) {
-      b.setAttribute('aria-label', 'Add comment');
-    });
+  // Public Pierre callbacks handle touch commenting and hover focus.
+  function pierreTouchComment(props, filePath) {
+    if (!props.event || props.event.pointerType !== 'touch' || !filePath) return;
+    props.event.preventDefault();
+    openForm({ filePath: filePath, afterBlockIndex: null, startLine: props.lineNumber, endLine: props.lineNumber,
+      side: props.annotationSide === 'deletions' ? 'old' : undefined });
   }
 
-  // Per-host pointer handling, attached once (hosts are recycled):
-  // - mouse over code hides the keyboard-focus selection (hidePierreSelection);
-  // - touch: one tap on a line number opens a comment form for that line
-  //   (Pierre's "+" appears on hover, which touch doesn't have). A drag is a
-  //   scroll, not a tap.
-  function attachPierrePointerHandlers(host) {
-    if (host.critPointerHandlers || !host.shadowRoot) return;
-    host.critPointerHandlers = true;
-    host.shadowRoot.addEventListener('pointerover', function(e) {
-      if (e.pointerType === 'mouse' && !pierreVisualAnchor) hidePierreSelection();
-    });
-    let start = null;
-    host.shadowRoot.addEventListener('pointerdown', function(e) {
-      start = e.pointerType === 'touch' ? { x: e.clientX, y: e.clientY } : null;
-      // A tap on a line number opens a form (pointerup below). Cancel the
-      // tap's compatibility mouse events, or their mousedown on the gutter
-      // cell takes focus from the form's textarea. The cell is
-      // touch-action:none, so this does not affect scrolling.
-      if (start && e.target.closest && e.target.closest('[data-gutter] > [data-column-number]')) e.preventDefault();
-    });
-    host.shadowRoot.addEventListener('pointerup', function(e) {
-      if (e.pointerType !== 'touch' || !start) return;
-      const moved = Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y);
-      start = null;
-      if (moved > 10) return;
-      const cell = e.target.closest && e.target.closest('[data-gutter] > [data-column-number]');
-      const filePath = host.dataset.critPath;
-      if (!cell || !filePath) return;
-      const line = parseInt(cell.dataset.columnNumber, 10);
-      if (!line) return;
-      const code = cell.closest('code');
-      const old = cell.dataset.lineType === 'change-deletion' || (code && code.hasAttribute('data-deletions'));
-      e.preventDefault();
-      openForm({ filePath: filePath, afterBlockIndex: null, startLine: line, endLine: line, side: old ? 'old' : undefined });
-    });
+  function pierreLineEnter(props) {
+    if (props.event.pointerType === 'mouse' && !pierreVisualAnchor) hidePierreSelection();
   }
 
   // A form opened from a sticky file header (or the keyboard) may belong to
@@ -2602,6 +2386,7 @@
   }
 
   function disposePierreView() {
+    pierreLoader.invalidate();
     if (pierreUnsubscribeTree) { pierreUnsubscribeTree(); pierreUnsubscribeTree = null; }
     // The review conversation is CodeView's list header while the view is
     // up; put it back in front of the list before the view goes away.
@@ -2634,9 +2419,9 @@
     document.body.classList.add('pierre-review');
     renderReviewConversation();
     const view = ensurePierreView();
+    view.setRenderOptions(Object.assign(pierreDisplayOptions(), { layout: pierreListLayout() }));
     view.setDiffStyle(diffMode);
     syncPierreCommentRanges();
-    document.body.classList.toggle('pierre-unified', diffMode === 'unified');
     view.setFiles(files);
     files.forEach(function(f) { if (pierreIsDocumentView(f)) refreshPierreDocument(f.path); });
     rebuildNavList();
@@ -3593,17 +3378,9 @@
       commentGutter.dataset.endLine = block.endLine;
       commentGutter.dataset.filePath = file.path;
 
-      // Drag indicators: + at endpoints, blue line between
+      // Match Pierre: one gutter utility at the bottom of the selected range.
       if (dragState && dragState.filePath === file.path && selectionStart !== null && selectionEnd !== null) {
-        const isAnchorBlock = block.startLine <= dragState.anchorEndLine && block.endLine >= dragState.anchorStartLine;
-        const isCurrentBlock = block.startLine <= dragState.currentEndLine && block.endLine >= dragState.currentStartLine;
-        const inRange = block.startLine >= selectionStart && block.endLine <= selectionEnd;
-        if (isAnchorBlock || isCurrentBlock) commentGutter.classList.add('drag-endpoint');
-        if (inRange) {
-          commentGutter.classList.add('drag-range');
-          if (block.startLine === selectionStart) commentGutter.classList.add('drag-range-start');
-          if (block.endLine === selectionEnd) commentGutter.classList.add('drag-range-end');
-        }
+        if (block.startLine <= selectionEnd && block.endLine >= selectionEnd) commentGutter.classList.add('drag-endpoint');
       }
 
       const lineAdd = document.createElement('span');
@@ -3965,13 +3742,7 @@
       // Update the comment gutter within this line block
       const gutter = lb.querySelector('.line-comment-gutter');
       if (gutter && dragState && dragState.filePath === filePath && selectionStart !== null) {
-        const isAnchorBlock = startLine <= dragState.anchorEndLine && endLine >= dragState.anchorStartLine;
-        const isCurrentBlock = startLine <= dragState.currentEndLine && endLine >= dragState.currentStartLine;
-        const gutterInRange = startLine >= selectionStart && endLine <= selectionEnd;
-        gutter.classList.toggle('drag-endpoint', isAnchorBlock || isCurrentBlock);
-        gutter.classList.toggle('drag-range', gutterInRange);
-        gutter.classList.toggle('drag-range-start', gutterInRange && startLine === selectionStart);
-        gutter.classList.toggle('drag-range-end', gutterInRange && endLine === selectionEnd);
+        gutter.classList.toggle('drag-endpoint', startLine <= selectionEnd && endLine >= selectionEnd);
       }
     }
   }
@@ -7299,6 +7070,19 @@
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark';
   }
 
+  function mermaidOptions() {
+    if (!document.documentElement.dataset.critPalette) return { startOnLoad: false, theme: getMermaidTheme() };
+    const css = getComputedStyle(document.documentElement);
+    const role = function(name) { return css.getPropertyValue('--crit-palette-' + name).trim(); };
+    return { startOnLoad: false, theme: 'base', themeVariables: {
+      darkMode: getMermaidTheme() === 'dark', background: role('bg'),
+      primaryColor: role('surface'), primaryTextColor: role('fg'), primaryBorderColor: role('border'),
+      secondaryColor: role('elevated'), tertiaryColor: role('bg'), lineColor: role('muted'),
+      textColor: role('fg'), mainBkg: role('surface'), nodeBorder: role('border'),
+      edgeLabelBackground: role('bg'), fontFamily: css.getPropertyValue('--crit-font-body').trim(),
+    } };
+  }
+
   // Fenced code outside rendered documents (comment cards, replies, the
   // comments panel, PR description, story text) renders plain and is
   // highlighted once its grammar has loaded. One observer covers every place
@@ -7326,7 +7110,7 @@
     // theme) — close the overlay rather than show a stale diagram.
     closeMermaidOverlay();
     if (typeof mermaid === 'undefined') return;
-    mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
+    mermaid.initialize(mermaidOptions());
     const codes = document.querySelectorAll('code.language-mermaid');
     codes.forEach(function(code) {
       const pre = code.parentElement;
@@ -7630,6 +7414,13 @@
   function initTheme() {
     const saved = getSetting('theme', 'system');
     applyTheme(saved);
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function() {
+      if (getSetting('theme', 'system') === 'system') window.applyTheme('system');
+    });
+  }
+
+  function applyCritPalette() {
+    window.crit.themePalette.applySaved();
   }
 
   window.applyTheme = function(choice) {
@@ -7637,6 +7428,7 @@
     if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
+    applyCritPalette();
     if (pierreView) pierreView.setThemeType(window.crit.pierreAdapter.themeTypeFor(choice));
     if (storyActive() && window.PierreDiffs) renderStory();
 
@@ -7644,7 +7436,7 @@
     closeMermaidOverlay();
     // Re-initialize mermaid diagrams with updated theme
     if (typeof mermaid !== 'undefined') {
-      mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
+      mermaid.initialize(mermaidOptions());
       try { mermaid.run(); } catch {}
     }
   };
@@ -8843,6 +8635,23 @@
       syncPendingUpdateButtons: syncPendingUpdateButtons,
       announceCopy: announceCopy,
       escape: escapeHtml,
+      themePalettes: window.crit.palettes,
+      paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
+      onRendererSettingChange: async function(key, value) {
+        setSetting(key, value);
+        if (key === 'lightPalette' || key === 'darkPalette' || key === 'boostContrast') {
+          applyCritPalette();
+          const pool = ensurePierreWorkerPool();
+          if (pool) await pool.setRenderOptions({ theme: pierreDisplayOptions().theme });
+          window.crit.codeHighlight.configure({ pool: ensurePierreWorkerPool });
+          await reloadForScope();
+        } else {
+          const pool = ensurePierreWorkerPool();
+          if (key === 'inlineDiff' && pool) await pool.setRenderOptions({ lineDiffType: pierreDisplayOptions().lineDiffType });
+          renderAllFiles();
+          if (storyActive()) renderStory();
+        }
+      },
     };
     // Ignore-whitespace only applies to code diffs (git mode). Providing the
     // hooks + show flag only in git mode keeps the toggle out of file/preview
@@ -9138,7 +8947,7 @@
     const selection = window.getSelection();
     // Code lines (Pierre shadow roots, list or story); otherwise the light
     // DOM path below (rendered markdown documents).
-    const sel = pierreSelectionForComment(selection);
+    const sel = window.crit.pierreDOM.pierreSelectionForComment(selection);
     if (sel) {
       selection.removeAllRanges();
       openForm({
@@ -10476,7 +10285,7 @@
     if (!file || !file.collapsed) section.open = true;
 
     const header = document.createElement('summary');
-    header.className = 'file-header crit-story-file-header';
+    header.className = 'file-header crit-review-file-header crit-story-file-header';
     header.addEventListener('click', function (e) {
       if (e.target.closest('.file-header-toggle') || e.target.closest('.file-header-viewed') || e.target.closest('.file-comment-btn') || e.target.closest('.file-header-copy-path') || e.target.closest('.crit-story-elsewhere')) {
         e.preventDefault();
@@ -11035,7 +10844,7 @@
                 const pane = document.getElementById('storyPane');
                 if (!pane || !displayAnchor) return;
                 const group = pane.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(anchor.filePath) + '"]');
-                const el = pierreLineElement(group, displayAnchor.line, displayAnchor.side) ||
+                const el = window.crit.pierreDOM.pierreLineElement(group, displayAnchor.line, displayAnchor.side) ||
                   (side !== 'old' ? pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]') : null);
                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
               };

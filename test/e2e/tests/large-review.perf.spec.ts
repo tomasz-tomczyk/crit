@@ -168,7 +168,17 @@ test('scrolling a large review mounts bodies on demand and leaves the tail defer
   for (const y of DWELL_OFFSETS) {
     await page.locator('#filesContainer').evaluate((el, offset) => { el.scrollTop = offset; }, y);
     await waitForListStable(page);
-    await expect(page.locator('#filesContainer diffs-container [data-line]').first()).toBeVisible();
+    // CodeView overscans neighbouring items, which can still be hidden loading
+    // stubs. Require real hydrated code at this stop rather than the first
+    // synthetic row in DOM order.
+    await expect.poll(() => page.locator('#filesContainer diffs-container:not([data-crit-stub]) [data-line]')
+      .filter({ hasText: /\S/ }).evaluateAll(lines => {
+        const viewport = document.getElementById('filesContainer')!.getBoundingClientRect();
+        return lines.some(line => {
+          const box = line.getBoundingClientRect();
+          return box.height > 0 && box.bottom > viewport.top && box.top < viewport.bottom;
+        });
+      })).toBe(true);
     const work = await mountedWork(page);
     console.log(`scroll: y=${y} items=${work.items} rows=${work.rows} domNodes=${work.nodes} filesLoaded=${loaded.size}`);
     expectBounded(work);

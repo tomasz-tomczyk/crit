@@ -50,9 +50,15 @@ test.describe('Unified diff — comment range scoping', () => {
     const rows = item.locator('code[data-unified] [data-content] > [data-line]');
     await expect(rows.filter({ hasText: 'func Keep1() {}' })).toBeVisible();
     await expect(rows.filter({ hasText: 'func Old6() {}' })).toBeVisible();
-    await expect.poll(() => rows.evaluateAll(els => els
-      .filter(el => getComputedStyle(el).backgroundColor.includes('210, 153, 34'))
-      .map(el => `${(el as HTMLElement).dataset.line}:${(el as HTMLElement).dataset.lineType}:${el.textContent!.trim()}`)))
+    await expect.poll(() => rows.evaluateAll(els => {
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--crit-comment-range-bg)';
+      document.body.appendChild(probe);
+      const tint = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return els.filter(el => getComputedStyle(el).backgroundColor === tint)
+        .map(el => `${(el as HTMLElement).dataset.line}:${(el as HTMLElement).dataset.lineType}:${el.textContent!.trim()}`);
+    }))
       // Exactly one highlighted row: the context line, not the deletion that
       // shares its number, and no addition.
       .toEqual(['13:context:func Keep1() {}']);

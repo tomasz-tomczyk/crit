@@ -1751,6 +1751,15 @@
           cfg: cfg,
           hooks: {
             applyTheme: applyTheme,
+            // Light/dark theme choice (UI palette); live mode has no code view.
+            themePalettes: window.crit.palettes,
+            paletteDefaults: window.crit.themePalette && window.crit.palettes
+              ? window.crit.themePalette.pair({ lightPalette: shared.getSetting('lightPalette'), darkPalette: shared.getSetting('darkPalette') }, window.crit.palettes)
+              : undefined,
+            onRendererSettingChange: function (key, value) {
+              if (shared.setSetting) shared.setSetting(key, value);
+              if (shared.applyThemeFromCookie) shared.applyThemeFromCookie();
+            },
             getHideResolved: getHideResolved,
             setHideResolved: setHideResolved,
             onHideResolvedChange: function () {

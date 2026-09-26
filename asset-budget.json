@@ -46,11 +46,11 @@
   "globs": [
     {
       "pattern": "web/crit-*.js",
-      "gzipBytes": 85000,
+      "gzipBytes": 100000,
       "note": "shared renderer/comment/diff modules; catches module sprawl"
     }
   ],
   "totalJsGzipBytes": 1950000,
   "binaryBytes": 25165824,
-  "pierreDirBytes": 1500000
+  "pierreDirBytes": 1650000
 }

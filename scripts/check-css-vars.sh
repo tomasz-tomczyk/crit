@@ -19,7 +19,13 @@ DEAD_VAR_ALLOWLIST="
 --crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow
 --crit-live-reanchor-active-outline
 --crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg
---diffs-font-family --diffs-tab-size --diffs-token-light --diffs-token-dark
+--diffs-font-family --diffs-tab-size --diffs-token-light --diffs-token-dark --diffs-modified-color-override
+--crit-palette-bg --crit-palette-fg --crit-palette-accent --crit-palette-on-accent
+--crit-palette-muted --crit-palette-border --crit-palette-surface --crit-palette-elevated
+--crit-palette-red --crit-palette-green --crit-palette-yellow --crit-palette-orange --crit-palette-purple
+--crit-palette-shadow --crit-palette-overlay --crit-palette-blue --crit-palette-cyan
+--crit-palette-author-0 --crit-palette-author-1 --crit-palette-author-2
+--crit-palette-author-3 --crit-palette-author-4 --crit-palette-author-5
 "
 
 # Variables that legitimately exist in only some theme blocks (not in all 4
@@ -29,10 +35,10 @@ BLOCK_ALLOWLIST="--crit-dur-base --crit-dur-fast --crit-dur-slow --crit-ease --c
 # ── Extract refs and defs ───────────────────────────────────────────────────
 
 # All var(--xxx) references (POSIX ERE, works on macOS and Linux)
-REFS=$(grep -oE 'var\(--[a-zA-Z0-9_-]+' web/style.css web/style-live.css web/theme.css 2>/dev/null | sed 's/.*var(//' | sort -u)
+REFS=$(grep -oE 'var\(--[a-zA-Z0-9_-]+' web/style.css web/style-live.css web/theme.css web/crit-palette.css 2>/dev/null | sed 's/.*var(//' | sort -u)
 
 # All --xxx: definitions (use perl for lookahead, portable)
-DEFS=$(perl -nle 'print $1 if /^\s*(--[a-zA-Z0-9_-]+)\s*:/' web/theme.css web/style.css web/style-live.css 2>/dev/null | sort -u)
+DEFS=$(perl -nle 'print $1 if /^\s*(--[a-zA-Z0-9_-]+)\s*:/' web/theme.css web/style.css web/style-live.css web/crit-palette.css 2>/dev/null | sort -u)
 
 # Add dynamic vars to definitions for the undefined-ref check
 DEFS_PLUS_DYNAMIC="$DEFS"
@@ -199,3 +205,23 @@ if [ -n "$ERRORS" ]; then
 fi
 
 echo "OK: All theme variables defined in all 4 blocks."
+
+# Colours in component rules must come from theme variables so every code
+# theme recolours them (crit-palette.css maps the variables to the palette).
+# Allowed: custom-property definitions, comments, neutral black/white
+# shadows, and the white page behind the reviewed app's iframe.
+LITERALS=$(perl -ne '
+  if ($in) { next unless s{^.*?\*/}{}; $in = 0 }   # inside a /* */ block
+  next if /iframe-frame-literal-ok/;
+  s{/\*.*?\*/}{}g;                                 # inline comments
+  if (s{/\*.*$}{}) { $in = 1 }                      # comment opens here
+  next if /^\s*--/;                                 # custom property definitions
+  s/rgba?\(\s*(0|255)\s*,\s*\1\s*,\s*\1\s*(,[^)]*)?\)//g;   # neutral black/white
+  print "$ARGV:$.: $_" if /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/;
+  close ARGV if eof;' web/style.css web/style-live.css)
+if [ -n "$LITERALS" ]; then
+  echo "ERROR: Hardcoded colours in component CSS (use a --crit-* variable):"
+  echo "$LITERALS"
+  exit 1
+fi
+echo "OK: No hardcoded colours in component CSS."

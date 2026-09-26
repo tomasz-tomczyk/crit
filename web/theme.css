@@ -1,11 +1,12 @@
 /* ===== Theme Variables =====
    Migrated to crit design system tokens (v2).
    Brand tokens (--crit-*) for header/chrome/CTAs.
-   Editor tokens (--crit-editor-*) for review content area (Tokyo Night).
+   Editor tokens (--crit-editor-*) for the review content area.
    Each theme defines the full set of CSS custom properties.
-   To add a new theme: add a [data-theme="your-theme"] block below,
-   map it to a Pierre theme type (crit-pierre-adapter.js themeTypeFor), and add a
-   button to the theme pill in index.html.
+   Review and live-mode palettes are derived from Shiki via scripts/crit-theme-palette.mjs
+   and mapped to these semantic tokens by crit-palette.css. Component class
+   names, geometry and typography are independent of palette selection.
+   These four blocks provide dark/light fallbacks before a palette is applied.
 */
 
 /* ===== Default (dark) =====
@@ -18,6 +19,9 @@
 
   /* ---- Brand foreground ---- */
   --crit-fg-primary:   #e8ebf5;
+  /* Logo: fixed per mode, not per code theme (crit-web brand blue). */
+  --crit-logo-fg:      #e8ebf5;
+  --crit-logo-dot:     #7aa2f7;
   --crit-fg-secondary: #9ba3bf;
   --crit-fg-muted:     #646c85;
   --crit-fg-on-brand:  #ffffff;
@@ -233,7 +237,6 @@
   --crit-option-hover:       rgba(133, 170, 248, 0.06);
   --crit-option-selected-bg: rgba(133, 170, 248, 0.08);
   --crit-focus-ring:         rgba(133, 170, 248, 0.5);
-  --crit-green-hover:        #6ade7a;
   --crit-vis-org-bg:         rgba(133, 170, 248, 0.10);
   --crit-vis-org-fg:         #85aaf8;
   --crit-vis-unlisted-bg:    rgba(255, 158, 100, 0.10);
@@ -267,6 +270,9 @@
 
     /* ---- Brand foreground ---- */
     --crit-fg-primary:   #1a1d23;
+    /* Logo: fixed per mode, not per code theme (crit-web brand blue). */
+    --crit-logo-fg:      #1a1d23;
+    --crit-logo-dot:     #2960bc;
     --crit-fg-secondary: #57606a;
     --crit-fg-muted:     #8892a6;
     --crit-fg-on-brand:  #ffffff;
@@ -448,7 +454,6 @@
     --crit-option-hover:       rgba(61, 106, 224, 0.04);
     --crit-option-selected-bg: rgba(61, 106, 224, 0.06);
     --crit-focus-ring:         rgba(61, 106, 224, 0.4);
-    --crit-green-hover:        #178a33;
     --crit-vis-org-bg:         rgba(61, 106, 224, 0.08);
     --crit-vis-org-fg:         #3d6ae0;
     --crit-vis-unlisted-bg:    rgba(214, 122, 44, 0.08);
@@ -484,6 +489,9 @@
 
   /* ---- Brand foreground ---- */
   --crit-fg-primary:   #e8ebf5;
+  /* Logo: fixed per mode, not per code theme (crit-web brand blue). */
+  --crit-logo-fg:      #e8ebf5;
+  --crit-logo-dot:     #7aa2f7;
   --crit-fg-secondary: #9ba3bf;
   --crit-fg-muted:     #646c85;
   --crit-fg-on-brand:  #ffffff;
@@ -665,7 +673,6 @@
   --crit-option-hover:       rgba(133, 170, 248, 0.06);
   --crit-option-selected-bg: rgba(133, 170, 248, 0.08);
   --crit-focus-ring:         rgba(133, 170, 248, 0.5);
-  --crit-green-hover:        #6ade7a;
   --crit-vis-org-bg:         rgba(133, 170, 248, 0.10);
   --crit-vis-org-fg:         #85aaf8;
   --crit-vis-unlisted-bg:    rgba(255, 158, 100, 0.10);
@@ -700,6 +707,9 @@
 
   /* ---- Brand foreground ---- */
   --crit-fg-primary:   #1a1d23;
+  /* Logo: fixed per mode, not per code theme (crit-web brand blue). */
+  --crit-logo-fg:      #1a1d23;
+  --crit-logo-dot:     #2960bc;
   --crit-fg-secondary: #57606a;
   --crit-fg-muted:     #8892a6;
   --crit-fg-on-brand:  #ffffff;
@@ -880,7 +890,6 @@
   --crit-option-hover:       rgba(61, 106, 224, 0.04);
   --crit-option-selected-bg: rgba(61, 106, 224, 0.06);
   --crit-focus-ring:         rgba(61, 106, 224, 0.4);
-  --crit-green-hover:        #178a33;
   --crit-vis-org-bg:         rgba(61, 106, 224, 0.08);
   --crit-vis-org-fg:         #3d6ae0;
   --crit-vis-unlisted-bg:    rgba(214, 122, 44, 0.08);

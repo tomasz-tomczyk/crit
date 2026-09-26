@@ -233,10 +233,8 @@
     return rows;
   }
 
-  // Code token themes for every Pierre surface: Tokyo Night / GitHub Light
-  // Default adjusted for WCAG AA on diff backgrounds (scripts/code-themes.mjs,
-  // registered in the vendored bundle).
-  var THEME = { dark: 'crit-dark', light: 'crit-light' };
+  // Unmodified Shiki defaults; Settings can choose another bundled theme.
+  var THEME = { dark: 'tokyo-night', light: 'github-light-default' };
 
   // Rendering options every Crit Pierre surface shares (the review list's
   // CodeView and story chapter FileDiffs).
@@ -252,6 +250,21 @@
     };
   }
 
+  // Shared renderer settings for the review list, story diffs and previews.
+  // Theme registration stays with the caller, which owns the Pierre instance.
+  function displayOptions(getSetting) {
+    var granularity = getSetting('inlineDiff', 'word-alt');
+    var indicators = getSetting('changeIndicators', 'bars');
+    return {
+      overflow: getSetting('codeOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll',
+      hunkSeparators: 'line-info',
+      lineDiffType: ['word-alt', 'word', 'char', 'none'].indexOf(granularity) >= 0 ? granularity : 'word-alt',
+      diffIndicators: ['classic', 'bars', 'none'].indexOf(indicators) >= 0 ? indicators : 'bars',
+      expandUnchanged: getSetting('unchangedContext', 'collapsed') === 'expanded',
+      disableLineNumbers: getSetting('lineNumbers', 'on') === 'off',
+    };
+  }
+
   // Crit theme setting → Pierre themeType ('system' follows the OS).
   function themeTypeFor(setting) {
     return setting === 'light' || setting === 'dark' ? setting : 'system';
@@ -261,6 +274,7 @@
     CHANGE_TYPE: CHANGE_TYPE,
     THEME: THEME,
     baseOptions: baseOptions,
+    displayOptions: displayOptions,
     hunksToPatch: hunksToPatch,
     reconstructOldContent: reconstructOldContent,
     estimatedLineCount: estimatedLineCount,

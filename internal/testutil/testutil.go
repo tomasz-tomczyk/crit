@@ -95,3 +95,19 @@ func MustMkdirAll(path string) string {
 	}
 	return path
 }
+
+// RunWithTempHome runs a package's tests with a throwaway HOME, for use from
+// TestMain. Review sessions, config and auth live under ~/.crit; a crit daemon
+// running in the same checkout (or the developer's own config) must not change
+// test results. Helper subprocesses inherit it.
+func RunWithTempHome(m *testing.M) int {
+	home, err := os.MkdirTemp("", "crit-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(home)
+	os.Setenv("HOME", home)
+	os.Setenv("USERPROFILE", home)
+	os.Setenv("CODEX_HOME", "")
+	return m.Run()
+}

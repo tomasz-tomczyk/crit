@@ -81,11 +81,9 @@ test.describe('Comment Range Highlighting — Document View', () => {
 
 // ============================================================
 // Diff view — commented lines carry the comment-range tint
-// (--crit-comment-range-bg, rgba(210, 153, 34, a)) instead of the
+// (--crit-comment-range-bg from the selected palette) instead of the
 // addition/deletion colour, on the commented side only.
 // ============================================================
-
-const COMMENT_TINT = '210, 153, 34';
 
 type RowState = { index: number; line: number; type: string; tinted: boolean };
 
@@ -94,12 +92,19 @@ type RowState = { index: number; line: number; type: string; tinted: boolean };
 async function rowStates(item: Locator, column: 'unified' | 'additions' | 'deletions'): Promise<RowState[]> {
   const rows = item.locator(`code[data-${column}] [data-content] > [data-line]`);
   await expect(rows.first()).toBeVisible();
-  return rows.evaluateAll((els, tint) => els.map((el, index) => ({
-    index,
-    line: Number((el as HTMLElement).dataset.line),
-    type: (el as HTMLElement).dataset.lineType || '',
-    tinted: getComputedStyle(el).backgroundColor.includes(tint),
-  })), COMMENT_TINT);
+  return rows.evaluateAll(els => {
+    const probe = document.createElement('span');
+    probe.style.backgroundColor = 'var(--crit-comment-range-bg)';
+    document.body.appendChild(probe);
+    const tint = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return els.map((el, index) => ({
+      index,
+      line: Number((el as HTMLElement).dataset.line),
+      type: (el as HTMLElement).dataset.lineType || '',
+      tinted: getComputedStyle(el).backgroundColor === tint,
+    }));
+  });
 }
 
 // Pierre virtualizes lines inside a file too: an annotation below the fold

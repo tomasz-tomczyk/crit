@@ -32,9 +32,21 @@
     if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
   }
   var pending = new Map(); // same key → Promise
+  var generation = 0;
 
   function configure(options) {
+    generation++;
     getPool = options && options.pool;
+    cache.clear();
+    pending.clear();
+    // Comment cards and the review conversation may survive a palette change.
+    // Re-tokenize their mounted fences as well as clearing future cache reads.
+    if (typeof document !== 'undefined' && document.body) {
+      document.querySelectorAll('pre > code[data-crit-code]').forEach(function(code) {
+        code.removeAttribute('data-crit-code');
+      });
+      upgrade(document.body);
+    }
   }
 
   function escapeHtml(s) {
@@ -58,15 +70,9 @@
     return normalize(lang) + '\0' + code;
   }
 
-  // FNV-1a over the key: a short, stable id for Pierre's result cache.
-  function hashKey(key) {
-    var h = 0x811c9dc5;
-    for (var i = 0; i < key.length; i++) {
-      h ^= key.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
-    }
-    return (h >>> 0).toString(36) + ':' + key.length;
-  }
+  // Per-operation IDs prevent overlapping old/new theme generations from
+  // sharing a Pierre cache entry (and avoid collisions between fence texts).
+  var nextFileId = 0;
 
   // hast (Pierre's per-line element) → HTML. Lines hold token spans whose
   // only property is the style carrying the token colours.
@@ -88,6 +94,7 @@
   }
 
   function tokenize(code, lang) {
+    var started = generation;
     var key = cacheKey(code, lang);
     if (cache.has(key)) return Promise.resolve(cache.get(key));
     if (pending.has(key)) return pending.get(key);
@@ -96,7 +103,7 @@
       remember(key, null);
       return Promise.resolve(null);
     }
-    var file = { name: 'fence', contents: code, cacheKey: 'crit-fence:' + hashKey(key), lang: id };
+    var file = { name: 'fence', contents: code, cacheKey: 'crit-fence:' + (++nextFileId), lang: id };
     var pool = null;
     var p = Promise.resolve(getPool()).then(function(ready) {
       pool = ready;
@@ -106,14 +113,14 @@
       var res = pool.getFileResultCache(file);
       var out = res && res.result ? linesFromResult(res.result, code) : null;
       pool.evictFileFromCache(file.cacheKey);
-      remember(key, out);
+      if (started === generation) remember(key, out);
       return out;
     }, function() {
-      remember(key, null); // unknown grammar: plain text
+      if (started === generation) remember(key, null); // unknown grammar: plain text
       return null;
     });
     pending.set(key, p);
-    return p.finally(function() { pending.delete(key); });
+    return p.finally(function() { if (pending.get(key) === p) pending.delete(key); });
   }
 
   // fences: [{ code, lang }]
@@ -140,8 +147,10 @@
       var m = /(?:^|\s)language-([^\s]+)/.exec(code.className);
       if (!m) return;
       var text = code.textContent;
+      var started = generation;
       code.setAttribute('data-crit-code', 'pending');
       tokenize(text, m[1]).then(function(out) {
+        if (started !== generation) return; // configure already queued the current theme
         if (!out || code.textContent !== text) {
           code.setAttribute('data-crit-code', 'plain');
           return;

@@ -80,3 +80,55 @@ test('linesFromResult drops the empty line after a trailing newline and escapes 
   assert.deepEqual(ch.linesFromResult({ code }, 'a & b\n'), ['a &amp; b']);
   assert.deepEqual(ch.linesFromResult({ code }, 'a & b'), ['a &amp; b', ''], 'no trailing newline: keep every line');
 });
+
+test('an old highlight cannot refill the cache after a theme or worker change', async () => {
+  const ch = load();
+  let finish;
+  const oldPool = fakePool(['go']);
+  const oldPrime = oldPool.primeFileHighlightCache;
+  oldPool.primeFileHighlightCache = file => new Promise(resolve => {
+    finish = () => { oldPrime(file); resolve(); };
+  });
+  ch.configure({ pool: () => oldPool });
+  const pending = ch.prime([{ code: 'old\n', lang: 'go' }]);
+  await Promise.resolve();
+  ch.configure({ pool: () => fakePool(['go']) });
+  finish();
+  await pending;
+  assert.equal(ch.lines('old\n', 'go'), null);
+  await ch.prime([{ code: 'old\n', lang: 'go' }]);
+  assert.ok(ch.lines('old\n', 'go'));
+});
+
+test('a preserved mounted fence follows the new pool while old tokenization is pending', async () => {
+  const ch = load();
+  const attrs = new Map();
+  const code = {
+    className: 'language-go', textContent: 'old\n', innerHTML: '',
+    classList: { add() {} },
+    setAttribute: (key, value) => attrs.set(key, value),
+    removeAttribute: key => attrs.delete(key),
+  };
+  const root = { querySelectorAll: () => attrs.has('data-crit-code') ? [] : [code] };
+  global.document = { body: root, querySelectorAll: () => attrs.has('data-crit-code') ? [code] : [] };
+  try {
+    let finish;
+    const oldPool = fakePool(['go']);
+    const oldPrime = oldPool.primeFileHighlightCache;
+    oldPool.primeFileHighlightCache = file => new Promise(resolve => {
+      finish = () => { oldPrime(file); resolve(); };
+    });
+    ch.configure({ pool: () => oldPool });
+    await Promise.resolve();
+    const currentPool = fakePool(['go']);
+    currentPool.getFileResultCache = () => ({ result: { code: [{ type: 'text', value: 'current' }, { type: 'text', value: '' }] } });
+    ch.configure({ pool: () => currentPool });
+    await ch.prime([{ code: 'old\n', lang: 'go' }]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(code.innerHTML, 'current');
+    finish();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(code.innerHTML, 'current', 'late old-theme tokens cannot replace current tokens');
+    assert.equal(attrs.get('data-crit-code'), 'highlighted');
+  } finally { delete global.document; }
+});

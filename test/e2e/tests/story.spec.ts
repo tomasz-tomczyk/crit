@@ -3,7 +3,10 @@ import { execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { clearAllComments, loadPage, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile } from './helpers';
+import {
+  clearAllComments, loadPage, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile,
+  submitFileLevelComment,
+} from './helpers';
 import { stateFilePath } from './state-file';
 
 // Story mode fixtures live on top of the shared git-mode fixture repo (server.go,
@@ -292,6 +295,34 @@ test.describe('Story mode', () => {
     await expect(railRow(page, 'ch1')).toHaveClass(/active/);
   });
 
+  test('file-level comments in a chapter show above the diff, centered, twice in a row', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+    await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(group).toBeVisible();
+
+    const opts = { header: group.locator('.crit-story-file-header'), scope: group.locator('.file-comments'), content: group.locator('[data-line]').first() };
+    await submitFileLevelComment(page, { ...opts, body: 'First story file comment' });
+    await submitFileLevelComment(page, { ...opts, body: 'Second story file comment' });
+  });
+
+  test('line comment forms in a unified chapter diff stay at reading width', async ({ page }) => {
+    await page.setViewportSize({ width: 1800, height: 900 });
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await loadPage(page);
+    await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
+    await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(group.locator('code[data-unified]').first()).toBeAttached();
+    const form = await dragStoryLineRange(page, group, 3, 4);
+    const [formBox, groupBox] = [await form.boundingBox(), await group.boundingBox()];
+    expect(groupBox!.width).toBeGreaterThan(1200);
+    expect(formBox!.width).toBeLessThanOrEqual(1040);
+  });
+
   test('adding a comment on a diff line inside a chapter surfaces it in the comments panel and nav returns to the owning chapter', async ({ page, request }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
 
@@ -547,13 +578,32 @@ test.describe('Story mode', () => {
     // Diff: flat layout, story root gone, navbar toggle remains. This
     // must NOT delete the story (that's DELETE /api/story / --clear), so no
     // network round-trip is needed — the story stays in session.story.
+    // Hold the session refresh so a tree click reliably arrives while the
+    // previous viewer is disposed and the new list has not been mounted.
+    let releaseReload!: () => void;
+    const reloadAllowed = new Promise<void>(resolve => { releaseReload = resolve; });
+    let reloadStarted!: () => void;
+    const reloadPending = new Promise<void>(resolve => { reloadStarted = resolve; });
+    await page.route('**/api/session?**', async route => {
+      reloadStarted();
+      await reloadAllowed;
+      await route.continue();
+    });
     await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
+    await reloadPending;
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
     await expect(page.locator('#storyRoot')).toBeHidden();
-    await expect(await goSection(page)).toBeVisible();
+    await page.locator('.tree-file[data-tree-path="server.go"]').click();
+    releaseReload();
+    await expect(page.locator('.pierre-file-header[data-file-path="server.go"]')).toBeInViewport();
     await expect(page.locator('.tree-file .crit-story-chip')).toHaveCount(0);
     await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]')).toHaveClass(/active/);
+    // Verify real tree jumps after rebuilding the virtualized diff list.
+    await page.locator('.tree-file[data-tree-path="handler.js"]').click();
+    await expect(page.locator('.pierre-file-header[data-file-path="handler.js"]')).toBeInViewport();
+    await page.locator('.tree-file[data-tree-path="server.go"]').click();
+    await expect(page.locator('.pierre-file-header[data-file-path="server.go"]')).toBeInViewport();
 
     // Show: story view returns with the SAME story (no re-ingest happened).
     await page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]').click();

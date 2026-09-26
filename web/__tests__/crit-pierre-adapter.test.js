@@ -125,3 +125,30 @@ test('buildFileDiff: a subset with an omitted earlier hunk falls back to the pat
   a.buildFileDiff(P, file, [all[0]], 'k2', all);
   assert.equal(seen[1].full, true);
 });
+
+
+test('display settings use defaults and reject unsupported persisted values', function() {
+  const defaults = {
+    overflow: 'scroll', hunkSeparators: 'line-info', lineDiffType: 'word-alt',
+    diffIndicators: 'bars', expandUnchanged: false, disableLineNumbers: false,
+  };
+  function read(settings) {
+    return function(key, fallback) { return Object.hasOwn(settings, key) ? settings[key] : fallback; };
+  }
+  assert.deepEqual(a.displayOptions(read({})), defaults);
+  assert.deepEqual(a.displayOptions(read({
+    codeOverflow: 'invalid', inlineDiff: 'invalid', changeIndicators: null,
+    unchangedContext: 'invalid', lineNumbers: 'invalid',
+  })), defaults);
+  for (const inlineDiff of ['word-alt', 'word', 'char', 'none']) {
+    for (const changeIndicators of ['classic', 'bars', 'none']) {
+      assert.deepEqual(a.displayOptions(read({
+        codeOverflow: 'wrap', inlineDiff, changeIndicators,
+        unchangedContext: 'expanded', lineNumbers: 'off',
+      })), {
+        overflow: 'wrap', hunkSeparators: 'line-info', lineDiffType: inlineDiff,
+        diffIndicators: changeIndicators, expandUnchanged: true, disableLineNumbers: true,
+      });
+    }
+  }
+});

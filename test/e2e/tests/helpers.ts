@@ -262,7 +262,11 @@ export async function setDiffStyle(page: Page, mode: 'split' | 'unified') {
 // Settle, then press at coordinates: Playwright's actionability scroll
 // counts as a scroll for Pierre's pointer-events pause.
 async function pressAt(page: Page, target: Locator) {
-  await target.scrollIntoViewIfNeeded();
+  // A row can intersect the viewport while the sticky file header covers it.
+  // Centre it rather than trusting native actionability's visible rectangle.
+  await target.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await waitForPointerEvents(page);
+  await waitUntilHittable(target);
   await expect.poll(async () => {
     const box = await target.boundingBox();
     if (!box) return false;
@@ -406,4 +410,60 @@ export async function getMdPath(request: APIRequestContext): Promise<string> {
   const mdFile = session.files.find((f: { path: string }) => f.path.endsWith('.md'));
   expect(mdFile).toBeTruthy();
   return mdFile.path;
+}
+
+/**
+ * Submit a file-level comment from a file header, then check the new card is
+ * where the reader expects it: on screen and above the file's content (first
+ * line or rendered document). Counting cards is not enough: a card placed
+ * below a long document, or at a wrong scroll offset, still counts.
+ *
+ * `scope` holds the file-level threads and form (a Pierre item, or a story
+ * file group); `content` is the file's first visible line or document.
+ */
+export async function submitFileLevelComment(
+  page: Page,
+  opts: { header: Locator; scope: Locator; content: Locator; body: string },
+): Promise<Locator> {
+  await opts.header.locator('.file-comment-btn').click();
+  const textarea = opts.scope.locator('.comment-form textarea');
+  await expect(textarea).toBeVisible();
+  // A reopened composer must be empty, not the previous submitted form.
+  await expect(textarea).toHaveValue('');
+  // The composer lines up with the file's existing comments.
+  const existing = opts.scope.locator('.comment-card').first();
+  if (await existing.count()) {
+    const form = await opts.scope.locator('.comment-form').boundingBox();
+    const card = await existing.boundingBox();
+    expect(Math.abs(form!.x - card!.x), 'form and comments share a left edge').toBeLessThan(2);
+    expect(Math.abs(form!.width - card!.width), 'form and comments share a width').toBeLessThan(2);
+  }
+  await textarea.fill(opts.body);
+  await opts.scope.locator('.comment-form .btn-primary').click();
+  await expect(opts.scope.locator('.comment-form')).toHaveCount(0);
+
+  const card = opts.scope.locator('.comment-card', { hasText: opts.body });
+  await expect(card).toHaveCount(1);
+  await expect(card).toBeInViewport();
+  await expect.poll(async () => {
+    const c = await card.boundingBox();
+    const t = await opts.content.boundingBox();
+    return !!c && !!t && c.y + c.height <= t.y + 1;
+  }, { message: 'file-level card should sit above the file content' }).toBe(true);
+  // Centered in its area (like classic Crit), with some margin on each side.
+  const gaps = await card.evaluate(el => {
+    const item = el.closest('.pierre-file-level, .file-comments > *')!;
+    const area = item.parentElement!;
+    const cs = getComputedStyle(area);
+    const a = area.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return {
+      left: r.left - (a.left + parseFloat(cs.paddingLeft)),
+      right: (a.right - parseFloat(cs.paddingRight)) - r.right,
+      outer: r.left - a.left,
+    };
+  });
+  expect(Math.abs(gaps.left - gaps.right), 'file-level card is centered').toBeLessThan(2);
+  expect(gaps.outer, 'file-level card has a left margin').toBeGreaterThanOrEqual(12);
+  return card;
 }

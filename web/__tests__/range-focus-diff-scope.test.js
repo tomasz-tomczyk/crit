@@ -28,12 +28,14 @@ function extractFunction(name) {
 const loadSingleFile = new Function(`
   let diffCommit = '';
   let ignoreWhitespace = false;
+  let defaultMarkdownView = '';
   const session = { mode: 'git' };
   function enc(value) { return value; }
   function preHighlightFile() { return null; }
   function langFromPath() { return ''; }
   function buildCodeLineBlocks() { return []; }
   function parseMarkdown() { return { blocks: [], tocItems: [] }; }
+  ${extractFunction('initialViewMode')}
   ${extractFunction('loadSingleFile').replace(/^function /, 'async function ')}
   return loadSingleFile;
 `)();

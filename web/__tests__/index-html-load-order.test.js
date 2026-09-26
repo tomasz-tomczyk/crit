@@ -62,7 +62,25 @@ test('index.html non-live branch loads the Pierre bundle as a module and exposes
   assert.match(elseBlock, /window\.critPierreReady\s*=\s*new Promise/, 'app.js awaits window.critPierreReady before rendering');
   assert.match(elseBlock, /\.type\s*=\s*'module';\s*\w+\.src\s*=\s*'pierre\/pierre-diffs\.js'/, 'Pierre bundle loads as an ES module');
   const adapter = elseBlock.indexOf("'crit-pierre-adapter.js'");
+  const runtime = elseBlock.indexOf("'crit-pierre-runtime.js'");
+  const dom = elseBlock.indexOf("'crit-pierre-dom.js'");
   const view = elseBlock.indexOf("'crit-pierre-view.js'");
   const app = elseBlock.indexOf("'app.js'");
   assert.ok(adapter > 0 && view > adapter && app > view, 'adapter → view → app.js order');
+  for (const [name, position] of [['runtime', runtime], ['DOM', dom]]) {
+    assert.ok(position > 0 && app > position,
+      name + ' must load before app.js');
+  }
+});
+
+test('review and theme preview apply saved palettes synchronously before first paint', () => {
+  for (const filename of ['index.html', 'themes.html']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', filename), 'utf8');
+    const head = source.match(/<head>([\s\S]*?)<\/head>/)[1];
+    const palettes = head.indexOf('<script src="pierre/palettes.js"></script>');
+    const paletteRuntime = head.indexOf('<script src="crit-theme-palette.js"></script>');
+    const applySaved = head.indexOf('themePalette.applySaved()');
+    assert.ok(palettes >= 0 && paletteRuntime > palettes && applySaved > paletteRuntime,
+      filename + ' must load palettes and runtime before applying the saved theme in head');
+  }
 });

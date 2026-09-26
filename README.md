@@ -322,7 +322,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
 - **Live file watching.** The browser reloads automatically when the source file changes.
-- **Dark/light/system theme.** Three-button pill in the header, persisted to localStorage.
+- **Paired UI and code themes.** Choose light and dark Shiki-based palettes in Settings; code, rendered markdown and review UI share their colours. System/Light/Dark selects the active palette. Preferences persist in a cookie across ports.
 - **Configurable code font.** Code-review Settings → Display → Code font lists coding/monospace fonts detected by the local Crit daemon, plus Default, System monospace, and a custom `font-family` fallback. Applies to code and diffs, and persists across sessions.
 - **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share. Non-loopback listen hosts and `public_url` require `--allow-unauthenticated-network` (or `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`) because Crit has no network authentication — prefer SSH forwarding, Tailscale Serve to loopback, or Docker `-p 127.0.0.1:…`.
 - **Collapsing generated files.** Honors `linguist-generated` in `.gitattributes` — matching files appear collapsed by default.
@@ -519,5 +519,6 @@ For running crit alongside an AI agent inside a container, with the review UI re
 Crit embeds the following open-source libraries:
 
 - [markdown-it](https://github.com/markdown-it/markdown-it): Markdown parser
-- [highlight.js](https://github.com/highlightjs/highlight.js): Syntax highlighting
+- [@pierre/diffs](https://github.com/pierrecomputer/pierre): Diff and code rendering
+- [Shiki](https://github.com/shikijs/shiki): Syntax highlighting and code themes
 - [Mermaid](https://github.com/mermaid-js/mermaid): Diagram rendering

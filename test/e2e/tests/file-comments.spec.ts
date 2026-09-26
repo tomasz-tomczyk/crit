@@ -1,5 +1,8 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, goSection, fileHeader } from './helpers';
+import {
+  clearAllComments, loadPage, mdSection, goSection, fileHeader, mdDocument, setDiffStyle,
+  switchToDocumentView, submitFileLevelComment,
+} from './helpers';
 
 // File-level threads and the file compose form are Pierre annotations on
 // line 0 (above the first line), so they render in that slot of the item.
@@ -38,6 +41,27 @@ test.describe('File-level comments — Git Mode', () => {
       const comments = await (await request.get('/api/file/comments?path=server.go')).json();
       return comments.map((c: { scope: string; body: string }) => `${c.scope}:${c.body}`);
     }).toEqual(['file:This file needs restructuring']);
+  });
+
+  // The card must land on screen above the file's content, including a
+  // second submit on the same file (the composer DOM is not reused).
+  for (const style of ['split', 'unified'] as const) {
+    test(`file-level comments show above line 1 in ${style} diffs, twice in a row`, async ({ page }) => {
+      await setDiffStyle(page, style);
+      const section = await goSection(page);
+      const opts = { header: fileHeader(page, 'server.go'), scope: fileLevel(section), content: section.locator('[data-line="1"]').first() };
+      await submitFileLevelComment(page, { ...opts, body: `First ${style} file comment` });
+      await submitFileLevelComment(page, { ...opts, body: `Second ${style} file comment` });
+    });
+  }
+
+  test('file-level comments show above a rendered document, twice in a row', async ({ page }) => {
+    await switchToDocumentView(page);
+    const section = await mdSection(page);
+    // Document view is a single-sided file item: its file-level slot has no side.
+    const opts = { header: fileHeader(page, 'plan.md'), scope: section.locator('[slot="annotation-0"]'), content: mdDocument(page) };
+    await submitFileLevelComment(page, { ...opts, body: 'First document file comment' });
+    await submitFileLevelComment(page, { ...opts, body: 'Second document file comment' });
   });
 
   test('file-level comment added via API renders on load', async ({ page, request }) => {

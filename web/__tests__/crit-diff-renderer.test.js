@@ -332,7 +332,7 @@ test('app.js wires text selection through resolveTextSelectionLineRange', functi
     'getLineRangeFromSelection must resolve via resolveTextSelectionLineRange'
   );
   assert.match(
-    appJs,
+    fs.readFileSync(path.join(__dirname, '..', 'crit-pierre-dom.js'), 'utf8'),
     /getComposedRanges\(\{\s*shadowRoots:/,
     'Pierre diff selections must read shadow-root ranges via getComposedRanges'
   );
@@ -385,4 +385,3 @@ test('selectedTextWithinElements joins only intersecting contentEls', function()
     sandbox.document.createTreeWalker = prevTW;
   }
 });
-

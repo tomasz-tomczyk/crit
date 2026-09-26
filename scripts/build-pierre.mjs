@@ -15,7 +15,8 @@ import { build } from "esbuild";
 import { gzipSync } from "zlib";
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { critCodeThemes } from "./code-themes.mjs";
+import { bundledLanguagesInfo, bundledThemesInfo, bundledThemes, normalizeTheme } from "shiki";
+import { themePalette } from './crit-theme-palette.mjs';
 
 export const PIERRE_DIR = "web/pierre";
 
@@ -45,33 +46,37 @@ export const SHIKI_LANGS = [
   "vala", "verilog", "vhdl", "wolfram",
 ];
 
-// Drop what Crit never loads: Shiki's bundled theme index (Crit registers the
-// two themes it uses in the entry below), the Oniguruma WASM engine (Crit uses Shiki's
-// JS regex engine), and grammars outside SHIKI_LANGS.
-const trimShiki = {
-  name: "crit-trim-shiki",
+// Use Shiki's public fine-grained bundle API instead of rewriting its generated
+// index. Keep all themes, selected grammars, and the JavaScript regex engine.
+const fineGrainedShiki = {
+  name: "crit-shiki-bundle",
   setup(b) {
-    const allowed = new Set(SHIKI_LANGS);
-    b.onLoad({ filter: /shiki[\\/]dist[\\/]langs-bundle-full-[^\\/]+\.mjs$/ }, args => {
-      const src = readFileSync(args.path, "utf8");
-      let kept = 0;
-      const out = src.replace(/\t\{\n[\s\S]*?\n\t\}(,?)\n/g, (block, comma) => {
-        const id = /"id": "([^"]+)"/.exec(block);
-        if (id && allowed.has(id[1])) { kept++; return block.replace(/\}(,?)\n$/, "},\n"); }
-        return "";
-      }).replace(/,\n\];/, "\n];");
-      if (kept !== allowed.size) throw new Error(`shiki lang allowlist: kept ${kept}, expected ${allowed.size}`);
-      return { contents: out, loader: "js" };
+    b.onResolve({ filter: /^shiki$/ }, () => ({ path: "shiki", namespace: "crit-shiki" }));
+    b.onLoad({ filter: /.*/, namespace: "crit-shiki" }, () => {
+      const languages = bundledLanguagesInfo.filter(l => SHIKI_LANGS.includes(l.id));
+      if (languages.length !== SHIKI_LANGS.length) throw new Error('Unknown Shiki language in SHIKI_LANGS');
+      const loaders = languages.flatMap(l => [l.id, ...(l.aliases || [])].map(id =>
+        `${JSON.stringify(id)}: () => import('@shikijs/langs/${l.id}')`));
+      const themes = bundledThemesInfo.map(t => `${JSON.stringify(t.id)}: () => import('@shikijs/themes/${t.id}')`);
+      return { resolveDir: process.cwd(), loader: "js", contents: `
+        export * from 'shiki/core';
+        export { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+        export { createOnigurumaEngine } from 'shiki/engine/oniguruma';
+        import { createBundledHighlighter, createSingletonShorthands } from 'shiki/core';
+        import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+        export const bundledLanguages = {${loaders.join(',')}};
+        export const bundledThemes = {${themes.join(',')}};
+        export const bundledThemesInfo = ${JSON.stringify(bundledThemesInfo)};
+        export const createHighlighter = createBundledHighlighter({
+          langs: bundledLanguages, themes: bundledThemes, engine: () => createJavaScriptRegexEngine()
+        });
+        export const { codeToHtml } = createSingletonShorthands(createHighlighter);
+      ` };
     });
-    b.onLoad({ filter: /shiki[\\/]dist[\\/]themes\.mjs$/ }, () => ({
-      contents: "export const bundledThemesInfo = []; export const bundledThemes = {};",
-      loader: "js",
-    }));
+    // Pierre only imports shiki/wasm for preferredHighlighter 'shiki-wasm';
+    // Crit uses the JS regex engine, so keep the ~230 KB WASM chunk out.
     b.onResolve({ filter: /^shiki\/wasm$/ }, () => ({ path: "shiki-wasm-stub", namespace: "crit-stub" }));
-    b.onLoad({ filter: /.*/, namespace: "crit-stub" }, () => ({
-      contents: "export default null;",
-      loader: "js",
-    }));
+    b.onLoad({ filter: /.*/, namespace: "crit-stub" }, () => ({ contents: "export default null;", loader: "js" }));
   },
 };
 
@@ -87,18 +92,12 @@ import {
   preloadHighlighter,
   getSharedHighlighter,
   registerCustomTheme,
+  resolveTheme,
 } from '@pierre/diffs';
 import {
   getOrCreateWorkerPoolSingleton,
   terminateWorkerPoolSingleton,
 } from '@pierre/diffs/worker';
-
-// Crit's code themes (scripts/code-themes.mjs, inlined at build time):
-// Tokyo Night and GitHub Light Default adjusted for WCAG AA contrast on
-// Pierre's diff backgrounds. Bundled Shiki themes are stripped, so these two
-// are registered explicitly.
-registerCustomTheme('crit-dark', () => Promise.resolve(__CRIT_DARK__));
-registerCustomTheme('crit-light', () => Promise.resolve(__CRIT_LIGHT__));
 
 window.PierreDiffs = {
   CodeView,
@@ -110,20 +109,27 @@ window.PierreDiffs = {
   setLanguageOverride,
   preloadHighlighter,
   getSharedHighlighter,
+  registerCustomTheme,
+  resolveTheme,
   getOrCreateWorkerPoolSingleton,
   terminateWorkerPoolSingleton,
 };
 `;
 
 export async function buildPierre() {
-  const themes = critCodeThemes();
-  const entry = ENTRY
-    .replace("__CRIT_DARK__", JSON.stringify(themes.dark))
-    .replace("__CRIT_LIGHT__", JSON.stringify(themes.light));
+  const palettes = await Promise.all(bundledThemesInfo.map(async info => {
+    const theme = normalizeTheme((await bundledThemes[info.id]()).default);
+    return themePalette({ ...theme, name: info.id, displayName: info.displayName });
+  }));
   rmSync(PIERRE_DIR, { recursive: true, force: true });
   mkdirSync(PIERRE_DIR, { recursive: true });
+  // Crit UI palettes as their own classic script: every page (review, live,
+  // preview, /themes) loads it in <head> to theme the UI before first paint,
+  // without the Pierre bundle.
+  writeFileSync(join(PIERRE_DIR, "palettes.js"),
+    `window.crit=window.crit||{};window.crit.palettes=${JSON.stringify(palettes)};\n`);
   const result = await build({
-    stdin: { contents: entry, resolveDir: process.cwd(), sourcefile: "pierre-entry.js", loader: "js" },
+    stdin: { contents: ENTRY, resolveDir: process.cwd(), sourcefile: "pierre-entry.js", loader: "js" },
     bundle: true,
     format: "esm",
     splitting: true,
@@ -134,7 +140,7 @@ export async function buildPierre() {
     entryNames: "pierre-diffs",
     chunkNames: "chunk-[hash]",
     legalComments: "none",
-    plugins: [trimShiki],
+    plugins: [fineGrainedShiki],
     metafile: true,
     logLevel: "warning",
   });

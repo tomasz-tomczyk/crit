@@ -65,7 +65,7 @@ function makeView(fake, overrides) {
   }, overrides));
 }
 
-test('loaded files become full diffs; lazy files become stubs until rendered', async function() {
+test('loaded files become full diffs; lazy files retain line-based size estimates', async function() {
   const fake = fakePierre();
   const lazy = file('lazy.go', { lazy: true, additions: 3, deletions: 1, diffHunks: [], content: '' });
   let loaded = null;
@@ -79,6 +79,8 @@ test('loaded files become full diffs; lazy files become stubs until rendered', a
   view.setFiles([file('a.go'), lazy]);
   const items = fake.log.find(e => e[0] === 'setItems');
   assert.deepEqual(items[1], ['a.go:diff', 'lazy.go:diff']);
+  assert.match(view.viewer.items.get('lazy.go').fileDiff.patch, /@@/);
+  assert.equal(view.viewer.items.get('lazy.go').annotations[0].metadata.kind, 'loading');
   assert.equal(view.isStub('lazy.go'), true);
   assert.equal(view.isStub('a.go'), false);
 
@@ -89,7 +91,28 @@ test('loaded files become full diffs; lazy files become stubs until rendered', a
   await new Promise(r => setTimeout(r, 0));
   assert.equal(loaded, 'lazy.go');
   assert.equal(view.isStub('lazy.go'), false);
-  assert.ok(fake.log.some(e => e[0] === 'updateItem' && e[1] === 'lazy.go'));
+  assert.equal(view.viewer.items.get('lazy.go').type, 'diff');
+  assert.ok(fake.log.some(e => e[0] === 'updateItem' && e[1] === 'lazy.go'), 'hydrated item published in place');
+});
+
+test('a full setFiles during a load starts a new load instead of leaving the stub', async function() {
+  const fake = fakePierre();
+  const lazy = () => file('lazy.go', { lazy: true, additions: 1, deletions: 0, diffHunks: [], content: '' });
+  const pending = [];
+  const view = makeView(fake, { loadFile: () => new Promise(resolve => pending.push(resolve)) });
+  fake.setRendered(['lazy.go']);
+  view.setFiles([lazy()]);
+  assert.equal(pending.length, 1);
+  // A theme or settings change re-renders while the first load is in flight.
+  view.setFiles([lazy()]);
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(pending.length, 2, 'the new generation requests the file again');
+  pending[0](Object.assign(file('lazy.go'), { lazy: false }));
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(view.isStub('lazy.go'), true, 'the stale result is ignored');
+  pending[1](Object.assign(file('lazy.go'), { lazy: false }));
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(view.isStub('lazy.go'), false);
 });
 
 test('annotation elements are cached by kind:id so drafts survive re-renders', function() {
@@ -244,4 +267,127 @@ test('re-publishing a file reuses its parsed diff until the content changes', fu
   view.refreshFile(f, []);
   assert.notEqual(view.viewer.items.get('a.go').fileDiff, first, 'new hunks parse again');
   assert.equal(parses, 2);
+});
+
+// Minimal DOM for annotation wrappers: Pierre wraps each annotation element
+// in a slotted div and appends changed ones at the end of the host.
+function fakeHost() {
+  const doc = { activeElement: null };
+  const host = {
+    children: [],
+    ownerDocument: doc,
+    appendChild(el) { this.children = this.children.filter(c => c !== el).concat(el); el.parentNode = this; },
+    insertBefore(el, ref) {
+      const rest = this.children.filter(c => c !== el);
+      rest.splice(rest.indexOf(ref), 0, el);
+      this.children = rest;
+      el.parentNode = this;
+      if (doc.activeElement && el.contains(doc.activeElement)) doc.activeElement = null; // moving blurs
+    },
+  };
+  function wrap(name, slot) {
+    const inner = { name, focus() { doc.activeElement = inner; } };
+    const wrapper = {
+      slot, ownerDocument: doc, parentNode: null,
+      contains: n => n === inner,
+      compareDocumentPosition(other) { return host.children.indexOf(other) < host.children.indexOf(this) ? 2 : 4; },
+    };
+    inner.parentElement = wrapper;
+    inner.ownerDocument = doc;
+    return { inner, wrapper };
+  }
+  return { host, doc, wrap };
+}
+
+test('file-level annotations keep their order when Pierre appends a new one after the document', function() {
+  const fake = fakePierre();
+  const { host, doc, wrap } = fakeHost();
+  const built = {};
+  const annotations = [
+    { side: 'additions', lineNumber: 0, metadata: { kind: 'thread', id: 't1' } },
+    { side: 'additions', lineNumber: 0, metadata: { kind: 'form', id: 'f1' } },
+    { side: 'additions', lineNumber: 0, metadata: { kind: 'document', id: 'a.md' } },
+  ];
+  makeView(fake, {
+    annotations: () => annotations,
+    buildAnnotation: (kind, _path, id) => {
+      const key = kind + ':' + id;
+      built[key] = wrap(key, 'annotation-0');
+      return built[key].inner;
+    },
+  }).setFiles([file('a.md')]);
+  const ctx = { item: { id: 'a.md' } };
+  annotations.forEach(a => fake.options().renderAnnotation(a, ctx));
+  // Pierre's DOM order: the document first, then the thread and the form appended after it.
+  host.appendChild(built['document:a.md'].wrapper);
+  host.appendChild(built['thread:t1'].wrapper);
+  host.appendChild(built['form:f1'].wrapper);
+  built['form:f1'].inner.focus();
+
+  fake.options().onPostRender(host, null, 'update', ctx);
+  assert.deepEqual(host.children.map(w => w === built['thread:t1'].wrapper ? 'thread'
+    : w === built['form:f1'].wrapper ? 'form' : 'document'), ['thread', 'form', 'document']);
+  assert.equal(doc.activeElement, built['form:f1'].inner, 'the composer keeps focus');
+});
+
+test('a new review round invalidates changed old text with identical new content and hunk geometry', function() {
+  const fake = fakePierre();
+  const view = makeView(fake);
+  const original = file('a.go', { fileHash: 'same-new-content' });
+  view.setFiles([original]);
+  const first = view.viewer.items.get('a.go').fileDiff;
+  const nextRound = file('a.go', { fileHash: 'same-new-content' });
+  nextRound.diffHunks[0].Lines[1].Content = 'c';
+  view.setFiles([nextRound]);
+  const second = view.viewer.items.get('a.go').fileDiff;
+  assert.notEqual(second, first);
+  assert.notEqual(second.cacheKey, first.cacheKey, 'worker cache also invalidated');
+  assert.match(second.patch, /\n-c\n/);
+  view.refreshFile(nextRound);
+  assert.equal(view.viewer.items.get('a.go').fileDiff, second, 'comment refresh reuses parsed result');
+});
+
+test('same-length file edits invalidate parsed contents even without a server hash', function() {
+  const fake = fakePierre();
+  const view = makeView(fake, { isFileView: () => true });
+  const f = file('a.go');
+  view.setFiles([f]);
+  const first = view.viewer.items.get('a.go').file;
+  f.content = 'a\nC\n';
+  view.refreshFile(f);
+  const second = view.viewer.items.get('a.go').file;
+  assert.notEqual(second, first);
+  assert.notEqual(second.cacheKey, first.cacheKey);
+  assert.equal(second.contents, 'a\nC\n');
+});
+
+test('newly mounted stubs hydrate after the scroll callback sampled the previous viewport', async function(t) {
+  const frames = [];
+  const previousRAF = global.requestAnimationFrame;
+  global.requestAnimationFrame = fn => frames.push(fn);
+  t.after(() => {
+    if (previousRAF) global.requestAnimationFrame = previousRAF;
+    else delete global.requestAnimationFrame;
+  });
+  const fake = fakePierre();
+  const lazy = file('lazy.go', { lazy: true, diffHunks: [], content: '' });
+  const loaded = [];
+  const view = makeView(fake, { loadFile: async path => {
+    loaded.push(path);
+    Object.assign(lazy, file(path), { lazy: false });
+    return lazy;
+  } });
+  view.setFiles([file('a.go'), lazy]);
+  fake.setRendered(['a.go']);
+  fake.scroll();
+  frames.shift()(); // CodeView has not mounted its next viewport yet.
+  assert.deepEqual(loaded, []);
+  fake.setRendered(['lazy.go']);
+  fake.options().onPostRender({ dataset: {} }, null, 'mount', { item: { id: 'lazy.go' } });
+  assert.equal(frames.length, 1, 'mount schedules hydration without another scroll');
+  frames.shift()();
+  await view.ensureLoaded('lazy.go');
+  assert.deepEqual(loaded, ['lazy.go']);
+  assert.equal(view.isStub('lazy.go'), false);
+  view.destroy();
 });

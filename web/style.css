@@ -61,6 +61,10 @@ body {
 .header-logo {
   height: 16px;
   width: auto;
+  color: var(--crit-logo-fg);
+}
+.header-logo .header-logo-dot {
+  fill: var(--crit-logo-dot);
 }
 
 /* Compare rail — wraps base picker, arrow, branch chip, stack chip, resume pill.
@@ -750,7 +754,7 @@ body {
 }
 .sd-link-btn:hover { color: var(--crit-fg-primary); background: var(--crit-bg-elevated); }
 .sd-link-btn--danger { color: var(--crit-red); }
-.sd-link-btn--danger:hover { background: var(--crit-btn-danger-hover-bg, rgba(247,118,142,0.1)); color: var(--crit-red); }
+.sd-link-btn--danger:hover { background: var(--crit-btn-danger-hover-bg); color: var(--crit-red); }
 .sd-primary {
   background: var(--crit-bg-elevated);
   border: 1px solid var(--crit-border-strong);
@@ -896,8 +900,8 @@ body {
 .sd-org-footer-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .sd-org-btn-cancel { background: var(--crit-bg-elevated); border: 1px solid var(--crit-border-strong); color: var(--crit-fg-primary); font: inherit; font-size: 12px; font-weight: 500; padding: 7px 14px; border-radius: 6px; cursor: pointer; transition: background 100ms; line-height: 1; }
 .sd-org-btn-cancel:hover { background: var(--crit-bg-card); }
-.sd-org-btn-share { background: var(--crit-green); border: 1px solid transparent; color: var(--crit-bg-page); font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 6px; cursor: pointer; transition: background 100ms; line-height: 1; white-space: nowrap; }
-.sd-org-btn-share:hover { background: var(--crit-green-hover); }
+.sd-org-btn-share { background: var(--crit-brand-cta); border: 1px solid transparent; color: var(--crit-fg-on-brand); font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 6px; cursor: pointer; transition: background 100ms; line-height: 1; white-space: nowrap; }
+.sd-org-btn-share:hover { background: var(--crit-brand-cta-hover); }
 .sd-org-btn-share:disabled { opacity: 0.5; cursor: default; }
 /* Focus rings */
 .sd-org-owner-option:focus-visible,
@@ -1055,23 +1059,8 @@ body.dragging { user-select: none; cursor: grabbing; }
 @media (pointer: fine) {
   .line-comment-gutter:hover .line-add { opacity: 1; pointer-events: auto; }
   body.dragging .line-comment-gutter.drag-endpoint .line-add { opacity: 1; pointer-events: none; }
-  body.dragging .line-comment-gutter.drag-range:not(.drag-endpoint) .line-add { opacity: 0; pointer-events: none; }
+  body.dragging .line-comment-gutter:not(.drag-endpoint) .line-add { opacity: 0; pointer-events: none; }
 }
-/* Blue connecting line in document comment gutter */
-.line-comment-gutter.drag-range::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--crit-brand);
-  z-index: 1;
-}
-.line-comment-gutter.drag-range-start::after { top: 10px; }
-.line-comment-gutter.drag-range-end::after { bottom: calc(100% - 10px); }
-.line-comment-gutter.drag-range-start.drag-range-end::after { display: none; }
 
 .line-num {
   padding-top: 1px;
@@ -2950,6 +2939,15 @@ textarea.drag-active {
 .settings-select {
   max-width: 60%;
   cursor: pointer;
+  /* Own chevron: the native arrow sits against the border and can't be moved. */
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--crit-editor-fg-muted) 50%),
+    linear-gradient(135deg, var(--crit-editor-fg-muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
 }
 .settings-text-input {
   width: 260px;
@@ -3762,6 +3760,9 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
   overflow: clip;
 }
 .main-content {
+  --crit-review-pad-inline: 32px;
+  --crit-review-pad-top: 26px;
+  --crit-review-pad-bottom: 80px;
   flex: 1;
   min-width: 0;
   max-width: 100%;
@@ -5276,6 +5277,12 @@ html[data-theme="light"] .toggle-btn.active {
   max-width: var(--content-width);
 }
 
+/* File-level threads and the form have no line gutter to line up with. */
+.file-comments .comment-block,
+.file-comments .comment-form-wrapper {
+  padding-left: 0;
+}
+
 .file-comments .comment-card {
   margin-bottom: 8px;
 }
@@ -5319,19 +5326,19 @@ html[data-theme="light"] .toggle-btn.active {
   cursor: wait;
 }
 
-/* Live Thread — green ambient glow */
+/* Live Thread — green ambient glow (the theme's green) */
 .live-thread > .comment-card {
-  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2),
-              0 0 12px rgba(52, 211, 153, 0.06);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
+              0 0 12px color-mix(in srgb, var(--crit-green) 6%, transparent);
 }
 .live-thread.agent-pending > .comment-card {
   animation: agent-glow 2s ease-in-out infinite;
 }
 @keyframes agent-glow {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2),
-                          0 0 8px rgba(52, 211, 153, 0.05); }
-  50% { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35),
-                    0 0 16px rgba(52, 211, 153, 0.12); }
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
+                          0 0 8px color-mix(in srgb, var(--crit-green) 5%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 35%, transparent),
+                    0 0 16px color-mix(in srgb, var(--crit-green) 12%, transparent); }
 }
 
 /* Live thread badge */
@@ -5751,6 +5758,8 @@ html[data-theme="light"] .toggle-btn.active {
   border-radius: 0;
 }
 .review-conversation[data-doc-layout="centered"] { margin: 20px auto 24px; }
+/* The review list already pads the files; line the conversation up with them. */
+body.pierre-review .review-conversation:not([data-doc-layout="centered"]) { margin-inline: 0; }
 .review-conversation.collapsed .review-conversation-body { display: none; }
 
 .review-conversation-header {
@@ -5837,30 +5846,16 @@ html[data-theme="light"] .toggle-btn.active {
   height: 16px;
   border-radius: var(--crit-r-sm);
   border: 1px dashed var(--crit-border-strong);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23646c85' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
-  background-repeat: no-repeat;
-  background-position: center;
+  background:
+    linear-gradient(currentColor, currentColor) center / 1.5px 6px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 6px 1.5px no-repeat;
   transition: border-color var(--crit-dur-fast) var(--crit-ease),
               border-style var(--crit-dur-fast) var(--crit-ease);
 }
 .review-conversation-add-more:hover::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%2385aaf8' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
+  color: var(--crit-brand);
   border-style: solid;
   border-color: var(--crit-brand);
-}
-[data-theme="light"] .review-conversation-add-more::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%238892a6' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
-}
-[data-theme="light"] .review-conversation-add-more:hover::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%232960bc' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
-}
-@media (prefers-color-scheme: light) {
-  html:not([data-theme]) .review-conversation-add-more::before {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%238892a6' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
-  }
-  html:not([data-theme]) .review-conversation-add-more:hover::before {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%232960bc' stroke-width='1.5' stroke-linecap='round'><path d='M8 5.5v5M5.5 8h5'/></svg>");
-  }
 }
 .review-conversation-add-more:hover {
   background: var(--crit-editor-bg-hover);
@@ -6002,11 +5997,6 @@ html[data-theme="light"] .toggle-btn.active {
   /* Row 1 items keep default order (0); the comment button stays on row 1
      because order:0 < 5 < 10. */
 
-  /* Inline comment form + comment-block: desktop indents them past the
-     gutter columns (unified: padding-left:120px; split: 48px + width:50%)
-     so they sit aligned with the code content. On a 375px viewport that
-     consumes most of the row, crushing the textarea. Force full-row width
-     on mobile — the gutter-alignment was a desktop affordance. */
 }
 
 /* Mobile file picker — shown instead of the hidden file-tree sidebar. */
@@ -6288,7 +6278,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 
 /* ---------- Content pane ---------- */
 .crit-story-pane { flex: 1; overflow-y: auto; scroll-behavior: auto; min-width: 0; }
-.crit-story-pane__inner { max-width: none; margin: 0; padding: 26px 32px 80px; }
+.crit-story-pane__inner { max-width: none; margin: 0; padding: var(--crit-review-pad-top) var(--crit-review-pad-inline) var(--crit-review-pad-bottom); }
 .crit-story-view { display: none; }
 .crit-story-view.active { display: block; animation: crit-story-fade 160ms ease; }
 #crit-story-view-overview { max-width: none; margin: 0; }
@@ -6468,7 +6458,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 .crit-story-file-group { margin-bottom: 18px; background: var(--crit-story-chapter-bg); }
 .crit-story-file-group.viewed { opacity: 0.62; transition: opacity 140ms; }
 .crit-story-file-group.viewed:hover { opacity: 1; }
-.crit-story-file-header {
+.crit-review-file-header {
   top: 0;
   border-left: 1px solid var(--crit-border);
   border-right: 1px solid var(--crit-border);
@@ -6530,7 +6520,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
     display: none; position: fixed; inset: var(--header-height, 44px) 0 0 0; background: var(--crit-overlay-bg); z-index: 39;
   }
   body.crit-story-rail-open .crit-story-rail-scrim { display: block; }
-  .crit-story-pane__inner { padding: 18px 16px 60px; }
+  .main-content { --crit-review-pad-top: 18px; --crit-review-pad-inline: 16px; --crit-review-pad-bottom: 60px; }
   .crit-story-prologue__bullets { grid-template-columns: 1fr; }
   .crit-story-chapter__summary { margin-left: 0; }
   .crit-story-chapter__diagram { margin-left: 0; }
@@ -6556,6 +6546,7 @@ body.pierre-review #filesContainer {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  padding-inline: var(--crit-review-pad-inline);
   --diffs-font-family: var(--crit-font-code, var(--crit-font-mono));
 }
 .pierre-file-header {
@@ -6568,18 +6559,168 @@ body.pierre-review #filesContainer {
 .pierre-file-header.collapsed .file-header-chevron {
   transform: rotate(-90deg);
 }
-/* Unified diffs are full width; keep comment cards and forms at reading
-   width, like the classic unified view. */
-body.pierre-unified #filesContainer .comment-block,
-body.pierre-unified #filesContainer .comment-form-wrapper {
+.pierre-annotation {
+  padding-left: 0;
+}
+/* Pierre's wrap mode sets word-break: break-word on the host. Inherited by
+   Crit content, it lets table columns shrink below a word ("Ty|pe"). */
+.pierre-annotation,
+.pierre-document {
+  word-break: normal;
+}
+/* File-level threads and the file form share one annotation cell above the
+   file. Centered at reading width with at least 16px each side, like the
+   story's .file-comments. Block margins collapse between siblings, so this
+   gives the same space above, between and below them. In split diffs the
+   cell is the new side only, so they center there. */
+.pierre-file-level {
+  width: 100%;
+  max-width: min(var(--content-width), calc(100% - 32px));
+  margin: 12px auto;
+}
+/* Line comments and forms inside a diff (review list or story) stay at
+   reading width, like classic Crit, instead of spanning a wide diff. */
+.pierre-annotation:not(.pierre-file-level) {
   max-width: var(--content-width);
 }
 
 /* The rendered document sits in a Pierre annotation slot, which inherits
    the code typography from the diffs host; restore the page's. */
 .pierre-document {
+  width: 100%;
   font-family: var(--crit-font-body);
   font-size: 1rem;
   line-height: 1.7;
   color: var(--crit-editor-fg);
+}
+
+/* ===== Theme preview page (/themes) ===== */
+.settings-theme-preview-link {
+  font-size: 13px;
+  color: var(--crit-brand);
+}
+.theme-preview-page {
+  background: var(--crit-bg-page);
+  color: var(--crit-fg-primary);
+}
+.theme-preview-title {
+  font-weight: 600;
+  color: var(--crit-fg-secondary);
+}
+.theme-preview-page .header-right .btn {
+  text-decoration: none;
+}
+.theme-preview-page .header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.theme-preview-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: calc(100vh - var(--header-height, 49px));
+}
+.theme-preview-list {
+  overflow-y: auto;
+  border-right: 1px solid var(--crit-border);
+  background: var(--crit-bg-card);
+  padding: 8px;
+}
+.theme-preview-list-hint {
+  padding: 4px 8px 8px;
+  font-size: 12px;
+  color: var(--crit-fg-muted);
+}
+.theme-preview-list [role="listbox"]:focus-visible {
+  outline: none;
+}
+.theme-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--crit-r-md);
+  cursor: pointer;
+  font-size: 13px;
+}
+.theme-preview-item:hover {
+  background: var(--crit-option-hover);
+}
+.theme-preview-item[aria-selected="true"] {
+  background: var(--crit-option-selected-bg);
+  color: var(--crit-brand);
+  font-weight: 600;
+}
+.theme-preview-list [role="listbox"]:focus-visible .theme-preview-item[aria-selected="true"] {
+  box-shadow: inset 0 0 0 1px var(--crit-focus-ring);
+}
+.theme-preview-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Each theme's own colours, drawn on its own background. */
+.theme-preview-swatches {
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px 5px;
+  border: 1px solid;
+  border-radius: var(--crit-r-sm);
+}
+.theme-preview-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.theme-preview-current {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--crit-fg-muted);
+}
+.theme-preview-main {
+  overflow-y: auto;
+  padding: 24px 32px 80px;
+  --diffs-font-family: var(--crit-font-code, var(--crit-font-mono));
+}
+.theme-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.theme-preview-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+.theme-preview-status {
+  font-size: 13px;
+  color: var(--crit-fg-muted);
+  min-height: 1.2em;
+}
+.theme-preview-file {
+  margin-bottom: 18px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--crit-editor-bg);
+}
+.theme-preview-file .crit-review-file-header {
+  border: 0;
+  border-bottom: 1px solid var(--crit-border);
+  border-radius: 0;
+}
+.theme-preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+@media (max-width: 768px) {
+  .theme-preview-layout { grid-template-columns: 1fr; grid-template-rows: 200px minmax(0, 1fr); }
+  .theme-preview-list { border-right: 0; border-bottom: 1px solid var(--crit-border); }
+  .theme-preview-main { padding: 16px; }
 }

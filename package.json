@@ -14,7 +14,7 @@
     "verify-assets": "node scripts/verify-vendored-assets.mjs",
     "verify-assets:installed": "node scripts/verify-vendored-assets.mjs --installed",
     "verify-assets:npm": "node scripts/verify-vendored-assets.mjs --npm",
-    "test:frontend": "node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node --test web/__tests__/crit-code-highlight.test.js web/__tests__/crit-line-blocks.test.js web/__tests__/crit-pierre-adapter.test.js web/__tests__/crit-pierre-view.test.js web/__tests__/index-html-load-order.test.js",
+    "test:frontend": "node web/__tests__/crit-diff-renderer.test.js && node web/__tests__/markdown-replacements.test.js && node --test web/__tests__/crit-code-highlight.test.js web/__tests__/crit-line-blocks.test.js web/__tests__/crit-pierre-adapter.test.js web/__tests__/crit-pierre-view.test.js web/__tests__/crit-theme-palette.test.js web/__tests__/crit-theme-boost.test.js web/__tests__/crit-pierre-runtime.test.js web/__tests__/crit-pierre-dom.test.js web/__tests__/index-html-load-order.test.js",
     "test:perf": "node --test web/__tests__/perf/*.perf.test.mjs"
   },
   "devDependencies": {

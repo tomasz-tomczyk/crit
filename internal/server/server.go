@@ -139,6 +139,9 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/preview-content/", s.handlePreviewContent)
 	mux.HandleFunc("/preview-content", s.handlePreviewContent)
 
+	// Theme preview page — static samples, no session needed.
+	mux.HandleFunc("/themes", s.serveHTML("themes.html"))
+
 	// Live-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/live", s.serveIndexHTML())
 	for _, f := range AgentScriptFiles {
@@ -712,12 +715,17 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 // serveIndexHTML returns a handler that serves the embedded index.html shell.
 // Used for routes (such as /live and /preview) that all render the same shell.
 func (s *Server) serveIndexHTML() http.HandlerFunc {
+	return s.serveHTML("index.html")
+}
+
+// serveHTML serves an embedded HTML page at a clean path (e.g. /themes).
+func (s *Server) serveHTML(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		f, err := s.assets.Open("index.html")
+		f, err := s.assets.Open(name)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -725,7 +733,7 @@ func (s *Server) serveIndexHTML() http.HandlerFunc {
 		defer f.Close()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if _, err := io.Copy(w, f); err != nil {
-			log.Printf("serveIndexHTML: %v", err)
+			log.Printf("serveHTML %s: %v", name, err)
 		}
 	}
 }

@@ -21,6 +21,7 @@
     (typeof require === 'function' ? require('./crit-pierre-adapter.js') : null);
 
   var HYDRATE_CONCURRENCY = 4;
+  var nextViewId = 0;
 
   function createPierreView(opts) {
     var P = opts.pierre;
@@ -36,6 +37,7 @@
     var diffStyle = opts.diffStyle || 'split';
     var themeType = opts.themeType || 'system';
     var disposed = false;
+    var generation = 0;
 
     function nextVersion(path) {
       var v = (versions.get(path) || 0) + 1;
@@ -63,42 +65,36 @@
     }
 
     // Parsed diffs and file contents, reused while what they were built from
-    // is unchanged. The key doubles as Pierre's cacheKey, so its worker keeps
-    // the highlighting too, and a stable object keeps whatever Pierre has
+    // is unchanged. Each parsed result has a stable Pierre cacheKey, so its
+    // worker keeps highlighting too, and a stable object keeps whatever Pierre has
     // hydrated onto it. Publishing for comments, forms or collapse therefore
     // costs no re-parse or re-highlight.
-    var parsed = new Map(); // path → { key, value }
-    function memoParsed(path, key, build) {
+    var viewId = ++nextViewId;
+    var parseVersion = 0;
+    var parsed = new Map(); // path → { inputs, value }
+    function memoParsed(path, inputs, build) {
       var hit = parsed.get(path);
-      if (hit && hit.key === key) return hit.value;
-      var value = build(key);
-      parsed.set(path, { key: key, value: value });
+      if (hit && inputs.length === hit.inputs.length && inputs.every(function(value, i) { return value === hit.inputs[i]; })) return hit.value;
+      // Compare the actual inputs exactly; hashes of only the new content or
+      // hunk geometry miss changes to the old side after a new review round.
+      // Worker cache IDs stay small and unique without hashing source text.
+      var value = build('crit-view:' + viewId + ':' + (++parseVersion));
+      parsed.set(path, { inputs: inputs, value: value });
       return value;
-    }
-
-    function hunksSignature(hunks) {
-      return hunks.map(function(h) {
-        return h.OldStart + ',' + h.OldCount + ',' + h.NewStart + ',' + h.NewCount + ',' + (h.Lines || []).length;
-      }).join(';');
     }
 
     function fileDiffFor(file) {
       var hunks = opts.prepareHunks ? opts.prepareHunks(file) : (file.diffHunks || []);
-      var key = 'diff:' + file.path + ':' + (file.oldPath || '') + ':' + file.status + ':' +
-        (file.fileHash || '') + ':' + (file.content || '').length + ':' + hunksSignature(hunks);
-      return memoParsed(file.path, key, function(k) { return adapter.buildFileDiff(P, file, hunks, k); });
+      var inputs = ['diff', file.path, file.oldPath || file.old_path || '', file.status,
+        file.content || '', JSON.stringify(hunks)];
+      return memoParsed(file.path, inputs, function(k) { return adapter.buildFileDiff(P, file, hunks, k); });
     }
 
-    // A file whose diff has not been fetched yet (server-side lazy). Pierre
-    // has no unloaded-item concept (its loadDiffFiles hydrates contents for
-    // an existing patch), so the stub is a patch of blank lines sized from
-    // numstat: the list keeps roughly its final height and deep jumps land
-    // right. The host is marked data-crit-stub; Crit's CSS hides the blank
-    // rows and a "Loading diff" annotation shows instead.
+    // CodeView estimates off-screen height from lines, not annotation DOM.
+    // Keep this adapter until unloaded items support explicit size estimates.
     function stubDiffFor(file) {
-      var n = adapter.estimatedLineCount(file);
-      var p = file.path;
-      return memoParsed(p, 'stub:' + p + ':' + n, function(k) {
+      var n = adapter.estimatedLineCount(file), p = file.path;
+      return memoParsed(p, ['stub', p, n], function(k) {
         var patch = 'diff --git a/' + p + ' b/' + p + '\n--- a/' + p + '\n+++ b/' + p +
           '\n@@ -1,' + n + ' +1,' + n + ' @@\n' + ' \n'.repeat(n);
         return P.processFile(patch, { cacheKey: k });
@@ -108,6 +104,11 @@
     function itemFor(file) {
       var isStub = !!file.lazy;
       if (isStub) stubs.add(file.path); else stubs.delete(file.path);
+      if (isStub) return {
+        id: file.path, type: 'diff', fileDiff: stubDiffFor(file),
+        annotations: [{ side: 'additions', lineNumber: 0, metadata: metadataFor('loading', file.path) }],
+        collapsed: !!file.collapsed, version: nextVersion(file.path),
+      };
       // Markdown "Document" view in git mode: an empty file item whose
       // file-level annotation is Crit's rendered document (see app.js
       // buildPierreDocument). Pierre still owns header, collapse and scroll.
@@ -116,16 +117,13 @@
       }
       // Files-mode code file: the whole file, comments per line.
       if (!isStub && opts.isFileView && opts.isFileView(file)) {
-        var key = 'file:' + file.path + ':' + (file.fileHash || '') + ':' + (file.content || '').length;
-        return fileItem(file, memoParsed(file.path, key, function(k) { return adapter.buildFileContents(P, file, k); }));
+        return fileItem(file, memoParsed(file.path, ['file', file.path, file.content || ''], function(k) { return adapter.buildFileContents(P, file, k); }));
       }
       return {
         id: file.path,
         type: 'diff',
-        fileDiff: isStub ? stubDiffFor(file) : fileDiffFor(file),
-        annotations: isStub
-          ? [{ side: 'additions', lineNumber: 0, metadata: metadataFor('loading', file.path) }]
-          : annotationsFor(file),
+        fileDiff: fileDiffFor(file),
+        annotations: annotationsFor(file),
         collapsed: !!file.collapsed,
         version: nextVersion(file.path),
       };
@@ -185,6 +183,32 @@
       return r && r.element ? r.element.getBoundingClientRect().top : null;
     }
 
+    // Pierre appends a changed annotation's wrapper at the end of the host,
+    // and annotations sharing a slot (all file-level ones) show in DOM order.
+    // A thread added above a rendered document would land below it. Put the
+    // wrappers back in annotation order, walking backwards so the last one
+    // (usually the large document) never moves.
+    function orderAnnotationWrappers(node, path) {
+      var item = itemsByPath.get(path);
+      if (!item || !item.annotations || item.annotations.length < 2) return;
+      var nextInSlot = new Map();
+      for (var i = item.annotations.length - 1; i >= 0; i--) {
+        var m = item.annotations[i].metadata;
+        var el = elements.get(m.kind + ':' + m.id);
+        var wrapper = el && el.parentElement;
+        if (!wrapper || wrapper.parentNode !== node) continue;
+        var next = nextInSlot.get(wrapper.slot);
+        if (next && (wrapper.compareDocumentPosition(next) & 2 /* DOCUMENT_POSITION_PRECEDING */)) {
+          // Moving a node blurs whatever it contains; keep a composer's focus.
+          var active = wrapper.ownerDocument && wrapper.ownerDocument.activeElement;
+          var keep = active && wrapper.contains(active) ? active : null;
+          node.insertBefore(wrapper, next);
+          if (keep && keep.ownerDocument.activeElement !== keep) keep.focus({ preventScroll: true });
+        }
+        nextInSlot.set(wrapper.slot, wrapper);
+      }
+    }
+
     function pathOf(context) {
       return context && context.item ? context.item.id : null;
     }
@@ -208,12 +232,24 @@
       // scroll (tree jump, then click a line) land.
       pointerEventsOnScroll: true,
       itemMetrics: opts.itemMetrics,
+      layout: opts.layout,
       unsafeCSS: opts.unsafeCSS,
+      theme: opts.theme || adapter.THEME,
+      overflow: opts.overflow || 'scroll',
+      hunkSeparators: opts.hunkSeparators || 'line-info',
+      lineDiffType: opts.lineDiffType || 'word-alt',
+      diffIndicators: opts.diffIndicators || 'bars',
+      expandUnchanged: !!opts.expandUnchanged,
+      disableLineNumbers: !!opts.disableLineNumbers,
       renderCustomHeader: function(fileDiff, context) {
         return opts.buildHeader(pathOf(context));
       },
       renderAnnotation: renderAnnotation,
       renderCodeViewHeader: opts.buildListHeader,
+      onLineNumberClick: function(props, context) {
+        if (opts.onLineNumberClick) opts.onLineNumberClick(props, pathOf(context));
+      },
+      onLineEnter: opts.onLineEnter,
       onGutterUtilityClick: function(range, context) {
         var r = adapter.formRangeFromSelection(range);
         // File items (document view) have one side; comments are new-side.
@@ -228,11 +264,15 @@
       },
       onPostRender: function(node, instance, phase, context) {
         var path = pathOf(context);
+        if (node && phase !== 'unmount') orderAnnotationWrappers(node, path);
         if (node && node.dataset) {
-          if (phase !== 'unmount' && stubs.has(path)) node.dataset.critStub = '1';
-          else delete node.dataset.critStub;
+          if (stubs.has(path)) node.dataset.critStub = '1'; else delete node.dataset.critStub;
         }
         if (opts.onPostRender) opts.onPostRender(path, node, phase);
+        // Scroll subscribers run before CodeView renders its new viewport.
+        // Hydrate from the mounted items too, so a single scroll cannot leave
+        // the newly revealed files as stubs until the reader scrolls again.
+        if (phase !== 'unmount') queueHydrate();
       },
     });
     // setOptions replaces the whole options object, so keep the source of truth here.
@@ -267,12 +307,13 @@
     function hydrate(path) {
       var existing = hydrating.get(path);
       if (existing) return existing;
+      var started = generation;
       var p = Promise.resolve(opts.loadFile(path)).then(function(file) {
-        if (disposed || !file) return;
+        if (disposed || started !== generation || !file || !itemsByPath.has(path)) return;
         publish(file);
       });
       hydrating.set(path, p);
-      return p.finally(function() { hydrating.delete(path); });
+      return p.finally(function() { if (hydrating.get(path) === p) hydrating.delete(path); });
     }
 
     // Scroll events come faster than frames; look for stubs once per frame.
@@ -286,6 +327,11 @@
     var unsubscribe = viewer.subscribeToScroll(queueHydrate);
 
     function setFiles(files) {
+      generation++;
+      // Loads started for the previous generation are dropped when they land;
+      // forget them so hydrateVisible below starts fresh ones.
+      hydrating.clear();
+      hydrateQueue.length = 0;
       // A full render follows a reload, round or view toggle: rebuild
       // annotations from the current model, except open forms (they hold
       // the reader's typing) and rendered documents (the caller re-renders
@@ -389,6 +435,7 @@
 
     function destroy() {
       disposed = true;
+      generation++;
       if (unsubscribe) unsubscribe();
       viewer.cleanUp();
       elements.clear();
@@ -408,6 +455,7 @@
       setAllCollapsed: setAllCollapsed,
       setDiffStyle: setDiffStyle,
       setThemeType: setThemeType,
+      setRenderOptions: updateOptions,
       setSelectedLine: setSelectedLine,
       renderedPaths: renderedPaths,
       isStub: function(path) { return stubs.has(path); },
