@@ -12,7 +12,11 @@ test('a stationary newly mounted lazy viewport shows loading annotations and the
     await route.continue();
   });
   try {
-    await page.locator('#filesContainer').evaluate(el => { el.scrollTop = 24000; });
+    const list = page.locator('#filesContainer');
+    // API loading finishes before CodeView's first layout. Wait for the
+    // destination to exist so setting scrollTop cannot clamp back to zero.
+    await expect.poll(() => list.evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(24000);
+    await list.evaluate(el => { el.scrollTop = 24000; });
     const loading = page.locator('#filesContainer diffs-container[data-crit-stub] .pierre-loading');
     await expect(loading.first()).toBeVisible();
     await expect(loading.first()).toHaveText('Loading diff…');

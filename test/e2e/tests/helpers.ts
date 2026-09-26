@@ -290,9 +290,15 @@ export async function hoverLine(page: Page, item: Locator, line: number, side: D
 
 /** Open a line comment form through the gutter "+" and return the form. */
 export async function openLineComment(page: Page, item: Locator, line: number, side: DiffSide = 'new'): Promise<Locator> {
-  const button = await hoverLine(page, item, line, side);
-  const box = await button.boundingBox();
-  expect(box).toBeTruthy();
+  // Layout/highlighting can remount the utility between the hover assertion
+  // and measuring it. Retry preparation, then click exactly once.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect(async () => {
+    const button = await hoverLine(page, item, line, side);
+    box = await button.boundingBox();
+    expect(box).toBeTruthy();
+    expect(await hitsCentre(button)).toBe(true);
+  }).toPass({ timeout: 10_000 });
   await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
   const form = page.locator('#filesContainer .comment-form').last();
   await expect(form.locator('textarea')).toBeVisible();

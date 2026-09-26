@@ -28,6 +28,7 @@ func TestServePrecompressed(t *testing.T) {
 	gz := gzipBytes(t, body)
 	assets := fstest.MapFS{
 		"pierre/pierre-diffs.js.gz": {Data: gz},
+		"pierre/corrupt.js.gz":      {Data: []byte("invalid gzip bytes")},
 		"app.js":                    {Data: []byte("not served here")},
 	}
 	h := servePrecompressed(assets)
@@ -45,6 +46,8 @@ func TestServePrecompressed(t *testing.T) {
 		{"no gzip support gets plain js", http.MethodGet, "/pierre/pierre-diffs.js", "", 200, "", []byte(body)},
 		{"gzip refused with q=0", http.MethodGet, "/pierre/pierre-diffs.js", "gzip;q=0, br", 200, "", []byte(body)},
 		{"HEAD sends headers only", http.MethodHead, "/pierre/pierre-diffs.js", "gzip", 200, "gzip", nil},
+		{"plain HEAD sends headers only", http.MethodHead, "/pierre/pierre-diffs.js", "", 200, "", nil},
+		{"corrupt gzip returns server error", http.MethodGet, "/pierre/corrupt.js", "", 500, "", nil},
 		{"missing chunk 404s", http.MethodGet, "/pierre/nope.js", "gzip", 404, "", nil},
 		{"non-js path 404s", http.MethodGet, "/pierre/pierre-diffs.js.gz", "gzip", 404, "", nil},
 		{"traversal 404s", http.MethodGet, "/pierre/../app.js", "gzip", 404, "", nil},

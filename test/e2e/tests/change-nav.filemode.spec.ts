@@ -1,7 +1,9 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { execFileSync } from 'child_process';
+import { randomUUID } from 'crypto';
+import { clearAllComments, loadPage, mdSection, fileItem } from './helpers';
 
 // Get the fixture directory from the session API.
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
@@ -43,17 +45,20 @@ async function doRoundWithEdit(
 // Generate a unique modification of the original content.
 // Each call produces a different version to avoid stale-diff issues when
 // the server's in-memory content matches a previous modification.
-let modCounter = 0;
+let modificationId = '';
 function makeModified(original: string, areas: 'single' | 'multi' = 'single'): string {
-  modCounter++;
+  // A retried test runs in a new worker against the same daemon and disk.
+  // A process-local counter can repeat the previous edit, producing no diff.
+  const marker = randomUUID();
+  modificationId = marker;
   let result = original.replace(
     "We're adding API key authentication to the server. This is phase 1 of the auth system.",
-    `We're adding method-${modCounter} authentication to the server. This is variant ${modCounter} of the auth system.`,
+    `We're adding method-${marker} authentication to the server. This is variant ${marker} of the auth system.`,
   );
   if (areas === 'multi') {
     result = result.replace(
       '- **Week 1**: Middleware + key model',
-      `- **Week 1**: Method-${modCounter} middleware + token model`,
+      `- **Week 1**: Method-${marker} middleware + token model`,
     );
   }
   return result;
@@ -68,7 +73,11 @@ test.describe('Change Navigation — File Mode', () => {
 
   test.beforeAll(async ({ request }) => {
     fixtureDir = await getFixtureDir(request);
-    originalContent = fs.readFileSync(path.join(fixtureDir, 'plan.md'), 'utf-8');
+    // The working file may still contain the failed worker's edit. The
+    // fixture's committed baseline survives retries and suite restarts.
+    originalContent = execFileSync('git', ['show', 'HEAD:plan.md'], {
+      cwd: fixtureDir, encoding: 'utf-8',
+    });
   });
 
   test.afterAll(() => {
@@ -114,7 +123,7 @@ test.describe('Change Navigation — File Mode', () => {
     // At least one block should have a change indicator (modified = amber for replacements)
     const changedBlocks = section.locator('.line-block-added, .line-block-modified');
     await expect(changedBlocks.first()).toBeVisible();
-    await expect(changedBlocks.first()).toContainText(`method-${modCounter} authentication`);
+    await expect(changedBlocks.first()).toContainText(`method-${modificationId} authentication`);
   });
 
   test('change-nav widget appears after round-complete with edits', async ({ page, request }) => {
@@ -271,6 +280,9 @@ test.describe('Change Navigation — File Mode', () => {
 
     // Scroll to the very bottom so all changes are above viewport
     await page.evaluate(() => document.getElementById('filesContainer')!.scrollTo(0, document.getElementById('filesContainer')!.scrollHeight));
+    // Exercise the virtualized path: a cached change's DOM cannot scroll
+    // itself back into view after Pierre has unmounted its file.
+    await expect(fileItem(page, 'plan.md')).toHaveCount(0);
 
     await page.keyboard.press('n');
 

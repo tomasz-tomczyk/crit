@@ -111,6 +111,7 @@ test.describe('Settings Panel', () => {
     // rather than replacing it with an older cached settings object.
     await page.keyboard.press('h');
     await page.reload();
+    await expect(page.locator('.loading')).toBeHidden();
     await page.keyboard.press('?');
     await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('ArrowDown');
     await page.locator('.shortcut-reset-all').click();

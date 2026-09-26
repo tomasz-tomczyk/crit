@@ -10,7 +10,11 @@
   // gesture recognizer can't cancel the tap handled by onLineNumberClick.
   const PIERRE_UNSAFE_CSS =
     // Documented colour override only; keep Pierre's separator layout/controls.
-    ':host { --diffs-gap-block: 0px; --diffs-bg-separator-override: color-mix(in srgb, var(--diffs-fg) 5%, var(--diffs-bg)); }' +
+    // Semantic gutter colours need more contrast than their line-tint colour.
+    // Move them slightly toward the theme foreground while retaining their hue.
+    ':host { --diffs-gap-block: 0px; --diffs-bg-separator-override: color-mix(in srgb, var(--diffs-fg) 5%, var(--diffs-bg));' +
+    ' --diffs-fg-number-addition-override: color-mix(in srgb, var(--diffs-addition-base) 85%, var(--diffs-fg));' +
+    ' --diffs-fg-number-deletion-override: color-mix(in srgb, var(--diffs-deletion-base) 85%, var(--diffs-fg)); }' +
     ':host([data-crit-stub]) [data-gutter], :host([data-crit-stub]) [data-content] > [data-line] { visibility: hidden; }' +
     // Rendered documents and placeholders (data-crit-document, see
     // isFileLevelOnly) have no code lines; do not reserve a gutter.

@@ -46,7 +46,7 @@ test.describe('Accessibility', () => {
       .analyze();
     return results.violations.flatMap(v => v.nodes
       .filter(n => boost || v.id !== 'color-contrast' || !isToken(n.html))
-      .map(n => `${v.id}: ${n.target.join(' ')} ${n.html.slice(0, 80)}`));
+      .map(n => `${v.id}: ${n.target.join(' ')} ${n.html.slice(0, 80)}\n${n.failureSummary || ''}`));
   }
 
   async function setBoost(page: Page, on: boolean) {
@@ -57,6 +57,38 @@ test.describe('Accessibility', () => {
       path: '/',
     }]);
     await loadPage(page);
+  }
+
+  // Axe can leave these numbers unaudited because Pierre's gutter has a
+  // pseudo-element. Read the actual foreground and opaque row background,
+  // resolving CSS colour spaces through the browser's canvas implementation.
+  async function gutterContrastFailures(page: Page) {
+    return page.evaluate(() => {
+      const contrast = (window as unknown as {
+        crit: { themeBoost: { contrast: (foreground: string, background: string) => number } };
+      }).crit.themeBoost.contrast;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d')!;
+      const hex = (color: string) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const pixel = context.getImageData(0, 0, 1, 1).data;
+        return '#' + Array.from(pixel).slice(0, 3).map(channel => channel.toString(16).padStart(2, '0')).join('');
+      };
+      return Array.from(document.querySelectorAll('diffs-container')).flatMap(host =>
+        Array.from(host.shadowRoot?.querySelectorAll<HTMLElement>(
+          '[data-column-number][data-line-type="change-addition"], [data-column-number][data-line-type="change-deletion"]',
+        ) || []).filter(row => row.getBoundingClientRect().width > 0).map(row => {
+          const style = getComputedStyle(row);
+          const foreground = hex(style.color);
+          const background = hex(style.backgroundColor);
+          return { path: (host as HTMLElement).dataset.critPath, line: row.dataset.columnNumber,
+            type: row.dataset.lineType, foreground, background, ratio: contrast(foreground, background) };
+        }),
+      ).filter(row => row.ratio < 4.5);
+    });
   }
 
   for (const boost of [false, true]) {
@@ -73,6 +105,7 @@ test.describe('Accessibility', () => {
         await setBoost(page, boost);
         await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
         await setTheme(page, theme);
+        expect(await gutterContrastFailures(page), 'diff line numbers meet WCAG AA independently of syntax boost').toEqual([]);
         expect(await audit(page, boost)).toEqual([]);
       });
     }

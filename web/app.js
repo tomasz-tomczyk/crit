@@ -2620,7 +2620,14 @@
     const prevAnchor = changeNavAnchorFromIdx(currentChangeIdx);
     changeGroups = [];
     // Document view: color-coded change blocks + deletion markers
-    const docEls = Array.from(document.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker'))
+    // Crit owns and caches document annotations across Pierre unmounts. Keep
+    // their change groups available even when another file is in view.
+    const documents = pierreView && pierreViewActive()
+      ? files.map(function(file) { return pierreView.annotationElement('document:' + file.path); }).filter(Boolean)
+      : [document];
+    const docEls = documents.flatMap(function(root) {
+      return Array.from(root.querySelectorAll('.line-block-added, .line-block-modified, .deletion-marker'));
+    })
       .map(function(el) { return el.closest('.native-table-annotation') || el; })
       .filter(function(el, index, elements) { return elements.indexOf(el) === index; });
     // Diff view: diff-added and diff-removed blocks in rendered diff (file mode)
@@ -2715,13 +2722,31 @@
 
     currentChangeIdx = targetIdx;
     const group = changeGroups[currentChangeIdx];
-    group.elements[0].scrollIntoView({ block: 'center', behavior: 'instant' });
-    group.elements.forEach(function(el) { el.classList.add('change-flash'); });
-    focusedElement = group.elements[0];
-    focusedFilePath = group.filePath;
-    const bi = parseInt(group.elements[0].dataset.blockIndex);
-    if (!isNaN(bi)) focusedBlockIndex = bi;
-    updateChangeCounters();
+    const anchor = changeNavAnchorFromIdx(currentChangeIdx);
+    function focusGroup() {
+      // A stale document may have rebuilt while its file was mounting.
+      buildChangeGroups();
+      const index = findChangeIdxForAnchor(anchor);
+      if (index < 0) return;
+      currentChangeIdx = index;
+      const mounted = changeGroups[index];
+      if (!mounted.elements[0].isConnected) return;
+      mounted.elements[0].scrollIntoView({ block: 'center', behavior: 'instant' });
+      mounted.elements.forEach(function(el) { el.classList.add('change-flash'); });
+      focusedElement = mounted.elements[0];
+      focusedFilePath = mounted.filePath;
+      const bi = parseInt(mounted.elements[0].dataset.blockIndex);
+      if (!isNaN(bi)) focusedBlockIndex = bi;
+      updateChangeCounters();
+    }
+    if (!group.elements[0].isConnected && pierreView && pierreViewActive()) {
+      pierreView.scrollToFile(group.filePath).then(function() {
+        whenMounted(function() {
+          const annotation = pierreView && pierreView.annotationElement('document:' + group.filePath);
+          return annotation && annotation.isConnected;
+        }, focusGroup);
+      });
+    } else focusGroup();
   }
 
   function updateChangeCounters() {
