@@ -853,7 +853,10 @@
     initWidth();
     // Code font is a pure CSS-variable override; no mode-specific work here,
     // so the shared helper owns read + apply.
-    if (window.crit && window.crit.shared) window.crit.shared.applyCodeFontFromCookie();
+    if (window.crit && window.crit.shared) {
+      window.crit.shared.applyCodeFontFromCookie();
+      window.crit.shared.applyDisplayAttributes();
+    }
     initSidebarWidths();
     setFileTreeCollapsed(getSetting('fileTree', 'open') === 'collapsed');
     // Comments panel starts hidden (no persistence yet, unlike file tree).
@@ -8673,6 +8676,8 @@
         } else {
           const pool = ensurePierreWorkerPool();
           if (key === 'inlineDiff' && pool) await pool.setRenderOptions({ lineDiffType: pierreDisplayOptions().lineDiffType });
+          // Line numbers and long lines reach rendered markdown through CSS.
+          window.crit.shared.applyDisplayAttributes();
           renderAllFiles();
           if (storyActive()) renderStory();
         }

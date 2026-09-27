@@ -1211,3 +1211,17 @@ test('CODE_FONT_PRESETS only includes always-available entries', () => {
     assert.equal(shared.sanitizeCodeFont(p.stack), p.stack, p.id + ' must survive sanitization');
   });
 });
+
+test('applyDisplayAttributes mirrors line numbers and long lines for rendered markdown', () => {
+  const attrs = {};
+  const root = { setAttribute: (k, v) => { attrs[k] = v; } };
+  sandbox.document.cookie = '';
+  shared.applyDisplayAttributes(root);
+  assert.deepEqual(attrs, { 'data-line-numbers': 'on', 'data-code-overflow': 'scroll' });
+  sandbox.document.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ lineNumbers: 'off', codeOverflow: 'wrap' }));
+  shared.applyDisplayAttributes(root);
+  assert.deepEqual(attrs, { 'data-line-numbers': 'off', 'data-code-overflow': 'wrap' });
+  sandbox.document.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ codeOverflow: 'sideways' }));
+  shared.applyDisplayAttributes(root);
+  assert.equal(attrs['data-code-overflow'], 'scroll');
+});

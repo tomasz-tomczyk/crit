@@ -234,3 +234,28 @@ test('line comment forms in wide unified diffs stay at reading width', async ({ 
   expect(formBox!.width).toBeLessThanOrEqual(1040);
   await form.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
+
+test('line numbers and long code lines reach rendered markdown', async ({ page }) => {
+  await switchToDocumentView(page);
+  const doc = mdDocument(page);
+  const num = doc.locator('.line-num').first();
+  const fence = doc.locator('.line-content.code-line').filter({ hasText: 'authMiddleware' });
+  await expect(num).toBeVisible();
+  await expect(fence).toHaveCSS('white-space', 'pre');
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.locator('label[for="lineNumbersSelect"]')).toHaveText('Line numbers');
+  await page.locator('#lineNumbersSelect').selectOption('off');
+  await page.locator('#codeOverflowSelect').selectOption('wrap');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('html')).toHaveAttribute('data-line-numbers', 'off');
+  await expect(page.locator('html')).toHaveAttribute('data-code-overflow', 'wrap');
+  await expect(num).toBeHidden();
+  await expect(fence).toHaveCSS('white-space', 'pre-wrap');
+  // The gutter still opens a comment form.
+  await doc.locator('.line-comment-gutter').first().click();
+  await expect(page.locator('.comment-form textarea').first()).toBeVisible();
+
+  await loadPage(page);
+  await expect(page.locator('html')).toHaveAttribute('data-line-numbers', 'off');
+});

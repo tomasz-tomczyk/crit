@@ -82,6 +82,16 @@
     if (window.crit && window.crit.themePalette) window.crit.themePalette.applySaved(html);
   }
 
+  // Rendered markdown follows the code display settings (Pierre applies them
+  // to diffs and code files) through CSS keyed on <html data-line-numbers /
+  // data-code-overflow>: gutter numbers hide, code blocks wrap. Call on load
+  // and after either setting changes.
+  function applyDisplayAttributes(root) {
+    const html = root || document.documentElement;
+    html.setAttribute('data-line-numbers', getSetting('lineNumbers', 'on') === 'off' ? 'off' : 'on');
+    html.setAttribute('data-code-overflow', getSetting('codeOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll');
+  }
+
   // Generic crit-settings JSON cookie accessors (mirror app.js semantics).
   function readSettings() {
     const raw = getCookie('crit-settings');
@@ -1128,6 +1138,7 @@
     setCookie,
     readThemeFromSettings,
     applyThemeFromCookie,
+    applyDisplayAttributes,
     getSetting,
     setSetting,
     CODE_FONT_PRESETS,

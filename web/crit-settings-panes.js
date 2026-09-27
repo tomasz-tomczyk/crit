@@ -575,7 +575,7 @@
 
     if (hooks.themePalettes && hooks.onRendererSettingChange) {
       var rendererSelects = [
-        { key: 'lineNumbers', label: 'Code line numbers', fallback: 'on', options: [{ id: 'on', name: 'On' }, { id: 'off', name: 'Off' }] },
+        { key: 'lineNumbers', label: 'Line numbers', fallback: 'on', options: [{ id: 'on', name: 'On' }, { id: 'off', name: 'Off' }] },
         { key: 'lightPalette', label: 'Light theme (UI + code)', fallback: hooks.paletteDefaults.light, options: hooks.themePalettes.filter(function(p) { return p.type === 'light'; }) },
         { key: 'darkPalette', label: 'Dark theme (UI + code)', fallback: hooks.paletteDefaults.dark, options: hooks.themePalettes.filter(function(p) { return p.type === 'dark'; }) },
         { key: 'boostContrast', label: 'Syntax contrast', fallback: 'off', options: [{ id: 'off', name: 'Theme default' }, { id: 'on', name: 'Increased' }] },

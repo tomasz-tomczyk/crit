@@ -230,7 +230,10 @@
           shared.setSetting(key, value);
           if (key === state.mode + 'Palette') select(state.mode, value);
           else if (key === 'lightPalette' || key === 'darkPalette') renderList();
-          else renderDiff();
+          else {
+            shared.applyDisplayAttributes();
+            renderDiff();
+          }
         },
       },
     });
@@ -281,6 +284,7 @@
       : window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     var id = palettes(mode).some(function(p) { return p.id === hash[1]; }) ? hash[1] : savedId(mode);
     shared.applyCodeFontFromCookie();
+    shared.applyDisplayAttributes();
     renderSamples();
     select(mode, id);
     installSettings();

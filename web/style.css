@@ -1066,6 +1066,11 @@ body.dragging { user-select: none; cursor: grabbing; }
   padding-top: 1px;
   line-height: inherit;
 }
+/* "Line numbers: Off" hides rendered-markdown gutter numbers too. The gutter
+   keeps its width, its "+" and its click target; on touch the "+" cue
+   (.line-num::before) stays visible. */
+[data-line-numbers="off"] .line-num { visibility: hidden; }
+[data-line-numbers="off"] .line-num::before { visibility: visible; }
 
 /* Blue + button in the document comment gutter. display:none by default
    so it never renders on touch (the touch affordance is the F3 ::before
@@ -1242,8 +1247,10 @@ body.dragging { user-select: none; cursor: grabbing; }
   padding: 0;
   font-size: inherit;
 }
-/* Wrap long code lines in document view (file-mode code files, markdown fences) */
-.document-wrapper .line-content.code-line {
+/* Wrap long code lines in document view (file-mode code files, markdown
+   fences) when the reader chose "Long code lines: Wrap" (Pierre applies the
+   same setting to diffs and code files; crit-shared.js applyDisplayAttributes). */
+[data-code-overflow="wrap"] .document-wrapper .line-content.code-line {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin-left: 4px;
