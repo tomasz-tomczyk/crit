@@ -459,7 +459,9 @@ export async function submitFileLevelComment(
   // Centered in its area (like classic Crit), with some margin on each side.
   const gaps = await card.evaluate(el => {
     const item = el.closest('.pierre-file-level, .file-comments > *')!;
-    const area = item.parentElement!;
+    // Files-mode source centers its whole panel; its cards fill that panel.
+    // Measure the inset against the file, rather than the annotation cell.
+    const area = item.closest('diffs-container[data-crit-file-view]') || item.parentElement!;
     const cs = getComputedStyle(area);
     const a = area.getBoundingClientRect();
     const r = el.getBoundingClientRect();

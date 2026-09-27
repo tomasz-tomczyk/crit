@@ -1,7 +1,7 @@
 import { test, expect, type Locator } from '@playwright/test';
 import {
   clearAllComments, loadPage, mdSection, goSection, jsSection, fileHeader, mdDocument,
-  submitFileLevelComment,
+  submitFileLevelComment, revealFile,
 } from './helpers';
 
 // File-level threads and the file compose form are annotations on line 0 of
@@ -14,6 +14,59 @@ test.describe('File-level comments — File Mode', () => {
   test.beforeEach(async ({ request, page }) => {
     await clearAllComments(request);
     await loadPage(page);
+  });
+
+  test('source, prose and comments share centered reading width across settings and viewports', async ({ page, request }) => {
+    for (const path of ['plan.md', 'server.go']) {
+      for (const scope of ['file', 'line']) {
+        const response = await request.post(`/api/file/comments?path=${path}`, {
+          data: { scope, start_line: scope === 'file' ? 0 : 1, end_line: scope === 'file' ? 0 : 1, body: `${path} ${scope} width` },
+        });
+        expect(response.ok()).toBeTruthy();
+      }
+    }
+    await loadPage(page);
+    for (const viewport of [1600, 1000, 390]) {
+      await page.setViewportSize({ width: viewport, height: 1000 });
+      for (const choice of ['compact', 'default', 'wide']) {
+        await page.getByRole('button', { name: 'Settings', exact: true }).click();
+        await page.locator(`[data-settings-width="${choice}"]`).click();
+        await page.keyboard.press('Escape');
+        let documentWidth = 0;
+        for (const path of ['plan.md', 'server.go']) {
+          const item = await revealFile(page, path);
+          await expect(async () => {
+            const boxes = await item.locator('.comment-card').evaluateAll(cards => cards.map(card => {
+              const r = card.getBoundingClientRect();
+              return { width: r.width, x: r.x };
+            }));
+            expect(boxes).toHaveLength(2);
+            expect(Math.abs(boxes[0].width - boxes[1].width)).toBeLessThan(2);
+            expect(Math.abs(boxes[0].x - boxes[1].x)).toBeLessThan(2);
+            if (path === 'plan.md') documentWidth = boxes[0].width;
+            else {
+              expect(Math.abs(boxes[0].width - documentWidth)).toBeLessThan(2);
+              const source = await item.locator('pre[data-file]').boundingBox();
+              const file = await item.boundingBox();
+              expect(Math.abs(source!.width - documentWidth)).toBeLessThan(2);
+              expect(Math.abs(source!.x + source!.width / 2 - file!.x - file!.width / 2)).toBeLessThan(2);
+              const selectedWidth = { compact: 840, default: 1040, wide: 1280 }[choice]!;
+              expect(Math.abs(source!.width - Math.min(selectedWidth, file!.width - 32))).toBeLessThan(2);
+            }
+          }).toPass();
+          if (viewport === 390 && choice === 'wide') {
+            const card = item.locator('.comment-card').filter({ hasText: `${path} line width` });
+            // The sticky number gutter must not cover the card's left edge.
+            await card.locator('.comment-collapse-btn').click();
+            await expect(card).toHaveClass(/collapsed/);
+            await card.locator('.comment-collapse-btn').click();
+            await expect(card).not.toHaveClass(/collapsed/);
+          }
+        }
+        const pane = await page.locator('#filesContainer').boundingBox();
+        expect(pane!.x + pane!.width).toBeLessThanOrEqual(viewport);
+      }
+    }
   });
 
   // Rendered markdown: the card must land above the document, not below it

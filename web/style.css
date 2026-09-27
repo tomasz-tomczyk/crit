@@ -6598,6 +6598,10 @@ body.pierre-review #filesContainer {
   max-width: min(var(--content-width), calc(100% - 32px));
   margin: 12px auto;
 }
+/* Files-mode source already reserves the same inset as rendered documents. */
+[data-crit-file-view] .pierre-file-level {
+  max-width: var(--content-width);
+}
 /* Line comments and forms inside a diff (review list or story) stay at
    reading width, like classic Crit, instead of spanning a wide diff. */
 .pierre-annotation:not(.pierre-file-level) {
@@ -6612,6 +6616,10 @@ body.pierre-review #filesContainer {
   font-size: 1rem;
   line-height: 1.7;
   color: var(--crit-editor-fg);
+}
+.pierre-document .document-wrapper {
+  max-width: min(var(--content-width), calc(100% - 32px));
+  padding-inline: 0;
 }
 
 /* ===== Theme preview page (/themes) ===== */

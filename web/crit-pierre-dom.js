@@ -9,6 +9,16 @@
   // numbers as the classic views, with touch-action:none so the browser's
   // gesture recognizer can't cancel the tap handled by onLineNumberClick.
   const PIERRE_UNSAFE_CSS =
+    // Files mode uses the same centered reading width for source and prose.
+    ':host([data-crit-file-view]) pre[data-file] { max-width: min(var(--content-width), calc(100% - 32px));' +
+    ' margin-inline: auto; --crit-comment-inset: 0px; }' +
+    // File comments span the number gutter too, so line and file-level
+    // cards share a reading width even when the viewport constrains it.
+    ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation] { margin-left: calc(-1 * var(--diffs-column-number-width));' +
+    ' width: var(--diffs-column-width); position: relative; z-index: 3; }' +
+    ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation] [data-annotation-content] { width: 100%; left: 0; }' +
+    ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation]:not([data-line-annotation="-1,-1"]) [data-annotation-content] {' +
+    ' max-width: min(var(--crit-comment-width, var(--content-width, 1040px)), calc(100% - 2 * var(--crit-comment-inset, 16px))); margin-inline: auto; }' +
     // Documented colour override only; keep Pierre's separator layout/controls.
     // Semantic gutter colours need more contrast than their line-tint colour.
     // Move them slightly toward the theme foreground while retaining their hue.

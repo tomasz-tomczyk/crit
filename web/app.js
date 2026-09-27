@@ -2294,6 +2294,7 @@
     const host = window.crit.pierreDOM.hostFor(node);
     if (!host) return;
     if (phase === 'unmount') { pierreDecorations.unmount(host); return; }
+    host.toggleAttribute('data-crit-file-view', session.mode === 'files' && pierreIsFileView(getFileByPath(filePath)));
     pierreDecorations.mount(host, filePath, pierreQuotedComments(getFileByPath(filePath)));
     if (host.querySelector('.pierre-document')) {
       if (pierreStaleDocuments.has(filePath)) refreshPierreDocument(filePath);
