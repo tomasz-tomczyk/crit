@@ -997,26 +997,20 @@ func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, e
 // is the previewed file's path relative to the session root (see
 // session.PreviewEntryPath). crit-web uses it as the review title and the
 // crawl keys the entry HTML by the same value, so title and artifact path
-// match. Without an origin it falls back to persisted, then live, metadata.
-// File-review sessions retain their existing review.json-only behavior.
+// match. NewPreviewSession always sets Origin; a preview session without one
+// gets nil. File-review sessions retain their existing review.json-only
+// behavior.
 func (s *Server) shareCLIArgsForSession(sess *Session) []string {
 	if sess == nil {
 		return nil
 	}
-	cliArgs := share.LoadCliArgsFromReviewFile(sess.CritJSONPath())
 	if sess.ReviewType != "preview" {
-		return cliArgs
+		return share.LoadCliArgsFromReviewFile(sess.CritJSONPath())
 	}
-	if sess.Origin != "" {
-		return []string{"preview", s.previewEntryPath(sess)}
+	if sess.Origin == "" {
+		return nil
 	}
-	if len(cliArgs) >= 2 && cliArgs[0] == "preview" && cliArgs[1] != "" {
-		return []string{"preview", session.PreviewEntryPath(cliArgs[1], sess.RepoRoot)}
-	}
-	if len(sess.CLIArgs) >= 2 && sess.CLIArgs[0] == "preview" && sess.CLIArgs[1] != "" {
-		return []string{"preview", session.PreviewEntryPath(sess.CLIArgs[1], sess.RepoRoot)}
-	}
-	return nil
+	return []string{"preview", s.previewEntryPath(sess)}
 }
 
 // previewEntryPath is the share-payload path of a preview session's HTML —
@@ -1080,10 +1074,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) { //nolint:
 		return
 	}
 
-	filePaths := make([]string, len(files))
-	for i, f := range files {
-		filePaths[i] = f.Path
-	}
+	filePaths := share.ShareFilePaths(files)
 
 	// Parse optional org + visibility from request body.
 	var shareReq struct {
@@ -1296,10 +1287,7 @@ func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "no files in session"})
 		return
 	}
-	filePaths := make([]string, len(files))
-	for i, f := range files {
-		filePaths[i] = f.Path
-	}
+	filePaths := share.ShareFilePaths(files)
 	critPath := sess.CritJSONPath()
 	comments, reviewRound := share.LoadCommentsForShare(critPath, filePaths, s.author)
 	cliArgs := share.LoadCliArgsFromReviewFile(critPath)
@@ -1366,19 +1354,9 @@ func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	critPath := sess.CritJSONPath()
-	var comments []shareComment
-	var reviewRound int
-	if reviewType == "preview" {
-		// Load comments across all session paths (DOM pins on live-route entries)
-		// and collapse onto the crawl entry, matching the initial-share payload.
-		comments, reviewRound = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author, files[0].Path)
-	} else {
-		filePaths := make([]string, len(files))
-		for i, f := range files {
-			filePaths[i] = f.Path
-		}
-		comments, reviewRound = share.LoadCommentsForShare(critPath, filePaths, s.author)
-	}
+	// Preview: load across all session paths (DOM pins on live-route entries)
+	// and collapse onto the crawl entry, matching the initial-share payload.
+	comments, reviewRound := share.LoadShareComments(critPath, files, sess.FilePathsSnapshot(), share.ShareFilePaths(files), s.author, reviewType)
 	cliArgs := s.shareCLIArgsForSession(sess)
 	deleteToken := sess.GetDeleteToken()
 	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
@@ -1480,16 +1458,7 @@ func (s *Server) reshareUpsertInputs(sess *Session, hostedURL, deleteToken strin
 	}
 
 	critPath := sess.CritJSONPath()
-	var comments []shareComment
-	if reviewType == "preview" {
-		comments, _ = share.LoadPreviewShareComments(critPath, sess.FilePathsSnapshot(), s.author, files[0].Path)
-	} else {
-		filePaths := make([]string, len(files))
-		for i, f := range files {
-			filePaths[i] = f.Path
-		}
-		comments, _ = share.LoadCommentsForShare(critPath, filePaths, s.author)
-	}
+	comments, _ := share.LoadShareComments(critPath, files, sess.FilePathsSnapshot(), share.ShareFilePaths(files), s.author, reviewType)
 
 	existingCfg := CritJSON{
 		ShareURL:     hostedURL,
@@ -1537,7 +1506,7 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 	// so a missing file still reports as an error below.
 	if _, statErr := os.Stat(review.ReviewPathsFor(critPath).Review); statErr == nil {
 		if err := sess.SyncWriteFiles(); err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("flushing review before pull: %w", err)
 		}
 	}
 	data, readErr := session.ReadFileShared(review.ReviewPathsFor(critPath).Review)

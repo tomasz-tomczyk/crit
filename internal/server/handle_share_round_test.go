@@ -171,44 +171,16 @@ func TestHandleShare_FreshPreviewPreservesMetadataWithoutReviewFile(t *testing.T
 	}
 }
 
-func TestShareCLIArgsForSession_PreviewFallbacks(t *testing.T) {
+func TestShareCLIArgsForSession_NilAndPreviewWithoutOrigin(t *testing.T) {
 	s := &Server{}
 
 	if got := s.shareCLIArgsForSession(nil); got != nil {
 		t.Fatalf("nil session cli args = %v, want nil", got)
 	}
 
-	live := &Session{ReviewType: "preview", CLIArgs: []string{"preview", "live.html", "ignored"}}
-	if got := s.shareCLIArgsForSession(live); len(got) != 2 || got[0] != "preview" || got[1] != "live.html" {
-		t.Fatalf("live session cli args = %v, want [preview live.html]", got)
-	}
-
-	empty := &Session{ReviewType: "preview"}
-	if got := s.shareCLIArgsForSession(empty); got != nil {
-		t.Fatalf("empty preview cli args = %v, want nil", got)
-	}
-}
-
-func TestShareCLIArgsForSession_NormalizesPersistedPreviewArgs(t *testing.T) {
-	dir := t.TempDir()
-	sess := &Session{ReviewType: "preview", OutputDir: dir, RepoRoot: dir}
-	persisted, err := json.Marshal(CritJSON{
-		CliArgs: []string{"preview", "persisted.html", "ignored"},
-		Files:   map[string]CritJSONFile{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewPath := session.ReviewPathsFor(sess.CritJSONPath()).Review
-	if err := os.MkdirAll(filepath.Dir(reviewPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(reviewPath, persisted, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := (&Server{}).shareCLIArgsForSession(sess); len(got) != 2 || got[0] != "preview" || got[1] != "persisted.html" {
-		t.Fatalf("persisted cli args = %v, want [preview persisted.html]", got)
+	noOrigin := &Session{ReviewType: "preview", CLIArgs: []string{"preview", "live.html"}}
+	if got := s.shareCLIArgsForSession(noOrigin); got != nil {
+		t.Fatalf("preview without origin cli args = %v, want nil", got)
 	}
 }
 

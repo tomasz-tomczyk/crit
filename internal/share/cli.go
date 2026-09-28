@@ -360,10 +360,7 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 	}
 	noteStoryNotShared(critPath)
 
-	sharePaths := make([]string, len(files))
-	for i, f := range files {
-		sharePaths[i] = f.Path
-	}
+	sharePaths := ShareFilePaths(files)
 
 	existing, existingOK, err := LoadExistingShareCfg(critPath, sharePaths)
 	if err != nil {

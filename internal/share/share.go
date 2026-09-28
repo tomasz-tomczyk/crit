@@ -228,6 +228,26 @@ func LoadPreviewShareComments(critPath string, sessionPaths []string, fallbackAu
 	return comments, reviewRound
 }
 
+// LoadShareComments loads the comments for a share payload. For a preview it
+// loads across sessionPaths and re-keys them onto the crawl entry (always the
+// first crawled file, files[0]) so crit-web attaches them. Otherwise it loads
+// the comments for filePaths.
+func LoadShareComments(critPath string, files []ShareFile, sessionPaths, filePaths []string, fallbackAuthor, reviewType string) ([]ShareComment, int) {
+	if reviewType == "preview" && len(files) > 0 {
+		return LoadPreviewShareComments(critPath, sessionPaths, fallbackAuthor, files[0].Path)
+	}
+	return LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
+}
+
+// ShareFilePaths returns the Path of each file, in order.
+func ShareFilePaths(files []ShareFile) []string {
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.Path
+	}
+	return paths
+}
+
 // legacyPreviewEntryKey is the payload path older CLIs used for every preview
 // entry HTML. Comments pulled from those shares are stored under it locally.
 const legacyPreviewEntryKey = "index.html"
@@ -269,16 +289,9 @@ func ShareReviewFiles(critPath string, files []ShareFile, filePaths []string, sv
 // metadata. Server-backed sessions use it so a first share can preserve the
 // live session arguments before review.json has been written.
 func ShareReviewFilesWithCLIArgs(critPath string, files []ShareFile, filePaths []string, svcURL, authToken, fallbackAuthor string, cliArgs []string, org, visibility, reviewType string) (ShareReviewFilesResult, error) {
-	var comments []ShareComment
-	var reviewRound int
-	if reviewType == "preview" && len(files) > 0 {
-		// Preview comments are stored under the session's on-disk path (passed
-		// in filePaths) but the crawled payload keys the HTML by its entry path
-		// (always the first crawled file) — re-key so crit-web attaches them.
-		comments, reviewRound = LoadPreviewShareComments(critPath, filePaths, fallbackAuthor, files[0].Path)
-	} else {
-		comments, reviewRound = LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
-	}
+	// For a preview, filePaths are the session's on-disk paths, which is where
+	// the comments are stored.
+	comments, reviewRound := LoadShareComments(critPath, files, filePaths, filePaths, fallbackAuthor, reviewType)
 
 	url, deleteToken, err := shareFilesToWeb(files, comments, svcURL, reviewRound, authToken, cliArgs, org, visibility, reviewType)
 	if err != nil {

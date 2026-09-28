@@ -16,6 +16,19 @@ import (
 	"time"
 )
 
+// init runs before TestMain swaps HOME for a temp dir (testutil.RunWithTempHome).
+// Point glab at the real config dir so its stored auth still works.
+func init() {
+	if os.Getenv("GLAB_CONFIG_DIR") != "" {
+		return
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		os.Setenv("GLAB_CONFIG_DIR", filepath.Join(xdg, "glab-cli"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		os.Setenv("GLAB_CONFIG_DIR", filepath.Join(home, ".config", "glab-cli"))
+	}
+}
+
 type gitLabRoundtripEnv struct {
 	t          *testing.T
 	project    string

@@ -83,11 +83,10 @@ type writeFilesSnapshot struct {
 }
 
 type writeFileSnapshot struct {
-	path       string
-	status     string
-	fileHash   string
-	comments   []Comment
-	deletedIDs map[string]struct{} // comment IDs deleted in-memory, skip during merge
+	path     string
+	status   string
+	fileHash string
+	comments []Comment
 }
 
 // handleExternalDeletion checks if the review file was deleted externally and clears
@@ -249,11 +248,8 @@ func mergeFileSnapshotIntoCritJSON(cj *CritJSON, fs writeFileSnapshot) {
 	merged := fs.comments
 	if hasDisk {
 		for _, dc := range diskFile.Comments {
+			// Deleted IDs are dropped afterwards by applyDeletedCommentIDs.
 			if _, exists := memIDs[dc.ID]; exists {
-				continue
-			}
-			// Skip comments that were explicitly deleted in-memory
-			if _, deleted := fs.deletedIDs[dc.ID]; deleted {
 				continue
 			}
 			merged = append(merged, dc)
@@ -442,19 +438,11 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 	for i, f := range s.Files {
 		comments := make([]Comment, len(f.Comments))
 		copy(comments, f.Comments)
-		var deleted map[string]struct{}
-		if ids := s.deletedCommentIDs[f.Path]; len(ids) > 0 {
-			deleted = make(map[string]struct{}, len(ids))
-			for k, v := range ids {
-				deleted[k] = v
-			}
-		}
 		snap.files[i] = writeFileSnapshot{
-			path:       f.Path,
-			status:     f.Status,
-			fileHash:   f.FileHash,
-			comments:   comments,
-			deletedIDs: deleted,
+			path:     f.Path,
+			status:   f.Status,
+			fileHash: f.FileHash,
+			comments: comments,
 		}
 	}
 	return snap

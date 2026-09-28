@@ -200,14 +200,8 @@ func TestShareSyncIntegration(t *testing.T) {
 		t.Fatalf("crit share failed: %s\n%s", err, out)
 	}
 
-	// First share output is just the URL
-	shareOutput := strings.TrimSpace(string(out))
-	// Extract the URL — it may be preceded by warnings on stderr
-	lines := strings.Split(shareOutput, "\n")
-	shareURL := lines[len(lines)-1]
-	if !strings.Contains(shareURL, "/r/") {
-		t.Fatalf("expected a review URL, got: %s", shareURL)
-	}
+	// Output may include warnings or the one-time login tip around the URL.
+	shareURL := extractURL(t, string(out))
 	token := path.Base(shareURL)
 	t.Logf("Shared to: %s (token: %s)", shareURL, token)
 

@@ -474,8 +474,8 @@ type Session struct {
 	sessionStarted atomic.Uint32
 
 	// deletedCommentIDs tracks IDs of file comments deleted in-memory but not
-	// yet written to disk. Keyed by file path -> set of comment IDs. This
-	// prevents mergeFileSnapshotIntoCritJSON from re-adding them from disk.
+	// yet written to disk. Keyed by file path -> set of comment IDs. buildCritJSON's
+	// applyDeletedCommentIDs drops them after merging with disk.
 	deletedCommentIDs map[string]map[string]struct{}
 
 	// pendingRemoteDeletes is the provider-neutral delete queue. A concurrent

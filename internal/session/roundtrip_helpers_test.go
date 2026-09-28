@@ -16,6 +16,22 @@ import (
 	"time"
 )
 
+// init runs before TestMain swaps HOME for a temp dir (testutil.RunWithTempHome).
+// gh reads its hosts and keychain token via the real HOME, so capture the
+// token now and pass it on as GH_TOKEN to gh and the crit binary.
+func init() {
+	if os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" {
+		return
+	}
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return
+	}
+	if token := strings.TrimSpace(string(out)); token != "" {
+		os.Setenv("GH_TOKEN", token)
+	}
+}
+
 // roundtripEnv holds the per-scenario state.
 type roundtripEnv struct {
 	t          *testing.T

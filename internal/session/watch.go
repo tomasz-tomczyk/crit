@@ -147,8 +147,11 @@ func (s *Session) RefreshFileList() {
 
 	// Rewrite review-JSON path keys so persisted threads follow the rename
 	// and restoreOrphanedComments does not resurrect a phantom under OldPath.
+	// Hold writeMu so this read-modify-write cannot race the debounced writer.
 	if len(built.renames) > 0 {
+		s.writeMu.Lock()
 		rewriteReviewJSONRenames(critPath, built.renames)
+		s.writeMu.Unlock()
 	}
 }
 
