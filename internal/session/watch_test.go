@@ -12,6 +12,64 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
+func TestWatchFileMtimes_ClearAllCommentsPreservesNextRoundDiff(t *testing.T) {
+	s := newTestSession(t)
+	s.Mode = "files"
+	s.lastRoundEdits = 2
+	for _, f := range s.Files {
+		f.FileHash = fileHash([]byte(f.Content))
+	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.watchFileMtimes(stop)
+	}()
+	defer func() { close(stop); <-done }()
+	waitForEvent := func(kind string) {
+		t.Helper()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case event := <-events:
+				if event.Type == kind {
+					return
+				}
+			case <-timer.C:
+				t.Fatalf("timed out waiting for %s", kind)
+			}
+		}
+	}
+
+	// A fixture restoration can be detected between tests, before cleanup.
+	previous := "# Plan\n\nRestored baseline\n"
+	writeFile(t, s.Files[0].AbsPath, previous)
+	waitForEvent("edit-detected")
+	s.ClearAllComments()
+	if edits := s.GetLastRoundEdits(); edits != 0 {
+		t.Fatalf("last round edits after cleanup = %d; want 0", edits)
+	}
+	current := "# Plan\n\nNext round edit\n"
+	writeFile(t, s.Files[0].AbsPath, current)
+	waitForEvent("edit-detected")
+	s.SignalRoundComplete()
+	waitForEvent("file-changed")
+
+	diff, ok := s.GetFileDiffSnapshot("plan.md", false)
+	if !ok {
+		t.Fatal("plan.md diff missing")
+	}
+	if diff["previous_content"] != previous {
+		t.Fatalf("previous content = %q; want restored baseline %q", diff["previous_content"], previous)
+	}
+	if len(diff["hunks"].([]vcs.DiffHunk)) == 0 {
+		t.Fatal("next round lost its diff after cleanup")
+	}
+}
+
 // TestWatchFileMtimes_CommentNotLostOnFileChange verifies that a comment added
 // concurrently with the file watcher detecting a content change is not silently
 // discarded. This exercises the fix for the race where:

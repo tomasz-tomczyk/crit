@@ -3,7 +3,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
-import { clearAllComments, loadPage, mdSection, fileItem } from './helpers';
+import { clearAllComments, loadPage as loadReviewPage, mdSection, fileItem } from './helpers';
+
+async function loadPage(page: Page) {
+  // Rendering can finish before the event stream connects on a busy runner.
+  const connected = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/events' && response.ok());
+  await loadReviewPage(page);
+  await connected;
+}
 
 // Get the fixture directory from the session API.
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
@@ -21,8 +29,11 @@ async function doRoundWithEdit(
   newContent: string,
 ) {
   // Click finish to enter waiting state
+  const finished = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/finish' && response.request().method() === 'POST');
   await page.locator('#finishBtn').click();
-  await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+  expect((await finished).ok()).toBe(true);
+  await expect(page.locator('#waitingOverlay')).toHaveClass(/active/, { timeout: 15_000 });
 
   // Modify the file on disk
   fs.writeFileSync(path.join(fixtureDir, filePath), newContent);
@@ -33,10 +44,10 @@ async function doRoundWithEdit(
   await expect(page.locator('#waitingEdits')).toContainText('edit', { timeout: 5_000 });
 
   // Trigger round-complete
-  await request.post('/api/round-complete');
+  await expect(await request.post('/api/round-complete')).toBeOK();
 
   // Wait for UI to refresh
-  await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5_000 });
+  await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 15_000 });
 }
 
 // The review list scrolls inside #filesContainer (not the window); the
@@ -87,7 +98,12 @@ test.describe('Change Navigation — File Mode', () => {
     }
   });
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(async ({ page, request }) => {
+    // These tests exercise round diffs, not the OS clipboard. Finishing awaits
+    // clipboard writes, which can stall when parallel browser projects take focus.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator.clipboard, 'writeText', { value: async () => {} });
+    });
     await clearAllComments(request);
     // NOTE: We intentionally do NOT restore the file here. The server's
     // in-memory content must match the disk to avoid phantom edit detection

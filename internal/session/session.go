@@ -2347,6 +2347,10 @@ func (s *Session) ClearAllComments() {
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
 	s.waitingForAgent = false
+	// Cleanup also resets the watcher's round state. A detected fixture edit
+	// must not suppress the next markdown PreviousContent snapshot.
+	s.pendingEdits = 0
+	s.lastRoundEdits = 0
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Full-folder cleanup; idempotent on missing folder.
