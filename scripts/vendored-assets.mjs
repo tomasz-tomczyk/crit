@@ -37,7 +37,7 @@ export const vendoredAssets = [
   },
   {
     path: "web/diff-match-patch.min.js",
-    sources: ["@sanity/diff-match-patch@3.2.0", "esbuild@0.28.2"],
+    sources: ["@sanity/diff-match-patch@3.2.1", "esbuild@0.28.2"],
     packagePath: "-",
     kind: "generated",
   },
