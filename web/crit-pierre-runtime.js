@@ -62,6 +62,10 @@
       if (pool) return pool;
       try {
         pool = options.create();
+        // Pierre's constructor already starts initialization. Observing it here
+        // attaches to that pending promise before a worker can reject it; stats
+        // alone only report the failure after the rejection has escaped.
+        pool.initialize().catch(fail);
         if (!pool.isInitialized()) timer = schedule(() => fail(new Error('Highlight workers did not initialize')), options.timeout || 5000);
         const off = pool.subscribeToStatChanges(stats => {
           if (stats.workersFailed) fail(new Error('Highlight worker failed'));

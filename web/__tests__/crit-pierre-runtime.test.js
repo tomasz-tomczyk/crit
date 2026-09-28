@@ -1,6 +1,11 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+const { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const path = require('node:path');
+const { gunzipSync } = require('node:zlib');
 const { createLoader, createWorkerController } = require('../crit-pierre-runtime.js');
 
 test('lazy loader deduplicates and rejects responses after scope or file replacement', async () => {
@@ -49,6 +54,7 @@ function harness(initialized = false) {
   let terminations = 0;
   let unsubscribed = 0;
   const pool = {
+    initialize: () => Promise.resolve(),
     isInitialized: () => initialized,
     subscribeToStatChanges(fn) { listener = fn; return () => { unsubscribed++; }; },
     terminate() { terminations++; },
@@ -88,4 +94,63 @@ test('worker creation failures never escape into the render path', () => {
   assert.equal(controller.get(), undefined);
   assert.equal(controller.get(), undefined);
   assert.equal(failures, 1);
+});
+
+test('vendored Pierre worker startup errors do not leave an unhandled rejection', () => {
+  // Use the embedded production bundle, whose constructor starts initialization
+  // before the controller receives the pool. Isolate unhandledRejection from
+  // node:test, which treats it as a test failure even when a listener is present.
+  const directory = mkdtempSync(path.join(tmpdir(), 'crit-pierre-worker-'));
+  try {
+    const assets = path.join(__dirname, '..', 'pierre');
+    for (const name of readdirSync(assets)) {
+      if (name.endsWith('.js.gz')) {
+        writeFileSync(path.join(directory, name.slice(0, -3)), gunzipSync(readFileSync(path.join(assets, name))));
+      }
+    }
+    writeFileSync(path.join(directory, 'package.json'), '{"type":"module"}');
+    execFileSync(process.execPath, ['-e', `
+      const assert = require('node:assert/strict');
+      const { pathToFileURL } = require('node:url');
+      const { createWorkerController } = require(process.argv[1]);
+      global.window = {};
+      global.requestAnimationFrame = setImmediate;
+      global.cancelAnimationFrame = clearImmediate;
+      console.error = () => {}; // Pierre logs the expected worker error.
+      const unhandled = [];
+      process.on('unhandledRejection', error => unhandled.push(error.message));
+      (async () => {
+        await import(pathToFileURL(process.argv[2]));
+        let failures = 0;
+        let terminations = 0;
+        let finish;
+        const failed = new Promise(resolve => { finish = resolve; });
+        const controller = createWorkerController({
+          create: () => window.PierreDiffs.getOrCreateWorkerPoolSingleton({
+            poolOptions: {
+              poolSize: 1,
+              workerFactory: () => ({
+                addEventListener(type, listener) { if (type === 'error') this.error = listener; },
+                postMessage() { setImmediate(() => this.error(new Event('error'))); },
+                terminate() { terminations++; },
+              }),
+            },
+            highlighterOptions: { theme: 'github-light', preferredHighlighter: 'shiki-js' },
+          }),
+          onFailure() { failures++; finish(); },
+        });
+        assert.ok(controller.get());
+        await failed;
+        // Cross an event-loop turn so an abandoned initialization promise would
+        // have emitted unhandledRejection before the assertion.
+        await new Promise(setImmediate);
+        assert.deepEqual(unhandled, []);
+        assert.equal(failures, 1);
+        assert.equal(terminations, 1);
+        assert.equal(controller.get(), undefined);
+      })().catch(error => { process.stderr.write(error.stack); process.exitCode = 1; });
+    `, path.join(__dirname, '..', 'crit-pierre-runtime.js'), path.join(directory, 'pierre-diffs.js')], { timeout: 10000 });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
