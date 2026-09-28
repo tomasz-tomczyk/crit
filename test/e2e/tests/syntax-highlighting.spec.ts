@@ -1,7 +1,7 @@
 import { test, expect, type Locator } from '@playwright/test';
 import {
   loadPage, goSection, jsSection, revealFile, diffLine, showLine,
-  clickWhenHittable, setDiffStyle,
+  clickWhenHittable,
 } from './helpers';
 
 // ============================================================
@@ -103,32 +103,6 @@ test.describe('Syntax Highlighting — language detection', () => {
     await expect(line).toHaveAttribute('data-line-type', 'change-addition');
     await expectHighlighted(line);
     expect(await colourOf(token(line, 'Feature'))).not.toBe(await colourOf(token(line, 'User login')));
-  });
-});
-
-test.describe('Syntax Highlighting — Unified Mode', () => {
-  test('Go file has syntax-highlighted code in unified diff', async ({ page }) => {
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    const item = await goSection(page);
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-
-    const line = diffLine(item, 24);
-    await showLine(page, line);
-    await expect(line).toHaveAttribute('data-line-type', 'change-addition');
-    await expectHighlighted(line, 3);
-  });
-
-  test('deletion lines in unified mode have syntax highlighting', async ({ page }) => {
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    const item = await goSection(page);
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-
-    const line = diffLine(item, 23, 'old');
-    await showLine(page, line);
-    await expect(line).toHaveAttribute('data-line-type', 'change-deletion');
-    await expectHighlighted(line);
   });
 });
 

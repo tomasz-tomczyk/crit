@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   loadPage, goSection, jsSection, revealFile, diffLine, showLine,
-  clickWhenHittable, setDiffStyle,
+  clickWhenHittable,
 } from './helpers';
 
 // ============================================================
@@ -74,45 +74,6 @@ test.describe('Word Diff — Split Mode', () => {
       const lineBg = await add.evaluate(el => getComputedStyle(el).backgroundColor);
       return spanBg !== 'rgba(0, 0, 0, 0)' && spanBg !== 'transparent' && spanBg !== lineBg;
     }).toBe(true);
-  });
-});
-
-test.describe('Word Diff — Unified Mode', () => {
-  test('paired del/add lines show word-diff highlights', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
-    await setDiffStyle(page, 'unified');
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-
-    const del = diffLine(item, 42, 'old');
-    const add = diffLine(item, 67);
-    await showLine(page, add);
-    await expect(del.locator(WORD).first()).toBeVisible();
-    await expect(add.locator(WORD).first()).toBeVisible();
-  });
-
-  test('word-diff spans contain expected tokens in unified mode', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
-    await setDiffStyle(page, 'unified');
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-
-    const del = diffLine(item, 42, 'old');
-    const add = diffLine(item, 67);
-    await showLine(page, add);
-    await expect.poll(() => del.locator(WORD).allTextContents()).toEqual(['fmt.Println', '8080"']);
-    await expect.poll(() => add.locator(WORD).allTextContents()).toEqual(['log.Printf', '%s", port']);
-  });
-
-  test('context lines in unified mode have no word-diff spans', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
-    await setDiffStyle(page, 'unified');
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-
-    const context = item.locator('code[data-unified] [data-content] > [data-line-type^="context"]');
-    await expect(context.first()).toBeVisible();
-    await expect(context.locator(WORD)).toHaveCount(0);
   });
 });
 

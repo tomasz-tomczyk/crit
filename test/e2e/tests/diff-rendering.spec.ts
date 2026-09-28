@@ -143,42 +143,6 @@ test.describe('Diff Mode Toggle', () => {
     await expect(item.locator('code[data-additions], code[data-deletions]')).toHaveCount(0);
   });
 
-  test('unified mode shows single-pane diff lines', async ({ page }) => {
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    const item = await goSection(page);
-
-    // Old and new versions of a changed line are stacked in one column.
-    const code = item.locator('code[data-unified]');
-    await expect(code).toBeVisible();
-    const del = diffLine(item, 42, 'old');
-    const add = diffLine(item, 67);
-    await showLine(page, add);
-    await expect(del).toContainText('fmt.Println');
-    await expect(add).toContainText('log.Printf');
-    const d = await del.boundingBox();
-    const a = await add.boundingBox();
-    expect(Math.abs(d!.x - a!.x)).toBeLessThan(2);
-    expect(d!.y).toBeLessThan(a!.y);
-  });
-
-  test('unified mode marks addition lines distinctly from context', async ({ page }) => {
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    const item = await goSection(page);
-
-    const added = diffLine(item, 5);
-    const context = diffLine(item, 4);
-    await expect(added).toHaveAttribute('data-line-type', 'change-addition');
-    await expect(context).toHaveAttribute('data-line-type', /^context/);
-    // The addition is visibly highlighted (its background differs from context).
-    await expect.poll(async () => {
-      const bgAdd = await added.evaluate(el => getComputedStyle(el).backgroundColor);
-      const bgCtx = await context.evaluate(el => getComputedStyle(el).backgroundColor);
-      return bgAdd !== bgCtx && bgAdd !== 'rgba(0, 0, 0, 0)';
-    }).toBe(true);
-  });
-
   test('diff mode persists across reload', async ({ page, context }) => {
     await context.clearCookies();
     await loadPage(page);

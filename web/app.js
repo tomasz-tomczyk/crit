@@ -478,6 +478,7 @@
   const ICON_CLIPBOARD = window.crit.icons.ICON_CLIPBOARD;
   const ICON_CHECK_SMALL = window.crit.icons.ICON_CHECK_SMALL;
   const ICON_COMMENT = window.crit.icons.ICON_COMMENT;
+  const ICON_FILE = window.crit.icons.ICON_FILE;
   const ICON_COPY_PATH = window.crit.icons.ICON_COPY_PATH;
   const ICON_COPY_PATH_CHECK = window.crit.icons.ICON_COPY_PATH_CHECK;
 
@@ -1891,11 +1892,44 @@
     header.className = 'file-header crit-review-file-header pierre-file-header' + (file.collapsed ? ' collapsed' : '');
     header.dataset.filePath = filePath;
     populateFileHeader(file, header);
+    // The chevron is the keyboard control; the rest of the header is a
+    // mouse shortcut for it. Pierre rebuilds the header (more than once) on
+    // collapse, so keep focus on the current chevron while it settles.
+    const chevron = header.querySelector('.file-header-chevron');
+    chevron.setAttribute('aria-expanded', String(!file.collapsed));
+    function toggle() {
+      const refocus = document.activeElement === chevron;
+      pierreView.setCollapsed(file, !file.collapsed);
+      header.classList.toggle('collapsed', !!file.collapsed);
+      chevron.setAttribute('aria-expanded', String(!file.collapsed));
+      if (refocus) keepChevronFocus(filePath);
+    }
+    chevron.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggle();
+    });
     header.addEventListener('click', function(e) {
       if (e.target.closest('button, a, input, label, .file-header-toggle, .change-nav')) return;
-      pierreView.setCollapsed(file, !file.collapsed);
+      toggle();
     });
     return header;
+  }
+
+  // Refocus the file's chevron for ~20 frames whenever a header rebuild
+  // drops focus to the body. A pointerdown means the user moved on, so stop.
+  function keepChevronFocus(filePath) {
+    let frames = 0;
+    let stopped = false;
+    function stop() { stopped = true; }
+    document.addEventListener('pointerdown', stop, { capture: true, once: true });
+    (function poll() {
+      if (stopped) return;
+      const current = document.querySelector('#filesContainer .pierre-file-header[data-file-path="' + CSS.escape(filePath) + '"] .file-header-chevron');
+      const active = document.activeElement;
+      if (current && active !== current && (!active || active === document.body)) current.focus();
+      if (++frames < 20) requestAnimationFrame(poll);
+      else document.removeEventListener('pointerdown', stop, { capture: true });
+    })();
   }
 
   // Load a lazy file's diff/content without touching the DOM; Pierre swaps
@@ -1948,7 +1982,7 @@
         },
         onFailure: function(error) {
           console.warn('Highlight workers unavailable; rendering without workers.', error);
-          window.crit.codeHighlight.configure({ pool: ensurePierreWorkerPool });
+          window.crit.codeHighlight.configure({ pool: pierreWorkerPoolReady });
           requestAnimationFrame(function() {
             disposePierreView();
             renderAllFiles();
@@ -1958,6 +1992,13 @@
       });
     }
     return pierreWorkerController.get();
+  }
+
+  // The worker pool once the Pierre bundle has loaded (null if it failed).
+  // Calling ensurePierreWorkerPool() before then would find no
+  // window.PierreDiffs and turn workers off for the session.
+  function pierreWorkerPoolReady() {
+    return window.critPierreReady.then(function(P) { return P ? ensurePierreWorkerPool() : null; });
   }
 
   function ensurePierreView() {
@@ -2181,6 +2222,18 @@
     });
   }
 
+  // Story FileDiffs by container. Each one subscribes to the worker pool's
+  // theme changes until cleanUp(), so story re-renders clean up the diffs
+  // inside the DOM they are about to drop.
+  const storyFileDiffs = new Map();
+  function cleanUpStoryDiffs(root) {
+    storyFileDiffs.forEach(function(diff, container) {
+      if (root && !root.contains(container)) return;
+      diff.cleanUp();
+      storyFileDiffs.delete(container);
+    });
+  }
+
   // Inline (non-virtualized) Pierre FileDiff for a story chapter group
   // (filtered hunks; #storyPane scrolls). The group keeps Crit's header and
   // re-renders as a whole on comment changes, so no element cache is needed.
@@ -2211,12 +2264,9 @@
       lineAnnotations: annotations,
       containerWrapper: container,
     });
+    storyFileDiffs.set(container, diff);
     return container;
   }
-
-  // Line element inside a Crit-hosted Pierre FileDiff (story group or
-  // files-mode inline diff). side: 'old' → deletions column.
-
 
   // ----- Quote highlights inside Pierre (CSS Custom Highlight API) -----
   // Comments created from a text selection carry `quote` (+ quote_offset).
@@ -2234,15 +2284,6 @@
         .map(function(f) { return { start: f.startLine, end: f.endLine, side: f.side || '', quote: f.quote, offset: f.quoteOffset }; }));
     return quoted;
   }
-
-  // Selectors for line ranges ({ start, end, old }) of a file's Pierre item.
-  // Split (and whole-file items) tint that side's lines only. Unified tints
-  // the range's rows plus the context between them, and for a new-side range
-  // the deletions inside it too, like the classic unified view. Additions are
-  // not pulled into an old-side range: Pierre places each deletion next to
-  // its most similar addition, so additions that sit between two deleted
-  // lines in git's order can be drawn outside the range.
-
 
   // Line tints, like the classic views: lines a comment covers, and the range
   // of each open form (form-selected, which wins). Pierre has no per-line
@@ -2847,8 +2888,8 @@
       : '<span class="dir">' + escapeHtml(dirPath) + '</span><span class="filename">' + escapeHtml(fileName) + '</span>';
 
     header.innerHTML =
-      '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
-      '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--crit-editor-fg-muted)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
+      '<button type="button" class="file-header-chevron" aria-label="Toggle ' + escapeHtml(file.path) + '"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></button>' +
+      ICON_FILE +
       '<span class="file-header-name">' + renameHeader +
         '<button type="button" class="file-header-copy-path" aria-label="Copy file path">' + ICON_COPY_PATH + '</button>' +
       '</span>' +
@@ -3847,12 +3888,10 @@
         startLine: parseInt(el.dataset.startLine),
         endLine: parseInt(el.dataset.endLine),
         blockIndex: el.dataset.blockIndex !== undefined ? parseInt(el.dataset.blockIndex) : null,
-        side: undefined,
       });
     });
 
-    if (candidates.length === 0) return null;
-    return resolveTextSelectionLineRange(candidates, undefined);
+    return resolveTextSelectionLineRange(candidates);
   }
 
   function closeEmptyReviewForm() {
@@ -7118,11 +7157,7 @@
   // such markdown is inserted; each block is upgraded once.
   function watchCodeBlocks() {
     const upgrade = window.crit.codeHighlight.upgrade;
-    window.crit.codeHighlight.configure({
-      pool: function() {
-        return window.critPierreReady.then(function(P) { return P ? ensurePierreWorkerPool() : null; });
-      },
-    });
+    window.crit.codeHighlight.configure({ pool: pierreWorkerPoolReady });
     upgrade(document.body);
     new MutationObserver(function(records) {
       for (let i = 0; i < records.length; i++) {
@@ -8670,12 +8705,12 @@
         setSetting(key, value);
         if (key === 'lightPalette' || key === 'darkPalette' || key === 'boostContrast') {
           applyCritPalette();
-          const pool = ensurePierreWorkerPool();
+          const pool = await pierreWorkerPoolReady();
           if (pool) await pool.setRenderOptions({ theme: pierreDisplayOptions().theme });
-          window.crit.codeHighlight.configure({ pool: ensurePierreWorkerPool });
+          window.crit.codeHighlight.configure({ pool: pierreWorkerPoolReady });
           await reloadForScope();
         } else {
-          const pool = ensurePierreWorkerPool();
+          const pool = await pierreWorkerPoolReady();
           if (key === 'inlineDiff' && pool) await pool.setRenderOptions({ lineDiffType: pierreDisplayOptions().lineDiffType });
           // Line numbers and long lines reach rendered markdown through CSS.
           window.crit.shared.applyDisplayAttributes();
@@ -9070,7 +9105,6 @@
       startLine: range.startLine,
       endLine: range.endLine,
       editingId: null,
-      side: range.side,
       quote: quote,
       quoteOffset: quoteOffset
     });
@@ -10347,7 +10381,7 @@
     const dirPath = dirParts.length > 0 ? dirParts.join('/') + '/' : '';
     header.innerHTML =
       '<div class="file-header-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></div>' +
-      '<svg class="file-header-icon" viewBox="0 0 16 16" fill="var(--crit-editor-fg-muted)"><path fill-rule="evenodd" d="M3.75 1.5a.25.25 0 0 0-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V1.75z"/></svg>' +
+      ICON_FILE +
       '<span class="file-header-name"><span class="dir">' + escapeHtml(dirPath) + '</span><span class="filename">' + escapeHtml(fileName || filePath) + '</span>' +
         '<button type="button" class="file-header-copy-path" aria-label="Copy file path">' + ICON_COPY_PATH + '</button>' +
       '</span>' +
@@ -10455,6 +10489,7 @@
         if (!section.isConnected) return;
         const replacement = renderStoryFileGroup(page, filePath, oldStarts, supportReason);
         replacement.open = section.open;
+        cleanUpStoryDiffs(section);
         section.replaceWith(replacement);
         renderMermaidBlocks();
         rebuildNavList();
@@ -10492,6 +10527,7 @@
     const oldSection = view.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(filePath) + '"]');
     if (!oldSection) return false;
     const replacement = renderStoryFileGroup(page, filePath, page.refsByFile.get(filePath), storySupportReasonForFile(page, filePath));
+    cleanUpStoryDiffs(oldSection);
     oldSection.replaceWith(replacement);
     renderMermaidBlocks();
     rebuildNavList();
@@ -10518,6 +10554,7 @@
   function renderStory() {
     if (!storyState) return;
     const inner = document.getElementById('storyPaneInner');
+    cleanUpStoryDiffs();
     inner.innerHTML = '';
     if (storyView === 'overview' || !storyPageById(storyView)) {
       storyView = storyPageById(storyView) ? storyView : 'overview';
@@ -10600,6 +10637,7 @@
       document.body.classList.remove('crit-story-hidden');
       document.body.classList.remove('crit-story-rail-open');
       document.body.classList.remove('crit-story-rail-collapsed');
+      cleanUpStoryDiffs();
       const inner = document.getElementById('storyPaneInner');
       if (inner) inner.innerHTML = '';
       const rail = document.getElementById('storyRail');

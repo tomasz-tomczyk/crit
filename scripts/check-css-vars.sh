@@ -13,12 +13,10 @@ set -e
 DEAD_VAR_ALLOWLIST="
 --font-sans --header-height --file-tree-width --comments-panel-width --story-rail-width --p
 --crit-border-strong --crit-dur-base --crit-dur-slow --crit-ease-in --crit-ease-out
---crit-editor-bg-gutter --crit-fg-muted --crit-fg-secondary --crit-header-height
+--crit-fg-muted --crit-fg-secondary --crit-header-height
 --crit-r-sm --crit-r-xl
---crit-live-composer-bg --crit-live-composer-input-bg
 --crit-live-marker-bg --crit-live-marker-border --crit-live-marker-fg --crit-live-marker-shadow
 --crit-live-reanchor-active-outline
---crit-live-toast-bg --crit-live-toast-border --crit-live-toast-fg
 --diffs-font-family --diffs-tab-size --diffs-token-light --diffs-token-dark --diffs-modified-color-override
 --crit-palette-bg --crit-palette-fg --crit-palette-accent --crit-palette-on-accent
 --crit-palette-muted --crit-palette-border --crit-palette-surface --crit-palette-elevated
@@ -85,7 +83,7 @@ echo "OK: No dead CSS variable definitions."
 # ── Check C: 4-block completeness (theme.css only) ─────────────────────────
 
 # Extract variables defined in theme.css (not style.css) and only from the
-# 4 theme custom-property blocks, not from hljs selector blocks.
+# 4 theme custom-property blocks.
 # Strategy: parse theme.css, track which block we're in, collect var names.
 
 THEME_FILE="web/theme.css"
@@ -96,61 +94,48 @@ THEME_FILE="web/theme.css"
 #   prefers-color-scheme: light ... {      -> system-light (inside @media)
 #   [data-theme="dark"] {                  -> dark
 #   [data-theme="light"] {                 -> light
-# We skip any block that contains .hljs (syntax highlighting blocks).
 
 BLOCK_VARS=$(perl -e '
     use strict;
     use warnings;
     my $block = "";
     my $depth = 0;
-    my $in_hljs = 0;
 
     while (<>) {
         # Detect block openings (only at depth 0 or 1 for the @media case)
         if (/^\s*:root\s*\{/ && $depth == 0) {
             $block = "root";
             $depth = 1;
-            $in_hljs = 0;
             next;
         }
         if (/prefers-color-scheme:\s*light/ && $depth == 0) {
             # @media block — we will match the inner html:not block
             $depth = 1;
             $block = "";
-            $in_hljs = 0;
             next;
         }
         if (/html:not\(\[data-theme\]\)\s*\{/ && $depth == 1 && $block eq "") {
             $block = "system-light";
             $depth = 2;
-            $in_hljs = 0;
             next;
         }
-        if (/\[data-theme="dark"\]\s*\{/ && $depth == 0 && !/\.hljs/) {
+        if (/\[data-theme="dark"\]\s*\{/ && $depth == 0) {
             $block = "dark";
             $depth = 1;
-            $in_hljs = 0;
             next;
         }
-        if (/\[data-theme="light"\]\s*\{/ && $depth == 0 && !/\.hljs/) {
+        if (/\[data-theme="light"\]\s*\{/ && $depth == 0) {
             $block = "light";
             $depth = 1;
-            $in_hljs = 0;
             next;
         }
 
         # Track braces for blocks we do not care about
-        if ($block eq "" || $in_hljs) {
+        if ($block eq "") {
             my $opens = () = /\{/g;
             my $closes = () = /\}/g;
             $depth += $opens - $closes;
             $depth = 0 if $depth < 0;
-            next;
-        }
-
-        # Inside a tracked block — detect hljs sub-blocks
-        if (/\.hljs/) {
-            $in_hljs = 1;
             next;
         }
 

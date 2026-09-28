@@ -9,9 +9,7 @@ const css = fs.readFileSync(path.join(__dirname, '..', 'theme.css'), 'utf8');
 const REQUIRED_VARS = [
   '--crit-live-iframe-frame',
   '--crit-live-iframe-bg',
-  '--crit-live-composer-bg',
   '--crit-live-composer-border',
-  '--crit-live-composer-input-bg',
   '--crit-live-composer-error-fg',
   '--crit-live-ancestor-menu-bg',
   '--crit-live-ancestor-menu-fg',

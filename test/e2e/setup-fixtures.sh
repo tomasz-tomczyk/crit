@@ -571,7 +571,7 @@ func Reverse(s string) string {
 GOFILE
 git add utils.go
 
-# Stage a new Gherkin feature file (exercises hljs alias resolution for .feature)
+# Stage a new Gherkin feature file (exercises the Gherkin grammar for .feature)
 cat > login.feature << 'GHERKIN'
 Feature: User login
   As a registered user

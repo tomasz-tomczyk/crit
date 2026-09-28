@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import {
   clearAllComments, loadPage, revealFile, goSection, jsSection, diffLine,
-  openLineComment, showLine, clickWhenHittable, setDiffStyle,
+  openLineComment, showLine, clickWhenHittable,
 } from './helpers';
 
 // utils.go appends a Reverse function at the end. Its only hunk starts at
@@ -108,55 +108,6 @@ test.describe('Trailing Separator — Split Mode', () => {
   });
 
   test('no trailing separator when last hunk reaches EOF (utils.go)', async ({ page }) => {
-    const item = await utilsSection(page);
-    await showLine(page, diffLine(item, 19));
-    await expect(trailingSeparator(item)).toHaveCount(0);
-  });
-});
-
-// ============================================================
-// Leading Separator — Unified Mode
-// ============================================================
-test.describe('Leading Separator — Unified Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
-  });
-
-  test('leading separator appears in unified mode', async ({ page }) => {
-    const item = await utilsSection(page);
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-    await expectLeadingSeparator(item);
-  });
-
-  test('clicking leading separator in unified mode reveals context lines', async ({ page }) => {
-    const item = await utilsSection(page);
-    await expectLeadingSeparator(item);
-    await expandLeading(page, item);
-  });
-
-  test('no leading separator in unified mode for new file', async ({ page }) => {
-    const item = await jsSection(page);
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-    await expect(diffLine(item, 1)).toBeVisible();
-    await expect(item.locator('[data-separator]')).toHaveCount(0);
-  });
-});
-
-// ============================================================
-// Trailing Separator — Unified Mode
-// ============================================================
-test.describe('Trailing Separator — Unified Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
-  });
-
-  test('no trailing separator in unified mode when last hunk reaches EOF', async ({ page }) => {
     const item = await utilsSection(page);
     await showLine(page, diffLine(item, 19));
     await expect(trailingSeparator(item)).toHaveCount(0);

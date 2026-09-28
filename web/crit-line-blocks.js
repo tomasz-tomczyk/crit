@@ -8,7 +8,7 @@
     ? window.crit.commentCardHelpers.escapeHtml
     : function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
   // Shiki via Pierre's shared highlighter; fence grammars are preloaded by the
-  // caller (codeHighlight.ensureAll), otherwise fences render as plain text.
+  // caller (codeHighlight.prime), otherwise fences render as plain text.
   function codeHighlight() {
     return (typeof window !== 'undefined' && window.crit && window.crit.codeHighlight) || null;
   }

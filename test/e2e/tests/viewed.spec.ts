@@ -36,7 +36,7 @@ async function expectExpanded(page: Page, filePath: string) {
   await expect(fileItem(page, filePath).locator('[data-line]').first()).toBeVisible();
 }
 
-// Collapse/expand through the header's chevron (a plain header click).
+// Collapse/expand through the header's chevron button.
 async function clickChevron(page: Page, filePath: string) {
   await fileHeader(page, filePath).locator('.file-header-chevron').click();
 }

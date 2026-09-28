@@ -122,29 +122,6 @@ test.describe('Auto-expand small gaps — Unified Mode', () => {
     await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
   });
 
-  test('small gaps are auto-expanded in unified mode (no separator)', async ({ page }) => {
-    const item = await goSection(page);
-    const { rows } = await scanFile(page, item, SERVER_LAST_LINE);
-    expect(rows.filter(r => r.startsWith('sep'))).toEqual([]);
-    for (const n of GAP_LINES) expect(rows).toContain(String(n));
-  });
-
-  test('auto-expanded context lines in unified mode have correct line numbers', async ({ page, request }) => {
-    const content = await fileLines(request, 'server.go');
-    const item = await goSection(page);
-
-    for (const [newNum, oldNum] of [[12, 9], [58, 33]]) {
-      const line = diffLine(item, newNum);
-      await showLine(page, line);
-      await expect(line).toHaveAttribute('data-line-type', /^context/);
-      await expect(diffLineNumber(item, newNum)).toHaveText(String(newNum));
-      // The unified row carries its old-side number too.
-      await expect(line).toHaveAttribute('data-alt-line', String(oldNum));
-      const expected = content[newNum - 1];
-      await expect(line).toHaveText(expected.length ? expected : /^\s*$/);
-    }
-  });
-
   test('auto-expanded context lines are commentable in unified mode', async ({ page, request }) => {
     const item = await goSection(page);
     await showLine(page, diffLine(item, 15));

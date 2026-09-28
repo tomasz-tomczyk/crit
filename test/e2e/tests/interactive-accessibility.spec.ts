@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { addComment, clearAllComments, getMdPath, loadPage } from './helpers';
+import { addComment, clearAllComments, fileHeader, fileItem, getMdPath, goSection, loadPage } from './helpers';
 
 test.describe('Interactive accessibility', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -71,5 +71,26 @@ test.describe('Interactive accessibility', () => {
     await expect(resolvedFilter).toBeFocused();
     await expect(resolvedFilter).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('.panel-comment-block .comment-body')).toHaveText('Resolved filter comment');
+  });
+
+  test('file header collapse is a keyboard button with aria-expanded', async ({ page }) => {
+    await goSection(page);
+    const chevron = () => fileHeader(page, 'server.go').locator('.file-header-chevron');
+    await expect(chevron()).toHaveJSProperty('tagName', 'BUTTON');
+    await expect(chevron()).toHaveAttribute('aria-expanded', 'true');
+    await expect(chevron()).toHaveAccessibleName(/server\.go/);
+
+    await chevron().focus();
+    await page.keyboard.press('Enter');
+    await expect(fileHeader(page, 'server.go')).toHaveClass(/\bcollapsed\b/);
+    await expect(chevron()).toHaveAttribute('aria-expanded', 'false');
+    await expect(chevron()).toBeFocused();
+    await expect(fileItem(page, 'server.go').locator('[data-line]')).toHaveCount(0);
+
+    await page.keyboard.press('Space');
+    await expect(fileHeader(page, 'server.go')).not.toHaveClass(/\bcollapsed\b/);
+    await expect(chevron()).toHaveAttribute('aria-expanded', 'true');
+    await expect(chevron()).toBeFocused();
+    await expect(fileItem(page, 'server.go').locator('[data-line]').first()).toBeVisible();
   });
 });

@@ -234,10 +234,8 @@
       itemMetrics: opts.itemMetrics,
       layout: opts.layout,
       unsafeCSS: opts.unsafeCSS,
-      theme: opts.theme || adapter.THEME,
       overflow: opts.overflow || 'scroll',
       hunkSeparators: opts.hunkSeparators || 'line-info',
-      lineDiffType: opts.lineDiffType || 'word-alt',
       diffIndicators: opts.diffIndicators || 'bars',
       expandUnchanged: !!opts.expandUnchanged,
       disableLineNumbers: !!opts.disableLineNumbers,
@@ -275,6 +273,9 @@
         if (phase !== 'unmount') queueHydrate();
       },
     });
+    // baseOptions sets the default theme and line diff type.
+    if (opts.theme) options.theme = opts.theme;
+    if (opts.lineDiffType) options.lineDiffType = opts.lineDiffType;
     // setOptions replaces the whole options object, so keep the source of truth here.
     function updateOptions(patch) {
       options = Object.assign({}, options, patch);

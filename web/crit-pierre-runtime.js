@@ -79,7 +79,7 @@
       } catch (error) { fail(error); }
       return pool;
     }
-    return { get, dispose: stopWatching };
+    return { get };
   }
 
   const api = { createLoader, createWorkerController };

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine } from './helpers';
+import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine, selectedRows } from './helpers';
 
 // server.go line 5 (the added "log" import) and handler.js line 1 are
 // additions. The two files are far enough apart that CodeView never mounts
@@ -198,5 +198,7 @@ test.describe('Multi-Form Comments', () => {
     await expect(goSec.locator('.comment-form-header')).toHaveText(['Comment on Line 5', 'Comment on Line 7']);
     await expect(goSec.locator('.comment-form textarea').first()).toHaveValue('first');
     await expect(goSec.locator('.comment-form textarea').nth(1)).toBeFocused();
+    // The first form's range stays tinted after the second opens.
+    await expect.poll(() => selectedRows(goSec)).toEqual(['5:change-addition', '7:change-addition']);
   });
 });

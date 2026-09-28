@@ -55,7 +55,6 @@
   --crit-editor-bg-card:     #16171f;
   --crit-editor-bg-elevated: #262940;
   --crit-editor-bg-hover:    #2d3150;
-  --crit-editor-bg-gutter:   #131420;
   --crit-editor-code-bg:     #1e2030;
   --crit-editor-comment-bg:  #1a1f36;
 
@@ -204,17 +203,12 @@
   --crit-live-iframe-frame: #2f3342;
   --crit-live-iframe-bg:    #0e0f13;
 
-  /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
-  --crit-live-composer-bg:           #1a1c23;
+  /* ---- Phase C: composer, ancestor menu, mode toggle ---- */
   --crit-live-composer-border:       #2f3342;
-  --crit-live-composer-input-bg:     #0e0f13;
   --crit-live-composer-error-fg:     #f85149;
   --crit-live-ancestor-menu-bg:      #1a1c23;
   --crit-live-ancestor-menu-fg:      #e6e8ed;
   --crit-live-ancestor-menu-hover-bg:#2f3342;
-  --crit-live-toast-bg:              #1a1c23;
-  --crit-live-toast-fg:              #e6e8ed;
-  --crit-live-toast-border:          #2f3342;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-live-marker-bg:             #3b82f6;
@@ -306,7 +300,6 @@
     --crit-editor-bg-card:     #f6f8fa;
     --crit-editor-bg-elevated: #eff2f5;
     --crit-editor-bg-hover:    #eff2f5;
-    --crit-editor-bg-gutter:   #f6f8fa;
     --crit-editor-code-bg:     #eff1f3;
     --crit-editor-comment-bg:  #ddf4ff;
 
@@ -421,17 +414,12 @@
     --crit-live-iframe-frame: #d0d7de;
     --crit-live-iframe-bg:    #f6f8fa;
 
-    /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
-    --crit-live-composer-bg:           #ffffff;
+    /* ---- Phase C: composer, ancestor menu, mode toggle ---- */
     --crit-live-composer-border:       #d0d7de;
-    --crit-live-composer-input-bg:     #f6f8fa;
     --crit-live-composer-error-fg:     #cf222e;
     --crit-live-ancestor-menu-bg:      #ffffff;
     --crit-live-ancestor-menu-fg:      #1f2328;
     --crit-live-ancestor-menu-hover-bg:#eef2f7;
-    --crit-live-toast-bg:              #ffffff;
-    --crit-live-toast-fg:              #1f2328;
-    --crit-live-toast-border:          #d0d7de;
 
     /* ---- Phase D: markers + drifted tray + re-anchor ---- */
     --crit-live-marker-bg:             #2563eb;
@@ -525,7 +513,6 @@
   --crit-editor-bg-card:     #16171f;
   --crit-editor-bg-elevated: #262940;
   --crit-editor-bg-hover:    #2d3150;
-  --crit-editor-bg-gutter:   #131420;
   --crit-editor-code-bg:     #1e2030;
   --crit-editor-comment-bg:  #1a1f36;
 
@@ -640,17 +627,12 @@
   --crit-live-iframe-frame: #2f3342;
   --crit-live-iframe-bg:    #0e0f13;
 
-  /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
-  --crit-live-composer-bg:           #1a1c23;
+  /* ---- Phase C: composer, ancestor menu, mode toggle ---- */
   --crit-live-composer-border:       #2f3342;
-  --crit-live-composer-input-bg:     #0e0f13;
   --crit-live-composer-error-fg:     #f85149;
   --crit-live-ancestor-menu-bg:      #1a1c23;
   --crit-live-ancestor-menu-fg:      #e6e8ed;
   --crit-live-ancestor-menu-hover-bg:#2f3342;
-  --crit-live-toast-bg:              #1a1c23;
-  --crit-live-toast-fg:              #e6e8ed;
-  --crit-live-toast-border:          #2f3342;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-live-marker-bg:             #3b82f6;
@@ -743,7 +725,6 @@
   --crit-editor-bg-card:     #f6f8fa;
   --crit-editor-bg-elevated: #eff2f5;
   --crit-editor-bg-hover:    #eff2f5;
-  --crit-editor-bg-gutter:   #f6f8fa;
   --crit-editor-code-bg:     #eff1f3;
   --crit-editor-comment-bg:  #ddf4ff;
 
@@ -857,17 +838,12 @@
   --crit-live-iframe-frame: #d0d7de;
   --crit-live-iframe-bg:    #f6f8fa;
 
-  /* ---- Phase C: composer, ancestor menu, mode toggle, toast ---- */
-  --crit-live-composer-bg:           #ffffff;
+  /* ---- Phase C: composer, ancestor menu, mode toggle ---- */
   --crit-live-composer-border:       #d0d7de;
-  --crit-live-composer-input-bg:     #f6f8fa;
   --crit-live-composer-error-fg:     #cf222e;
   --crit-live-ancestor-menu-bg:      #ffffff;
   --crit-live-ancestor-menu-fg:      #1f2328;
   --crit-live-ancestor-menu-hover-bg:#eef2f7;
-  --crit-live-toast-bg:              #ffffff;
-  --crit-live-toast-fg:              #1f2328;
-  --crit-live-toast-border:          #d0d7de;
 
   /* ---- Phase D: markers + drifted tray + re-anchor ---- */
   --crit-live-marker-bg:             #2563eb;
@@ -916,11 +892,11 @@
 /* ===== Code tokens (Shiki, via Pierre) =====
    Fenced code in comments and rendered documents (.crit-code) carries the
    same per-token --diffs-token-light / --diffs-token-dark properties as
-   Pierre's diffs (crit-pierre-adapter.js THEME). Dark is the default,
-   like the variables above. */
+   Pierre's diffs; the themes are the light/dark palette pair from settings.
+   Dark is the default (also for data-theme="dark"), like the variables
+   above. */
 .crit-code span[style] { color: var(--diffs-token-dark); }
 @media (prefers-color-scheme: light) {
   html:not([data-theme]) .crit-code span[style] { color: var(--diffs-token-light); }
 }
-[data-theme="dark"] .crit-code span[style] { color: var(--diffs-token-dark); }
 [data-theme="light"] .crit-code span[style] { color: var(--diffs-token-light); }

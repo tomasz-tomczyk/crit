@@ -42,7 +42,8 @@
     return apply(savedSettings(), palettes, root || document.documentElement, systemLight);
   }
 
-  // "System" follows the OS; re-theme when it flips.
+  // "System" follows the OS; re-theme when it flips. Live mode needs this
+  // (index.html without app.js); on the review page app.js re-applies too.
   if (typeof window !== 'undefined' && window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function() {
       const theme = savedSettings().theme;

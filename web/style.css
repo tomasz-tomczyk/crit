@@ -23,6 +23,9 @@ body {
   /* Pierre diffs/files default to 2-column tabs; keep the browser's 8 that
      Crit's code views (and GitHub) have always used. */
   --diffs-tab-size: 8;
+  /* Pierre code (review list, story chapters, theme preview) uses the
+     code font setting. */
+  --diffs-font-family: var(--crit-font-code, var(--crit-font-mono));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -6567,7 +6570,6 @@ body.pierre-review #filesContainer {
   min-height: 0;
   overflow: auto;
   padding-inline: var(--crit-review-pad-inline);
-  --diffs-font-family: var(--crit-font-code, var(--crit-font-mono));
 }
 .pierre-file-header {
   display: flex;
@@ -6576,6 +6578,14 @@ body.pierre-review #filesContainer {
   width: 100%;
   cursor: pointer;
 }
+button.file-header-chevron {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand); outline-offset: 1px; }
 .pierre-file-header.collapsed .file-header-chevron {
   transform: rotate(-90deg);
 }
@@ -6710,7 +6720,6 @@ body.pierre-review #filesContainer {
 .theme-preview-main {
   overflow-y: auto;
   padding: 24px 32px 80px;
-  --diffs-font-family: var(--crit-font-code, var(--crit-font-mono));
 }
 .theme-preview-bar {
   display: flex;

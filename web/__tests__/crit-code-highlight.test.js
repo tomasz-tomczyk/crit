@@ -59,6 +59,19 @@ test('language names are normalized and each block is tokenized once', async () 
   assert.ok(ch.lines('x\n', 'GO'));
 });
 
+test('primed fences stay readable after LRU eviction until the caller builds', async () => {
+  const ch = load();
+  ch.configure({ pool: () => fakePool(['go']) });
+  const first = ch.prime([{ code: 'first\n', lang: 'go' }]);
+  // Another document primes more fences than the cache holds meanwhile.
+  const others = ch.prime(Array.from({ length: 600 }, (_, i) => ({ code: 'other ' + i + '\n', lang: 'go' })));
+  await first;
+  await others;
+  assert.ok(ch.lines('first\n', 'go'), 'first document still reads its primed fence');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(ch.lines('first\n', 'go'), null, 'released once the build has had its turn');
+});
+
 test('unknown languages and a missing pool fall back to plain text', async () => {
   const ch = load();
   ch.configure({ pool: () => fakePool([]) });

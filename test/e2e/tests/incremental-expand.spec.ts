@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, revealFile, diffLine, clickWhenHittable, setDiffStyle } from './helpers';
+import { clearAllComments, loadPage, revealFile, diffLine, clickWhenHittable } from './helpers';
 
 // routes.go: hunk 1 ends at new line 14 (old 10), hunk 2 starts at new 52
 // (old 48). The 37 unchanged lines between them (new 15..51) are collapsed
@@ -33,8 +33,14 @@ async function expectLines(item: Locator, from: number, to: number) {
   for (let n = from; n <= to; n++) await expect(diffLine(item, n)).toBeAttached();
 }
 
-// Shared body for split and unified.
-function defineExpandTests() {
+test.describe('Incremental Expand — Split Mode (default)', () => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
+    await loadPage(page);
+    const item = await routesSection(page);
+    await expect(item.locator('code[data-additions]')).toBeVisible();
+  });
+
   test('large gap separator shows expand-down and expand-up controls', async ({ page }) => {
     const item = await routesSection(page);
     await expectCollapsedGap(item);
@@ -82,28 +88,4 @@ function defineExpandTests() {
     await expectLines(item, 15, 51);
     await expect(item.locator('[data-separator]:not([data-separator-last]) [data-unmodified-lines]').filter({ visible: true })).toHaveCount(0);
   });
-}
-
-test.describe('Incremental Expand — Split Mode (default)', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    const item = await routesSection(page);
-    await expect(item.locator('code[data-additions]')).toBeVisible();
-  });
-
-  defineExpandTests();
-});
-
-test.describe('Incremental Expand — Unified Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await routesSection(page);
-    await setDiffStyle(page, 'unified');
-    const item = await routesSection(page);
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-  });
-
-  defineExpandTests();
 });

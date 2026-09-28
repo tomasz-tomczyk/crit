@@ -121,6 +121,21 @@ export function diffLine(item: Locator, line: number, side: DiffSide = 'new'): L
     : item.locator(`code[data-additions] [data-content] > ${n}, code[data-unified] [data-content] > ${n}:not([data-line-type="change-deletion"]), ${FILE_CODE} [data-content] > ${n}`);
 }
 
+// Rows tinted as an open form's range, as "line:type" in visual order.
+// `column` narrows to one split side (or the unified column).
+export function selectedRows(item: Locator, column = 'code') {
+  return item.evaluate((host, column) => {
+    const probe = document.createElement('div');
+    probe.style.backgroundColor = 'var(--crit-brand-subtle)';
+    document.body.appendChild(probe);
+    const tint = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return Array.from(host.shadowRoot!.querySelectorAll(`${column} [data-content] > [data-line]`))
+      .filter(el => getComputedStyle(el).backgroundColor === tint)
+      .map(el => `${(el as HTMLElement).dataset.line}:${(el as HTMLElement).dataset.lineType}`);
+  }, column);
+}
+
 // Line-number cell of one line (same side rules as diffLine).
 export function diffLineNumber(item: Locator, line: number, side: DiffSide = 'new'): Locator {
   const n = `[data-column-number="${line}"]`;
@@ -131,9 +146,9 @@ export function diffLineNumber(item: Locator, line: number, side: DiffSide = 'ne
 
 // ----- Waiting out Pierre -----
 //
-// Pierre pauses pointer events on the list for a moment after any scroll
-// (it sets an inline pointer-events style under #filesContainer), and
-// virtualizes both files and the lines inside long files.
+// Pierre virtualizes both files and the lines inside long files, so rows
+// mount and move while the list settles. (Crit turns off its post-scroll
+// pointer-events pause: pointerEventsOnScroll in crit-pierre-view.js.)
 
 /** The review pane: git mode scrolls #filesContainer (CodeView's scroll root), not the window. */
 export function reviewScroller(page: Page): Locator {
@@ -143,13 +158,6 @@ export function reviewScroller(page: Page): Locator {
 /** Wait two animation frames (let the virtualizer mount what scrolled into view). */
 export async function nextFrames(page: Page) {
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
-}
-
-/** Wait until Pierre's post-scroll pointer-events pause lifts. */
-export async function waitForPointerEvents(page: Page) {
-  await expect.poll(() => page.evaluate(() =>
-    !document.querySelector('#filesContainer [style*="pointer-events"]'),
-  )).toBe(true);
 }
 
 // Whether a hit test at the element's centre lands on it (or inside it).
@@ -170,7 +178,7 @@ export async function waitUntilHittable(target: Locator) {
 
 /**
  * Click only once the element is actually the hit target at its centre, so
- * the click lands exactly once (Pierre ignores pointer events after a scroll).
+ * the click lands exactly once (sticky headers and re-mounting rows can cover it).
  */
 export async function clickWhenHittable(page: Page, target: Locator) {
   await expect(async () => {
@@ -181,7 +189,7 @@ export async function clickWhenHittable(page: Page, target: Locator) {
   await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
-/** Scroll `target` to the centre, wait for pointer events, and tap its centre. */
+/** Scroll `target` to the centre and tap its centre. */
 export async function tapCenter(page: Page, target: Locator) {
   // The row can re-render under us (hover/selection state), so re-resolve
   // until it is on screen and measurable.
@@ -191,7 +199,6 @@ export async function tapCenter(page: Page, target: Locator) {
   let box: { x: number; y: number; width: number; height: number } | null = null;
   await expect(async () => {
     await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    await waitForPointerEvents(page);
     const first = await target.boundingBox();
     await nextFrames(page);
     box = await target.boundingBox();
@@ -259,13 +266,12 @@ export async function setDiffStyle(page: Page, mode: 'split' | 'unified') {
   else await expect(unified).toHaveCount(0);
 }
 
-// Settle, then press at coordinates: Playwright's actionability scroll
-// counts as a scroll for Pierre's pointer-events pause.
+// Settle, then press at coordinates rather than via Playwright's
+// actionability scroll.
 async function pressAt(page: Page, target: Locator) {
   // A row can intersect the viewport while the sticky file header covers it.
   // Centre it rather than trusting native actionability's visible rectangle.
   await target.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
-  await waitForPointerEvents(page);
   await waitUntilHittable(target);
   await expect.poll(async () => {
     const box = await target.boundingBox();
@@ -535,8 +541,8 @@ export async function selectInLineAndPressC(page: Page, item: Locator, lineNo: n
       const start = at(from);
       const end = at(to);
       if (!start || !end) return null;
-      // Only drag once Pierre has pointer events on (the document-level hit is
-      // the host) and the start point is this line's text.
+      // Only drag once the document-level hit is the host (nothing covers
+      // it) and the start point is this line's text.
       const root = el.getRootNode() as ShadowRoot;
       const hit = root.elementFromPoint(start.x, start.y);
       if (document.elementFromPoint(start.x, start.y) !== root.host || !hit || !el.contains(hit)) return null;

@@ -36,7 +36,6 @@
   --crit-editor-bg-card: var(--crit-palette-surface);
   --crit-editor-bg-elevated: var(--crit-palette-elevated);
   --crit-editor-bg-hover: color-mix(in srgb, var(--crit-palette-elevated) 95%, var(--crit-palette-fg));
-  --crit-editor-bg-gutter: var(--crit-palette-surface);
   --crit-editor-code-bg: var(--crit-palette-bg);
   --crit-editor-comment-bg: color-mix(in srgb, var(--crit-palette-accent) 12%, var(--crit-palette-bg));
   --crit-editor-fg: var(--crit-palette-fg);
@@ -56,16 +55,11 @@
      fixed colours: they sit on top of an arbitrary web app. */
   --crit-live-iframe-frame: var(--crit-palette-border);
   --crit-live-iframe-bg: var(--crit-palette-bg);
-  --crit-live-composer-bg: var(--crit-palette-elevated);
   --crit-live-composer-border: var(--crit-palette-border);
-  --crit-live-composer-input-bg: var(--crit-palette-bg);
   --crit-live-composer-error-fg: var(--crit-palette-red);
   --crit-live-ancestor-menu-bg: var(--crit-palette-elevated);
   --crit-live-ancestor-menu-fg: var(--crit-palette-fg);
   --crit-live-ancestor-menu-hover-bg: color-mix(in srgb, var(--crit-palette-accent) 12%, var(--crit-palette-elevated));
-  --crit-live-toast-bg: var(--crit-palette-elevated);
-  --crit-live-toast-fg: var(--crit-palette-fg);
-  --crit-live-toast-border: var(--crit-palette-border);
   --crit-live-tooltip-bg: var(--crit-palette-elevated);
   --crit-live-tooltip-fg: var(--crit-palette-fg);
   --crit-live-tooltip-border: var(--crit-palette-border);

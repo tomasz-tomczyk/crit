@@ -43,3 +43,15 @@ test('renderStoryFileGroup loads lazy files instead of claiming hunks are gone',
   // After hydrate, refresh nav / hide-resolved / mermaid like renderStoryFileByPath.
   assert.match(body, /replaceWith\(replacement\);\s*renderMermaidBlocks\(\);\s*rebuildNavList\(\);\s*applyHideResolved\(\);\s*renderStoryRail\(\);/s);
 });
+test('story FileDiffs are cleaned up before their DOM is replaced', () => {
+  // FileDiff subscribes to worker theme changes until cleanUp(); dropping the
+  // DOM alone leaks the subscription.
+  const inline = sliceFunction(appSrc, 'renderPierreInlineDiff', 'onPierrePostRender');
+  assert.match(inline, /storyFileDiffs\.set\(container, diff\)/);
+  const group = sliceFunction(appSrc, 'renderStoryFileGroup', 'storySupportReasonForFile');
+  assert.match(group, /cleanUpStoryDiffs\(section\);\s*section\.replaceWith/);
+  const byPath = sliceFunction(appSrc, 'renderStoryFileByPath', 'markPageViewed');
+  assert.match(byPath, /cleanUpStoryDiffs\(oldSection\);\s*oldSection\.replaceWith/);
+  const story = sliceFunction(appSrc, 'renderStory()', 'resetStoryScroll');
+  assert.match(story, /cleanUpStoryDiffs\(\);\s*inner\.innerHTML = ''/);
+});

@@ -32,6 +32,10 @@
     if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
   }
   var pending = new Map(); // same key → Promise
+  // Results of the latest prime() calls, kept past LRU eviction until the
+  // next task so the caller's synchronous build after `await prime()` reads
+  // them even while other documents prime concurrently.
+  var held = new Map();
   var generation = 0;
 
   function configure(options) {
@@ -39,6 +43,7 @@
     getPool = options && options.pool;
     cache.clear();
     pending.clear();
+    held.clear();
     // Comment cards and the review conversation may survive a palette change.
     // Re-tokenize their mounted fences as well as clearing future cache reads.
     if (typeof document !== 'undefined' && document.body) {
@@ -125,11 +130,25 @@
 
   // fences: [{ code, lang }]
   function prime(fences) {
-    return Promise.all((fences || []).map(function(f) { return tokenize(f.code, f.lang); }));
+    fences = fences || [];
+    var started = generation;
+    return Promise.all(fences.map(function(f) { return tokenize(f.code, f.lang); })).then(function(results) {
+      if (started !== generation) return results;
+      var keys = fences.map(function(f, i) {
+        var key = cacheKey(f.code, f.lang);
+        held.set(key, results[i]);
+        return key;
+      });
+      setTimeout(function() {
+        keys.forEach(function(key, i) { if (held.get(key) === results[i]) held.delete(key); });
+      }, 0);
+      return results;
+    });
   }
 
   function lines(code, lang) {
-    return cache.get(cacheKey(code, lang)) || null;
+    var key = cacheKey(code, lang);
+    return held.get(key) || cache.get(key) || null;
   }
 
   function html(code, lang) {

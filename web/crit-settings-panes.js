@@ -589,9 +589,10 @@
         rendererSelects = rendererSelects.filter(function(s) { return s.key === 'lightPalette' || s.key === 'darkPalette'; });
       }
       rendererSelects.forEach(function(s) {
-        if (s.key === 'lightPalette' || s.key === 'darkPalette') s.options = s.options.slice().sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
-        var value = getSetting(s.key, s.fallback);
-        if (s.key === 'lightPalette' || s.key === 'darkPalette') value = s.fallback; // the validated saved theme (unknown ids fall back to defaults)
+        var isPalette = s.key === 'lightPalette' || s.key === 'darkPalette';
+        if (isPalette) s.options = s.options.slice().sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
+        // Palettes use the validated saved theme (unknown ids fall back to defaults).
+        var value = isPalette ? s.fallback : getSetting(s.key, s.fallback);
         html += '<div class="settings-display-row"><label class="settings-display-label" for="' + s.key + 'Select">' + esc(s.label) + '</label>';
         html += '<select class="settings-select" id="' + s.key + 'Select" data-renderer-setting="' + s.key + '">';
         s.options.forEach(function(o) {

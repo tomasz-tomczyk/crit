@@ -8,16 +8,6 @@
   //   { OldStart, OldCount, NewStart, NewCount, Header, Lines: [{ Type, Content, OldNum, NewNum }] }
   //   Type is "context" | "add" | "del".
 
-  // Pierre's ChangeTypes for Crit's session file status.
-  var CHANGE_TYPE = {
-    added: 'new',
-    untracked: 'new',
-    deleted: 'deleted',
-    removed: 'deleted',
-    renamed: 'rename-changed',
-    modified: 'change',
-  };
-
   function linePrefix(type) {
     if (type === 'add') return '+';
     if (type === 'del') return '-';
@@ -271,7 +261,6 @@
   }
 
   var api = {
-    CHANGE_TYPE: CHANGE_TYPE,
     THEME: THEME,
     baseOptions: baseOptions,
     displayOptions: displayOptions,

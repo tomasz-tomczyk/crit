@@ -1,11 +1,11 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   clearAllComments, loadPage, goSection, switchToDocumentView, dragBetween,
-  dragLineRange, openLineComment, diffLine, waitUntilHittable, setDiffStyle,
+  dragLineRange, openLineComment, diffLine, waitUntilHittable, setDiffStyle, selectedRows,
 } from './helpers';
 
-// Switching to Document view scrolls: wait out Pierre's pointer-events
-// pause on the start gutter, then drag.
+// Switching to Document view scrolls: wait until the start gutter takes
+// pointer hits, then drag.
 async function dragGutters(page: Page, from: Locator, to: Locator) {
   await expect(from).toBeAttached();
   await expect(to).toBeAttached();
@@ -157,21 +157,6 @@ test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
 // Dragging the gutter "+" opens a Crit form for exactly that range, and the
 // range stays tinted (form-selected, --crit-brand-subtle) while it is open.
 // ============================================================
-
-// Rows tinted as an open form's range, as "line:type" in visual order.
-// `column` narrows to one split side (or the unified column).
-function selectedRows(item: Locator, column = 'code') {
-  return item.evaluate((host, column) => {
-    const probe = document.createElement('div');
-    probe.style.backgroundColor = 'var(--crit-brand-subtle)';
-    document.body.appendChild(probe);
-    const tint = getComputedStyle(probe).backgroundColor;
-    probe.remove();
-    return Array.from(host.shadowRoot!.querySelectorAll(`${column} [data-content] > [data-line]`))
-      .filter(el => getComputedStyle(el).backgroundColor === tint)
-      .map(el => `${(el as HTMLElement).dataset.line}:${(el as HTMLElement).dataset.lineType}`);
-  }, column);
-}
 
 async function submitForm(page: Page, form: Locator, body: string) {
   await form.locator('textarea').fill(body);
