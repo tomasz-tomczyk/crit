@@ -21,8 +21,8 @@ HUGE_PORT="${CRIT_TEST_HUGE_PORT:-3136}"
 
 # E2E_SHARD splits the no-arg full run across CI matrix VMs while keeping
 # every test running somewhere (no coverage is dropped). "1/2" runs the git
-# first half + file/single/nogit/multi; "2/2" runs the git second half +
-# range/live/share/perf/huge. Unset (default) runs everything: local runs and
+# first half + file/single/nogit/multi/huge; "2/2" runs the git second half +
+# range/live/share/perf. Unset (default) runs everything: local runs and
 # Linux CI are unchanged. Mobile always runs after git in the default path
 # only (it shares git's fixture and server state).
 SHARD="${E2E_SHARD:-all}"
@@ -31,12 +31,14 @@ START_MULTI=1; START_RANGE=1; START_LIVE=1; START_SHARE=1; START_PERF=1
 START_HUGE=1
 if [ "$SHARD" = "1/2" ]; then
   # Runs git --shard=1/2 against the GIT_PORT fixture, so GIT2 is unneeded.
+  # Huge lives here: its fixture (~2,500 files) is the slowest NTFS
+  # generation, and shard 2 already carries live + share + perf setup.
   START_GIT2=0
-  START_RANGE=0; START_LIVE=0; START_SHARE=0; START_PERF=0; START_HUGE=0
+  START_RANGE=0; START_LIVE=0; START_SHARE=0; START_PERF=0
 elif [ "$SHARD" = "2/2" ]; then
   # Runs git --shard=2/2 against the GIT2_PORT fixture, so GIT is unneeded.
   START_GIT=0
-  START_FILE=0; START_SINGLE=0; START_NOGIT=0; START_MULTI=0
+  START_FILE=0; START_SINGLE=0; START_NOGIT=0; START_MULTI=0; START_HUGE=0
 fi
 
 # Pre-initialized: the cleanup trap references every PID, and `set -u`
