@@ -243,8 +243,27 @@ jobs:
 
   unit-windows:
     runs-on: windows-2025-vs2026
+    # 14m wall (vs 1.8m Linux): systemic Windows process/Defender tax spread
+    # across all packages, not a few slow tests. Split the package list into
+    # thirds — whole packages per shard, never split, so no shared-state risk.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [0, 1, 2]
     steps:
       - uses: actions/checkout@v7
+
+      - name: Exclude CI paths from Defender scans
+        # Best-effort speedup: Defender real-time scanning taxes every file
+        # write and fresh binary exec (go builds, test binaries, spawned
+        # crit.exe/daemons). Ephemeral VM, so the gap is safe. Must never
+        # fail the build (Defender may be off) — the Get- line shows in logs
+        # whether exclusions applied.
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:LOCALAPPDATA\go-build"
+          Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
 
       - uses: actions/setup-go@v7
         with:
@@ -263,7 +282,14 @@ jobs:
           restore-keys: go-build-${{ runner.os }}-
 
       - name: Run tests
-        run: go test ./...
+        shell: bash
+        run: |
+          SHARD=${{ matrix.shard-index }}
+          PKGS=$(go list ./... | grep -v /node_modules/ | sort | awk "NR%3==$SHARD")
+          echo "$(echo "$PKGS" | wc -l) packages in shard $SHARD"
+          go test $PKGS
+        env:
+          MSYS_NO_PATHCONV: 1
 
       # Some tests spawn `crit.exe` daemons that may outlive the test process
       # by a few seconds (background goroutines, deferred file flushes). If
@@ -371,6 +397,18 @@ jobs:
       E2E_SHARD: ${{ matrix.shard-index }}/2
     steps:
       - uses: actions/checkout@v7
+
+      - name: Exclude CI paths from Defender scans
+        # Best-effort speedup: Defender real-time scanning taxes every file
+        # write and fresh binary exec (npm ci extraction, go build -cover,
+        # fixture generation, each test-spawned crit.exe/Chromium). Ephemeral
+        # VM, so the gap is safe. Must never fail the build (Defender may be
+        # off) — the Get- line shows in logs whether exclusions applied.
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:LOCALAPPDATA\go-build", "$env:LOCALAPPDATA\ms-playwright"
+          Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
 
       - uses: actions/setup-go@v7
         with:
