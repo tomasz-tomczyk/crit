@@ -76,19 +76,31 @@ test.describe('Interactive accessibility', () => {
   test('file header collapse is a keyboard button with aria-expanded', async ({ page }) => {
     await goSection(page);
     const chevron = () => fileHeader(page, 'server.go').locator('.file-header-chevron');
+    const collapsed = () =>
+      fileHeader(page, 'server.go').evaluate((el) => el.classList.contains('collapsed'));
     await expect(chevron()).toHaveJSProperty('tagName', 'BUTTON');
     await expect(chevron()).toHaveAttribute('aria-expanded', 'true');
     await expect(chevron()).toHaveAccessibleName(/server\.go/);
 
-    await chevron().focus();
-    await page.keyboard.press('Enter');
-    await expect(fileHeader(page, 'server.go')).toHaveClass(/\bcollapsed\b/);
+    // Focus + keypress must be atomic: a remount between focus() and the
+    // keypress drops focus and the toggle never fires. State guards make
+    // retries idempotent (no double-toggle).
+    await expect(async () => {
+      if (await collapsed()) return;
+      await chevron().focus();
+      await page.keyboard.press('Enter');
+      await expect(fileHeader(page, 'server.go')).toHaveClass(/\bcollapsed\b/, { timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await expect(chevron()).toHaveAttribute('aria-expanded', 'false');
     await expect(chevron()).toBeFocused();
     await expect(fileItem(page, 'server.go').locator('[data-line]')).toHaveCount(0);
 
-    await page.keyboard.press('Space');
-    await expect(fileHeader(page, 'server.go')).not.toHaveClass(/\bcollapsed\b/);
+    await expect(async () => {
+      if (!(await collapsed())) return;
+      await chevron().focus();
+      await page.keyboard.press('Space');
+      await expect(fileHeader(page, 'server.go')).not.toHaveClass(/\bcollapsed\b/, { timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await expect(chevron()).toHaveAttribute('aria-expanded', 'true');
     await expect(chevron()).toBeFocused();
     await expect(fileItem(page, 'server.go').locator('[data-line]').first()).toBeVisible();

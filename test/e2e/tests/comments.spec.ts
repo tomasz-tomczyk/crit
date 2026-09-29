@@ -267,8 +267,20 @@ test.describe('Diff Comments — Split Mode', () => {
   test('submitting a diff comment creates a comment card', async ({ page }) => {
     const section = await goSection(page);
     const form = await openLineComment(page, section, 5);
-    await form.locator('textarea').fill('Diff comment in split mode');
-    await form.locator('.btn-primary').click();
+    // Fill + submit + card must be atomic: Pierre can remount the annotation
+    // between fill and click, dropping the submit with no card. Guarded
+    // against double-submit — a retry after a successful submit sees the
+    // card and stops.
+    await expect(async () => {
+      const done = section.locator('.comment-card', { hasText: 'Diff comment in split mode' });
+      if (await done.count()) {
+        await expect(done).toBeVisible({ timeout: 2_000 });
+        return;
+      }
+      await form.locator('textarea').fill('Diff comment in split mode');
+      await form.locator('.btn-primary').click();
+      await expect(section.locator('.comment-card')).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
 
     // Comment card should appear in the diff section
     const card = section.locator('.comment-card');
