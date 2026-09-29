@@ -132,48 +132,51 @@ if [ $# -eq 0 ]; then
     [ "$rc" -eq 0 ] || FAILED=1
   }
 
+  # E2E_ONLY_SERVER (see playwright.config.ts) keeps each invocation's
+  # managed webServers to the one fixture it needs. Without it, every
+  # parallel invocation would race to boot the entries run.sh skipped.
   if [ "$START_GIT" = 1 ]; then
-    npx playwright test --project=git-mode --shard=1/2 > "$PWLOGS/git-1.log" 2>&1 &
+    E2E_ONLY_SERVER=git npx playwright test --project=git-mode --shard=1/2 > "$PWLOGS/git-1.log" 2>&1 &
     PW_GIT1=$!
   fi
   if [ "$START_GIT2" = 1 ]; then
-    CRIT_TEST_PORT="$GIT2_PORT" npx playwright test --project=git-mode --shard=2/2 > "$PWLOGS/git-2.log" 2>&1 &
+    CRIT_TEST_PORT="$GIT2_PORT" E2E_ONLY_SERVER=git npx playwright test --project=git-mode --shard=2/2 > "$PWLOGS/git-2.log" 2>&1 &
     PW_GIT2=$!
   fi
   if [ "$START_FILE" = 1 ]; then
-    npx playwright test --project=file-mode > "$PWLOGS/file.log" 2>&1 &
+    E2E_ONLY_SERVER=file npx playwright test --project=file-mode > "$PWLOGS/file.log" 2>&1 &
     PW_FILE=$!
   fi
   if [ "$START_SINGLE" = 1 ]; then
-    npx playwright test --project=single-file-mode > "$PWLOGS/single.log" 2>&1 &
+    E2E_ONLY_SERVER=single npx playwright test --project=single-file-mode > "$PWLOGS/single.log" 2>&1 &
     PW_SINGLE=$!
   fi
   if [ "$START_NOGIT" = 1 ]; then
-    npx playwright test --project=no-git-mode > "$PWLOGS/nogit.log" 2>&1 &
+    E2E_ONLY_SERVER=nogit npx playwright test --project=no-git-mode > "$PWLOGS/nogit.log" 2>&1 &
     PW_NOGIT=$!
   fi
   if [ "$START_MULTI" = 1 ]; then
-    npx playwright test --project=multi-file-mode > "$PWLOGS/multi.log" 2>&1 &
+    E2E_ONLY_SERVER=multi npx playwright test --project=multi-file-mode > "$PWLOGS/multi.log" 2>&1 &
     PW_MULTI=$!
   fi
   if [ "$START_RANGE" = 1 ]; then
-    npx playwright test --project=range-mode > "$PWLOGS/range.log" 2>&1 &
+    E2E_ONLY_SERVER=range npx playwright test --project=range-mode > "$PWLOGS/range.log" 2>&1 &
     PW_RANGE=$!
   fi
   if [ "$START_LIVE" = 1 ]; then
-    npx playwright test --project=live-mode > "$PWLOGS/live.log" 2>&1 &
+    E2E_ONLY_SERVER=live npx playwright test --project=live-mode > "$PWLOGS/live.log" 2>&1 &
     PW_LIVE=$!
   fi
   if [ "$START_SHARE" = 1 ]; then
-    npx playwright test --project=share-transport > "$PWLOGS/share.log" 2>&1 &
+    E2E_ONLY_SERVER=share npx playwright test --project=share-transport > "$PWLOGS/share.log" 2>&1 &
     PW_SHARE=$!
   fi
   if [ "$START_PERF" = 1 ]; then
-    npx playwright test --project=perf > "$PWLOGS/perf.log" 2>&1 &
+    E2E_ONLY_SERVER=perf npx playwright test --project=perf > "$PWLOGS/perf.log" 2>&1 &
     PW_PERF=$!
   fi
   if [ "$START_HUGE" = 1 ]; then
-    npx playwright test --project=huge > "$PWLOGS/huge.log" 2>&1 &
+    E2E_ONLY_SERVER=huge npx playwright test --project=huge > "$PWLOGS/huge.log" 2>&1 &
     PW_HUGE=$!
   fi
 
@@ -187,7 +190,7 @@ if [ $# -eq 0 ]; then
   if [ "$START_GIT" = 1 ]; then reap git-1 $PW_GIT1; fi
   if [ "$START_GIT2" = 1 ]; then reap git-2 $PW_GIT2; fi
   if [ "$SHARD" = "all" ] && [[ "$OSTYPE" != msys && "$OSTYPE" != cygwin ]]; then
-    npx playwright test --project=mobile > "$PWLOGS/mobile.log" 2>&1 &
+    E2E_ONLY_SERVER=git npx playwright test --project=mobile > "$PWLOGS/mobile.log" 2>&1 &
     PW_MOBILE=$!
   fi
 

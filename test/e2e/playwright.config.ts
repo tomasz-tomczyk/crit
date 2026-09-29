@@ -22,6 +22,110 @@ const HUGE_PORT = process.env.CRIT_TEST_HUGE_PORT || '3136';
 const MOBILE_PORT = GIT_PORT;
 const debug = !!process.env.E2E_DEBUG;
 
+// E2E_ONLY_SERVER restricts the managed webServers to a single fixture,
+// set per project invocation by test/e2e/run.sh (e.g. git, file, huge).
+// Playwright boots every webServer entry for every
+// `npx playwright test --project=X` call; entries for fixtures run.sh did
+// not pre-start (matrix shards) would be launched concurrently by each
+// parallel invocation and fail with EADDRINUSE. Each entry's server is
+// pre-started by run.sh, so the kept entry is always reused, never booted.
+// Unset (default): all entries — local runs behave exactly as before.
+const ONLY_SERVER = process.env.E2E_ONLY_SERVER || 'all';
+
+interface FixtureServer {
+  key: string;
+  command: string;
+  url: string;
+  reuseExistingServer: boolean;
+  timeout: number;
+  stdout: 'pipe';
+}
+
+const allFixtureServers: FixtureServer[] = [
+  {
+    key: 'git',
+    command: `bash setup-fixtures.sh ${GIT_PORT}`,
+    url: `http://localhost:${GIT_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'file',
+    command: `bash setup-fixtures-filemode.sh ${FILE_PORT}`,
+    url: `http://localhost:${FILE_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'single',
+    command: `bash setup-fixtures-singlefile.sh ${SINGLE_PORT}`,
+    url: `http://localhost:${SINGLE_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'nogit',
+    command: `bash setup-fixtures-nogit.sh ${NOGIT_PORT}`,
+    url: `http://localhost:${NOGIT_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'multi',
+    command: `bash setup-fixtures-multifile.sh ${MULTI_PORT}`,
+    url: `http://localhost:${MULTI_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'range',
+    command: `bash setup-fixtures-range-mode.sh ${RANGE_PORT}`,
+    url: `http://localhost:${RANGE_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'live',
+    command: `bash setup-fixtures-livemode.sh ${LIVE_PORT}`,
+    url: `http://127.0.0.1:${LIVE_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 60_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'share',
+    command: `bash setup-fixtures-sharetransport.sh ${SHARE_PORT} ${STUB_PORT} ${STUB2_PORT}`,
+    url: `http://localhost:${SHARE_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 60_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'perf',
+    command: `bash setup-fixtures-perf.sh ${PERF_PORT}`,
+    url: `http://localhost:${PERF_PORT}/api/session`,
+    reuseExistingServer: true,
+    // Fixture generates 300 files (+ optional go build when CRIT_BIN is
+    // unset, e.g. cold local runs outside run.sh which prebuilds).
+    timeout: 120_000,
+    stdout: 'pipe',
+  },
+  {
+    key: 'huge',
+    command: `bash setup-fixtures-huge.sh ${HUGE_PORT}`,
+    url: `http://localhost:${HUGE_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 180_000,
+    stdout: 'pipe',
+  },
+];
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -160,78 +264,7 @@ export default defineConfig({
     },
   ],
 
-  webServer: [
-    {
-      command: `bash setup-fixtures.sh ${GIT_PORT}`,
-      url: `http://localhost:${GIT_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 30_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-filemode.sh ${FILE_PORT}`,
-      url: `http://localhost:${FILE_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 30_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-singlefile.sh ${SINGLE_PORT}`,
-      url: `http://localhost:${SINGLE_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 30_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-nogit.sh ${NOGIT_PORT}`,
-      url: `http://localhost:${NOGIT_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 30_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-multifile.sh ${MULTI_PORT}`,
-      url: `http://localhost:${MULTI_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 30_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-range-mode.sh ${RANGE_PORT}`,
-      url: `http://localhost:${RANGE_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 30_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-livemode.sh ${LIVE_PORT}`,
-      url: `http://127.0.0.1:${LIVE_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 60_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-sharetransport.sh ${SHARE_PORT} ${STUB_PORT} ${STUB2_PORT}`,
-      url: `http://localhost:${SHARE_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 60_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-perf.sh ${PERF_PORT}`,
-      url: `http://localhost:${PERF_PORT}/api/session`,
-      reuseExistingServer: true,
-      // Fixture generates 300 files (+ optional go build when CRIT_BIN is
-      // unset, e.g. cold local runs outside run.sh which prebuilds).
-      timeout: 120_000,
-      stdout: 'pipe',
-    },
-    {
-      command: `bash setup-fixtures-huge.sh ${HUGE_PORT}`,
-      url: `http://localhost:${HUGE_PORT}/api/session`,
-      reuseExistingServer: true,
-      timeout: 180_000,
-      stdout: 'pipe',
-    },
-  ],
+  webServer: allFixtureServers
+    .filter((s) => ONLY_SERVER === 'all' || s.key === ONLY_SERVER)
+    .map(({ key: _key, ...rest }) => rest),
 });
