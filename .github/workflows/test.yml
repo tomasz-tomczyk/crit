@@ -355,10 +355,20 @@ jobs:
 
   e2e-windows:
     runs-on: windows-2025-vs2026
+    # Split across two VMs: git-mode shards are the long pole (~19min of the
+    # ~24min job on Windows). Each shard runs one git half plus a subset of
+    # the other projects — every test still runs somewhere (see E2E_SHARD in
+    # test/e2e/run.sh). fail-fast: false so a red shard doesn't kill the
+    # other's signal.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [1, 2]
     env:
       # Stop Git Bash from auto-converting POSIX-looking arguments to Windows
       # paths when invoking native binaries (crit.exe, taskkill, powershell).
       MSYS_NO_PATHCONV: 1
+      E2E_SHARD: ${{ matrix.shard-index }}/2
     steps:
       - uses: actions/checkout@v7
 
@@ -429,7 +439,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-test-results-windows
+          name: e2e-test-results-windows-${{ matrix.shard-index }}
           path: test/e2e/test-results/
           retention-days: 7
 
