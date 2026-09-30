@@ -88,16 +88,26 @@ test.describe('File-level comments — File Mode', () => {
       const item = await revealFile(page, path);
       return item.locator('.comment-card').evaluateAll(cards => cards.map(card => {
         const r = card.getBoundingClientRect();
-        return { width: Math.round(r.width), x: Math.round(r.x) };
+        return { width: r.width, x: r.x };
       }));
     };
-    const doc = await boxesFor('plan.md');
-    expect(doc).toHaveLength(2);
+    let doc: { width: number; x: number }[] = [];
+    await expect(async () => {
+      doc = await boxesFor('plan.md');
+      expect(doc).toHaveLength(2);
+    }).toPass();
     const item = await revealFile(page, 'server.go');
     await expect(item.locator('pre[data-overflow="wrap"]').first()).toBeVisible();
     // Wrap mode clears Pierre's column variables; cards must still span the
     // line numbers, like the rendered document's cards.
-    await expect.poll(() => boxesFor('server.go')).toEqual(doc);
+    await expect(async () => {
+      const code = await boxesFor('server.go');
+      expect(code).toHaveLength(2);
+      for (const [i, box] of code.entries()) {
+        expect(Math.abs(box.width - doc[i].width)).toBeLessThan(2);
+        expect(Math.abs(box.x - doc[i].x)).toBeLessThan(2);
+      }
+    }).toPass();
   });
 
   // Rendered markdown: the card must land above the document, not below it

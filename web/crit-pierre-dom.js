@@ -21,9 +21,11 @@
     ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation] [data-annotation-content] { width: 100%; left: 0; }' +
     ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation]:not([data-line-annotation="-1,-1"]) [data-annotation-content] {' +
     ' max-width: min(var(--crit-comment-width, var(--content-width, 1040px)), calc(100% - 2 * var(--crit-comment-inset, 16px))); margin-inline: auto; }' +
-    // File-level row sits on the plain diff background, not Pierre's context
-    // tint. Its gutter buffer is the first child of each gutter.
-    '[data-line-annotation="-1,-1"], [data-gutter] > [data-gutter-buffer=annotation]:first-child { --diffs-annotation-bg: var(--diffs-bg); }' +
+    // Comment rows (file-level and line) sit on the plain code background,
+    // not Pierre's context tint. Same selectors Pierre uses to set the
+    // variable; --diffs-bg-context-override would also hide the scrollbar
+    // thumb, which shares that colour.
+    '[data-line-annotation], [data-gutter-buffer=annotation] { --diffs-annotation-bg: var(--diffs-bg); }' +
     // Documented colour override only; keep Pierre's separator layout/controls.
     // Semantic gutter colours need more contrast than their line-tint colour.
     // Move them slightly toward the theme foreground while retaining their hue.
@@ -232,19 +234,45 @@
     return !!host.querySelector('.pierre-document, .diff-deleted-placeholder:not(.pierre-loading)');
   }
 
-  // Pierre only publishes --diffs-column-number-width in scroll mode. In
-  // wrap mode, measure each side's gutter so comments still span it and
-  // match the width of comments on rendered documents.
+  // Pierre only publishes --diffs-column-number-width in scroll mode (it
+  // watches the gutter there). In wrap mode, watch each side's gutter
+  // ourselves so comments still span it and match the width of comments on
+  // rendered documents. A ResizeObserver catches the first layout of a host
+  // rendered while detached, font swaps and code-font changes, none of which
+  // re-render the file, and reports sizes without forcing a layout.
+  const numberWidthObservers = new WeakMap();
+  function setNumberWidth(gutter, width) {
+    const code = gutter.parentElement;
+    if (!code) return;
+    if (width > 0) code.style.setProperty('--crit-number-width', width + 'px');
+    else code.style.removeProperty('--crit-number-width');
+  }
+  function unwatchNumberWidth(host) {
+    const observer = numberWidthObservers.get(host);
+    if (observer) observer.disconnect();
+    numberWidthObservers.delete(host);
+  }
   function syncNumberWidth(host) {
     const root = host.shadowRoot;
     if (!root) return;
-    const wrap = !!root.querySelector('pre[data-overflow="wrap"]');
-    root.querySelectorAll('[data-code]').forEach(function(code) {
-      const gutter = wrap && code.querySelector(':scope > [data-gutter]');
-      const width = gutter ? gutter.getBoundingClientRect().width : 0;
-      if (width > 0) code.style.setProperty('--crit-number-width', width + 'px');
-      else code.style.removeProperty('--crit-number-width');
+    unwatchNumberWidth(host);
+    const gutters = root.querySelectorAll('[data-code] > [data-gutter]');
+    if (!root.querySelector('pre[data-overflow="wrap"]')) {
+      gutters.forEach(function(gutter) { setNumberWidth(gutter, 0); });
+      return;
+    }
+    if (typeof ResizeObserver !== 'function') {
+      gutters.forEach(function(gutter) { setNumberWidth(gutter, gutter.getBoundingClientRect().width); });
+      return;
+    }
+    const observer = new ResizeObserver(function(entries) {
+      entries.forEach(function(entry) {
+        const box = entry.borderBoxSize && entry.borderBoxSize[0];
+        setNumberWidth(entry.target, box ? box.inlineSize : entry.target.getBoundingClientRect().width);
+      });
     });
+    gutters.forEach(function(gutter) { observer.observe(gutter); });
+    numberWidthObservers.set(host, observer);
   }
 
   function hostFor(node) {
@@ -309,7 +337,10 @@
         if (ranges.length) pierreQuoteRanges.set(host, ranges); else pierreQuoteRanges.delete(host);
         if (had || pierreQuoteRanges.size) schedulePierreQuoteHighlight();
       },
-      unmount(host) { if (pierreQuoteRanges.delete(host)) schedulePierreQuoteHighlight(); },
+      unmount(host) {
+        unwatchNumberWidth(host);
+        if (pierreQuoteRanges.delete(host)) schedulePierreQuoteHighlight();
+      },
     };
   }
 

@@ -25,7 +25,8 @@ test('code theme, wrapping and diff controls persist and update the renderer', a
   const file = await revealFile(page, 'routes.go');
   await expect(file.locator('pre[data-overflow="wrap"]').first()).toBeVisible();
   await expect(file.locator('pre[data-indicators="bars"]').first()).toBeVisible();
-  await expect(file.locator('[data-separator="line-info-basic"]')).toHaveCount(0);
+  // Unchanged context is expanded, so no separator of any type remains.
+  await expect(file.locator('[data-separator]')).toHaveCount(0);
   await expect(file.locator('[data-column-number="20"]').first()).toBeVisible();
   await loadPage(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

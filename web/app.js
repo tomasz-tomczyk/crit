@@ -2015,7 +2015,10 @@
       themeType: window.crit.pierreAdapter.themeTypeFor(getSetting('theme', 'system')),
       ...display,
       layout: pierreListLayout(),
-      itemMetrics: { paddingTop: 0, paddingBottom: 0 },
+      // paddingBottom: the file border (style.css) adds 1px below an open
+      // file's body; Pierre's estimate must include it or scroll positions
+      // drift 1px per open file. The top border replaces the header's own.
+      itemMetrics: { paddingTop: 0, paddingBottom: 1 },
       annotations: pierreAnnotationsFor,
       prepareHunks: pierrePreparedHunks,
       isDocumentView: function(file) { return pierreIsDocumentView(file) || !!pierrePlaceholderText(file); },
