@@ -6477,8 +6477,27 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 .crit-story-chapter__summary p:last-child { margin-bottom: 0; }
 .crit-story-chapter__diagram { margin: 0 0 18px 42px; }
 
-/* Per-file hunk group — regular file-section/header chrome with story metadata */
-.crit-story-file-group { margin-bottom: 18px; background: var(--crit-story-chapter-bg); }
+/* Per-file hunk group — regular file-section/header chrome with story metadata.
+   Same look as the review list: one border around header, file-level
+   comments and hunks, on the code background. overflow: clip rounds the
+   corners without making a scroll container, so the sticky header sticks. */
+.crit-story-file-group {
+  margin-bottom: 18px;
+  background: var(--crit-editor-bg);
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-md);
+  overflow: clip;
+}
+.crit-story-file-group > .crit-review-file-header {
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+}
+/* Collapsed: the group's own border closes the header. */
+.crit-story-file-group:not([open]) > .crit-review-file-header { border-bottom: none; }
+/* The clip would cut off the default outline drawn outside the header. */
+.crit-story-file-group > .crit-review-file-header:focus-visible { outline: 2px solid var(--crit-brand); outline-offset: -2px; }
 .crit-story-file-group.viewed { opacity: 0.62; transition: opacity 140ms; }
 .crit-story-file-group.viewed:hover { opacity: 1; }
 .crit-review-file-header {

@@ -150,7 +150,6 @@
   --crit-vis-public-fg: var(--crit-palette-green);
 
   /* Story and low-contrast surface layers */
-  --crit-story-chapter-bg: var(--crit-palette-surface);
   --crit-story-accent: var(--crit-palette-accent);
   --crit-story-num-bg: color-mix(in srgb, var(--crit-palette-accent) 17%, transparent);
   --crit-story-support-fg: var(--crit-palette-muted);

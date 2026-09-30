@@ -239,7 +239,6 @@
   --crit-vis-public-fg:      #56d364;
 
   /* ---- Story mode (dark) ---- */
-  --crit-story-chapter-bg:      var(--crit-bg-card);
   --crit-story-accent:          var(--crit-brand);
   --crit-story-num-bg:          var(--crit-brand-bg);
   --crit-story-support-fg:      var(--crit-fg-muted);
@@ -450,7 +449,6 @@
     --crit-vis-public-fg:      #1a9d3b;
 
     /* ---- Story mode (light) ---- */
-    --crit-story-chapter-bg:      var(--crit-bg-card);
     --crit-story-accent:          var(--crit-brand);
     --crit-story-num-bg:          var(--crit-brand-bg);
     --crit-story-support-fg:      var(--crit-fg-muted);
@@ -663,7 +661,6 @@
   --crit-vis-public-fg:      #56d364;
 
   /* ---- Story mode (dark) ---- */
-  --crit-story-chapter-bg:      var(--crit-bg-card);
   --crit-story-accent:          var(--crit-brand);
   --crit-story-num-bg:          var(--crit-brand-bg);
   --crit-story-support-fg:      var(--crit-fg-muted);
@@ -874,7 +871,6 @@
   --crit-vis-public-fg:      #1a9d3b;
 
   /* ---- Story mode (light) ---- */
-  --crit-story-chapter-bg:      var(--crit-bg-card);
   --crit-story-accent:          var(--crit-brand);
   --crit-story-num-bg:          var(--crit-brand-bg);
   --crit-story-support-fg:      var(--crit-fg-muted);
