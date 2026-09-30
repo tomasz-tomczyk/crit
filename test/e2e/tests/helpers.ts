@@ -271,14 +271,23 @@ export async function setDiffStyle(page: Page, mode: 'split' | 'unified') {
 async function pressAt(page: Page, target: Locator) {
   // A row can intersect the viewport while the sticky file header covers it.
   // Centre it rather than trusting native actionability's visible rectangle.
-  await target.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
-  await waitUntilHittable(target);
-  await expect.poll(async () => {
-    const box = await target.boundingBox();
-    if (!box) return false;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    return true;
-  }).toBe(true);
+  // Native scrollIntoView doesn't know about CodeView's virtualization: rows
+  // mount as the list scrolls, so one centring can land short. Repeat until
+  // the row holds still and takes hits (Pierre also turns pointer events off
+  // while scrolling, and hit tests skip it until they're back).
+  await expect(async () => {
+    await target.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    await waitForScrollStable(page);
+    const before = await target.boundingBox();
+    await nextFrames(page);
+    const after = await target.boundingBox();
+    expect(before && after && Math.abs(before.y - after.y) < 1).toBe(true);
+    expect(await hitsCentre(target, 1000)).toBe(true);
+  }).toPass({ timeout: 10_000 });
+  const box = await target.boundingBox();
+  // Two moves, so a pointer already at this spot still fires a hover.
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 2);
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await nextFrames(page);
 }
 
@@ -290,6 +299,8 @@ export async function hoverLine(page: Page, item: Locator, line: number, side: D
   await expect(async () => {
     await pressAt(page, content);
     await expect(button).toBeVisible({ timeout: 500 });
+    // The sticky file header can still cover a row near the top.
+    expect(await hitsCentre(button, 1000)).toBe(true);
   }).toPass({ timeout: 10_000 });
   return button;
 }
