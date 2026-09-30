@@ -247,7 +247,7 @@
     var indicators = getSetting('changeIndicators', 'bars');
     return {
       overflow: getSetting('codeOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll',
-      hunkSeparators: 'line-info',
+      hunkSeparators: 'line-info-basic',
       lineDiffType: ['word-alt', 'word', 'char', 'none'].indexOf(granularity) >= 0 ? granularity : 'word-alt',
       diffIndicators: ['classic', 'bars', 'none'].indexOf(indicators) >= 0 ? indicators : 'bars',
       expandUnchanged: getSetting('unchangedContext', 'collapsed') === 'expanded',

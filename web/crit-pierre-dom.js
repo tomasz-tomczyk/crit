@@ -14,11 +14,16 @@
     ' margin-inline: auto; --crit-comment-inset: 0px; }' +
     // File comments span the number gutter too, so line and file-level
     // cards share a reading width even when the viewport constrains it.
-    ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation] { margin-left: calc(-1 * var(--diffs-column-number-width));' +
+    // Wrap mode clears Pierre's column variables; syncNumberWidth measures
+    // the gutter into --crit-number-width instead.
+    ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation] { margin-left: calc(-1 * var(--diffs-column-number-width, var(--crit-number-width, 0px)));' +
     ' width: var(--diffs-column-width); position: relative; z-index: 3; }' +
     ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation] [data-annotation-content] { width: 100%; left: 0; }' +
     ':host(:not([data-crit-document])) pre[data-file] [data-line-annotation]:not([data-line-annotation="-1,-1"]) [data-annotation-content] {' +
     ' max-width: min(var(--crit-comment-width, var(--content-width, 1040px)), calc(100% - 2 * var(--crit-comment-inset, 16px))); margin-inline: auto; }' +
+    // File-level row sits on the plain diff background, not Pierre's context
+    // tint. Its gutter buffer is the first child of each gutter.
+    '[data-line-annotation="-1,-1"], [data-gutter] > [data-gutter-buffer=annotation]:first-child { --diffs-annotation-bg: var(--diffs-bg); }' +
     // Documented colour override only; keep Pierre's separator layout/controls.
     // Semantic gutter colours need more contrast than their line-tint colour.
     // Move them slightly toward the theme foreground while retaining their hue.
@@ -227,6 +232,21 @@
     return !!host.querySelector('.pierre-document, .diff-deleted-placeholder:not(.pierre-loading)');
   }
 
+  // Pierre only publishes --diffs-column-number-width in scroll mode. In
+  // wrap mode, measure each side's gutter so comments still span it and
+  // match the width of comments on rendered documents.
+  function syncNumberWidth(host) {
+    const root = host.shadowRoot;
+    if (!root) return;
+    const wrap = !!root.querySelector('pre[data-overflow="wrap"]');
+    root.querySelectorAll('[data-code]').forEach(function(code) {
+      const gutter = wrap && code.querySelector(':scope > [data-gutter]');
+      const width = gutter ? gutter.getBoundingClientRect().width : 0;
+      if (width > 0) code.style.setProperty('--crit-number-width', width + 'px');
+      else code.style.removeProperty('--crit-number-width');
+    });
+  }
+
   function hostFor(node) {
     return node && (node.shadowRoot ? node : (node.getRootNode && node.getRootNode().host));
   }
@@ -283,6 +303,7 @@
         if (isFileLevelOnly(host)) host.dataset.critDocument = '1'; else delete host.dataset.critDocument;
         adoptPierreRangeSheet(host.shadowRoot);
         labelPierreControls(host.shadowRoot);
+        syncNumberWidth(host);
         const had = pierreQuoteRanges.has(host);
         const ranges = pierreQuoteRangesFor(host, quoted);
         if (ranges.length) pierreQuoteRanges.set(host, ranges); else pierreQuoteRanges.delete(host);

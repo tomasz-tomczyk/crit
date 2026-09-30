@@ -25,7 +25,7 @@ test('code theme, wrapping and diff controls persist and update the renderer', a
   const file = await revealFile(page, 'routes.go');
   await expect(file.locator('pre[data-overflow="wrap"]').first()).toBeVisible();
   await expect(file.locator('pre[data-indicators="bars"]').first()).toBeVisible();
-  await expect(file.locator('[data-separator="line-info"]')).toHaveCount(0);
+  await expect(file.locator('[data-separator="line-info-basic"]')).toHaveCount(0);
   await expect(file.locator('[data-column-number="20"]').first()).toBeVisible();
   await loadPage(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -38,7 +38,7 @@ test('code theme, wrapping and diff controls persist and update the renderer', a
 
 test('separators remain expandable with a theme-relative colour override', async ({ page }) => {
   const file = await revealFile(page, 'routes.go');
-  const separator = file.locator('[data-separator="line-info"]').first();
+  const separator = file.locator('[data-separator="line-info-basic"]').first();
   await expect(separator).toBeVisible();
   await expect.poll(() => separator.evaluate(el => getComputedStyle(el).getPropertyValue('--diffs-bg-separator-override'))).toContain('color-mix');
   await expect(file.locator('[data-expand-button]').first()).toBeVisible();
@@ -191,7 +191,8 @@ test('documents and file-level forms stay centered, with space above and below t
   expect(margins.left).toBeGreaterThan(0);
   expect(Math.abs(margins.left - margins.right)).toBeLessThan(1);
   const file = await revealFile(page, 'server.go');
-  await expect(file.locator('.crit-review-file-header')).toHaveCSS('border-top-left-radius', '6px');
+  // The file wrapper owns the rounded border; the header sits inside it.
+  await expect(file).toHaveCSS('border-top-left-radius', '6px');
   await file.locator('.file-comment-btn').click();
   const form = file.locator('.pierre-file-level');
   await expect(form).toBeVisible();

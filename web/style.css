@@ -6571,6 +6571,25 @@ body.pierre-review #filesContainer {
   overflow: auto;
   padding-inline: var(--crit-review-pad-inline);
 }
+/* One border around each file: header, file-level comments and all hunks.
+   The header keeps only its bottom edge so the sides don't double up.
+   overflow: clip rounds the corners without making a scroll container, so
+   the sticky header still sticks. */
+body.pierre-review #filesContainer diffs-container {
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-md);
+  overflow: clip;
+}
+body.pierre-review #filesContainer diffs-container .crit-review-file-header {
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+}
+/* Collapsed: the file's own border closes the header. */
+body.pierre-review #filesContainer diffs-container .crit-review-file-header.collapsed {
+  border-bottom: none;
+}
 .pierre-file-header {
   display: flex;
   align-items: center;

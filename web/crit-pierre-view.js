@@ -235,7 +235,7 @@
       layout: opts.layout,
       unsafeCSS: opts.unsafeCSS,
       overflow: opts.overflow || 'scroll',
-      hunkSeparators: opts.hunkSeparators || 'line-info',
+      hunkSeparators: opts.hunkSeparators || 'line-info-basic',
       diffIndicators: opts.diffIndicators || 'bars',
       expandUnchanged: !!opts.expandUnchanged,
       disableLineNumbers: !!opts.disableLineNumbers,
