@@ -129,7 +129,7 @@ test('buildFileDiff: a subset with an omitted earlier hunk falls back to the pat
 
 test('display settings use defaults and reject unsupported persisted values', function() {
   const defaults = {
-    overflow: 'scroll', hunkSeparators: 'line-info', lineDiffType: 'word-alt',
+    overflow: 'scroll', hunkSeparators: 'line-info-basic', lineDiffType: 'word-alt',
     diffIndicators: 'bars', expandUnchanged: false, disableLineNumbers: false,
   };
   function read(settings) {
@@ -146,7 +146,7 @@ test('display settings use defaults and reject unsupported persisted values', fu
         codeOverflow: 'wrap', inlineDiff, changeIndicators,
         unchangedContext: 'expanded', lineNumbers: 'off',
       })), {
-        overflow: 'wrap', hunkSeparators: 'line-info', lineDiffType: inlineDiff,
+        overflow: 'wrap', hunkSeparators: 'line-info-basic', lineDiffType: inlineDiff,
         diffIndicators: changeIndicators, expandUnchanged: true, disableLineNumbers: true,
       });
     }
