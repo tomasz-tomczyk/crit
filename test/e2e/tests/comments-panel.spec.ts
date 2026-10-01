@@ -145,10 +145,13 @@ test.describe('Comments Panel — Git Mode', () => {
 
   test('clicking panel card scrolls to inline comment', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Scroll target');
+    const file = await request.get(`/api/file?path=${encodeURIComponent(mdPath)}`).then(r => r.json());
+    const targetLine = (file.content as string).split('\n').reduce((last, line, index) => line.trim() ? index + 1 : last, 0);
+    await addComment(request, mdPath, targetLine, 'Scroll target');
     await loadPage(page);
     await switchToDocumentView(page);
 
+    await page.locator('#filesContainer').evaluate(el => { el.scrollTop = 0; });
     await page.keyboard.press('Shift+C');
     await panelCards(page).first().click();
 

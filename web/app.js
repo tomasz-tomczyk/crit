@@ -2196,6 +2196,24 @@
     })();
   }
 
+  // Scroll inside Pierre's list without asking the browser to find every
+  // ancestor scroll container. The comments panel and other fixed chrome can
+  // otherwise make native scrollIntoView move the document instead of the
+  // virtualized review list.
+  function scrollPierreElementIntoView(el) {
+    const root = document.getElementById('filesContainer');
+    if (!root || !el) return;
+    let frames = 0;
+    (function align() {
+      const rootRect = root.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const offset = elRect.top - rootRect.top - (root.clientHeight - elRect.height) / 2;
+      if (Math.abs(offset) < 2 || frames++ >= 12) return;
+      root.scrollTop += offset;
+      requestAnimationFrame(align);
+    })();
+  }
+
   // Jump to a comment: load/expand its file, let Pierre scroll the anchor
   // line into place, then hand the mounted card to `done` (flash/highlight).
   // Outdated and file-level comments anchor at the file top.
@@ -2218,7 +2236,7 @@
         : pierreView.scrollToFile(filePath);
       scrolled.then(function() {
         whenMounted(card, function(el) {
-          if (inDocument) el.scrollIntoView({ block: 'center' });
+          if (inDocument) scrollPierreElementIntoView(el);
           done(el);
         });
       });
@@ -6272,7 +6290,8 @@
 
 
   function flashCommentCard(commentCard) {
-    commentCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (pierreView && pierreViewActive()) scrollPierreElementIntoView(commentCard);
+    else commentCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
     commentCard.classList.remove('comment-card-highlight');
     void commentCard.offsetWidth;
     commentCard.classList.add('comment-card-highlight');
