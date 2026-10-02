@@ -78,6 +78,14 @@ test('annotations map comments and forms to Pierre sides and lines', function() 
     { side: 'deletions', lineNumber: 0, metadata: { kind: 'form', id: 'p:file' } });
 });
 
+test('fileLevelSide: old side unless the patch marks the file new', function() {
+  ['added', 'untracked', 'modified', 'deleted', 'renamed', ''].forEach(function(status) {
+    const patch = a.hunksToPatch({ path: 'f.txt', status: status, diffHunks: [hunk(1, 1, 1, 1, [['add', 'x']])] });
+    const isNew = patch.includes('new file mode');
+    assert.equal(a.fileLevelSide(status), isNew ? 'additions' : 'deletions', status);
+  });
+});
+
 test('formRangeFromSelection normalizes direction and side', function() {
   assert.deepEqual(a.formRangeFromSelection({ start: 9, end: 4, side: 'additions' }), { startLine: 4, endLine: 9, side: '' });
   assert.deepEqual(a.formRangeFromSelection({ start: 2, end: 2, side: 'deletions' }), { startLine: 2, endLine: 2, side: 'old' });

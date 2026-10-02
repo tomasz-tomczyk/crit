@@ -19,13 +19,24 @@
     return count === 1 ? String(start) : start + ',' + count;
   }
 
+  // A new file has no old side: Pierre renders it as additions only.
+  function isNewFileStatus(status) {
+    return status === 'added' || status === 'untracked';
+  }
+
+  // Side for file-level annotations in a diff: the old (left) side when the
+  // file has one. Pierre drops annotations on a side it does not render.
+  function fileLevelSide(status) {
+    return isNewFileStatus(status) ? 'additions' : 'deletions';
+  }
+
   // One file's unified diff in git format, from Crit hunks. Pierre parses
   // this with processFile(); oldFile/newFile make it a full (expandable) diff.
   function hunksToPatch(file) {
     var path = file.path;
     var oldPath = file.old_path || file.oldPath || path;
     var status = file.status;
-    var isNew = status === 'added' || status === 'untracked';
+    var isNew = isNewFileStatus(status);
     var isDeleted = status === 'deleted' || status === 'removed';
     var out = ['diff --git a/' + oldPath + ' b/' + path];
     if (isNew) out.push('new file mode 100644');
@@ -272,6 +283,7 @@
     estimatedLineCount: estimatedLineCount,
     annotationForComment: annotationForComment,
     annotationForForm: annotationForForm,
+    fileLevelSide: fileLevelSide,
     formRangeFromSelection: formRangeFromSelection,
     themeTypeFor: themeTypeFor,
     navRowsForHunks: navRowsForHunks,
