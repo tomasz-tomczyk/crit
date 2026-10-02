@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseOpencodeVersion(t *testing.T) {
@@ -36,6 +37,57 @@ func TestOpencodeVersionInfoFallsBackWhenBinaryIsMissing(t *testing.T) {
 	major, version := opencodeVersionInfo()
 	if major != 1 || version != "" {
 		t.Fatalf("opencodeVersionInfo() = (%d, %q), want (1, empty)", major, version)
+	}
+}
+
+func TestOpencodeVersionInfoCachesUntilBinaryChanges(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture uses POSIX executable scripts")
+	}
+	bin := t.TempDir()
+	runs := filepath.Join(t.TempDir(), "runs")
+	stub := filepath.Join(bin, "opencode")
+	writeStub := func(version string) {
+		t.Helper()
+		body := "#!/bin/sh\necho x >> \"" + runs + "\"\necho \"" + version + "\"\n"
+		if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	countRuns := func() int {
+		t.Helper()
+		data, err := os.ReadFile(runs)
+		if errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Count(string(data), "x")
+	}
+	t.Setenv("PATH", bin)
+
+	writeStub("2.0.22")
+	for range 3 {
+		if major, version := opencodeVersionInfo(); major != 2 || version != "2.0.22" {
+			t.Fatalf("opencodeVersionInfo() = (%d, %q), want (2, 2.0.22)", major, version)
+		}
+	}
+	if got := countRuns(); got != 1 {
+		t.Fatalf("opencode --version ran %d times, want 1", got)
+	}
+
+	// Simulate an upgrade: new content (different size) and a new mtime.
+	writeStub("2.10.100")
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(stub, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if major, version := opencodeVersionInfo(); major != 2 || version != "2.10.100" {
+		t.Fatalf("after upgrade opencodeVersionInfo() = (%d, %q), want (2, 2.10.100)", major, version)
+	}
+	if got := countRuns(); got != 2 {
+		t.Fatalf("opencode --version ran %d times after upgrade, want 2", got)
 	}
 }
 
@@ -218,7 +270,7 @@ func TestCheckOpencodePluginDependencyForVersion(t *testing.T) {
 	}
 }
 
-func TestCleanupOpencodePluginVersionFiles(t *testing.T) {
+func TestRemoveStaleOpencodePluginFiles(t *testing.T) {
 	home := t.TempDir()
 	for _, major := range []int{1, 2} {
 		for _, f := range integrationMap["opencode"] {
@@ -234,7 +286,11 @@ func TestCleanupOpencodePluginVersionFiles(t *testing.T) {
 			}
 		}
 	}
-	if err := cleanupOpencodePluginVersionFiles(true, home, 2, true); err != nil {
+	stale, err := findStaleOpencodePluginFiles(true, home, 2, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleOpencodePluginFiles(stale); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range integrationMap["opencode"] {
@@ -252,7 +308,7 @@ func TestCleanupOpencodePluginVersionFiles(t *testing.T) {
 	}
 }
 
-func TestCleanupOpencodePluginVersionFilesPreservesModifiedFilesAtomically(t *testing.T) {
+func TestFindStaleOpencodePluginFilesPreservesModifiedFilesAtomically(t *testing.T) {
 	home := t.TempDir()
 	var paths []string
 	for _, f := range integrationMap["opencode"] {
@@ -278,7 +334,7 @@ func TestCleanupOpencodePluginVersionFilesPreservesModifiedFilesAtomically(t *te
 	if len(paths) != 2 {
 		t.Fatalf("expected two V1 plugin files, got %d", len(paths))
 	}
-	if err := cleanupOpencodePluginVersionFiles(true, home, 2, false); err == nil {
+	if _, err := findStaleOpencodePluginFiles(true, home, 2, false); err == nil {
 		t.Fatal("expected modified plugin file to block migration")
 	}
 	for _, path := range paths {
@@ -288,19 +344,25 @@ func TestCleanupOpencodePluginVersionFilesPreservesModifiedFilesAtomically(t *te
 	}
 }
 
-func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
+// setupOpencodeV2Install prepares a fake OpenCode v2 environment: a PATH with
+// stub opencode and bun binaries, a HOME, and a project working directory.
+// bun records each run in the returned marker file. seed returns the content
+// to write for each V1 plugin file (keyed by integration source).
+func setupOpencodeV2Install(t *testing.T, seed func(source string) []byte) (home, bunMarker string) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fixture uses POSIX executable scripts")
 	}
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	bin := filepath.Join(root, "bin")
-	home := filepath.Join(root, "home")
+	home = filepath.Join(root, "home")
 	for _, dir := range []string{project, bin, home} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	bunMarker = filepath.Join(root, "bun-ran")
 	writeExecutable := func(name, body string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
@@ -308,21 +370,10 @@ func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
 		}
 	}
 	writeExecutable("opencode", `echo "2.0.22"`)
-	writeExecutable("bun", `exit 0`)
+	writeExecutable("bun", `: > "`+bunMarker+`"`)
 	t.Setenv("PATH", bin)
 	t.Setenv("HOME", home)
-	oldWd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(project); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(oldWd); err != nil {
-			t.Errorf("restore working directory: %v", err)
-		}
-	}()
+	t.Chdir(project)
 
 	for _, f := range integrationMap["opencode"] {
 		if f.opencodeVersion != 1 {
@@ -332,21 +383,26 @@ func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		contents, err := integrationsFS.ReadFile(f.source)
+		if err := os.WriteFile(path, seed(f.source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home, bunMarker
+}
+
+func embeddedOpencodeSeed(t *testing.T) func(string) []byte {
+	return func(source string) []byte {
+		t.Helper()
+		contents, err := integrationsFS.ReadFile(source)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, contents, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		return contents
 	}
-	config := opencodeConfigPath(false, home)
-	if err := os.WriteFile(config, []byte(`{"plugin":["./.opencode/plugins/crit.ts"]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := installIntegration("opencode", false); err != nil {
-		t.Fatal(err)
-	}
+}
+
+func assertOpencodeV2Migrated(t *testing.T, home string) {
+	t.Helper()
 	for _, f := range integrationMap["opencode"] {
 		path := destFor(f, false, home, "opencode")
 		_, err := os.Stat(path)
@@ -361,12 +417,88 @@ func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
 	if err != nil || !strings.Contains(string(manifest), `"@opencode/plugin": "2.0.22"`) {
 		t.Fatalf("V2 plugin SDK manifest not installed: %s, err=%v", manifest, err)
 	}
+}
+
+func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
+	home, _ := setupOpencodeV2Install(t, embeddedOpencodeSeed(t))
+	config := opencodeConfigPath(false, home)
+	if err := os.WriteFile(config, []byte(`{"plugin":["./.opencode/plugins/crit.ts"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installIntegration("opencode", false); err != nil {
+		t.Fatal(err)
+	}
+	assertOpencodeV2Migrated(t, home)
 	configData, err := os.ReadFile(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(configData), "crit.ts") {
 		t.Fatalf("obsolete V1 plugin registration remains: %s", configData)
+	}
+}
+
+// V1 files written by an older release differ from the current embedded copy
+// but are still unmodified Crit files, so migration must not require --force.
+func TestInstallOpencodeV2MigratesV1FilesFromOlderRelease(t *testing.T) {
+	fixtures := map[string]string{
+		"integrations/opencode/plugin/crit.ts":                 "testdata/opencode-v0.21.0/crit.ts",
+		"integrations/opencode/plugin/lib/crit-wait-notify.js": "testdata/opencode-v0.21.0/lib/crit-wait-notify.js",
+	}
+	// Read fixtures before setup changes the working directory.
+	contents := map[string][]byte{}
+	for source, fixture := range fixtures {
+		data, err := os.ReadFile(fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		embedded, err := integrationsFS.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) == string(embedded) {
+			t.Fatalf("fixture %s matches the current embedded file; the test would not cover older releases", fixture)
+		}
+		contents[source] = data
+	}
+	home, _ := setupOpencodeV2Install(t, func(source string) []byte {
+		data, ok := contents[source]
+		if !ok {
+			t.Fatalf("no v0.21.0 fixture for %s", source)
+		}
+		return data
+	})
+	if err := installIntegration("opencode", false); err != nil {
+		t.Fatal(err)
+	}
+	assertOpencodeV2Migrated(t, home)
+}
+
+func TestInstallOpencodeV2ModifiedV1FileBlocksDependencyInstall(t *testing.T) {
+	seed := embeddedOpencodeSeed(t)
+	home, bunMarker := setupOpencodeV2Install(t, func(source string) []byte {
+		if source == "integrations/opencode/plugin/crit.ts" {
+			return []byte("user customization")
+		}
+		return seed(source)
+	})
+	err := installIntegration("opencode", false)
+	if err == nil || !strings.Contains(err.Error(), "modified OpenCode v1 Crit plugin") {
+		t.Fatalf("expected modified-plugin error, got %v", err)
+	}
+	if _, err := os.Stat(opencodePluginPackagePath(false, home)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("package.json written despite refusal: err=%v", err)
+	}
+	if _, err := os.Stat(bunMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("package manager ran despite refusal: err=%v", err)
+	}
+	for _, f := range integrationMap["opencode"] {
+		if f.opencodeVersion != 1 {
+			continue
+		}
+		if _, err := os.Stat(destFor(f, false, home, "opencode")); err != nil {
+			t.Errorf("V1 file removed despite refusal: %v", err)
+		}
 	}
 }
 

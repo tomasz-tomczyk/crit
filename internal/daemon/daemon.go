@@ -1022,20 +1022,31 @@ func WaitForExit(pid int) bool {
 		// access being denied to a process that is still running.
 		return !procExists(&os.Process{Pid: pid})
 	}
+	gone, _ := waitOrKill(proc)
+	return gone
+}
+
+// waitOrKill waits stopWait for proc to exit, kills it if it is still alive,
+// and waits again. It reports whether the process is gone. err is the kill
+// error when the kill failed and does not prove the process is gone.
+func waitOrKill(proc *os.Process) (gone bool, err error) {
 	if waitForExit(proc, stopWait) {
-		return true
+		return true, nil
 	}
 	if err := killProc(proc); err != nil {
-		return terminationProvesGone(err)
+		if terminationProvesGone(err) {
+			return true, nil
+		}
+		return false, err
 	}
 	// A kill is asynchronous on Windows, and the daemon's files stay open
 	// until it is gone.
-	return waitForExit(proc, stopWait)
+	return waitForExit(proc, stopWait), nil
 }
 
-// SessionOwnedBy reports whether key's session file still names the daemon
+// sessionOwnedBy reports whether key's session file still names the daemon
 // with the given PID.
-func SessionOwnedBy(key string, pid int) bool {
+func sessionOwnedBy(key string, pid int) bool {
 	entry, err := ReadSessionFile(key)
 	return err == nil && entry.PID == pid
 }
@@ -1047,6 +1058,7 @@ func SessionOwnedBy(key string, pid int) bool {
 func UnlessSessionTakenOver(key string, pid int, fn func()) {
 	lock, err := acquireSessionLock(key)
 	if err != nil {
+		log.Printf("Warning: could not lock session %s, skipping cleanup after daemon exit: %v", key, err)
 		return
 	}
 	defer releaseSessionLock(lock)
@@ -1090,7 +1102,7 @@ func StopDaemon(key string) error {
 
 	switch RequestShutdown(entry) {
 	case ShutdownWrongDaemon:
-		if SessionOwnedBy(key, entry.PID) {
+		if sessionOwnedBy(key, entry.PID) {
 			RemoveSessionFile(key)
 		}
 		return nil
@@ -1098,7 +1110,7 @@ func StopDaemon(key string) error {
 		// A daemon already shutting down for another client removed its
 		// session file before it stopped answering; that client kills it if
 		// it hangs.
-		if !SessionOwnedBy(key, entry.PID) {
+		if !sessionOwnedBy(key, entry.PID) {
 			waitForExit(proc, stopWait)
 			return nil
 		}
@@ -1107,18 +1119,16 @@ func StopDaemon(key string) error {
 		}
 	}
 
-	if !waitForExit(proc, stopWait) {
-		if err := killProc(proc); err != nil {
-			if !terminationProvesGone(err) {
-				return fmt.Errorf("could not stop daemon %s (pid %d): %w; session file kept so you can retry", key, entry.PID, err)
-			}
-		} else if !waitForExit(proc, stopWait) {
-			return fmt.Errorf("could not confirm daemon %s (pid %d) exited after kill; session file kept so you can retry", key, entry.PID)
-		}
+	gone, err := waitOrKill(proc)
+	if err != nil {
+		return fmt.Errorf("could not stop daemon %s (pid %d): %w; session file kept so you can retry", key, entry.PID, err)
+	}
+	if !gone {
+		return fmt.Errorf("could not confirm daemon %s (pid %d) exited after kill; session file kept so you can retry", key, entry.PID)
 	}
 	// A daemon that stopped gracefully removed its own file, and a successor
 	// may own the key by now.
-	if SessionOwnedBy(key, entry.PID) {
+	if sessionOwnedBy(key, entry.PID) {
 		RemoveSessionFile(key)
 	}
 	return nil

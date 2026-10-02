@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,16 +44,65 @@ func latestCacheDir(dir string) string {
 	return latest
 }
 
-// opencodeVersionInfo detects the installed OpenCode version. Unknown output
-// deliberately falls back to V1 so older binaries keep historical behavior.
+// opencodeBinaryKey identifies one opencode binary on disk. An upgrade
+// replaces or rewrites the binary, which changes the key.
+type opencodeBinaryKey struct {
+	path    string
+	modTime time.Time
+	size    int64
+}
+
+// opencodeVersionCache keeps the last `opencode --version` result. A daemon
+// start checks the version several times and every /api/config request checks
+// it again; the cache turns those into one stat call each. Keying on the
+// resolved binary and its mtime/size (not a process-lifetime cache) means a
+// user who upgrades opencode while a daemon runs gets the new version on the
+// next check, and tests that put a different stub on PATH are not affected.
+var opencodeVersionCache struct {
+	sync.Mutex
+	key     opencodeBinaryKey
+	major   int
+	version string
+	ok      bool
+}
+
+// opencodeVersionInfo detects the installed OpenCode version, returning the
+// cached result while the binary is unchanged. Unknown output deliberately
+// falls back to V1 so older binaries keep historical behavior.
 func opencodeVersionInfo() (int, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "opencode", "--version").CombinedOutput()
+	path, err := exec.LookPath("opencode")
 	if err != nil {
 		return 1, ""
 	}
-	return parseOpencodeVersion(string(out))
+	// Resolve symlinks so a Homebrew/mise upgrade (new versioned target behind
+	// the same shim, often with a normalized mtime) changes the key.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return 1, ""
+	}
+	key := opencodeBinaryKey{path: path, modTime: info.ModTime(), size: info.Size()}
+
+	opencodeVersionCache.Lock()
+	defer opencodeVersionCache.Unlock()
+	if opencodeVersionCache.ok && opencodeVersionCache.key == key {
+		return opencodeVersionCache.major, opencodeVersionCache.version
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	if err != nil {
+		// Do not cache failures: a timeout on a slow start should not stick.
+		return 1, ""
+	}
+	major, version := parseOpencodeVersion(string(out))
+	opencodeVersionCache.key = key
+	opencodeVersionCache.major = major
+	opencodeVersionCache.version = version
+	opencodeVersionCache.ok = true
+	return major, version
 }
 
 func parseOpencodeVersion(output string) (int, string) {

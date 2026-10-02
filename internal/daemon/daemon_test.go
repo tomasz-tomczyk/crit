@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -684,9 +685,12 @@ func TestRequestShutdown(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
 			var gotMethod, gotPath, gotQuery string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
 				gotMethod, gotPath, gotQuery = r.Method, r.URL.Path, r.URL.RawQuery
+				mu.Unlock()
 				tt.handler(w, r)
 			}))
 			defer srv.Close()
@@ -695,6 +699,8 @@ func TestRequestShutdown(t *testing.T) {
 			if got := RequestShutdown(entry); got != tt.want {
 				t.Errorf("RequestShutdown = %v, want %v", got, tt.want)
 			}
+			mu.Lock()
+			defer mu.Unlock()
 			if gotMethod != http.MethodPost || gotPath != "/api/shutdown" {
 				t.Errorf("request = %s %s, want POST /api/shutdown", gotMethod, gotPath)
 			}

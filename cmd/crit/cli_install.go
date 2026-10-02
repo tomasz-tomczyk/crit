@@ -183,7 +183,7 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/opencode/v2/crit/index.ts", dest: ".opencode/plugins/crit/index.ts", globalDest: ".config/opencode/plugins/crit/index.ts", globalDestKind: globalDestRelHome, opencodeVersion: 2},
 		{source: "integrations/opencode/v2/crit/tui.ts", dest: ".opencode/plugins/crit/tui.ts", globalDest: ".config/opencode/plugins/crit/tui.ts", globalDestKind: globalDestRelHome, opencodeVersion: 2},
 		{source: "integrations/opencode/v2/crit/lib/crit-rpc.ts", dest: ".opencode/plugins/crit/lib/crit-rpc.ts", globalDest: ".config/opencode/plugins/crit/lib/crit-rpc.ts", globalDestKind: globalDestRelHome, opencodeVersion: 2},
-		{source: "integrations/opencode/plugin/lib/crit-wait-notify.js", dest: ".opencode/plugins/crit/lib/crit-wait-notify.js", globalDest: ".config/opencode/plugins/crit/lib/crit-wait-notify.js", globalDestKind: globalDestRelHome, opencodeVersion: 2},
+		{source: "integrations/opencode/v2/crit/lib/crit-wait-notify.js", dest: ".opencode/plugins/crit/lib/crit-wait-notify.js", globalDest: ".config/opencode/plugins/crit/lib/crit-wait-notify.js", globalDestKind: globalDestRelHome, opencodeVersion: 2},
 	},
 	"windsurf": {
 		{source: "integrations/windsurf/crit.md", dest: ".windsurf/workflows/crit.md", globalDest: ".codeium/windsurf/global_workflows/crit.md", globalDestKind: globalDestRelHome, hint: "Run /crit in Windsurf to start a review loop"},
@@ -430,14 +430,21 @@ func installIntegration(name string, force bool) error {
 	if name == "opencode" {
 		opencodeMajor, opencodeVersion = opencodeVersionInfo()
 		files = opencodeIntegrationFiles(opencodeMajor)
-		// Resolve and install V2's SDK before removing an existing V1 plugin.
-		// A package-manager failure must not leave the user with no working plugin.
+		// Check the other major version's files first (read-only), so a
+		// modified file refuses the install before any package.json write or
+		// package-manager run. Then install V2's SDK before removing an
+		// existing V1 plugin: a package-manager failure must not leave the
+		// user with no working plugin.
+		stale, err := findStaleOpencodePluginFiles(global, home, opencodeMajor, force)
+		if err != nil {
+			return err
+		}
 		if opencodeMajor == 2 && opencodeVersion != "" {
 			if err := installOpencodePluginDependency(opencodePluginPackagePath(global, home), opencodeVersion, force); err != nil {
 				return err
 			}
 		}
-		if err := cleanupOpencodePluginVersionFiles(global, home, opencodeMajor, force); err != nil {
+		if err := removeStaleOpencodePluginFiles(stale); err != nil {
 			return err
 		}
 		if opencodeMajor == 2 {
@@ -572,16 +579,52 @@ func installOneFile(f integration, dest string, force bool) {
 	fmt.Printf("  Installed: %s\n", dest)
 }
 
-// cleanupOpencodePluginVersionFiles removes the other major version's Crit
-// plugin files. Modified files require --force so migration does not discard
-// user changes. Leaving both versions in an auto-load directory can make
-// OpenCode load incompatible implementations together.
-func cleanupOpencodePluginVersionFiles(global bool, home string, major int, force bool) error {
-	type stalePlugin struct {
-		path    string
-		version int
+// previousOpencodePluginHashes lists SHA-256 hashes of OpenCode plugin files
+// shipped by earlier crit releases. A file that matches one of them was
+// written by crit and not edited, so migration may remove it without --force.
+// Add the old hash here whenever a release changes one of these sources.
+var previousOpencodePluginHashes = map[string][]string{
+	"integrations/opencode/plugin/crit.ts": {
+		"e95e8b813b4ca0f87d3bb385faad519d13cd826d2f1cedd0ae58080df8820466", // v0.13.0 - v0.15.3
+		"139a1798dcda408520696f02981569f3188688d8995c77421f66506416fc0115", // v0.15.4 - v0.18.1
+		"bbb6b53ead31f811b46c51055e4c225536f91f52a4eca1667b7e14d600e30958", // v0.18.2 - v0.21.0
+	},
+	"integrations/opencode/plugin/lib/crit-wait-notify.js": {
+		"95f4b82ebfc9ee60b2595bda3a260069aa6f34edea6c5b9eb9b503b7c6a58edb", // v0.18.2 - v0.21.0
+	},
+}
+
+// isUnmodifiedOpencodePlugin reports whether data matches the embedded source
+// or a version of it shipped by an earlier release.
+func isUnmodifiedOpencodePlugin(source string, data []byte) (bool, error) {
+	embedded, err := integrationsFS.ReadFile(source)
+	if err != nil {
+		return false, fmt.Errorf("reading embedded OpenCode plugin %s: %w", source, err)
 	}
-	var stale []stalePlugin
+	if string(data) == string(embedded) {
+		return true, nil
+	}
+	hash := computeFileHash(data)
+	for _, h := range previousOpencodePluginHashes[source] {
+		if hash == h {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type staleOpencodePlugin struct {
+	path    string
+	version int
+}
+
+// findStaleOpencodePluginFiles returns the other major version's Crit plugin
+// files that exist on disk. It does not change anything. Modified files
+// return an error unless force is set, so migration does not discard user
+// changes. Leaving both versions in an auto-load directory can make OpenCode
+// load incompatible implementations together.
+func findStaleOpencodePluginFiles(global bool, home string, major int, force bool) ([]staleOpencodePlugin, error) {
+	var stale []staleOpencodePlugin
 	for _, f := range integrationMap["opencode"] {
 		if f.opencodeVersion == 0 || f.opencodeVersion == major {
 			continue
@@ -592,17 +635,25 @@ func cleanupOpencodePluginVersionFiles(global bool, home string, major int, forc
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("checking old OpenCode v%d plugin %s: %w", f.opencodeVersion, dest, err)
+			return nil, fmt.Errorf("checking old OpenCode v%d plugin %s: %w", f.opencodeVersion, dest, err)
 		}
-		embedded, err := integrationsFS.ReadFile(f.source)
-		if err != nil {
-			return fmt.Errorf("reading embedded OpenCode plugin %s: %w", f.source, err)
+		if !force {
+			unmodified, err := isUnmodifiedOpencodePlugin(f.source, data)
+			if err != nil {
+				return nil, err
+			}
+			if !unmodified {
+				return nil, fmt.Errorf("%s contains a modified OpenCode v%d Crit plugin; remove it or rerun with --force before installing v%d", dest, f.opencodeVersion, major)
+			}
 		}
-		if !force && string(data) != string(embedded) {
-			return fmt.Errorf("%s contains a modified OpenCode v%d Crit plugin; remove it or rerun with --force before installing v%d", dest, f.opencodeVersion, major)
-		}
-		stale = append(stale, stalePlugin{path: dest, version: f.opencodeVersion})
+		stale = append(stale, staleOpencodePlugin{path: dest, version: f.opencodeVersion})
 	}
+	return stale, nil
+}
+
+// removeStaleOpencodePluginFiles deletes files found by
+// findStaleOpencodePluginFiles.
+func removeStaleOpencodePluginFiles(stale []staleOpencodePlugin) error {
 	for _, f := range stale {
 		if err := os.Remove(f.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("removing old OpenCode v%d plugin %s: %w", f.version, f.path, err)
