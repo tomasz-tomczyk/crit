@@ -62,6 +62,39 @@ func TestSavePlanWithoutReview(t *testing.T) {
 	}
 }
 
+func TestRunPlan_NoWaitSavesWithoutReview(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	src := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(src, []byte("# Chat\n\nhello\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunPlan([]string{"--name", "my-chat", "--no-wait", "--quiet", src}); err != nil {
+		t.Fatalf("RunPlan --no-wait: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(home, ".crit", "plans", "my-chat", "v001.md"))
+	if err != nil || string(got) != "# Chat\n\nhello\n" {
+		t.Fatalf("v001.md = %q, %v", got, err)
+	}
+}
+
+func TestSavePlanWithoutReview_SaveError(t *testing.T) {
+	// The storage dir path is a file, so the save cannot create it.
+	blocker := filepath.Join(t.TempDir(), "taken")
+	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+
+	err := savePlanWithoutReview(&stdout, &stderr, filepath.Join(blocker, "chat"), "chat", []byte("# one\n"), true)
+
+	if err == nil || !strings.Contains(stderr.String(), "Error saving plan") || stdout.String() != "" {
+		t.Fatalf("err = %v, stderr = %q, stdout = %q", err, stderr.String(), stdout.String())
+	}
+}
+
 func TestResolvePlanConfig_NameOnly(t *testing.T) {
 	pc := resolvePlanConfig([]string{"--name", "auth-flow"})
 	if pc.name != "auth-flow" {
