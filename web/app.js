@@ -2201,14 +2201,20 @@
   // comment's inner alignment must wait for that outer scroll to settle or
   // the pending file scroll can pull the comment back offscreen.
   function whenListScrollSettled(root, done) {
+    const startedAt = performance.now();
     let previous = root.scrollTop;
-    let stableFrames = 0;
-    let frames = 0;
+    let lastMovementAt = startedAt;
     (function poll() {
+      const now = performance.now();
       const current = root.scrollTop;
-      stableFrames = current === previous ? stableFrames + 1 : 0;
+      if (current !== previous) lastMovementAt = now;
       previous = current;
-      if (stableFrames >= 3 || ++frames >= 120) { done(); return; }
+      // Wait out the deferred start of a smooth scroll too. A few quiet
+      // animation frames can occur before the browser begins moving it.
+      if ((now - startedAt >= 250 && now - lastMovementAt >= 120) || now - startedAt >= 4000) {
+        done();
+        return;
+      }
       requestAnimationFrame(poll);
     })();
   }
