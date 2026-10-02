@@ -153,10 +153,13 @@
 
   // Crit comment → Pierre DiffLineAnnotation. Comments anchor on their end
   // line; old-side comments sit on the deletions side. File-level comments use
-  // lineNumber 0 (Pierre renders those above the first hunk).
-  function annotationForComment(comment) {
+  // lineNumber 0 (Pierre renders those above the first hunk) on fileSide:
+  // 'deletions' puts them on the left of a split diff, but a view with no old
+  // side (new file, source, document) drops them there, so it defaults to
+  // 'additions'.
+  function annotationForComment(comment, fileSide) {
     if (comment.scope === 'file') {
-      return { side: 'additions', lineNumber: 0, metadata: { kind: 'thread', id: comment.id } };
+      return { side: fileSide || 'additions', lineNumber: 0, metadata: { kind: 'thread', id: comment.id } };
     }
     return {
       side: comment.side === 'old' ? 'deletions' : 'additions',
@@ -166,9 +169,9 @@
   }
 
   // Crit open comment form → annotation after its end line.
-  function annotationForForm(form) {
+  function annotationForForm(form, fileSide) {
     if (form.scope === 'file') {
-      return { side: 'additions', lineNumber: 0, metadata: { kind: 'form', id: form.formKey } };
+      return { side: fileSide || 'additions', lineNumber: 0, metadata: { kind: 'form', id: form.formKey } };
     }
     return {
       side: form.side === 'old' ? 'deletions' : 'additions',

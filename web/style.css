@@ -6637,18 +6637,24 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
   word-break: normal;
 }
 /* File-level threads and the file form share one annotation cell above the
-   file. Centered at reading width with at least 16px each side, like the
-   story's .file-comments. Block margins collapse between siblings, so this
-   gives the same space above, between and below them. In split diffs the
-   cell is the new side only, so they center there. */
+   file. In diffs they start at the code column, like line comments, at
+   reading width. Block margins collapse between siblings, so this gives the
+   same space above, between and below them. In split diffs the cell is the
+   old side when the file has one, so they sit on the left. */
 .pierre-file-level {
   width: 100%;
+  max-width: var(--content-width);
+  margin: 12px 0;
+}
+/* Rendered documents and placeholders have no code column: center at
+   reading width with at least 16px each side. Files-mode source already
+   reserves that inset, so it only centers. */
+[data-crit-document] .pierre-file-level {
   max-width: min(var(--content-width), calc(100% - 32px));
   margin: 12px auto;
 }
-/* Files-mode source already reserves the same inset as rendered documents. */
 [data-crit-file-view] .pierre-file-level {
-  max-width: var(--content-width);
+  margin: 12px auto;
 }
 /* Line comments and forms inside a diff (review list or story) stay at
    reading width, like classic Crit, instead of spanning a wide diff. */

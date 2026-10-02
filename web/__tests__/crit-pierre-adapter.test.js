@@ -68,8 +68,14 @@ test('annotations map comments and forms to Pierre sides and lines', function() 
     { side: 'deletions', lineNumber: 4, metadata: { kind: 'thread', id: 'c2' } });
   assert.deepEqual(a.annotationForComment({ id: 'c3', scope: 'file' }),
     { side: 'additions', lineNumber: 0, metadata: { kind: 'thread', id: 'c3' } });
+  assert.deepEqual(a.annotationForComment({ id: 'c3', scope: 'file' }, 'deletions'),
+    { side: 'deletions', lineNumber: 0, metadata: { kind: 'thread', id: 'c3' } });
   assert.deepEqual(a.annotationForForm({ formKey: 'p:1:3:', endLine: 3, side: '' }),
     { side: 'additions', lineNumber: 3, metadata: { kind: 'form', id: 'p:1:3:' } });
+  assert.deepEqual(a.annotationForForm({ formKey: 'p:file', scope: 'file' }),
+    { side: 'additions', lineNumber: 0, metadata: { kind: 'form', id: 'p:file' } });
+  assert.deepEqual(a.annotationForForm({ formKey: 'p:file', scope: 'file' }, 'deletions'),
+    { side: 'deletions', lineNumber: 0, metadata: { kind: 'form', id: 'p:file' } });
 });
 
 test('formRangeFromSelection normalizes direction and side', function() {
