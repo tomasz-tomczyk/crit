@@ -1,0 +1,18 @@
+{
+  "name": "crit-tui",
+  "version": "0.1.0",
+  "description": "Early: crit inside Claude Code. Comment on the conversation, your diff or a file in a pane, send the review to Claude, and read Claude's replies in threads.",
+  "author": {
+    "name": "Tomasz Tomczyk"
+  },
+  "homepage": "https://crit.md",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "critBin": {
+      "type": "string",
+      "title": "crit binary",
+      "description": "Path or name of the crit CLI. Code comments go to crit's review file through it.",
+      "default": "crit"
+    }
+  }
+}

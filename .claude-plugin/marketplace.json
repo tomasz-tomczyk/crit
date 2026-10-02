@@ -11,6 +11,13 @@
       "source": "./integrations/claude-code",
       "homepage": "https://crit.md",
       "category": "development"
+    },
+    {
+      "name": "crit-tui",
+      "description": "Early: crit inside Claude Code. A review pane for the conversation, your diff or a file, with Claude replying in threads. Needs Claude Code 2.1.287+ and the crit CLI.",
+      "source": "./integrations/claude-code-tui",
+      "homepage": "https://crit.md",
+      "category": "development"
     }
   ]
 }
