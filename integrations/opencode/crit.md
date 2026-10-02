@@ -60,6 +60,8 @@ Bash tool call:
 
 Always pass `timeout: 86400000` to every blocking `crit` invocation. Do not rely on the shell tool's default timeout. Wait for the command to exit before continuing.
 
+OpenCode v2's Crit plugin extends the shell timeout to 24 hours for recognized foreground Crit review commands. If a shell tool still kills the wait because of its own hard limit, rerun the exact same `crit` command and arguments: the Crit daemon remains alive and the command reconnects to the existing review session. Do not start a duplicate review with different arguments.
+
 If a crit server is already running from earlier in this conversation, `crit` automatically connects to it. Starting from scratch, it spawns the daemon, opens the browser, and waits until the user clicks "Finish Review".
 
 In foreground mode, `crit` prints the review URL on startup (e.g. `Started crit daemon at http://localhost:<port>`). Relay it verbatim:

@@ -116,6 +116,10 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 			{".agents/skills/crit-story/SKILL.md", globalDestRelHome},
 			{".config/opencode/plugins/crit.ts", globalDestRelHome},
 			{".config/opencode/plugins/lib/crit-wait-notify.js", globalDestRelHome},
+			{".config/opencode/plugins/crit/index.ts", globalDestRelHome},
+			{".config/opencode/plugins/crit/tui.ts", globalDestRelHome},
+			{".config/opencode/plugins/crit/lib/crit-rpc.ts", globalDestRelHome},
+			{".config/opencode/plugins/crit/lib/crit-wait-notify.js", globalDestRelHome},
 		},
 		"github-copilot": {
 			{".agents/skills/crit/SKILL.md", globalDestRelHome},

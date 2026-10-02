@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -40,6 +41,53 @@ func latestCacheDir(dir string) string {
 		}
 	}
 	return latest
+}
+
+// opencodeVersionInfo detects the installed OpenCode version. Unknown output
+// deliberately falls back to V1 so older binaries keep historical behavior.
+func opencodeVersionInfo() (int, string) {
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "opencode", "--version").CombinedOutput()
+	if err != nil {
+		return 1, ""
+	}
+	return parseOpencodeVersion(string(out))
+}
+
+func parseOpencodeVersion(output string) (int, string) {
+	for _, field := range strings.Fields(output) {
+		field = strings.TrimLeft(field, "vV")
+		majorText, _, _ := strings.Cut(field, ".")
+		major, parseErr := strconv.Atoi(majorText)
+		if parseErr == nil && (major == 1 || major == 2) {
+			return major, field
+		}
+	}
+	return 1, ""
+}
+
+func opencodeMajorVersion() int {
+	major, _ := opencodeVersionInfo()
+	return major
+}
+
+func opencodeIntegrationFiles(major int) []integration {
+	files := integrationMap["opencode"]
+	selected := make([]integration, 0, len(files))
+	for _, f := range files {
+		if f.opencodeVersion == 0 || f.opencodeVersion == major {
+			selected = append(selected, f)
+		}
+	}
+	return selected
+}
+
+func integrationFilesForAgent(agent string) []integration {
+	if agent == "opencode" {
+		return opencodeIntegrationFiles(opencodeMajorVersion())
+	}
+	return integrationMap[agent]
 }
 
 // location describes where a stale file was found, determining the update advice.
@@ -121,7 +169,7 @@ func detectInstalledIntegrations(projectDir, homeDir string) []integrationStatus
 		if seen[agent] {
 			continue
 		}
-		files := integrationMap[agent]
+		files := integrationFilesForAgent(agent)
 		for _, f := range files {
 			expectedHash, ok := integrationHashes[f.source]
 			if !ok {
@@ -283,7 +331,7 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 	sort.Strings(agents)
 
 	for _, agent := range agents {
-		files := integrationMap[agent]
+		files := integrationFilesForAgent(agent)
 		for _, f := range files {
 			expectedHash, ok := integrationHashes[f.source]
 			if !ok {
@@ -310,6 +358,7 @@ func checkInstalledIntegrations(projectDir, homeDir string) []staleFile {
 		}
 	}
 	results = append(results, checkCodexPluginInstallCompleteness(projectDir, homeDir)...)
+	results = append(results, checkOpencodePluginDependency(projectDir, homeDir)...)
 	return results
 }
 

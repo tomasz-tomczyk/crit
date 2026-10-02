@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { isCritWaitCommand, roundReadyToast } = require('./crit-wait-notify.js');
+const { isCritWaitCommand, critWaitTimeout, roundReadyToast } = require('./crit-wait-notify.js');
 
 test('isCritWaitCommand accepts bare crit and file args', () => {
   assert.equal(isCritWaitCommand('crit'), true);
@@ -33,6 +33,13 @@ test('isCritWaitCommand accepts live/preview/review/plan waits', () => {
   assert.equal(isCritWaitCommand('crit preview ./dist'), true);
   assert.equal(isCritWaitCommand('crit review'), true);
   assert.equal(isCritWaitCommand('crit plan my-plan'), true);
+});
+
+test('critWaitTimeout raises short waits but preserves longer timeouts', () => {
+  assert.equal(critWaitTimeout(600_000), 86_400_000);
+  assert.equal(critWaitTimeout(86_400_000), 86_400_000);
+  assert.equal(critWaitTimeout(90_000_000), 90_000_000);
+  assert.equal(critWaitTimeout(Number.NaN), 86_400_000);
 });
 
 test('roundReadyToast includes URL when provided', () => {

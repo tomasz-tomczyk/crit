@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // opencodePluginEntry returns the relative path written into the opencode
@@ -42,6 +45,143 @@ func opencodeConfigPath(global bool, home string) string {
 		return plain
 	}
 	return jsonc
+}
+
+func opencodePluginPackagePath(global bool, home string) string {
+	if global {
+		return filepath.Join(home, ".config", "opencode", "package.json")
+	}
+	return filepath.Join(".opencode", "package.json")
+}
+
+// installOpencodePluginDependency declares the V2 plugin SDK in OpenCode's
+// dependency manifest. OpenCode installs dependencies declared there before
+// loading local plugins.
+func installOpencodePluginDependency(path, version string, force bool) error {
+	if version == "" {
+		return errors.New("could not determine the OpenCode v2 version for @opencode/plugin")
+	}
+	root := map[string]interface{}{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &root); err != nil {
+			return fmt.Errorf("%s contains invalid JSON: %w", path, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	dependencies, ok := root["dependencies"].(map[string]interface{})
+	if !ok {
+		if _, exists := root["dependencies"]; exists {
+			return fmt.Errorf("%s has a dependencies field that is not an object", path)
+		}
+		dependencies = map[string]interface{}{}
+	}
+	if current, ok := dependencies["@opencode/plugin"].(string); ok {
+		if current == version {
+			if opencodePluginDependencyInstalled(filepath.Dir(path), version) {
+				fmt.Printf("  Skipped:   %s (@opencode/plugin %s is ready)\n", path, version)
+				return nil
+			}
+			return installOpencodeDependencies(filepath.Dir(path))
+		}
+		if !force {
+			return fmt.Errorf("%s declares @opencode/plugin %q, but OpenCode v2 %s requires a matching SDK; rerun with --force to update it", path, current, version)
+		}
+	}
+	dependencies["@opencode/plugin"] = version
+	root["dependencies"] = dependencies
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding %s: %w", path, err)
+	}
+	if err := atomicWriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	fmt.Printf("  Installed: %s (@opencode/plugin %s)\n", path, version)
+	return installOpencodeDependencies(filepath.Dir(path))
+}
+
+func installOpencodeDependencies(dir string) error {
+	manager, args := "", []string(nil)
+	if _, err := exec.LookPath("bun"); err == nil {
+		manager, args = "bun", []string{"install"}
+	} else if _, err := exec.LookPath("npm"); err == nil {
+		manager, args = "npm", []string{"install", "--no-audit", "--no-fund"}
+	} else {
+		return errors.New("OpenCode v2 plugin dependencies require bun or npm on PATH")
+	}
+	fmt.Printf("  Installing: OpenCode v2 plugin dependencies with %s\n", manager)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, manager, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s install failed in %s: %w\n%s", manager, dir, err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func opencodePluginDependencyInstalled(configDir, version string) bool {
+	path := filepath.Join(configDir, "node_modules", "@opencode", "plugin", "package.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var installed struct {
+		Version string `json:"version"`
+	}
+	return json.Unmarshal(data, &installed) == nil && installed.Version == version
+}
+
+func checkOpencodePluginDependency(projectDir, homeDir string) []staleFile {
+	major, version := opencodeVersionInfo()
+	return checkOpencodePluginDependencyForVersion(projectDir, homeDir, major, version)
+}
+
+func checkOpencodePluginDependencyForVersion(projectDir, homeDir string, major int, version string) []staleFile {
+	if major != 2 || version == "" {
+		return nil
+	}
+	type pluginRoot struct {
+		pluginPath  string
+		packagePath string
+		location    string
+	}
+	roots := []pluginRoot{
+		{
+			pluginPath:  filepath.Join(projectDir, ".opencode", "plugins", "crit", "index.ts"),
+			packagePath: filepath.Join(projectDir, ".opencode", "package.json"),
+			location:    locationProject,
+		},
+		{
+			pluginPath:  filepath.Join(homeDir, ".config", "opencode", "plugins", "crit", "index.ts"),
+			packagePath: filepath.Join(homeDir, ".config", "opencode", "package.json"),
+			location:    locationHome,
+		},
+	}
+	var results []staleFile
+	for _, root := range roots {
+		if _, err := os.Stat(root.pluginPath); err != nil {
+			continue
+		}
+		data, err := os.ReadFile(root.packagePath)
+		var config struct {
+			Dependencies map[string]string `json:"dependencies"`
+		}
+		if err == nil {
+			_ = json.Unmarshal(data, &config)
+		}
+		if err == nil && opencodePluginDependencyInstalled(filepath.Dir(root.packagePath), version) && config.Dependencies["@opencode/plugin"] == version {
+			continue
+		}
+		results = append(results, staleFile{
+			agent: "opencode", file: filepath.Base(root.packagePath), dest: root.packagePath,
+			location: root.location,
+		})
+	}
+	return results
 }
 
 // installOpencodePluginEntry adds crit's plugin path to the `plugin` array in
@@ -104,6 +244,58 @@ func installOpencodePluginEntry(path, entry string, force bool) error {
 	}
 	fmt.Printf("  Installed: %s\n", path)
 	return nil
+}
+
+// removeOpencodePluginEntry removes a V1 plugin registration when migrating
+// to V2. It follows the same conservative rewrite rules as installation.
+func removeOpencodePluginEntry(path, entry string) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not inspect %s: %v\n", path, err)
+		return
+	}
+	if looksLikeJSONC(data) {
+		fmt.Printf("  Note:      remove the V1 plugin registration %q from %s; V2 discovers the Crit plugin automatically\n", entry, path)
+		return
+	}
+	root := map[string]interface{}{}
+	if err := json.Unmarshal(stripTrailingCommas(data), &root); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not remove the V1 plugin registration from %s: %v\n", path, err)
+		return
+	}
+	plugins, ok := root["plugin"].([]interface{})
+	if !ok {
+		return
+	}
+	if hasUnrelatedKeys(root) {
+		fmt.Printf("  Note:      remove the V1 plugin registration %q from %s; V2 discovers the Crit plugin automatically\n", entry, path)
+		return
+	}
+	filtered := make([]interface{}, 0, len(plugins))
+	for _, plugin := range plugins {
+		if !pluginEntryPresent([]interface{}{plugin}, entry) {
+			filtered = append(filtered, plugin)
+		}
+	}
+	if len(filtered) == len(plugins) {
+		return
+	}
+	if len(filtered) > 0 {
+		root["plugin"] = filtered
+	} else {
+		delete(root, "plugin")
+	}
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not encode %s: %v\n", path, err)
+		return
+	}
+	if err := atomicWriteFile(path, append(out, '\n'), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not update %s: %v\n", path, err)
+	}
 }
 
 // hasUnrelatedKeys reports whether the parsed root contains anything other
