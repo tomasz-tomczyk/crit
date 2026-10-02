@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,4 +249,203 @@ func TestCleanupOpencodePluginVersionFiles(t *testing.T) {
 			t.Errorf("active v2 file removed: %s: %v", path, err)
 		}
 	}
+}
+
+func TestCleanupOpencodePluginVersionFilesPreservesModifiedFilesAtomically(t *testing.T) {
+	home := t.TempDir()
+	var paths []string
+	for _, f := range integrationMap["opencode"] {
+		if f.opencodeVersion != 1 {
+			continue
+		}
+		path := destFor(f, true, home, "opencode")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		contents, err := integrationsFS.ReadFile(f.source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(paths) == 1 {
+			contents = []byte("user customization")
+		}
+		if err := os.WriteFile(path, contents, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("expected two V1 plugin files, got %d", len(paths))
+	}
+	if err := cleanupOpencodePluginVersionFiles(true, home, 2, false); err == nil {
+		t.Fatal("expected modified plugin file to block migration")
+	}
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("preflight removed plugin file before reporting error: %s: %v", path, err)
+		}
+	}
+}
+
+func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	bin := filepath.Join(root, "bin")
+	home := filepath.Join(root, "home")
+	for _, dir := range []string{project, bin, home} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeExecutable := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeExecutable("opencode", `echo "2.0.22"`)
+	writeExecutable("bun", `exit 0`)
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", home)
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	}()
+
+	for _, f := range integrationMap["opencode"] {
+		if f.opencodeVersion != 1 {
+			continue
+		}
+		path := destFor(f, false, home, "opencode")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		contents, err := integrationsFS.ReadFile(f.source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, contents, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config := opencodeConfigPath(false, home)
+	if err := os.WriteFile(config, []byte(`{"plugin":["./.opencode/plugins/crit.ts"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installIntegration("opencode", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range integrationMap["opencode"] {
+		path := destFor(f, false, home, "opencode")
+		_, err := os.Stat(path)
+		if f.opencodeVersion == 1 && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("old V1 plugin file remains or is inaccessible: %s, err=%v", path, err)
+		}
+		if f.opencodeVersion == 2 && err != nil {
+			t.Errorf("V2 plugin file missing: %s: %v", path, err)
+		}
+	}
+	manifest, err := os.ReadFile(opencodePluginPackagePath(false, home))
+	if err != nil || !strings.Contains(string(manifest), `"@opencode/plugin": "2.0.22"`) {
+		t.Fatalf("V2 plugin SDK manifest not installed: %s, err=%v", manifest, err)
+	}
+	configData, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(configData), "crit.ts") {
+		t.Fatalf("obsolete V1 plugin registration remains: %s", configData)
+	}
+}
+
+func TestRemoveOpencodePluginEntry(t *testing.T) {
+	t.Run("removes only the Crit entry and preserves other plugins", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "opencode.json")
+		initial := `{"plugin":["./.opencode/plugins/crit.ts","other-plugin"]}`
+		if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		removeOpencodePluginEntry(path, "./.opencode/plugins/crit.ts")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config struct {
+			Plugin []string `json:"plugin"`
+		}
+		if err := json.Unmarshal(data, &config); err != nil {
+			t.Fatal(err)
+		}
+		if len(config.Plugin) != 1 || config.Plugin[0] != "other-plugin" {
+			t.Fatalf("unexpected remaining plugins: %+v", config.Plugin)
+		}
+	})
+
+	t.Run("leaves JSONC for manual edit", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "opencode.jsonc")
+		initial := []byte("{ // keep comment\n  \"plugin\": [\"./.opencode/plugins/crit.ts\"]\n}\n")
+		if err := os.WriteFile(path, initial, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		removeOpencodePluginEntry(path, "./.opencode/plugins/crit.ts")
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != string(initial) {
+			t.Fatalf("JSONC changed: %s, err=%v", data, err)
+		}
+	})
+
+	t.Run("leaves configs with unrelated keys untouched", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "opencode.json")
+		initial := `{"theme":"dark","plugin":["./.opencode/plugins/crit.ts"]}`
+		if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		removeOpencodePluginEntry(path, "./.opencode/plugins/crit.ts")
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != initial {
+			t.Fatalf("config changed: %s, err=%v", data, err)
+		}
+	})
+
+	t.Run("ignores missing config and absent entry", func(t *testing.T) {
+		dir := t.TempDir()
+		removeOpencodePluginEntry(filepath.Join(dir, "missing.json"), "./.opencode/plugins/crit.ts")
+		path := filepath.Join(dir, "opencode.json")
+		initial := `{"plugin":["other-plugin"]}`
+		if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		removeOpencodePluginEntry(path, "./.opencode/plugins/crit.ts")
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != initial {
+			t.Fatalf("config changed: %s, err=%v", data, err)
+		}
+	})
+
+	t.Run("leaves invalid and unsupported configs untouched", func(t *testing.T) {
+		for name, initial := range map[string]string{
+			"invalid-json":  `{broken`,
+			"plugin-string": `{"plugin":"./.opencode/plugins/crit.ts"}`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "opencode.json")
+				if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				removeOpencodePluginEntry(path, "./.opencode/plugins/crit.ts")
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != initial {
+					t.Fatalf("config changed: %s, err=%v", data, err)
+				}
+			})
+		}
+	})
 }
