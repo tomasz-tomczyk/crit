@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath, waitForScrollStable } from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -154,6 +154,7 @@ test.describe('Comments Panel — Git Mode', () => {
     await page.locator('#filesContainer').evaluate(el => { el.scrollTop = 0; });
     await page.keyboard.press('Shift+C');
     await panelCards(page).first().click();
+    await waitForScrollStable(page);
 
     // The inline comment card should get the highlight animation class
     const inlineCard = (await mdSection(page)).locator('.comment-card[data-comment-id]').first();

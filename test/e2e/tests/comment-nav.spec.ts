@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   clearAllComments, loadPage, addComment, switchToDocumentView, clearFocus,
-  focusKbNavElement, mdDocument,
+  clickWhenHittable, focusKbNavElement, mdDocument,
 } from './helpers';
 
 // ============================================================
@@ -155,7 +155,7 @@ test.describe('Comment Navigation — prev/next buttons', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    await page.locator('#commentNavNext').click();
+    await clickWhenHittable(page, page.locator('#commentNavNext'));
 
     await expect(page.locator('.comment-card').first()).toHaveClass(/comment-nav-highlight/);
   });
@@ -166,7 +166,7 @@ test.describe('Comment Navigation — prev/next buttons', () => {
     await loadPage(page);
     await switchToDocumentView(page);
 
-    await page.locator('#commentNavPrev').click();
+    await clickWhenHittable(page, page.locator('#commentNavPrev'));
 
     await expect(page.locator('.comment-card').last()).toHaveClass(/comment-nav-highlight/);
   });
@@ -180,11 +180,11 @@ test.describe('Comment Navigation — prev/next buttons', () => {
     const cards = page.locator('.comment-card');
 
     // Go to first via next
-    await page.locator('#commentNavNext').click();
+    await clickWhenHittable(page, page.locator('#commentNavNext'));
     await expect(cards.first()).toHaveClass(/comment-nav-highlight/);
 
     // Prev from first wraps to last
-    await page.locator('#commentNavPrev').click();
+    await clickWhenHittable(page, page.locator('#commentNavPrev'));
     await expect(cards.last()).toHaveClass(/comment-nav-highlight/);
   });
 });
