@@ -5006,23 +5006,9 @@ html[data-theme="light"] .toggle-btn.active {
   border-top: 1px solid var(--crit-border);
   padding: 8px 0;
 }
-/* Outdated threads sit with the file-level ones: from the code column at
-   reading width in diffs, centered on documents and files-mode source,
-   left-aligned on placeholders. */
+/* Outdated threads share the file-level layout; see .pierre-file-level. */
 .outdated-diff-comments > .comment-block {
   padding-left: 0;
-  max-width: var(--content-width);
-}
-[data-crit-document] .outdated-diff-comments > .comment-block {
-  max-width: min(var(--content-width), calc(100% - 32px));
-  margin: 0 auto;
-}
-[data-crit-file-view] .outdated-diff-comments > .comment-block {
-  margin: 0 auto;
-}
-[data-crit-document]:has(.diff-deleted-placeholder) .outdated-diff-comments > .comment-block {
-  margin-left: 16px;
-  margin-right: auto;
 }
 .outdated-badge {
   display: inline-flex;
@@ -5305,12 +5291,15 @@ html[data-theme="light"] .toggle-btn.active {
 }
 
 /* ===== File-Level Comments ===== */
+/* Story chapters render file-level threads above the diff, outside Pierre.
+   Diffs left-align file-level threads, so these are left-aligned too, at a
+   16px inset and reading width, instead of centered. */
 .file-comments {
   padding: 12px 16px;
   border-bottom: 1px solid var(--crit-border);
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .file-comments > * {
@@ -6508,9 +6497,6 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 }
 .crit-story-file-group > .crit-review-file-header {
   border-top: none;
-  border-left: none;
-  border-right: none;
-  border-radius: 0;
 }
 /* Collapsed: the group's own border closes the header. */
 .crit-story-file-group:not([open]) > .crit-review-file-header { border-bottom: none; }
@@ -6520,9 +6506,6 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 .crit-story-file-group.viewed:hover { opacity: 1; }
 .crit-review-file-header {
   top: 0;
-  border-left: 1px solid var(--crit-border);
-  border-right: 1px solid var(--crit-border);
-  border-radius: var(--crit-r-md) var(--crit-r-md) 0 0;
 }
 .crit-story-file-group__stat { color: var(--crit-fg-muted); font-size: 11px; white-space: nowrap; }
 .crit-story-file-group__stat .add { color: var(--crit-green); }
@@ -6619,9 +6602,6 @@ body.pierre-review #filesContainer diffs-container {
 }
 body.pierre-review #filesContainer diffs-container .crit-review-file-header {
   border-top: none;
-  border-left: none;
-  border-right: none;
-  border-radius: 0;
 }
 /* Collapsed: the file's own border closes the header. */
 body.pierre-review #filesContainer diffs-container .crit-review-file-header.collapsed {
@@ -6658,26 +6638,35 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
    file. In diffs they start at the code column, like line comments, at
    reading width. Block margins collapse between siblings, so this gives the
    same space above, between and below them. In split diffs the cell is the
-   old side when the file has one, so they sit on the left. */
+   old side when the file has one, so they sit on the left. Outdated threads
+   follow the same horizontal layout, with no vertical margin. */
+.pierre-file-level,
+.outdated-diff-comments > .comment-block {
+  max-width: var(--content-width);
+}
 .pierre-file-level {
   width: 100%;
-  max-width: var(--content-width);
   margin: 12px 0;
 }
 /* Rendered documents and placeholders have no code column: center at
    reading width with at least 16px each side (placeholders left-align,
    below). Files-mode source already
    reserves that inset, so it only centers. */
-[data-crit-document] .pierre-file-level {
+[data-crit-document] .pierre-file-level,
+[data-crit-document] .outdated-diff-comments > .comment-block {
   max-width: min(var(--content-width), calc(100% - 32px));
-  margin: 12px auto;
 }
-[data-crit-file-view] .pierre-file-level {
-  margin: 12px auto;
+[data-crit-document] .pierre-file-level,
+[data-crit-document] .outdated-diff-comments > .comment-block,
+[data-crit-file-view] .pierre-file-level,
+[data-crit-file-view] .outdated-diff-comments > .comment-block {
+  margin-left: auto;
+  margin-right: auto;
 }
 /* Placeholders (deleted, renamed, orphaned) have no code column: left-align
    with the same 16px inset as the placeholder text. */
-[data-crit-document]:has(.diff-deleted-placeholder) .pierre-file-level {
+[data-crit-document]:has(.diff-deleted-placeholder) .pierre-file-level,
+[data-crit-document]:has(.diff-deleted-placeholder) .outdated-diff-comments > .comment-block {
   margin-left: 16px;
   margin-right: auto;
 }
@@ -6816,7 +6805,6 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
 .theme-preview-file .crit-review-file-header {
   border: 0;
   border-bottom: 1px solid var(--crit-border);
-  border-radius: 0;
 }
 .theme-preview-controls {
   display: flex;

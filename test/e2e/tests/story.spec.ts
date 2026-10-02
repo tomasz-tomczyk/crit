@@ -322,7 +322,7 @@ test.describe('Story mode', () => {
     await expect(railRow(page, 'ch1')).toHaveClass(/active/);
   });
 
-  test('file-level comments in a chapter show above the diff, centered, twice in a row', async ({ page }) => {
+  test('file-level comments in a chapter show above the diff, left-aligned, twice in a row', async ({ page }) => {
     await ingestStory(critBin, fixtureDir, fakeHome);
     await loadPage(page);
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();

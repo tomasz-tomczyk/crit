@@ -484,6 +484,8 @@ export async function submitFileLevelComment(
     return {
       // Pierre diffs (not documents, placeholders or files-mode source).
       diff: item.matches('.pierre-file-level') && !item.closest('[data-crit-document], [data-crit-file-view]'),
+      // Story chapters: file-level threads sit above the diff, outside Pierre.
+      story: item.matches('.file-comments > *'),
       left: r.left - (a.left + parseFloat(cs.paddingLeft)),
       right: (a.right - parseFloat(cs.paddingRight)) - r.right,
       outer: r.left - a.left,
@@ -492,6 +494,10 @@ export async function submitFileLevelComment(
   if (gaps.diff) {
     // Diffs: starts at the code column, like line comments.
     expect(Math.abs(gaps.outer), 'file-level card starts at the code column').toBeLessThan(1);
+  } else if (gaps.story) {
+    // Story diffs: left-aligned at the container's 16px inset.
+    expect(Math.abs(gaps.left), 'story file-level card is left-aligned').toBeLessThan(1);
+    expect(gaps.outer, 'story file-level card has a left margin').toBeGreaterThanOrEqual(12);
   } else {
     // Documents and files-mode source: centered, with margin on each side.
     expect(Math.abs(gaps.left - gaps.right), 'file-level card is centered').toBeLessThan(2);

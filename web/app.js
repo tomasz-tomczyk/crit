@@ -2203,11 +2203,13 @@
   // mounted, while its smooth scroll is still moving the list. A document
   // comment's inner alignment must wait for that outer scroll to settle or
   // the pending file scroll can pull the comment back offscreen.
-  function whenListScrollSettled(root, done) {
+  // `isCurrent` (optional) stops the poll once a newer jump has started.
+  function whenListScrollSettled(root, done, isCurrent) {
     const startedAt = performance.now();
     let previous = root.scrollTop;
     let lastMovementAt = startedAt;
     (function poll() {
+      if (isCurrent && !isCurrent()) return;
       const now = performance.now();
       const current = root.scrollTop;
       if (current !== previous) lastMovementAt = now;
@@ -2245,12 +2247,18 @@
   // Jump to a comment: load/expand its file, let Pierre scroll the anchor
   // line into place, then hand the mounted card to `done` (flash/highlight).
   // Outdated and file-level comments anchor at the file top.
+  // Each jump takes a sequence number; a jump that a newer one has replaced
+  // (rapid next-comment navigation) skips its alignment and `done`.
+  let pierreJumpSeq = 0;
   function pierreJumpToComment(commentId, filePath, done) {
     if (!pierreView) return;
+    const seq = ++pierreJumpSeq;
+    const isCurrent = function() { return seq === pierreJumpSeq; };
     const card = function() {
       return document.querySelector('#filesContainer .comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
     };
     pierreView.ensureLoaded(filePath).then(function() {
+      if (!isCurrent()) return;
       const file = getFileByPath(filePath);
       if (!file) return;
       if (file.collapsed) pierreView.setCollapsed(file, false);
@@ -2264,13 +2272,20 @@
         : pierreView.scrollToFile(filePath);
       scrolled.then(function() {
         whenMounted(card, function(el) {
+          if (!isCurrent()) return;
+          // Diff jumps don't wait for the list to settle. The view's scrollTo
+          // passes no smooth behavior, so the list is already in place, and
+          // Pierre itself places an anchored line. Waiting would add 250ms+
+          // to every next-comment step. Only document comments need the
+          // inner alignment below, after the outer scroll stops.
           if (!inDocument) { done(el); return; }
           whenListScrollSettled(document.getElementById('filesContainer'), function() {
             whenMounted(card, function(mountedCard) {
+              if (!isCurrent()) return;
               scrollPierreElementIntoView(mountedCard);
               done(mountedCard);
             });
-          });
+          }, isCurrent);
         });
       });
     });
