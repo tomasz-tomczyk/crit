@@ -5007,7 +5007,8 @@ html[data-theme="light"] .toggle-btn.active {
   padding: 8px 0;
 }
 /* Outdated threads sit with the file-level ones: from the code column at
-   reading width in diffs, centered where there is no code column. */
+   reading width in diffs, centered on documents and files-mode source,
+   left-aligned on placeholders. */
 .outdated-diff-comments > .comment-block {
   padding-left: 0;
   max-width: var(--content-width);
@@ -5018,6 +5019,10 @@ html[data-theme="light"] .toggle-btn.active {
 }
 [data-crit-file-view] .outdated-diff-comments > .comment-block {
   margin: 0 auto;
+}
+[data-crit-document]:has(.diff-deleted-placeholder) .outdated-diff-comments > .comment-block {
+  margin-left: 16px;
+  margin-right: auto;
 }
 .outdated-badge {
   display: inline-flex;
@@ -6660,7 +6665,8 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
   margin: 12px 0;
 }
 /* Rendered documents and placeholders have no code column: center at
-   reading width with at least 16px each side. Files-mode source already
+   reading width with at least 16px each side (placeholders left-align,
+   below). Files-mode source already
    reserves that inset, so it only centers. */
 [data-crit-document] .pierre-file-level {
   max-width: min(var(--content-width), calc(100% - 32px));
@@ -6668,6 +6674,12 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
 }
 [data-crit-file-view] .pierre-file-level {
   margin: 12px auto;
+}
+/* Placeholders (deleted, renamed, orphaned) have no code column: left-align
+   with the same 16px inset as the placeholder text. */
+[data-crit-document]:has(.diff-deleted-placeholder) .pierre-file-level {
+  margin-left: 16px;
+  margin-right: auto;
 }
 /* Line comments and forms inside a diff (review list or story) stay at
    reading width, like classic Crit, instead of spanning a wide diff. */
