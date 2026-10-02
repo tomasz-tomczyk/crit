@@ -473,7 +473,6 @@ export async function submitFileLevelComment(
     const t = await opts.content.boundingBox();
     return !!c && !!t && c.y + c.height <= t.y + 1;
   }, { message: 'file-level card should sit above the file content' }).toBe(true);
-  // Centered in its area (like classic Crit), with some margin on each side.
   const gaps = await card.evaluate(el => {
     const item = el.closest('.pierre-file-level, .file-comments > *')!;
     // Files-mode source centers its whole panel; its cards fill that panel.
@@ -483,13 +482,21 @@ export async function submitFileLevelComment(
     const a = area.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     return {
+      // Pierre diffs (not documents, placeholders or files-mode source).
+      diff: item.matches('.pierre-file-level') && !item.closest('[data-crit-document], [data-crit-file-view]'),
       left: r.left - (a.left + parseFloat(cs.paddingLeft)),
       right: (a.right - parseFloat(cs.paddingRight)) - r.right,
       outer: r.left - a.left,
     };
   });
-  expect(Math.abs(gaps.left - gaps.right), 'file-level card is centered').toBeLessThan(2);
-  expect(gaps.outer, 'file-level card has a left margin').toBeGreaterThanOrEqual(12);
+  if (gaps.diff) {
+    // Diffs: starts at the code column, like line comments.
+    expect(Math.abs(gaps.outer), 'file-level card starts at the code column').toBeLessThan(1);
+  } else {
+    // Documents and files-mode source: centered, with margin on each side.
+    expect(Math.abs(gaps.left - gaps.right), 'file-level card is centered').toBeLessThan(2);
+    expect(gaps.outer, 'file-level card has a left margin').toBeGreaterThanOrEqual(12);
+  }
   return card;
 }
 

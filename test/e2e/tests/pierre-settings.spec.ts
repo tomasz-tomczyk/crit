@@ -180,7 +180,7 @@ test('worker creation failure still paints the diff', async ({ page }) => {
   await expect(file.locator('[data-line="4"]').first()).toBeVisible();
 });
 
-test('documents and file-level forms stay centered, with space above and below the form', async ({ page }) => {
+test('documents stay centered and diff file-level forms start at the code column, with space above and below the form', async ({ page }) => {
   await page.setViewportSize({ width: 1800, height: 900 });
   await switchToDocumentView(page);
   await expect(mdDocument(page)).toBeVisible();
@@ -197,15 +197,14 @@ test('documents and file-level forms stay centered, with space above and below t
   await file.locator('.file-comment-btn').click();
   const form = file.locator('.pierre-file-level');
   await expect(form).toBeVisible();
-  // Reading width, centered in the file-level cell.
+  // Reading width, from the start of the file-level cell (the code column).
   const place = await form.evaluate(el => {
     const r = el.getBoundingClientRect();
     const slot = el.parentElement!.getBoundingClientRect();
-    return { width: r.width, left: r.left - slot.left, right: slot.right - r.right };
+    return { width: r.width, left: r.left - slot.left };
   });
   expect(place.width).toBeLessThanOrEqual(1040);
-  expect(place.left).toBeGreaterThanOrEqual(16);
-  expect(Math.abs(place.left - place.right)).toBeLessThan(2);
+  expect(Math.abs(place.left)).toBeLessThan(1);
   // Space above and below the form inside the file-level annotation cell.
   const gaps = await form.evaluate(el => {
     const r = el.getBoundingClientRect();

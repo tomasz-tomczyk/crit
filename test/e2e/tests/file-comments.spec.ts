@@ -6,8 +6,10 @@ import {
 
 // File-level threads and the file compose form are Pierre annotations on
 // line 0 (above the first line), so they render in that slot of the item.
+// Files with an old side put them on the deletions side (left of a split
+// diff); new files on the additions side.
 function fileLevel(item: Locator): Locator {
-  return item.locator('[slot="annotation-additions-0"]');
+  return item.locator('[slot="annotation-deletions-0"], [slot="annotation-additions-0"]');
 }
 
 // ============================================================
@@ -52,6 +54,8 @@ test.describe('File-level comments — Git Mode', () => {
       const opts = { header: fileHeader(page, 'server.go'), scope: fileLevel(section), content: section.locator('[data-line="1"]').first() };
       await submitFileLevelComment(page, { ...opts, body: `First ${style} file comment` });
       await submitFileLevelComment(page, { ...opts, body: `Second ${style} file comment` });
+      // server.go is modified, so its file-level threads take the old side.
+      await expect(section.locator('[slot="annotation-deletions-0"] .comment-card')).toHaveCount(2);
     });
   }
 

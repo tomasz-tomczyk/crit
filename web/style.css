@@ -5006,6 +5006,19 @@ html[data-theme="light"] .toggle-btn.active {
   border-top: 1px solid var(--crit-border);
   padding: 8px 0;
 }
+/* Outdated threads sit with the file-level ones: from the code column at
+   reading width in diffs, centered where there is no code column. */
+.outdated-diff-comments > .comment-block {
+  padding-left: 0;
+  max-width: var(--content-width);
+}
+[data-crit-document] .outdated-diff-comments > .comment-block {
+  max-width: min(var(--content-width), calc(100% - 32px));
+  margin: 0 auto;
+}
+[data-crit-file-view] .outdated-diff-comments > .comment-block {
+  margin: 0 auto;
+}
 .outdated-badge {
   display: inline-flex;
   align-items: center;
