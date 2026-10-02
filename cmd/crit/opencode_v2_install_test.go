@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -288,6 +289,9 @@ func TestCleanupOpencodePluginVersionFilesPreservesModifiedFilesAtomically(t *te
 }
 
 func TestInstallOpencodeV2MigratesV1Files(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture uses POSIX executable scripts")
+	}
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	bin := filepath.Join(root, "bin")
