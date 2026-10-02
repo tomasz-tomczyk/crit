@@ -157,6 +157,8 @@ Per-entry schema:
 | `scope` | string | optional | `"review"` / `"file"` — usually inferred |
 | `reply_to` | string | replies | Comment ID (`c_…` or `r_…`) |
 | `resolve` | bool | optional | Only when user explicitly asks |
+| `quote` | string | optional | Line comments only: the exact text the comment is about, when it is part of the lines |
+| `quote_offset` | int | optional | Where `quote` starts in the lines' text, whitespace collapsed (as the web UI records it); needs `quote` |
 
 Scope inference (when `scope` omitted): has `reply_to` → reply; no `file`/`path` and no `line` → review-level; `path` but no `line` → file-level; `file`/`path` + `line` → line.
 </important>

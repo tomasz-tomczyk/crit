@@ -54,6 +54,13 @@ func checkCommentCLIAllowed(critPath string) error {
 // HeadSHA / DiffScope stamping. Does not write to disk.
 // scope.DiffScope == "" produces today's working-tree behavior.
 func appendCommentScoped(cj *session.CritJSON, filePath string, startLine, endLine int, body, author, userID string, scope session.InheritedScope) {
+	appendQuotedCommentScoped(cj, filePath, startLine, endLine, body, "", nil, author, userID, scope)
+}
+
+// appendQuotedCommentScoped is appendCommentScoped for a comment on part of
+// the line range: quote is the selected text and quoteOffset, when set, its
+// position as the web UI records it (see session.Comment.QuoteOffset).
+func appendQuotedCommentScoped(cj *session.CritJSON, filePath string, startLine, endLine int, body, quote string, quoteOffset *int, author, userID string, scope session.InheritedScope) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -69,15 +76,17 @@ func appendCommentScoped(cj *session.CritJSON, filePath string, startLine, endLi
 	anchor := readAnchorFromDisk(filePath, startLine, endLine)
 
 	c := session.StampWithFocus(session.Comment{
-		ID:        session.RandomCommentID(),
-		StartLine: startLine,
-		EndLine:   endLine,
-		Body:      body,
-		Anchor:    anchor,
-		Author:    author,
-		UserID:    userID,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          session.RandomCommentID(),
+		StartLine:   startLine,
+		EndLine:     endLine,
+		Body:        body,
+		Quote:       quote,
+		QuoteOffset: quoteOffset,
+		Anchor:      anchor,
+		Author:      author,
+		UserID:      userID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}, scope.AsFocus())
 	cf.Comments = append(cf.Comments, c)
 	cj.Files[filePath] = cf
@@ -268,6 +277,11 @@ type BulkCommentEntry struct {
 	Author   string `json:"author,omitempty"` // overrides per-entry; falls back to global
 	Scope    string `json:"scope,omitempty"`  // "review", "file", or "" (inferred)
 
+	// Quote narrows a line comment to the text the reviewer selected, as the
+	// web UI's text-selection comments do. QuoteOffset is optional.
+	Quote       string `json:"quote,omitempty"`
+	QuoteOffset *int   `json:"quote_offset,omitempty"`
+
 	// session.Reply fields
 	ReplyTo string `json:"reply_to,omitempty"`
 	Resolve bool   `json:"resolve,omitempty"`
@@ -331,6 +345,9 @@ func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAut
 	}
 
 	if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
+		if hasQuote(e) {
+			return fmt.Errorf("entry %d: quote needs a line comment", i)
+		}
 		return processBulkReviewEntry(cj, i, e, author, userID, scope)
 	}
 
@@ -367,6 +384,11 @@ func processBulkFileOrLineEntry(cj *session.CritJSON, i int, e BulkCommentEntry,
 	// Normalize for cross-platform storage — see addCommentToCritJSONScoped.
 	cleaned := filepath.ToSlash(filepath.Clean(normalizedPath))
 
+	isFileLevel := e.Scope == "file" || (e.Line <= 0 && e.LineSpec == "" && e.Path != "" && e.File == "")
+	if isFileLevel && hasQuote(e) {
+		return fmt.Errorf("entry %d: quote needs a line comment", i)
+	}
+
 	if e.Scope == "file" {
 		appendFileCommentScoped(cj, cleaned, e.Body, author, userID, scope)
 		return nil
@@ -402,8 +424,16 @@ func processBulkLineComment(cj *session.CritJSON, i int, e BulkCommentEntry, cle
 		endLine = startLine
 	}
 
-	appendCommentScoped(cj, cleaned, startLine, endLine, e.Body, author, userID, scope)
+	if e.QuoteOffset != nil && (*e.QuoteOffset < 0 || e.Quote == "") {
+		return fmt.Errorf("entry %d: quote_offset needs a quote and must be >= 0", i)
+	}
+
+	appendQuotedCommentScoped(cj, cleaned, startLine, endLine, e.Body, e.Quote, e.QuoteOffset, author, userID, scope)
 	return nil
+}
+
+func hasQuote(e BulkCommentEntry) bool {
+	return e.Quote != "" || e.QuoteOffset != nil
 }
 
 func parseLineSpec(spec string) (start, end int, err error) {
