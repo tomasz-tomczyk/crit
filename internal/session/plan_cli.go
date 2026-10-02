@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ type planConfig struct {
 	publicURL                   string
 	allowUnauthenticatedNetwork bool
 	noOpen                      bool
+	noWait                      bool
 	quiet                       bool
 	shareURL                    string
 }
@@ -38,6 +40,7 @@ func resolvePlanConfig(args []string) planConfig {
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
+	noWait := fs.Bool("no-wait", false, "Save the plan version and exit without starting a review")
 	quiet := fs.Bool("quiet", false, "On success, suppress connect/start status, tips, and session summary")
 	fs.BoolVar(quiet, "q", false, "On success, suppress status (shorthand)")
 	shareURL := fs.String("share-url", "", "Share service URL")
@@ -45,6 +48,7 @@ func resolvePlanConfig(args []string) planConfig {
 	args = clicmd.ReorderFlagsFirst(args, map[string]bool{
 		config.AllowUnauthenticatedNetworkFlag: true,
 		"no-open":                              true,
+		"no-wait":                              true,
 		"quiet":                                true,
 		"q":                                    true,
 	})
@@ -57,6 +61,7 @@ func resolvePlanConfig(args []string) planConfig {
 		publicURL:                   *publicURL,
 		allowUnauthenticatedNetwork: *allowUnauthNet,
 		noOpen:                      *noOpen,
+		noWait:                      *noWait,
 		quiet:                       *quiet,
 		shareURL:                    *shareURL,
 	}
@@ -117,13 +122,18 @@ func RunPlan(args []string) error {
 		return err
 	}
 
-	go backgroundCleanup()
-
 	slug := resolvePlanSlug(pc.name, content)
 	storageDir, err := PlanStorageDir(slug)
 	if err != nil {
 		return err
 	}
+
+	if pc.noWait {
+		cwd, _ := daemon.ResolvedCWD()
+		return savePlanWithoutReview(os.Stdout, os.Stderr, storageDir, slug, content, pc.quiet || config.LoadConfig(cwd).Quiet)
+	}
+
+	go backgroundCleanup()
 
 	ver, err := SavePlanVersion(storageDir, content)
 	if err != nil {
@@ -161,6 +171,32 @@ func RunPlan(args []string) error {
 
 	approved := daemon.RunReviewClient(entry, key, quiet)
 	stopDaemonOnApproval(approved, entry, key, config.LoadConfig(cwd).CleanupOnApproveEnabled())
+	return nil
+}
+
+// savePlanWithoutReview is `crit plan --no-wait`: it saves content as the
+// plan's next version and returns without starting a daemon, so a tool can
+// keep a document in crit and comment on it with `crit comment --plan`.
+// Content equal to current.md adds no version. The slug goes to stdout.
+func savePlanWithoutReview(stdout, stderr io.Writer, storageDir, slug string, content []byte, quiet bool) error {
+	current, err := os.ReadFile(filepath.Join(storageDir, "current.md"))
+	if err == nil && bytes.Equal(current, content) {
+		if !quiet {
+			fmt.Fprintf(stderr, "Plan '%s' unchanged (v%03d)\n", slug, latestPlanVersion(storageDir))
+		}
+		fmt.Fprintln(stdout, slug)
+		return nil
+	}
+
+	ver, err := SavePlanVersion(storageDir, content)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error saving plan: %v\n", err)
+		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+	}
+	if !quiet {
+		fmt.Fprintf(stderr, "Plan '%s' saved as v%03d (%d bytes)\n", slug, ver, len(content))
+	}
+	fmt.Fprintln(stdout, slug)
 	return nil
 }
 

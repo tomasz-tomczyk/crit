@@ -129,12 +129,17 @@ Options:
                           Allow non-loopback --host or --public-url
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
+      --no-wait           Save the version and exit; do not start a review
   -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "plan", handler: runPlan, help: `Usage: crit plan [--name <slug>] [options] <file>
        echo "content" | crit plan [--name <slug>] [options]
 
 Create or continue a plan-file review. If --name is omitted, crit derives it
 from the plan content.
+
+With --no-wait, crit saves the plan as its next version and exits without
+starting a review (no version is added when the content is unchanged). It
+prints the slug, for use with crit comment --plan <slug>.
 
 Options:
       --host <host>       Host to listen on
@@ -144,6 +149,7 @@ Options:
   -p, --port <port>       Port to listen on
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
+      --no-wait           Save the version and exit; do not start a review
   -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "story", handler: runStory, helpFn: printStoryUsage, bareHelp: true},
 	{name: "auth", handler: runAuth, help: `Usage: crit auth <login|logout|whoami|status>

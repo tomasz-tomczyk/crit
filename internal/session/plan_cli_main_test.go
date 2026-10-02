@@ -26,6 +26,42 @@ func TestResolvePlanConfig_NameAndFile(t *testing.T) {
 	}
 }
 
+func TestResolvePlanConfig_NoWait(t *testing.T) {
+	pc := resolvePlanConfig([]string{"--name", "chat", "--no-wait"})
+	if !pc.noWait || pc.name != "chat" || !pc.stdinExpected {
+		t.Errorf("pc = %+v, want noWait with name chat reading stdin", pc)
+	}
+}
+
+func TestSavePlanWithoutReview(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "chat")
+	var stdout, stderr strings.Builder
+
+	if err := savePlanWithoutReview(&stdout, &stderr, dir, "chat", []byte("# one\n"), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePlanWithoutReview(&stdout, &stderr, dir, "chat", []byte("# one\n"), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePlanWithoutReview(&stdout, &stderr, dir, "chat", []byte("# one\n\ntwo\n"), true); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := latestPlanVersion(dir); got != 2 {
+		t.Errorf("versions = %d, want 2 (unchanged content adds none)", got)
+	}
+	current, _ := os.ReadFile(filepath.Join(dir, "current.md"))
+	if string(current) != "# one\n\ntwo\n" {
+		t.Errorf("current.md = %q", current)
+	}
+	if stdout.String() != "chat\nchat\nchat\n" {
+		t.Errorf("stdout = %q, want the slug per call", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "saved as v001") || !strings.Contains(stderr.String(), "unchanged (v001)") || strings.Contains(stderr.String(), "v002") {
+		t.Errorf("stderr = %q (quiet run should print nothing)", stderr.String())
+	}
+}
+
 func TestResolvePlanConfig_NameOnly(t *testing.T) {
 	pc := resolvePlanConfig([]string{"--name", "auth-flow"})
 	if pc.name != "auth-flow" {
