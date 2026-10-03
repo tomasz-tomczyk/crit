@@ -117,6 +117,12 @@ echo '[
 ]' | crit comment --json --author 'OpenCode'
 ```
 
+For long or multi-line bodies, write the JSON to a file and pass `--file`. Use `--file`, not a `<` redirect.
+
+```bash
+crit comment --json --file /tmp/replies.json --author 'OpenCode'
+```
+
 ## Step 8: Signal completion and start next round
 
 **CRITICAL — you MUST run this step. Do NOT skip it. Do NOT proceed without it.**

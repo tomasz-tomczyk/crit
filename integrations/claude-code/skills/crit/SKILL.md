@@ -94,6 +94,12 @@ echo '[
   {"reply_to": "c_d4e5f6", "body": "Refactored as suggested"}
 ]' | crit comment --json --author 'Claude Code'
 ```
+
+For long or multi-line bodies, write the JSON to a file and pass `--file`. Use `--file`, not a `<` redirect.
+
+```bash
+crit comment --json --file /tmp/replies.json --author 'Claude Code'
+```
 </important>
 
 ## Step 5: Signal completion and start next round
