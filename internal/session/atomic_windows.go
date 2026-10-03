@@ -5,6 +5,7 @@ package session
 import (
 	"errors"
 	"os"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -71,12 +72,22 @@ func isWindowsTransientIOErr(err error) bool {
 	if os.IsNotExist(err) {
 		return true
 	}
-	var errno windows.Errno
-	if !errors.As(err, &errno) {
-		return false
+	var winErrno windows.Errno
+	if errors.As(err, &winErrno) {
+		return isTransientWinErrno(winErrno)
 	}
+	var sysErrno syscall.Errno
+	if errors.As(err, &sysErrno) {
+		return isTransientWinErrno(windows.Errno(sysErrno))
+	}
+	return false
+}
+
+func isTransientWinErrno(errno windows.Errno) bool {
 	switch errno {
-	case windows.ERROR_ACCESS_DENIED,
+	case windows.ERROR_FILE_NOT_FOUND,
+		windows.ERROR_PATH_NOT_FOUND,
+		windows.ERROR_ACCESS_DENIED,
 		windows.ERROR_SHARING_VIOLATION,
 		windows.ERROR_LOCK_VIOLATION:
 		return true
