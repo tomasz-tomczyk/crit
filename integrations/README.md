@@ -2,6 +2,14 @@
 
 Drop-in configuration files that teach your AI coding tool to use Crit for reviewing plans and code changes.
 
+This page is for you if you already use an AI coding agent and want it to hand its plans and diffs to Crit for review. You need the `crit` binary on your PATH first (see the [main README](../README.md)).
+
+**Which do I need?**
+
+- Claude Code or Codex, and you want plans reviewed automatically: use the plugin (the Claude Code plugin marketplace, or `crit install codex-plugin`). Both add a plan-mode hook.
+- Any other supported tool: `crit install <tool>` adds the skills, and you ask for a review with `/crit` (or `$crit` in Codex).
+- Not sure which tool name to pass: check the table below.
+
 ## Quick install
 
 ```bash
@@ -169,3 +177,9 @@ Each integration also teaches the agent about:
 - **`crit comment`** - leave inline review comments programmatically without opening the browser
 - **review file format** - how to read comments, resolve them with threaded replies
 - **`crit pull/push`** - sync reviews with GitHub PRs (push supports `--event approve|request-changes|comment`)
+
+## Next steps
+
+- Run a first review end to end: [crit.md/getting-started](https://crit.md/getting-started).
+- Share a review with someone who doesn't have Crit installed: [crit.md/features/share-reviews](https://crit.md/features/share-reviews).
+- Something here out of date or wrong for your tool? [Open an issue](https://github.com/tomasz-tomczyk/crit/issues). Include the tool, its version and the command you ran.
