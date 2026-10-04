@@ -7,7 +7,7 @@ Crit does **not** magically share your normal browser tab with the app. It
 loads the app inside an iframe on Crit’s proxy port, injects a small agent
 bundle into HTML responses, and talks to that agent over `postMessage`. When
 injection or the agent handshake fails, Browse/Navigate still works, but
-Comment/Pin stays unavailable (navbar chip + Flash: **Commenting unavailable —
+Comment/Pin stays unavailable (navbar chip + Flash: **Commenting unavailable -
 Crit could not connect to this page**, with a link to this guide).
 
 This guide covers how that works, what Crit already rewrites for you, common
@@ -31,11 +31,11 @@ failure modes, and framework-specific setup for local apps.
    stays disabled.
 
 If step 3 or 4 fails, you get the connection-unavailable Flash (Browse still
-works). Fix the upstream issue and reload Crit — see the checklist below.
+works). Fix the upstream issue and reload Crit - see the checklist below.
 
 ## What Crit already handles
 
-You usually do **not** need to change these yourself — the proxy does them:
+You usually do **not** need to change these yourself - the proxy does them:
 
 | Concern | Behavior |
 | ------- | -------- |
@@ -54,20 +54,20 @@ upstream had `frame-ancestors` CSP (still stripped by the proxy).
 
 Typical causes:
 
-1. **Upstream not reachable from the proxy** — connection refused, wrong host
+1. **Upstream not reachable from the proxy** - connection refused, wrong host
    (`localhost` vs `127.0.0.1` / IPv6), or the app died. The iframe may show a
    502 (`upstream unreachable`).
-2. **Non-HTML response** — API JSON, empty body, or a redirect chain that never
+2. **Non-HTML response** - API JSON, empty body, or a redirect chain that never
    returns HTML with a `</body>`. Crit needs a real HTML document to inject
    into.
-3. **Missing `</body>`** — some minimal or streaming responses never emit a
+3. **Missing `</body>`** - some minimal or streaming responses never emit a
    body close tag; injection is skipped (`X-Crit-Agent-Injection: failed`).
-4. **Oversized HTML** — responses larger than the proxy buffer are passed
+4. **Oversized HTML** - responses larger than the proxy buffer are passed
    through without injection (`skipped-oversized`).
-5. **Meta-tag CSP** — Crit strips the **header**, not `<meta
+5. **Meta-tag CSP** - Crit strips the **header**, not `<meta
    http-equiv="Content-Security-Policy">` in the document. A strict meta CSP
    can still block the injected scripts.
-6. **`localhost` vs `127.0.0.1` mismatch in the Crit tab** — open Crit via
+6. **`localhost` vs `127.0.0.1` mismatch in the Crit tab** - open Crit via
    `http://localhost:<port>/live` (not `http://127.0.0.1:…`). The proxy injects
    agent `<script src="http://localhost:…">` tags; if the chrome tab is on
    `127.0.0.1`, `postMessage` target origins do not match and `agent-ready` is
@@ -116,7 +116,7 @@ plug that re-adds framing restrictions after the proxy’s view of the world.
 For local-only debugging you can relax secure headers in `endpoint.ex` (dev):
 
 ```elixir
-# config/dev.exs — example: do not ship this to prod
+# config/dev.exs - example: do not ship this to prod
 config :my_app, MyAppWeb.Endpoint,
   # existing config...
   # Prefer fixing meta CSP / plugs over disabling all security plugs.
@@ -164,7 +164,7 @@ Tips:
 - App Router and Pages Router both work when the response is HTML with a
   `</body>`.
 - Middleware that returns non-HTML (JSON, opaque redirects to an IdP) will
-  prevent injection on that URL — start Crit on a path that already renders
+  prevent injection on that URL - start Crit on a path that already renders
   the app shell while authenticated (and forward cookies).
 - `next start` / production builds may send stricter headers; prefer `next
   dev` for live review.
@@ -187,9 +187,9 @@ As long as the URL returns HTML with a `</body>`, Crit can inject. Checklist:
 [ ] Iframe Network: agent-*.js / crit-agent.js load (200)
 [ ] No CSP / blocked-script errors in the iframe console
 [ ] After login walls: cookies forwarded (--cookie / --cookie-file / --cdp-url)
-[ ] Reload Crit after fixing upstream (no Retry button — structural failures need a real fix)
+[ ] Reload Crit after fixing upstream (no Retry button - structural failures need a real fix)
 ```
 
 ## Related
 
-- [README — Live mode](../README.md#live-mode) (cookies, config keys)
+- [README - Live mode](../README.md#live-mode) (cookies, config keys)
