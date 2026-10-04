@@ -16,7 +16,7 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 | Tool | Install command | Project destination | Global destination |
 |------|----------------|---------------------|--------------------|
 | Claude Code | `crit install claude-code` | `.claude/skills/crit/SKILL.md` + `crit-cli` + `crit-story` | `~/.claude/skills/crit{,-cli,-story}/SKILL.md` |
-| Cursor | `crit install cursor` | `.cursor/skills/crit/SKILL.md` + `crit-cli` + `crit-story` | (project only — Cursor has no stable user-level config dir) |
+| Cursor | `crit install cursor` | `.cursor/skills/crit/SKILL.md` + `crit-cli` + `crit-story` | (project only - Cursor has no stable user-level config dir) |
 | GitHub Copilot | `crit install github-copilot` | `.github/skills/crit{,-cli,-story}/SKILL.md` | `~/.agents/skills/crit{,-cli,-story}/SKILL.md` |
 | OpenCode | `crit install opencode` | `.opencode/commands/crit.md` + `crit-story.md` + skills + plugin | `~/.config/opencode/commands/` + `~/.agents/skills/` + plugins |
 | Codex | `crit install codex` | `.agents/skills/crit{,-cli,-story}/SKILL.md` | `~/.agents/skills/crit{,-cli,-story}/SKILL.md` |
@@ -47,14 +47,15 @@ The marketplace manifest lives at the repo root (`.claude-plugin/marketplace.jso
 
 ### `crit install` vs plugin marketplace
 
-| | `crit install` | Plugin marketplace |
+| | `crit install claude-code` | Plugin marketplace |
 |---|---|---|
-| **Scope** | Per-project (committed to repo) | Global (user-wide) |
-| **What's installed** | `/crit` skill only | `/crit` skill + `crit-cli` skill |
-| **Good for** | Teams — everyone gets the integration | Individual users — works across all projects |
+| **Scope** | Per-project (committed to repo), or user-wide with `cd ~ && crit install claude-code` | User-wide |
+| **What's installed** | `/crit`, `crit-cli` and `crit-story` skills | `/crit`, `crit-cli` and `/crit-story`, plus the plan-mode review hook |
+| **Plan mode** | Ask for the review yourself with `/crit` | Hook intercepts `ExitPlanMode` and opens Crit for review automatically |
+| **Good for** | Teams - everyone gets the integration when they clone | Individual users - works across all projects |
 | **Setup** | Run once per project | Install once, works everywhere |
 
-Both approaches give you the user-invoked `/crit` review cycle. The plugin marketplace additionally installs the `crit-cli` skill, which can auto-teach the agent about `crit comment`, review file format, `crit pull/push`, and resolution workflow without starting the interactive browser loop.
+Both give you the `/crit` review loop and the `crit-cli` skill, which teaches the agent `crit comment`, the review file format, `crit pull/push` and resolving comments without opening the browser loop. Only the plugin marketplace adds the plan-mode hook.
 
 ## Claude Code plan approval mode
 
@@ -101,7 +102,7 @@ otherwise Claude Code treats the update as a no-op.
 
 ## OpenCode plugin: conditional sharing instructions
 
-`crit install opencode` also writes a small TypeScript plugin (`crit.ts`) and registers it in `opencode.jsonc`. The plugin shells out to `crit config` on each chat turn and appends sharing instructions to the system prompt only when `share_url` is set. With `share_url: ""` the sharing block is omitted entirely — useful in environments with strict information-sharing policies, and saves tokens otherwise. opencode auto-loads `.ts` files dropped into the plugin directory, so the registration entry is informational.
+`crit install opencode` also writes a small TypeScript plugin (`crit.ts`) and registers it in `opencode.jsonc`. The plugin shells out to `crit config` on each chat turn and appends sharing instructions to the system prompt only when `share_url` is set. With `share_url: ""` the sharing block is omitted entirely - useful in environments with strict information-sharing policies, and saves tokens otherwise. opencode auto-loads `.ts` files dropped into the plugin directory, so the registration entry is informational.
 
 ## Codex plugin
 
@@ -109,7 +110,7 @@ For the full Codex experience, install the plugin. This gives you:
 
 - A `$crit` skill for the review loop (plus loose copies under `.agents/skills/` so bare `$crit` works even outside the plugin)
 - A `crit-cli` skill that auto-activates when working with review files, `crit comment`, `crit pull/push`, etc.
-- A **proposed-plan review hook** — intercepts Codex's `Stop` hook when the agent proposes a plan in Plan mode, writes it to disk, and opens Crit for inline review before the turn ends
+- A **proposed-plan review hook** - intercepts Codex's `Stop` hook when the agent proposes a plan in Plan mode, writes it to disk, and opens Crit for inline review before the turn ends
 
 ```bash
 cd ~ && crit install codex-plugin    # global (recommended)
@@ -128,7 +129,7 @@ Plugin source files live in `integrations/codex/plugin/crit/`. See [`integration
 | **What's installed** | `$crit` and `crit-cli` skills under `.agents/skills/` | Same skills, plus `plugins/crit/` (or `~/.codex/plugins/crit/`) with bundled skills and a `Stop` hook |
 | **Plan mode** | Agent must write the plan to a file before `$crit` works | Hook captures in-chat proposed plans (`<proposed_plan>`) and reviews them automatically |
 
-Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` adds the proposed-plan hook — without it, typing `$crit` on an in-chat plan (e.g. after choosing "No and stay in Plan Mode") does nothing useful because there is no file path for `crit` to open.
+Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` adds the proposed-plan hook - without it, typing `$crit` on an in-chat plan (e.g. after choosing "No and stay in Plan Mode") does nothing useful because there is no file path for `crit` to open.
 
 Disable automatic plan review per shell or globally with
 `export CRIT_PLAN_REVIEW=off`. Manual `crit plan` invocations are unaffected.
@@ -159,12 +160,12 @@ retain their existing plan-exit hooks.
 
 All integrations follow the same pattern:
 
-1. **Pick the review target** — current git changes by default, or an explicit file, plan, PR, or commit range when the user names one
-2. **Launch Crit** — the agent runs the matching `crit` command to open the review in your browser
-3. **Address feedback** — after review, the agent reads the review file to find your inline comments and revises the target
-4. **Continue the review loop** — the agent reruns the printed next-round command until you finish with no unresolved comments
+1. **Pick the review target** - current git changes by default, or an explicit file, plan, PR, or commit range when the user names one
+2. **Launch Crit** - the agent runs the matching `crit` command to open the review in your browser
+3. **Address feedback** - after review, the agent reads the review file to find your inline comments and revises the target
+4. **Continue the review loop** - the agent reruns the printed next-round command until you finish with no unresolved comments
 
 Each integration also teaches the agent about:
-- **`crit comment`** — leave inline review comments programmatically without opening the browser
-- **review file format** — how to read comments, resolve them with threaded replies
-- **`crit pull/push`** — sync reviews with GitHub PRs (push supports `--event approve|request-changes|comment`)
+- **`crit comment`** - leave inline review comments programmatically without opening the browser
+- **review file format** - how to read comments, resolve them with threaded replies
+- **`crit pull/push`** - sync reviews with GitHub PRs (push supports `--event approve|request-changes|comment`)
