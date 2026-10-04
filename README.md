@@ -5,22 +5,22 @@
 [![Release](https://img.shields.io/github/release/tomasz-tomczyk/crit.svg)](https://github.com/tomasz-tomczyk/crit/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Review and comment on plans, code diffs, frontend elements and send feedback directly to your agent.
+Review your coding agent's plans, diffs and running apps in the browser. Click a line, leave a comment, and the agent gets it.
 
 ![Crit UI for "notification-plan.md" showing comment left on "Queue - Redis Streams, SQS, RabbitMQ" line saying "Just use SQS - we're in AWS"](docs/images/demo-overview.png)
 
 ## Adaptive UI for each type of output
 
-For agents, plans and code are all the same - it's just text, but for us, humans, reviewing generated plans and reviewing web application are two very different activities.
+To an agent, plans and code are both just text. To you, reviewing a plan and reviewing a web app are different jobs.
 
-Crit adds a proper interface for each type of output and lets you point at the exact thing that is wrong and leave a comment for the agent to fix:
+Crit gives each type of output its own review UI. Point at the exact thing that's wrong and leave a comment for the agent:
 
-- `crit plan.md` renders a markdown file with proper formatting and review UI
-- `crit` auto-detects git changes and shows syntax-highlighted diffs for local review.
-- `crit http://localhost:3000` proxies your running app and adds a review interface to it
-- `crit landing.html` renders a static HTML artifact to review
+- `crit plan.md` renders a markdown file with review comments.
+- `crit` finds your git changes and shows them as syntax-highlighted diffs.
+- `crit http://localhost:3000` proxies your running app and adds a review layer on top.
+- `crit landing.html` renders a static HTML file you can click and comment on.
 
-Everything runs locally via one single binary.
+Everything runs locally from a single binary.
 
 ## Quickstart
 
@@ -30,7 +30,7 @@ Brew:
 brew install crit
 ```
 <details>
-<summary>Also available via Go, Nix, Windows</summary>
+<summary>Also available via Go, Nix and Windows</summary>
 
 Go:
 ```bash
@@ -52,7 +52,7 @@ iwr https://github.com/tomasz-tomczyk/crit/releases/latest/download/crit-windows
 
 Or download the latest release from [GitHub](https://github.com/tomasz-tomczyk/crit/releases/latest).
 
-## 2. Integrate with your agent
+### 2. Integrate with your agent
 Claude Code:
 ```
 claude plugin marketplace add tomasz-tomczyk/crit
@@ -64,15 +64,15 @@ Crit also works with Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Herm
 ### 3. Tell your agent to use `crit`
 
 Most integrations include a `/crit` slash command that automates the full review loop.
-Agent launches Crit, waits for your review and acts on the feedback.
-Repeat the process until you approve the changes.
+The agent launches Crit, waits for your review, then acts on the feedback.
+Repeat until you approve.
 
 Here's a 2-minute demo walkthrough of plan review and branch review:
 [![Crit demo](docs/images/video-thumbnail.png)](https://www.youtube.com/watch?v=LHwfdvePf5A)
 
 ## Usage
 
-The recommended way is to use `/crit` command with your agent after any piece of work - whether it wrote a plan or made some code changes. You can however, launch it in your terminal by yourself and paste the prompt when you finish to your agent.
+The recommended way is to run the `/crit` command in your agent after any piece of work, whether it wrote a plan or changed code. You can also launch Crit yourself in a terminal and paste the prompt back to your agent when you finish.
 
 ```bash
 crit                              # auto-detect changed files in your repo
@@ -82,7 +82,7 @@ crit http://localhost:3000        # review a running dev server
 crit landing.html                 # review a static HTML file
 ```
 
-If talking to an agent, you can invoke the `/crit` command and optionally provide arguments like the above examples or the agent will try to launch the right thing based on the context of the conversation.
+In your agent, run `/crit` with any of the arguments above. Run it bare and the agent picks what to launch from the conversation.
 
 ### Story mode
 
