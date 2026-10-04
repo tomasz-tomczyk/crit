@@ -1,28 +1,28 @@
 # Command hooks
 
-Crit can run **your** shell scripts when a review finishes or is approved — deterministic, auditable side effects, no LLM in the loop. This is the executable counterpart to [agent prompts](agent-prompts.md): prompts feed the agent *text*; command hooks *do* things.
+Crit can run **your** shell scripts when a review finishes or is approved - deterministic, auditable side effects, no LLM in the loop. This is the executable counterpart to [agent prompts](agent-prompts.md): prompts feed the agent *text*; command hooks *do* things.
 
 ## At a glance
 
 - **What:** user-defined shell commands/scripts executed at the same finish lifecycle points as prompt templates (`on_finish_unresolved` / `on_finish_approved`, optionally mode-suffixed `:files` / `:diff` / `:live` / `:preview`).
-- **Why:** deterministic side effects the agent prompt can't reliably do itself — snapshot commented-on files to a dataset, write an audit log, notify Slack, etc.
+- **Why:** deterministic side effects the agent prompt can't reliably do itself - snapshot commented-on files to a dataset, write an audit log, notify Slack, etc.
 - **How:** `inline:<cmd>` (run via `sh -c`) or `file:<path>` (exec'd directly, shebang respected). Crit pipes a JSON payload to the hook's stdin and sets `CRIT_*` env vars (review path, session key, mode, counts, files-with-comments, …).
 - **Opt-in:** Crit runs zero command hooks by default. You configure them in the `hooks` map of `~/.crit.config.json` / `.crit.config.json` or drop scripts at `.crit/hooks/*.sh`.
-- **Trust:** project-level hooks run arbitrary code and go through the same trust gate as project prompts — Finish is blocked until you trust the project's hook config/files. Global hooks (user-installed) run without the gate.
+- **Trust:** project-level hooks run arbitrary code and go through the same trust gate as project prompts - Finish is blocked until you trust the project's hook config/files. Global hooks (user-installed) run without the gate.
 - **Timeout:** each hook is capped at 60 seconds (killed and warned on timeout). Network-bound or long-running work should fork-and-detach from the hook.
 - **Failure never blocks finish:** a hook that errors, times out, or exits non-zero is logged as a warning; the review flow proceeds regardless.
 
-Command hooks are **opt-in and not used by default** — Crit runs zero command hooks out of the box. Config lives under the `hooks` map (`~/.crit.config.json` and/or `.crit.config.json`) and/or conventional files under `.crit/hooks/` (project) and `~/.crit/hooks/` (global). They reuse the same hook names, mode suffixes, resolution order, and project trust flow as prompt templates.
+Command hooks are **opt-in and not used by default** - Crit runs zero command hooks out of the box. Config lives under the `hooks` map (`~/.crit.config.json` and/or `.crit.config.json`) and/or conventional files under `.crit/hooks/` (project) and `~/.crit/hooks/` (global). They reuse the same hook names, mode suffixes, resolution order, and project trust flow as prompt templates.
 
 ## When hooks fire
 
 | Hook | Fires when |
 | --- | --- |
 | `on_finish_unresolved` | Finish review with open comments (fallback for all modes) |
-| `on_finish_unresolved:files` | Unresolved finish — single-file or plan review |
-| `on_finish_unresolved:diff` | Unresolved finish — branch / PR / range review |
-| `on_finish_unresolved:live` | Unresolved finish — live URL review |
-| `on_finish_unresolved:preview` | Unresolved finish — static HTML preview |
+| `on_finish_unresolved:files` | Unresolved finish - single-file or plan review |
+| `on_finish_unresolved:diff` | Unresolved finish - branch / PR / range review |
+| `on_finish_unresolved:live` | Unresolved finish - live URL review |
+| `on_finish_unresolved:preview` | Unresolved finish - static HTML preview |
 | `on_finish_approved` | Approve with zero unresolved comments (fallback) |
 | `on_finish_approved:files` / `:diff` / `:live` / `:preview` | Mode-specific approve hooks |
 
@@ -33,7 +33,7 @@ Resolution order for e.g. `on_finish_unresolved` in a PR review:
 
 Internally, git/Sapling/JJ branch/PR/range reviews use mode `diff`; plan and file-based reviews use `files`. This is identical to the prompt system.
 
-Only **one** hook fires per finish: the most specific key that resolves wins (mode-specific over generic). There is no stock hook — if nothing is configured, nothing executes.
+Only **one** hook fires per finish: the most specific key that resolves wins (mode-specific over generic). There is no stock hook - if nothing is configured, nothing executes.
 
 ## Configuration
 
@@ -48,7 +48,7 @@ Precedence for each hook (e.g. `on_finish_unresolved` in a PR review) is identic
 2. **Global** `~/.crit.config.json` `hooks` entry (same fallback order)
 3. **Project** conventional file under `.crit/hooks/` (e.g. `on_finish_unresolved.diff.sh`, then `on_finish_unresolved.sh`)
 4. **Global** conventional file under `~/.crit/hooks/` (same naming)
-5. Nothing — no stock command hook is run.
+5. Nothing - no stock command hook is run.
 
 Config `file:` paths and conventional filenames both use `.` instead of `:` for mode suffixes (`on_finish_unresolved:diff` → `on_finish_unresolved.diff.sh`).
 
@@ -57,9 +57,9 @@ You do **not** need a `hooks` map entry when the script already lives at the con
 - **Global:** `cp docs/example-hooks/*.sh ~/.crit/hooks/` (create the dir first)
 - **Project:** `cp docs/example-hooks/*.sh .crit/hooks/` (from your repo root)
 
-The example scripts are **reference material** — copying them does not enable behavior until you edit them (or add a `hooks` config map entry) to opt in.
+The example scripts are **reference material** - copying them does not enable behavior until you edit them (or add a `hooks` config map entry) to opt in.
 
-**Discovered** hook files under `.crit/hooks/` must be named `on_finish_*.sh` (mode suffix uses `.` not `:`). For other extensions or paths, use an explicit `file:` entry in the `hooks` config map — Crit execs the script directly and respects its shebang.
+**Discovered** hook files under `.crit/hooks/` must be named `on_finish_*.sh` (mode suffix uses `.` not `:`). For other extensions or paths, use an explicit `file:` entry in the `hooks` config map - Crit execs the script directly and respects its shebang.
 
 Explicit `hooks` config still wins over conventional files and is useful for non-standard paths or `inline:` overrides.
 
@@ -72,7 +72,7 @@ Explicit `hooks` config still wins over conventional files and is useful for non
 
 Config keys use `:` for mode suffixes; filenames use `.` instead.
 
-`agent_cmd`, `auth_token`, and `share_url` stay global-only; `hooks` is allowed in project config (but project hooks are gated by trust — see below).
+`agent_cmd`, `auth_token`, and `share_url` stay global-only; `hooks` is allowed in project config (but project hooks are gated by trust - see below).
 
 ### Value forms
 
@@ -97,7 +97,7 @@ Config keys use `:` for mode suffixes; filenames use `.` instead.
 
 ## What the hook receives
 
-Hooks run **synchronously** during `POST /api/finish`, **after** the review file has been persisted to disk (so `$CRIT_REVIEW_PATH` is readable). The working directory is the repo root. A hook that times out or exits non-zero is logged as a warning and **never blocks finish** — the agent still gets its prompt.
+Hooks run **synchronously** during `POST /api/finish`, **after** the review file has been persisted to disk (so `$CRIT_REVIEW_PATH` is readable). The working directory is the repo root. A hook that times out or exits non-zero is logged as a warning and **never blocks finish** - the agent still gets its prompt.
 
 ### Environment variables (snake_case, `CRIT_`-prefixed)
 
@@ -115,8 +115,8 @@ All `CRIT_*` env vars are strings (shell env vars can only carry strings). Numer
 | `CRIT_FILES_WITH_COMMENTS_COUNT` | Count of the above |
 | `CRIT_PLAN_SLUG` | Plan slug when reviewing a plan file |
 | `CRIT_INTERNAL_SESSION_MODE` | `files`, `git`, or `plan` |
-| `CRIT_COMMENTS_CMD` | `crit comments --json '<review>'` — retrieve unresolved comments |
-| `CRIT_COMMENTS_ALL_CMD` | `crit comments --json --all '<review>'` — all comments |
+| `CRIT_COMMENTS_CMD` | `crit comments --json '<review>'` - retrieve unresolved comments |
+| `CRIT_COMMENTS_ALL_CMD` | `crit comments --json --all '<review>'` - all comments |
 | `CRIT_NEXT_ROUND_CMD` | Command to start the next round |
 | `CRIT_COMMENTS_UNRESOLVED_JSON` | Unresolved comment threads as a JSON array |
 | `CRIT_COMMENTS_JSON` | All comments in the session as a JSON array |
@@ -135,7 +135,7 @@ echo "$payload" | jq -r '.files_with_comments[]'
 
 ### stdout / stderr
 
-Hook **stdout and stderr are captured, not forwarded to the agent.** The agent-facing prompt (Crit's blocking `stdout`) is untouched — prompts and command hooks are independent. Crit logs a one-line summary on success (`exit=N stdout=NB stderr=NB`) and prints captured stderr on failure so you can debug. Hook stdout is recorded in the daemon log but not echoed to the terminal by default.
+Hook **stdout and stderr are captured, not forwarded to the agent.** The agent-facing prompt (Crit's blocking `stdout`) is untouched - prompts and command hooks are independent. Crit logs a one-line summary on success (`exit=N stdout=NB stderr=NB`) and prints captured stderr on failure so you can debug. Hook stdout is recorded in the daemon log but not echoed to the terminal by default.
 
 ### Timeout
 
@@ -145,14 +145,14 @@ Each hook is capped at **60 seconds**. A hung hook is killed and reported as a w
 
 Project-level **command hooks run arbitrary code**, so they are gated by the *same* trust flow as project prompts. A checked-in `.crit.config.json` `hooks` entry or `.crit/hooks/*.sh` triggers the trust dialog before Finish/Approve:
 
-1. Everything else works normally — browse, comment, reply, Send now.
+1. Everything else works normally - browse, comment, reply, Send now.
 2. **Finish / Approve is blocked** until you choose:
-   - **Trust until prompts change** (recommended) — re-prompt if `.crit.config.json`, any `file:` hook path in the config map, or any discovered `.crit/hooks/*.sh` changes. Crit hashes the **full file contents** of every referenced/discovered hook script (same as prompt templates), so editing a `.sh` body invalidates trust even when the filename stays the same.
-   - **Always trust this project** — use project prompts + hooks on future changes without re-prompting
-   - **Use Crit defaults** — ignore project prompts *and* project hooks for this repo
+   - **Trust until prompts change** (recommended) - re-prompt if `.crit.config.json`, any `file:` hook path in the config map, or any discovered `.crit/hooks/*.sh` changes. Crit hashes the **full file contents** of every referenced/discovered hook script (same as prompt templates), so editing a `.sh` body invalidates trust even when the filename stays the same.
+   - **Always trust this project** - use project prompts + hooks on future changes without re-prompting
+   - **Use Crit defaults** - ignore project prompts *and* project hooks for this repo
 3. The trust dialog lists every source file (including `.crit/hooks/*.sh`).
 
-The trust decision is stored in global config under `trusted_project_prompts` (keyed by repo root hash) — the same store already used for prompt trust, extended to cover hooks. **Global** hooks (`~/.crit.config.json` / `~/.crit/hooks/`) are user-installed and run without the trust dialog.
+The trust decision is stored in global config under `trusted_project_prompts` (keyed by repo root hash) - the same store already used for prompt trust, extended to cover hooks. **Global** hooks (`~/.crit.config.json` / `~/.crit/hooks/`) are user-installed and run without the trust dialog.
 
 ## Examples
 
@@ -181,9 +181,9 @@ done
 echo "crit: snapshotted $CRIT_UNRESOLVED_COUNT comment(s) to $dest" >&2
 ```
 
-This mirrors the example shipped at `docs/example-hooks/on_finish_unresolved.sh` — copy it into `.crit/hooks/` or `~/.crit/hooks/` and edit to taste.
+This mirrors the example shipped at `docs/example-hooks/on_finish_unresolved.sh` - copy it into `.crit/hooks/` or `~/.crit/hooks/` and edit to taste.
 
-($PWD is the repo root, so `$CRIT_FILES_WITH_COMMENTS` entries are repo-relative and copy directly. When there are no per-file comments — e.g. file-level / review-level comments only — the script falls back to deriving paths from the stdin JSON via `jq` if available.)
+($PWD is the repo root, so `$CRIT_FILES_WITH_COMMENTS` entries are repo-relative and copy directly. When there are no per-file comments - e.g. file-level / review-level comments only - the script falls back to deriving paths from the stdin JSON via `jq` if available.)
 
 ### Audit log on approve
 
@@ -210,11 +210,11 @@ printf '%s\t%s\t%s\t%s\n' \
 
 ## Limitations & security
 
-- **Project hooks execute arbitrary code.** Treat a checked-in `.crit/hooks/*.sh` or project `hooks` config the way you'd treat a post-install npm script — the trust flow is your gate, but once trusted, the script runs on every Finish/Approve.
+- **Project hooks execute arbitrary code.** Treat a checked-in `.crit/hooks/*.sh` or project `hooks` config the way you'd treat a post-install npm script - the trust flow is your gate, but once trusted, the script runs on every Finish/Approve.
 - A 60s timeout caps each hook; long work must detach.
 - Hook output never reaches the agent prompt. If you want to *instruct* the agent (e.g. change what it does next), use [agent prompts](agent-prompts.md), not command hooks.
 
 ## See also
 
-- [Agent prompts](agent-prompts.md) — the template-based counterpart that feeds the agent text
-- [Configuration](../README.md#configuration) — `crit config --generate`, global vs project keys
+- [Agent prompts](agent-prompts.md) - the template-based counterpart that feeds the agent text
+- [Configuration](../README.md#configuration) - `crit config --generate`, global vs project keys
