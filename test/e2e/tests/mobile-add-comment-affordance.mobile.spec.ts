@@ -21,11 +21,13 @@ test.describe('Mobile add-comment affordance (F3)', () => {
       'code[data-unified] [data-gutter] > [data-column-number][data-line-type="change-addition"] [data-line-number-content]',
     ).first();
     await expect(lineNum).toBeVisible();
+    await expect
+      .poll(() => lineNum.evaluate((el) => getComputedStyle(el, '::before').content))
+      .toContain('+');
     const beforeStyle = await lineNum.evaluate((el) => {
       const cs = getComputedStyle(el, '::before');
       return { content: cs.content, opacity: parseFloat(cs.opacity) };
     });
-    expect(beforeStyle.content).toContain('+');
     expect(beforeStyle.opacity).toBeGreaterThan(0);
   });
 
