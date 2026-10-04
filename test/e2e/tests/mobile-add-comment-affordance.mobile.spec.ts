@@ -24,11 +24,9 @@ test.describe('Mobile add-comment affordance (F3)', () => {
     await expect
       .poll(() => lineNum.evaluate((el) => getComputedStyle(el, '::before').content))
       .toContain('+');
-    const beforeStyle = await lineNum.evaluate((el) => {
-      const cs = getComputedStyle(el, '::before');
-      return { content: cs.content, opacity: parseFloat(cs.opacity) };
-    });
-    expect(beforeStyle.opacity).toBeGreaterThan(0);
+    await expect
+      .poll(() => lineNum.evaluate((el) => parseFloat(getComputedStyle(el, '::before').opacity)))
+      .toBeGreaterThan(0);
   });
 
   test('document view line-num shows a "+" prefix on touch', async ({ page }) => {
