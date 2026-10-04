@@ -12,7 +12,7 @@ judge the patch, or suggest fixes.
 ## When to use it
 
 Use story mode for branch, PR, MR, or range reviews where the diff is large
-enough that a thematic overview helps. It is diff-scoped only — not for
+enough that a thematic overview helps. It is diff-scoped only - not for
 positional file reviews, live, preview, or plan reviews.
 
 ### Recommended: `/crit-story` skill
@@ -24,10 +24,10 @@ After `crit install <tool>`, invoke the story skill explicitly (for example
 2. Authors `prologue` / `chapters` / `support` JSON
 3. Ingests with `crit story --story-file <path>` and opens the story view
 4. Runs bare `crit` to wait for Finish Review, then addresses comments on
-   source files and loops rounds — the same cycle as `/crit`
+   source files and loops rounds - the same cycle as `/crit`
 
 Agents must not infer story generation from a generic review or `/crit`
-request — only from an explicit story invoke or a direct ask to generate a
+request - only from an explicit story invoke or a direct ask to generate a
 crit story.
 
 ### Alternative: `crit story` + `agent_cmd`
@@ -62,8 +62,8 @@ may open related source for context, and writes the chapter JSON. That uses
 your agent's tokens (in-session with `/crit-story`, or a separate spawn with
 `agent_cmd`). Crit itself does not bill for stories.
 
-Spend depends more on **how complex and multi-theme the change is** — and how
-much the model explores — than on raw file count or diff size. Cost does
+Spend depends more on **how complex and multi-theme the change is** - and how
+much the model explores - than on raw file count or diff size. Cost does
 **not** scale linearly with files or lines changed. Tiny diffs are cheap;
 large multi-theme PRs cost more, but two big diffs can land in a similar
 ballpark if exploration depth is similar.
