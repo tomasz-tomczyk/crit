@@ -2,7 +2,7 @@
 
 ## Before You Start
 
-For bug fixes and small improvements, feel free to open a PR directly. For larger changes — new features, significant refactors, or anything that touches core architecture — please open an issue first to discuss the approach. This avoids spending time on something that might not be the right direction.
+For bug fixes and small improvements, feel free to open a PR directly. For larger changes - new features, significant refactors, or anything that touches core architecture - please open an issue first to discuss the approach. This avoids spending time on something that might not be the right direction.
 
 ## Build from Source
 
@@ -40,7 +40,7 @@ make e2e-report                                       # View HTML report
 
 ## Local Testing & Seed Fixtures
 
-`make test-diff` is a manual, visual seed harness for the review UI. It builds `crit`, spins up several local server instances — each seeding a different representative review scenario — prints their localhost URLs, and then blocks so you can open the tabs and eyeball the result. It is **not** an automated assertion suite; it exists for the parts of the review UI where visual correctness matters and automated assertions are awkward to write.
+`make test-diff` is a manual, visual seed harness for the review UI. It builds `crit`, spins up several local server instances - each seeding a different representative review scenario - prints their localhost URLs, and then blocks so you can open the tabs and eyeball the result. It is **not** an automated assertion suite; it exists for the parts of the review UI where visual correctness matters and automated assertions are awkward to write.
 
 ```bash
 make test-diff          # builds crit, seeds the scenarios, runs from port 3001 up
@@ -50,12 +50,12 @@ Each instance binds a consecutive port starting at the one you pass (default `30
 
 | # | Port | Scenario |
 | --- | --- | --- |
-| 1 | `3001` | Multi-round markdown review — resolved comments, threaded replies, deletion markers, inter-round diff |
-| 2 | `3002` | Code diff — word-level diff, folded-line comments in spacer gaps, orphaned comments on a removed file |
-| 3 | `3003` | Carry-forward (file mode) — comment positioning across a v1 → v2 content change |
-| 4 | `3004` | Carry-forward (git mode) — same carry-forward exercise in a git context |
-| 5 | `3005` | Range mode (`--range A..B`) — SHA-pinned diff, focus-picker round-trip |
-| 6 | `3006` | Stacked PR — layer / full-stack diff-scope toggle and the push gate |
+| 1 | `3001` | Multi-round markdown review - resolved comments, threaded replies, deletion markers, inter-round diff |
+| 2 | `3002` | Code diff - word-level diff, folded-line comments in spacer gaps, orphaned comments on a removed file |
+| 3 | `3003` | Carry-forward (file mode) - comment positioning across a v1 → v2 content change |
+| 4 | `3004` | Carry-forward (git mode) - same carry-forward exercise in a git context |
+| 5 | `3005` | Range mode (`--range A..B`) - SHA-pinned diff, focus-picker round-trip |
+| 6 | `3006` | Stacked PR - layer / full-stack diff-scope toggle and the push gate |
 
 The harness seeds comments, swaps in v2 content to simulate agent edits, and signals round-complete, then prints what to look for at each URL. Use it when working on diff rendering, round-to-round state, the resolved-comment UI, carry-forward, range mode, or the stacked-PR toggle.
 
@@ -63,7 +63,7 @@ The harness seeds comments, swaps in v2 content to simulate agent edits, and sig
 
 ## Integration Tests
 
-These exercise crit against its real collaborators — `crit-web` and GitHub. They are heavier than the unit suite and live behind build tags so `go test ./...` stays fast and hermetic. Extend them when you touch the surfaces they cover.
+These exercise crit against its real collaborators - `crit-web` and GitHub. They are heavier than the unit suite and live behind build tags so `go test ./...` stays fast and hermetic. Extend them when you touch the surfaces they cover.
 
 ### crit ↔ crit-web share roundtrip
 
@@ -90,7 +90,7 @@ When you change `crit pull` / `crit push`, GitHub comment-bucket logic, or reply
 
 ### Leave a seed behind
 
-When you ship a review-UI feature, leave a seeded scenario in `test/shell/test-diff.sh`; when you ship share or GitHub-sync behavior, leave an integration test case. The next contributor — and you, three months from now — should be able to spin up your feature and verify it without reverse-engineering it first.
+When you ship a review-UI feature, leave a seeded scenario in `test/shell/test-diff.sh`; when you ship share or GitHub-sync behavior, leave an integration test case. The next contributor - and you, three months from now - should be able to spin up your feature and verify it without reverse-engineering it first.
 
 ## Linting
 
