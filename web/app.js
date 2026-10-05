@@ -5606,9 +5606,9 @@
     section.hidden = false;
     section.innerHTML = '';
 
-    // Match doc layout: file mode centers `.document-wrapper`, so we center the
-    // section too. Git mode renders file-sections full-width, so left-anchor.
-    if (session.mode === 'files') {
+    // File and plan reviews render a centered document, so center the section
+    // with it. Git mode renders file-sections full-width, so left-anchor.
+    if (session.mode === 'files' || session.mode === 'plan') {
       section.dataset.docLayout = 'centered';
     } else {
       delete section.dataset.docLayout;

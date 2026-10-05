@@ -5791,7 +5791,11 @@ html[data-theme="light"] .toggle-btn.active {
   border: 0;
   border-radius: 0;
 }
-.review-conversation[data-doc-layout="centered"] { margin: 20px auto 24px; }
+.review-conversation[data-doc-layout="centered"] {
+  width: 100%;
+  max-width: min(var(--content-width), calc(100% - 32px));
+  margin: 20px auto 24px;
+}
 /* The review list already pads the files; line the conversation up with them. */
 body.pierre-review .review-conversation:not([data-doc-layout="centered"]) { margin-inline: 0; }
 .review-conversation.collapsed .review-conversation-body { display: none; }
