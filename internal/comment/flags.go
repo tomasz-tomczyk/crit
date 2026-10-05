@@ -14,6 +14,8 @@ type commentFlags struct {
 	replyTo          string
 	resolve          bool
 	path             string
+	selector         string
+	route            string
 	json             bool
 	file             string
 	plan             string
@@ -71,6 +73,20 @@ func parseCommentFlags(args []string) (commentFlags, error) { //nolint:gocyclo /
 				return f, err
 			}
 			f.path = val
+			i++
+		case "--selector":
+			val, err := clicmd.RequireFlagValue(args, i, "--selector")
+			if err != nil {
+				return f, err
+			}
+			f.selector = val
+			i++
+		case "--route":
+			val, err := clicmd.RequireFlagValue(args, i, "--route")
+			if err != nil {
+				return f, err
+			}
+			f.route = val
 			i++
 		case "--json":
 			f.json = true

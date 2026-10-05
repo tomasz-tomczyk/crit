@@ -70,23 +70,27 @@ Options:
 	{name: "comment", handler: runComment, help: `Usage: crit comment [options] <body>
        crit comment [options] <path> <body>
        crit comment [options] <path>:<line[-end]> <body>
+       crit comment [options] --selector <css> [--route <path>] <body>
        crit comment [options] --reply-to <id> [--resolve] <body>
        crit comment [options] --json [--file <path>]
        crit comment [options] --clear
 
 Add, reply to, bulk import, or clear review comments.
+Live reviews and HTML preview use --selector to pin a DOM element.
 
 Options:
-  -o, --output <dir>   Crit data root for reviews
-      --author <name>  Comment author
-      --plan <name>    Target a stored plan review
-      --session <id>   Target an active review session (all comment modes)
-      --reply-to <id>  Reply to an existing comment
-      --resolve        Resolve the parent after replying
-      --path <path>    File path for a reply
-      --json           Read bulk comments as JSON
-  -f, --file <path>    Read JSON from a file
-      --scope <mode>   Override comment focus scope`},
+  -o, --output <dir>     Crit data root for reviews
+      --author <name>    Comment author
+      --plan <name>      Target a stored plan review
+      --session <id>     Target an active review session (all comment modes)
+      --reply-to <id>    Reply to an existing comment
+      --resolve          Resolve the parent after replying
+      --path <path>      File path for a reply
+      --selector <css>   CSS selector for a live or preview pin
+      --route <path>     Page path for that pin
+      --json             Read bulk comments as JSON
+  -f, --file <path>      Read JSON from a file
+      --scope <mode>     Override comment focus scope`},
 	{name: "comments", handler: runComments, help: `Usage: crit comments [--session <id>] [--json] [--all] [review]
 
 List unresolved comments, with review-level comments first.`},

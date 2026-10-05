@@ -16,3 +16,5 @@ require golang.org/x/net v0.55.0
 require github.com/gorilla/websocket v1.5.3
 
 require golang.org/x/image v0.44.0
+
+require github.com/andybalholm/cascadia v1.3.3

@@ -107,6 +107,10 @@ crit comment --author 'Grok' path/to/file.md 'The whole file needs X'
 crit comment --author 'Grok' path/to/file.go:42 'Missing null check'
 crit comment --author 'Grok' path/to/file.go:50-55 'Extract to helper'
 
+# DOM pin (live review or HTML preview). File:line is rejected there.
+crit comment --author 'Grok' --selector '<css>' '<body>'
+crit comment --author 'Grok' --selector '<css>' --route <path> '<body>'
+
 # Reply to an existing comment
 crit comment --reply-to <id> --author 'Grok' 'Fixed — added the helper and tests'
 ```
@@ -117,6 +121,7 @@ Hard rules:
 - Line numbers are 1-indexed file lines on disk (not diff lines).
 - Reply bodies support full markdown.
 - Only pass `--resolve` when the user explicitly asks you to.
+- **Live reviews and HTML preview** do not take `<path>:<line>`. Pin with `--selector <css>`. `--route` is the page path (default `/` for live, `/preview-content` for preview). In `--json`, use `"selector"` and `"route"`.
 </important>
 
 <important if="you are leaving 3+ comments in one operation">

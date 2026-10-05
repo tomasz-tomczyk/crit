@@ -688,6 +688,7 @@ func (s *Session) mergeExternalCritJSON() bool {
 		}
 		changed = s.mergeFileCommentsFromDisk(f, diskFile) || changed
 	}
+	changed = s.adoptExternalPinRoutes(&cj) || changed
 
 	changed = s.mergeReviewCommentsFromDisk(cj.ReviewComments) || changed
 	s.mu.Unlock()
@@ -697,4 +698,50 @@ func (s *Session) mergeExternalCritJSON() bool {
 	}
 
 	return changed
+}
+
+// adoptExternalPinRoutes adds live-route file entries for DOM pins written
+// by `crit comment` while this session is running. The merge above only
+// updates paths the session already has, and the first pin on a page is
+// what creates that path. Must be called with s.mu held.
+func (s *Session) adoptExternalPinRoutes(cj *CritJSON) bool {
+	if s.ReviewType != "live" && s.ReviewType != "preview" {
+		return false
+	}
+	known := make(map[string]struct{}, len(s.Files))
+	for _, f := range s.Files {
+		known[f.Path] = struct{}{}
+	}
+	changed := false
+	for path, diskFile := range cj.Files {
+		if _, ok := known[path]; ok {
+			continue
+		}
+		if !diskFileHasDOMPin(diskFile) {
+			continue
+		}
+		comments := make([]Comment, len(diskFile.Comments))
+		copy(comments, diskFile.Comments)
+		status := diskFile.Status
+		if status == "" {
+			status = "added"
+		}
+		s.Files = append(s.Files, &FileEntry{
+			Path:     path,
+			Status:   status,
+			FileType: "live-route",
+			Comments: comments,
+		})
+		changed = true
+	}
+	return changed
+}
+
+func diskFileHasDOMPin(f CritJSONFile) bool {
+	for _, c := range f.Comments {
+		if c.DOMAnchor != nil {
+			return true
+		}
+	}
+	return false
 }

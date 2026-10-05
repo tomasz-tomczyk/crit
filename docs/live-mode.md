@@ -178,6 +178,31 @@ As long as the URL returns HTML with a `</body>`, Crit can inject. Checklist:
 3. Session cookies forwarded if the page requires auth.
 4. Open Crit’s UI at `http://localhost:<crit-port>/live`.
 
+## Pinning from the CLI
+
+`crit comment <file>:<line>` targets code and document reviews. A live review,
+and an HTML file opened with `crit preview` (preview mode), pins a DOM element
+instead:
+
+```bash
+crit comment --selector 'h1' 'Heading is vague'
+crit comment --selector '#save' --route /settings 'Save stays disabled'
+```
+
+`--route` is the page path. It defaults to `/` for a live review, or to the
+path of the URL you passed to `crit live` when that URL has one. HTML preview
+defaults to `/preview-content`. On a multi-page preview, pass the page under
+that prefix (`--route /preview-content/chapter.html` or `--route /chapter.html`).
+
+Preview resolves the selector against the HTML file and refuses a selector
+that matches nothing. Live reviews still save the pin when the element is
+created by JavaScript; include the tag (`button#save`, not only `#save`) so
+the pin can attach to that element. The pin shows up in the open review.
+
+The same fields work in `--json` as `selector` and `route` (`css_selector`
+and `pathname` are accepted aliases). Replies are unchanged:
+`crit comment --reply-to <id> <body>`.
+
 ## Debugging checklist
 
 ```text

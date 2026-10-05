@@ -107,6 +107,10 @@ crit comment --author 'Codex' <path> '<body>'
 crit comment --author 'Codex' <path>:<line> '<body>'
 crit comment --author 'Codex' <path>:<start>-<end> '<body>'
 
+# DOM pin (live review or HTML preview). File:line is rejected there.
+crit comment --author 'Codex' --selector '<css>' '<body>'
+crit comment --author 'Codex' --selector '<css>' --route <path> '<body>'
+
 # Reply to an existing comment
 crit comment --reply-to <id> --author 'Codex' '<body>'
 ```
@@ -117,6 +121,7 @@ Hard rules:
 - **Line numbers reference the file on disk** (1-indexed), not diff line numbers.
 - **Reply bodies support markdown** — use code fences and inline code where helpful.
 - **Only pass `--resolve` when the user explicitly asks.** Never resolve proactively. Same rule applies to the `resolve` field in `--json` mode.
+- **Live reviews and HTML preview** do not take `<path>:<line>`. Pin with `--selector <css>`. `--route` is the page path (default `/` for live, `/preview-content` for preview). In `--json`, use `"selector"` and `"route"`.
 
 ## Bulk commenting (3+ comments)
 

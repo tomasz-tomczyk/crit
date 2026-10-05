@@ -81,6 +81,7 @@ crit comment --author 'Windsurf' '<body>'                       # Review-level
 crit comment --author 'Windsurf' <path> '<body>'                # File-level
 crit comment --author 'Windsurf' <path>:<line> '<body>'         # Line
 crit comment --author 'Windsurf' <path>:<start>-<end> '<body>'  # Line range
+crit comment --author 'Windsurf' --selector '<css>' [--route <path>] '<body>'  # Live or HTML preview pin
 crit comment --reply-to <id> --author 'Windsurf' '<body>'       # Reply (c_… or r_…)
 ```
 

@@ -31,7 +31,8 @@ func isAbsoluteOrTraversal(p string) bool {
 }
 
 // checkCommentCLIAllowed returns an error if the review at critPath is a
-// live review.
+// live or preview review. Those reviews pin DOM elements, so the file/line
+// form does not apply. --selector adds a pin instead.
 func checkCommentCLIAllowed(critPath string) error {
 	data, err := os.ReadFile(review.ReviewPathsFor(critPath).Review)
 	if err != nil {
@@ -44,8 +45,8 @@ func checkCommentCLIAllowed(critPath string) error {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return nil //nolint:nilerr // malformed review file: do not block CLI
 	}
-	if cj.ReviewType == "live" {
-		return fmt.Errorf("crit comment <path>:<line> is not supported for live reviews; use the browser UI to add pins")
+	if cj.ReviewType == "live" || cj.ReviewType == "preview" {
+		return fmt.Errorf("crit comment <path>:<line> is not supported for %s reviews; use: crit comment --selector <css> [--route <path>] <body>", cj.ReviewType)
 	}
 	return nil
 }
@@ -265,7 +266,8 @@ func addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID string
 }
 
 // BulkCommentEntry represents one entry in a bulk comment JSON array.
-// Supports review-level, file-level, line-level comments, and replies.
+// Supports review-level, file-level, line-level comments, replies, and
+// DOM pins (selector / route) for live and preview reviews.
 type BulkCommentEntry struct {
 	// New comment fields
 	File     string `json:"file,omitempty"`
@@ -276,6 +278,13 @@ type BulkCommentEntry struct {
 	Body     string `json:"body"`
 	Author   string `json:"author,omitempty"` // overrides per-entry; falls back to global
 	Scope    string `json:"scope,omitempty"`  // "review", "file", or "" (inferred)
+
+	// Pin fields for live and preview reviews. Selector is a CSS selector.
+	// CSSSelector and Pathname are aliases so a dom_anchor-shaped payload works.
+	Selector    string `json:"selector,omitempty"`
+	CSSSelector string `json:"css_selector,omitempty"`
+	Route       string `json:"route,omitempty"`
+	Pathname    string `json:"pathname,omitempty"`
 
 	// Quote narrows a line comment to the text the reviewer selected, as the
 	// web UI's text-selection comments do. QuoteOffset is optional.
@@ -338,10 +347,11 @@ func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAut
 	userID := globalUserID
 
 	if e.ReplyTo != "" {
-		if err := appendReply(cj, e.ReplyTo, e.Body, author, userID, e.Resolve, e.File); err != nil {
-			return fmt.Errorf("entry %d: %w", i, err)
-		}
-		return nil
+		return processBulkReply(cj, i, e, author, userID)
+	}
+
+	if e.pinSelector() != "" || e.pinRoute() != "" || cj.ReviewType == "live" || cj.ReviewType == "preview" {
+		return processBulkPinOrDOMReview(cj, i, e, author, userID)
 	}
 
 	if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
@@ -352,6 +362,32 @@ func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAut
 	}
 
 	return processBulkFileOrLineEntry(cj, i, e, author, userID, scope)
+}
+
+func processBulkReply(cj *session.CritJSON, i int, e BulkCommentEntry, author, userID string) error {
+	if e.pinSelector() != "" || e.pinRoute() != "" {
+		return fmt.Errorf("entry %d: selector cannot be combined with reply_to", i)
+	}
+	if err := appendReply(cj, e.ReplyTo, e.Body, author, userID, e.Resolve, e.File); err != nil {
+		return fmt.Errorf("entry %d: %w", i, err)
+	}
+	return nil
+}
+
+func processBulkPinOrDOMReview(cj *session.CritJSON, i int, e BulkCommentEntry, author, userID string) error {
+	if e.pinSelector() == "" && e.pinRoute() == "" {
+		return fmt.Errorf("entry %d: selector is required for %s reviews (crit comment --selector <css> <body>)", i, cj.ReviewType)
+	}
+	if e.File != "" || e.Path != "" || e.Line > 0 || e.LineSpec != "" {
+		return fmt.Errorf("entry %d: selector cannot be combined with a file or line", i)
+	}
+	if hasQuote(e) {
+		return fmt.Errorf("entry %d: quote is not valid on a pin", i)
+	}
+	if _, err := appendPin(cj, e.pinSelector(), e.pinRoute(), e.Body, author, userID); err != nil {
+		return fmt.Errorf("entry %d: %w", i, err)
+	}
+	return nil
 }
 
 func processBulkReviewEntry(cj *session.CritJSON, i int, e BulkCommentEntry, author, userID string, scope session.InheritedScope) error {

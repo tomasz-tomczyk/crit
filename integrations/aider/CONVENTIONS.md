@@ -75,6 +75,7 @@ crit comment --author 'Aider' '<body>'                       # Review-level
 crit comment --author 'Aider' <path> '<body>'                # File-level
 crit comment --author 'Aider' <path>:<line> '<body>'         # Line
 crit comment --author 'Aider' <path>:<start>-<end> '<body>'  # Line range
+crit comment --author 'Aider' --selector '<css>' [--route <path>] '<body>'  # Live or HTML preview pin
 crit comment --reply-to <id> --author 'Aider' '<body>'       # Reply (c_… or r_…)
 ```
 

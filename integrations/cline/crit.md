@@ -87,6 +87,7 @@ crit comment --author 'Cline' '<body>'                       # Review-level
 crit comment --author 'Cline' <path> '<body>'                # File-level
 crit comment --author 'Cline' <path>:<line> '<body>'         # Line
 crit comment --author 'Cline' <path>:<start>-<end> '<body>'  # Line range
+crit comment --author 'Cline' --selector '<css>' [--route <path>] '<body>'  # Live or HTML preview pin
 crit comment --reply-to <id> --author 'Cline' '<body>'       # Reply (c_… or r_…)
 ```
 

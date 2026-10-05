@@ -81,6 +81,7 @@ crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments a
 crit pr <num|url>             # Thin shim — forwards to `crit review --pr <n>`
 crit fetch ...                # Fetch remote artefacts (see runFetch)
 crit comment <path>:<line[-end]> <body>         # Add a comment (no server needed)
+crit comment --selector <css> [--route <path>] <body>  # Pin a DOM element (live or HTML preview)
 crit comment --reply-to <id> [--resolve] <body> # Reply to a comment
 crit comment --json [--file <path>] [--author <name>]  # Bulk add comments from JSON (stdin or --file; - = stdin)
 crit share <file> [file...]   # Share files to crit-web, print URL
