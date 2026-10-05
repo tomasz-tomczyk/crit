@@ -110,3 +110,82 @@ func TestGetFileDiffSnapshot_RangeIgnoreWhitespaceUsesRangeSHAs(t *testing.T) {
 		t.Errorf("w=1 in range focus: got %d hunks for a whitespace-only change, want 0", len(ignoredWS["hunks"].([]vcs.DiffHunk)))
 	}
 }
+
+// TestWhitespaceIgnoredHunks_RangeFallbacks verifies the guard rails of the
+// range-focus recompute: without a VCS, without SHAs, or when the between-SHA
+// diff itself fails, the cached hunks come back untouched.
+func TestWhitespaceIgnoredHunks_RangeFallbacks(t *testing.T) {
+	sentinel := []vcs.DiffHunk{{Header: "@@ sentinel @@"}}
+	dir := initTestRepo(t)
+
+	tests := []struct {
+		name  string
+		vc    vcs.VCS
+		focus Focus
+	}{
+		{name: "nil vcs", vc: nil, focus: Focus{Kind: FocusRange, BaseSHA: "b", HeadSHA: "h"}},
+		{name: "empty SHAs", vc: &vcs.GitVCS{}, focus: Focus{Kind: FocusRange}},
+		{name: "bad SHAs", vc: &vcs.GitVCS{}, focus: Focus{Kind: FocusRange, BaseSHA: "deadbeef", HeadSHA: "beefdead"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := WhitespaceIgnoredHunks(sentinel, "modified", "", true, "code.go", "HEAD", dir, tt.vc, tt.focus)
+			if len(got) != 1 || got[0].Header != sentinel[0].Header {
+				t.Errorf("got %v, want cached sentinel back", got)
+			}
+		})
+	}
+}
+
+// TestGetFileDiffSnapshot_RangeFullStackUsesDefaultSHA verifies the
+// whitespace-ignored recompute honors the layer/full-stack scope: the change
+// is real below the default SHA but whitespace-only above it, so layer w=1
+// stays non-empty while full-stack w=1 collapses.
+func TestGetFileDiffSnapshot_RangeFullStackUsesDefaultSHA(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "code.go"), "func main() {\nreturn 1\n}\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	writeFile(t, filepath.Join(dir, "code.go"), "func main() {\nreturn 2\n}\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "default")
+	def := gitT(t, dir, "rev-parse", "HEAD")
+
+	writeFile(t, filepath.Join(dir, "code.go"), "func main() {\n\treturn 2\n}\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "head")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{Mode: "git", RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+	layer, ok := s.GetFileDiffSnapshot("code.go", true)
+	if !ok {
+		t.Fatal("GetFileDiffSnapshot(code.go, true) failed in layer scope")
+	}
+	if len(layer["hunks"].([]vcs.DiffHunk)) == 0 {
+		t.Error("layer w=1: got 0 hunks, want the base..head change")
+	}
+
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DefaultSHA: def, DiffScope: DiffScopeFullStack}); err != nil {
+		t.Fatal(err)
+	}
+	raw, ok := s.GetFileDiffSnapshot("code.go", false)
+	if !ok {
+		t.Fatal("GetFileDiffSnapshot(code.go, false) failed in full-stack scope")
+	}
+	if len(raw["hunks"].([]vcs.DiffHunk)) == 0 {
+		t.Fatal("full-stack raw: got 0 hunks, want the whitespace-only change")
+	}
+	stack, ok := s.GetFileDiffSnapshot("code.go", true)
+	if !ok {
+		t.Fatal("GetFileDiffSnapshot(code.go, true) failed in full-stack scope")
+	}
+	if len(stack["hunks"].([]vcs.DiffHunk)) != 0 {
+		t.Errorf("full-stack w=1: got %d hunks, want 0 (used base SHA instead of default)", len(stack["hunks"].([]vcs.DiffHunk)))
+	}
+}
