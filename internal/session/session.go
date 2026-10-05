@@ -3040,7 +3040,7 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 		oldPath := f.OldPath
 		focus := s.Focus
 		s.mu.RUnlock()
-		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc)
+		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc, focus)
 		if hunks == nil {
 			hunks = []vcs.DiffHunk{}
 		}
