@@ -51,6 +51,16 @@ func TestApplyWebCommentPlacements_UpdatesMatchedComment(t *testing.T) {
 	}
 }
 
+func TestFetchHasUpdates(t *testing.T) {
+	if fetchHasUpdates(fetchWebCommentsResult{}) {
+		t.Fatal("empty fetch was treated as an update")
+	}
+	fetched := fetchWebCommentsResult{Placements: map[string]session.Comment{"c1": {}}}
+	if !fetchHasUpdates(fetched) {
+		t.Fatal("a carried placement was ignored")
+	}
+}
+
 func TestCarriedPlacement_IgnoresUnchangedComment(t *testing.T) {
 	local := session.Comment{ID: "c1", StartLine: 3, EndLine: 3, Anchor: "Step 1"}
 	wc := WebComment{ExternalID: "c1", StartLine: 3, EndLine: 3, Anchor: "Step 1"}
