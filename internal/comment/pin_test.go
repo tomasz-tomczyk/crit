@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"golang.org/x/net/html"
 )
 
 func seedPinReview(t *testing.T, dir string, cj CritJSON) {
@@ -307,7 +308,263 @@ func TestNormalizePinRoute(t *testing.T) {
 	if got := normalizePinRoute("live", "", "http://localhost:3000/dashboard"); got != "/dashboard" {
 		t.Errorf("live origin path = %q", got)
 	}
+	if got := normalizePinRoute("live", "", "http://localhost:3000/dashboard?tab=1#section"); got != "/dashboard" {
+		t.Errorf("live origin query = %q", got)
+	}
+	if got := normalizePinRoute("live", "", "http://localhost:3000/"); got != "/" {
+		t.Errorf("live origin root = %q", got)
+	}
+	if got := normalizePinRoute("live", "", ""); got != "/" {
+		t.Errorf("live empty origin = %q", got)
+	}
+	if got := normalizePinRoute("live", "settings", ""); got != "/settings" {
+		t.Errorf("live relative = %q", got)
+	}
 	if got := normalizePinRoute("live", "/settings/", ""); got != "/settings" {
 		t.Errorf("live route = %q", got)
+	}
+}
+
+func TestAppendPinRejectsBadInput(t *testing.T) {
+	cases := []struct {
+		name string
+		cj   *CritJSON
+		sel  string
+		body string
+		want string
+	}{
+		{"code review", &CritJSON{ReviewType: "diff"}, "h1", "body", "only supported"},
+		{"empty selector", &CritJSON{ReviewType: "live"}, "  ", "body", "selector is required"},
+		{"empty body", &CritJSON{ReviewType: "live"}, "h1", "  ", "body is required"},
+		{"no preview file", &CritJSON{ReviewType: "preview"}, "h1", "body", "no HTML file"},
+		{"bad selector", &CritJSON{ReviewType: "live"}, ">>>", "body", "invalid selector"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := appendPin(tt.cj, tt.sel, "/", tt.body, "bot", "u1")
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppendPinUsesCliArgsOriginAndDefaultsRound(t *testing.T) {
+	dir := t.TempDir()
+	htmlPath := filepath.Join(dir, "index.html")
+	page := `<html><body><main aria-label="Primary"><button role="tab" aria-label="` + strings.Repeat("Save ", 30) + `"><style>.x{}</style>Go</button></main></body></html>`
+	if err := os.WriteFile(htmlPath, []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cj := &CritJSON{ReviewType: "preview", CliArgs: []string{"preview", htmlPath}}
+	c, err := appendPin(cj, "button", "", "label", "bot", "u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ReviewRound != 1 {
+		t.Fatalf("round = %d", c.ReviewRound)
+	}
+	if c.DOMAnchor.Role != "tab" || c.DOMAnchor.Landmark != "Primary" {
+		t.Fatalf("anchor = %+v", c.DOMAnchor)
+	}
+	if len([]rune(c.DOMAnchor.AccessibleName)) != 80 {
+		t.Fatalf("name len = %d (%q)", len([]rune(c.DOMAnchor.AccessibleName)), c.DOMAnchor.AccessibleName)
+	}
+	if cj.Files == nil {
+		t.Fatal("files map was not created")
+	}
+}
+
+func TestPreviewPinMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	seedPinReview(t, dir, CritJSON{
+		ReviewType:  "preview",
+		Origin:      filepath.Join(dir, "missing.html"),
+		ReviewRound: 1,
+		Files:       map[string]CritJSONFile{},
+	})
+	err := RunComment([]string{"--output", dir, "--selector", "h1", "nope"})
+	if err == nil || !strings.Contains(err.Error(), "reading preview file") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPinFlagConflicts(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--selector"}, "requires a value"},
+		{[]string{"--route"}, "requires a value"},
+		{[]string{"--selector", "h1", "--json", "body"}, "--selector and --json"},
+		{[]string{"--selector", "h1", "--reply-to", "c1", "body"}, "--selector and --reply-to"},
+		{[]string{"--route", "/dashboard", "body"}, "--route requires --selector"},
+	}
+	for _, tt := range cases {
+		err := RunComment(tt.args)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("RunComment(%q) = %v, want %q", tt.args, err, tt.want)
+		}
+	}
+}
+
+func TestSelectorCommentRequiresBody(t *testing.T) {
+	dir := t.TempDir()
+	seedPinReview(t, dir, CritJSON{ReviewType: "live", ReviewRound: 1, Files: map[string]CritJSONFile{}})
+	err := RunComment([]string{"--output", dir, "--selector", "h1"})
+	if err == nil || !strings.Contains(err.Error(), "body is required") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAddPinCommentIOErrors(t *testing.T) {
+	dir := t.TempDir()
+	htmlPath := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(htmlPath, []byte(`<html><body><h1>Hi</h1></body></html>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedPinReview(t, dir, CritJSON{ReviewType: "preview", Origin: htmlPath, ReviewRound: 1, Files: map[string]CritJSONFile{}})
+	critPath, err := review.ResolveReviewPath(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewFile := review.ReviewPathsFor(critPath).Review
+	if err := os.WriteFile(reviewFile, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addPinComment(critPath, "h1", "/", "body", "bot", "u1"); err == nil {
+		t.Fatal("expected invalid review file")
+	}
+
+	seedPinReview(t, dir, CritJSON{ReviewType: "preview", Origin: htmlPath, ReviewRound: 1, Files: map[string]CritJSONFile{}})
+	t.Cleanup(func() { _ = os.Chmod(critPath, 0o755) })
+	if err := os.Chmod(critPath, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addPinComment(critPath, "h1", "/", "body", "bot", "u1"); err == nil {
+		t.Fatal("expected save error")
+	}
+}
+
+func TestPinBulkEntryRejections(t *testing.T) {
+	cj := &CritJSON{ReviewType: "preview", ReviewRound: 1, Files: map[string]CritJSONFile{}}
+	cases := []struct {
+		e    BulkCommentEntry
+		want string
+	}{
+		{BulkCommentEntry{ReplyTo: "c1", Selector: "h1", Body: "x"}, "reply_to"},
+		{BulkCommentEntry{ReplyTo: "missing", Body: "x"}, "entry 0"},
+		{BulkCommentEntry{Selector: "h1", File: "a.go", Body: "x"}, "file or line"},
+		{BulkCommentEntry{Selector: "h1", Quote: "quoted", Body: "x"}, "quote"},
+		{BulkCommentEntry{CSSSelector: "h1", Pathname: "/", Body: "  "}, "body is required"},
+	}
+	for _, tt := range cases {
+		err := processBulkEntry(cj, 0, tt.e, "bot", "u1", inheritedScope{})
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("entry %+v error = %v, want %q", tt.e, err, tt.want)
+		}
+	}
+}
+
+func TestJSONPinUsesSelectorAliases(t *testing.T) {
+	dir := t.TempDir()
+	htmlPath := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(htmlPath, []byte(`<html><body><h1>Hi</h1></body></html>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedPinReview(t, dir, CritJSON{ReviewType: "preview", Origin: htmlPath, ReviewRound: 1, Files: map[string]CritJSONFile{}})
+	jsonPath := filepath.Join(dir, "bulk.json")
+	payload := `[{"css_selector":"h1","pathname":"/","body":"aliased"}]`
+	if err := os.WriteFile(jsonPath, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunComment([]string{"--json", "--file", jsonPath, "--output", dir}); err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadOutputReview(t, dir)
+	pins := loaded.Files["/preview-content"].Comments
+	if len(pins) != 1 || pins[0].Body != "aliased" {
+		t.Fatalf("pins = %+v", loaded.Files)
+	}
+}
+
+func TestLeafTagFromSelectorEdges(t *testing.T) {
+	cases := []struct {
+		sel  string
+		want string
+	}{
+		{"", ""},
+		{"*", ""},
+		{"::before", ""},
+		{`button[title="a:b"]`, "BUTTON"},
+		{`div > button[title="a > b"]`, "BUTTON"},
+		{"div > @foo", ""},
+	}
+	for _, tt := range cases {
+		if got := leafTagFromSelector(tt.sel); got != tt.want {
+			t.Errorf("leafTagFromSelector(%q) = %q, want %q", tt.sel, got, tt.want)
+		}
+	}
+	if err := fillAnchorFromHTML(&DOMAnchor{CSSSelector: ">>>"}, []byte("<html></html>")); err == nil {
+		t.Fatal("expected invalid selector")
+	}
+	if err := enrichPinAnchor(&CritJSON{ReviewType: "diff"}, &DOMAnchor{CSSSelector: "h1"}); err == nil {
+		t.Fatal("expected non-pin review to be rejected")
+	}
+	live := &CritJSON{ReviewType: "live", Files: map[string]CritJSONFile{}}
+	if err := processBulkEntry(live, 0, BulkCommentEntry{Selector: "button", Route: "/dash", Body: "ok"}, "bot", "u1", inheritedScope{}); err != nil {
+		t.Fatal(err)
+	}
+	anchor := &DOMAnchor{CSSSelector: "p"}
+	if err := fillAnchorFromHTML(anchor, []byte(`<html><body><p>Hi<script>nope</script></p></body></html>`)); err != nil {
+		t.Fatal(err)
+	}
+	if anchor.AccessibleName != "Hi" {
+		t.Fatalf("name = %q", anchor.AccessibleName)
+	}
+	if renderNode(&html.Node{Type: html.ErrorNode}) != "" {
+		t.Fatal("error nodes should not render")
+	}
+}
+
+func TestReadLivePageHTMLDefault(t *testing.T) {
+	htmlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plain":
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "nope")
+		case "/missing":
+			http.NotFound(w, r)
+		case "/loop":
+			http.Redirect(w, r, "/loop", http.StatusFound)
+		case "/away":
+			http.Redirect(w, r, "https://example.com/", http.StatusFound)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<html><body><h1>Hi</h1></body></html>")
+		}
+	}))
+	t.Cleanup(htmlSrv.Close)
+
+	if _, err := readLivePageHTMLDefault(htmlSrv.URL, "/plain"); err == nil || !strings.Contains(err.Error(), "content type") {
+		t.Fatalf("plain = %v", err)
+	}
+	if _, err := readLivePageHTMLDefault(htmlSrv.URL, "/missing"); err == nil || !strings.Contains(err.Error(), "status") {
+		t.Fatalf("missing = %v", err)
+	}
+	if _, err := readLivePageHTMLDefault(htmlSrv.URL, "/loop"); err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("loop = %v", err)
+	}
+	if _, err := readLivePageHTMLDefault(htmlSrv.URL, "/away"); err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("away = %v", err)
+	}
+	if _, err := readLivePageHTMLDefault("http://127.0.0.1:1", "/"); err == nil {
+		t.Fatal("expected connection error")
+	}
+	if _, err := readLivePageHTMLDefault("ftp://example.com/x", "/"); err == nil {
+		t.Fatal("expected non-http origin error")
+	}
+	if _, err := livePageURL("http://example.com", "%zz"); err == nil {
+		t.Fatal("expected bad route")
 	}
 }

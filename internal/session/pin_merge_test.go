@@ -99,3 +99,37 @@ func TestMergeExternalCritJSON_IgnoresNewRouteOnCodeReview(t *testing.T) {
 		t.Fatal("code reviews should not adopt pin routes")
 	}
 }
+
+func TestAdoptExternalPinRoutesSkipsKnownAndPinless(t *testing.T) {
+	s := &Session{
+		ReviewType: "live",
+		Files: []*FileEntry{
+			{Path: "/dashboard", Status: "added", FileType: "live-route"},
+		},
+	}
+	cj := &CritJSON{Files: map[string]CritJSONFile{
+		"/dashboard": {Comments: []Comment{{
+			ID: "c_known", DOMAnchor: &DOMAnchor{CSSSelector: "h1"},
+		}}},
+		"/plain": {Comments: []Comment{{ID: "c_plain", Body: "no pin"}}},
+		"/new": {Comments: []Comment{{
+			ID: "c_new", DOMAnchor: &DOMAnchor{CSSSelector: "button"},
+		}}},
+	}}
+	s.mu.Lock()
+	changed := s.adoptExternalPinRoutes(cj)
+	s.mu.Unlock()
+	if !changed {
+		t.Fatal("expected the new pin route to be adopted")
+	}
+	if got := len(s.Files); got != 2 {
+		t.Fatalf("files = %d, want the existing route plus /new", got)
+	}
+	added := s.fileByPathLocked("/new")
+	if added == nil || added.Status != "added" || added.FileType != "live-route" {
+		t.Fatalf("adopted = %+v", added)
+	}
+	if s.fileByPathLocked("/plain") != nil {
+		t.Fatal("a route with no DOM pin should not be adopted")
+	}
+}
