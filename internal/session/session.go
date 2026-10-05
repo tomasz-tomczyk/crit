@@ -2933,12 +2933,25 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 // deleted files (where whitespace-ignore changes nothing) and the markdown
 // branch, it returns the cached hunks unchanged. On any recompute error it logs
 // a warning and falls back to the cached hunks — the request never fails.
-func whitespaceIgnoredHunks(cached []vcs.DiffHunk, status, oldPath string, ignoreWhitespace bool, path, baseRef, repoRoot string, vc vcs.VCS) []vcs.DiffHunk {
+// In range focus (--pr / --range) the recompute runs between the focus SHAs;
+// otherwise it diffs the working tree against baseRef.
+func whitespaceIgnoredHunks(cached []vcs.DiffHunk, status, oldPath string, ignoreWhitespace bool, path, baseRef, repoRoot string, vc vcs.VCS, focus Focus) []vcs.DiffHunk {
 	if !ignoreWhitespace {
 		return cached
 	}
 	if status == "added" || status == "untracked" || status == "deleted" {
 		return cached
+	}
+	if focus.Kind == FocusRange {
+		if vc == nil || focus.HeadSHA == "" || focus.DiffBaseSHA() == "" {
+			return cached
+		}
+		hunks, err := vc.FileDiffBetweenSHAs(path, oldPath, focus.DiffBaseSHA(), focus.HeadSHA, repoRoot, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: whitespace-ignored range diff failed for %s: %v\n", path, err)
+			return cached
+		}
+		return hunks
 	}
 	if vc == nil && (status != "renamed" || oldPath == "") {
 		return cached
@@ -2976,8 +2989,9 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 		hunks := f.DiffHunks
 		status := f.Status
 		oldPath := f.OldPath
+		focus := s.Focus
 		s.mu.RUnlock()
-		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc)
+		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc, focus)
 		if hunks == nil {
 			hunks = []vcs.DiffHunk{}
 		}

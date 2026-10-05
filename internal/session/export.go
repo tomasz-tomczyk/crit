@@ -76,8 +76,8 @@ func SavePlanSlug(sessionID, slug string) error {
 	return savePlanSlug(sessionID, slug)
 }
 
-func WhitespaceIgnoredHunks(cached []vcs.DiffHunk, status, oldPath string, ignoreWhitespace bool, path, baseRef, repoRoot string, vc vcs.VCS) []vcs.DiffHunk {
-	return whitespaceIgnoredHunks(cached, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc)
+func WhitespaceIgnoredHunks(cached []vcs.DiffHunk, status, oldPath string, ignoreWhitespace bool, path, baseRef, repoRoot string, vc vcs.VCS, focus Focus) []vcs.DiffHunk {
+	return whitespaceIgnoredHunks(cached, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc, focus)
 }
 
 func CarryForwardComment(old Comment, now string) Comment {
