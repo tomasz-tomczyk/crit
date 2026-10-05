@@ -35,7 +35,15 @@ func FetchWebComments(shareURL string, localIDs, localFingerprints map[string]bo
 }
 
 func FetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (FetchWebCommentsResult, error) {
-	return fetchWebCommentsFromTarget(shareURL, shareBaseURL, localIDs, localFingerprints, localFingerprintIDs, authToken)
+	return fetchWebCommentsFromTarget(shareURL, shareBaseURL, localIDs, localFingerprints, localFingerprintIDs, authToken, nil)
+}
+
+func FetchWebCommentsForReview(shareURL, shareBaseURL string, cj session.CritJSON, authToken string) (FetchWebCommentsResult, error) {
+	return fetchWebCommentsForReview(shareURL, shareBaseURL, cj, authToken)
+}
+
+func ApplyWebCommentPlacements(critPath string, placements map[string]session.Comment) error {
+	return applyWebCommentPlacements(critPath, placements)
 }
 
 func UpsertShareToWeb(cfg session.CritJSON, files []ShareFile, comments []ShareComment, authToken string) (UpsertResult, error) {

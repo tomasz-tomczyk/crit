@@ -586,6 +586,8 @@ type WebComment struct {
 	Scope             string             `json:"scope"`
 	Replies           []WebReply         `json:"replies"`
 	DOMAnchor         *session.DOMAnchor `json:"dom_anchor,omitempty"`
+	Anchor            string             `json:"anchor,omitempty"`
+	Drifted           bool               `json:"drifted,omitempty"`
 }
 
 // buildLocalFingerprintIndex returns both the fingerprint set and a map from
@@ -617,7 +619,8 @@ func buildLocalFingerprintIndex(cj session.CritJSON) (map[string]bool, map[strin
 // fetchWebCommentsResult holds both new comments and reply updates for existing ones.
 type fetchWebCommentsResult struct {
 	NewComments  []WebComment
-	ReplyUpdates map[string][]WebReply // external_id -> replies from web
+	ReplyUpdates map[string][]WebReply      // external_id -> replies from web
+	Placements   map[string]session.Comment // local comment ID -> carried line, anchor, drifted
 }
 
 // fetchWebComments fetches all comments from crit-web, returning new comments
@@ -626,12 +629,19 @@ type fetchWebCommentsResult struct {
 // so that web comments matching a previously-imported web-N comment by
 // fingerprint can have their replies merged instead of dropped.
 func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (fetchWebCommentsResult, error) {
-	return fetchWebCommentsFromTarget(shareURL, "", localIDs, localFingerprints, localFingerprintIDs, authToken)
+	return fetchWebCommentsFromTarget(shareURL, "", localIDs, localFingerprints, localFingerprintIDs, authToken, nil)
 }
 
-func fetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs map[string]bool, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string) (fetchWebCommentsResult, error) {
+func fetchWebCommentsForReview(shareURL, shareBaseURL string, cj session.CritJSON, authToken string) (fetchWebCommentsResult, error) {
+	localIDs := buildLocalIDSet(cj)
+	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(cj)
+	return fetchWebCommentsFromTarget(shareURL, shareBaseURL, localIDs, localFingerprints, localFingerprintIDs, authToken, localCommentsByID(cj))
+}
+
+func fetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs map[string]bool, localFingerprints map[string]bool, localFingerprintIDs map[string]string, authToken string, locals map[string]session.Comment) (fetchWebCommentsResult, error) {
 	var result fetchWebCommentsResult
 	result.ReplyUpdates = make(map[string][]WebReply)
+	result.Placements = make(map[string]session.Comment)
 
 	token := TokenFromHostedURL(shareURL)
 	u, err := url.Parse(shareURL)
@@ -676,11 +686,51 @@ func fetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs map[stri
 
 	for _, wc := range all {
 		if dropDuplicateWebComment(wc, localIDs, localFingerprints, localFingerprintIDs, result.ReplyUpdates) {
+			if updated, ok := carriedPlacement(wc, locals); ok {
+				result.Placements[wc.ExternalID] = updated
+			}
 			continue
 		}
 		result.NewComments = append(result.NewComments, wc)
 	}
 	return result, nil
+}
+
+// carriedPlacement reports a local comment whose shared copy has moved or
+// been marked drifted. The local id is the external_id the CLI sent.
+func carriedPlacement(wc WebComment, locals map[string]session.Comment) (session.Comment, bool) {
+	if wc.ExternalID == "" || locals == nil {
+		return session.Comment{}, false
+	}
+	local, ok := locals[wc.ExternalID]
+	if !ok {
+		return session.Comment{}, false
+	}
+	if local.StartLine == wc.StartLine && local.EndLine == wc.EndLine && local.Anchor == wc.Anchor && local.Drifted == wc.Drifted {
+		return session.Comment{}, false
+	}
+	local.StartLine = wc.StartLine
+	local.EndLine = wc.EndLine
+	local.Anchor = wc.Anchor
+	local.Drifted = wc.Drifted
+	return local, true
+}
+
+func localCommentsByID(cj session.CritJSON) map[string]session.Comment {
+	out := make(map[string]session.Comment)
+	for _, f := range cj.Files {
+		for _, c := range f.Comments {
+			if c.ID != "" {
+				out[c.ID] = c
+			}
+		}
+	}
+	for _, c := range cj.ReviewComments {
+		if c.ID != "" {
+			out[c.ID] = c
+		}
+	}
+	return out
 }
 
 // dropDuplicateWebComment returns true if wc is already represented locally
@@ -958,6 +1008,60 @@ func MergeWebComments(critPath string, newComments []WebComment, replyUpdates ma
 
 	cj.UpdatedAt = now
 	return session.SaveCritJSON(critPath, cj)
+}
+
+// applyWebCommentPlacements writes line, anchor, and drifted updates for
+// comments the server carried forward. Matched by the local comment id.
+func applyWebCommentPlacements(critPath string, placements map[string]session.Comment) error {
+	if len(placements) == 0 {
+		return nil
+	}
+	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
+	if err != nil {
+		return err
+	}
+	var cj session.CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
+	}
+	for path, cf := range cj.Files {
+		changed := false
+		for i := range cf.Comments {
+			placed, ok := placements[cf.Comments[i].ID]
+			if !ok {
+				continue
+			}
+			cf.Comments[i].StartLine = placed.StartLine
+			cf.Comments[i].EndLine = placed.EndLine
+			cf.Comments[i].Anchor = placed.Anchor
+			cf.Comments[i].Drifted = placed.Drifted
+			changed = true
+		}
+		if changed {
+			cj.Files[path] = cf
+		}
+	}
+	for i := range cj.ReviewComments {
+		placed, ok := placements[cj.ReviewComments[i].ID]
+		if !ok {
+			continue
+		}
+		cj.ReviewComments[i].StartLine = placed.StartLine
+		cj.ReviewComments[i].EndLine = placed.EndLine
+		cj.ReviewComments[i].Anchor = placed.Anchor
+		cj.ReviewComments[i].Drifted = placed.Drifted
+	}
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return session.SaveCritJSON(critPath, cj)
+}
+
+func mergeFetchedComments(critPath string, fetched fetchWebCommentsResult) error {
+	if len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 {
+		if err := MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
+			return err
+		}
+	}
+	return applyWebCommentPlacements(critPath, fetched.Placements)
 }
 
 // mergeRepliesIntoComment merges web replies into a comment, deduplicating by body.
