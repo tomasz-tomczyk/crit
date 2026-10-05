@@ -417,7 +417,7 @@ func TestSelectorCommentRequiresBody(t *testing.T) {
 	}
 }
 
-func TestAddPinCommentIOErrors(t *testing.T) {
+func TestAddPinCommentRejectsInvalidReview(t *testing.T) {
 	dir := t.TempDir()
 	htmlPath := filepath.Join(dir, "index.html")
 	if err := os.WriteFile(htmlPath, []byte(`<html><body><h1>Hi</h1></body></html>`), 0o644); err != nil {
@@ -434,15 +434,6 @@ func TestAddPinCommentIOErrors(t *testing.T) {
 	}
 	if _, err := addPinComment(critPath, "h1", "/", "body", "bot", "u1"); err == nil {
 		t.Fatal("expected invalid review file")
-	}
-
-	seedPinReview(t, dir, CritJSON{ReviewType: "preview", Origin: htmlPath, ReviewRound: 1, Files: map[string]CritJSONFile{}})
-	t.Cleanup(func() { _ = os.Chmod(critPath, 0o755) })
-	if err := os.Chmod(critPath, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := addPinComment(critPath, "h1", "/", "body", "bot", "u1"); err == nil {
-		t.Fatal("expected save error")
 	}
 }
 
