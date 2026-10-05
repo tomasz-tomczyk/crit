@@ -2966,6 +2966,39 @@ func whitespaceIgnoredHunks(cached []vcs.DiffHunk, status, oldPath string, ignor
 	return hunks
 }
 
+// gitBaseContentForMarkdown returns the base-side content for a markdown file
+// in git mode so the frontend can render a Previous-vs-Current split with the
+// same renderers as files-mode round diffs. Returns "" when there is no base
+// side (added/untracked) or when the base read fails (best-effort).
+func gitBaseContentForMarkdown(s *Session, focus Focus, path, oldPath, status, baseRef, repoRoot string, vc vcs.VCS) string {
+	if status == "added" || status == "untracked" {
+		return ""
+	}
+	lookupPath := path
+	if status == "renamed" && oldPath != "" {
+		lookupPath = oldPath
+	}
+	if focus.Kind == FocusRange {
+		baseSHA := focus.DiffBaseSHA()
+		if baseSHA == "" {
+			return ""
+		}
+		data, err := s.readFileAtSHAForFocus(focus, baseSHA, lookupPath)
+		if err != nil {
+			return ""
+		}
+		return string(data)
+	}
+	if vc == nil || baseRef == "" {
+		return ""
+	}
+	content, err := vc.FileContentAtRef(lookupPath, baseRef, repoRoot)
+	if err != nil {
+		return ""
+	}
+	return content
+}
+
 // GetFileDiffSnapshot returns diff data for the /api/file/diff endpoint.
 func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[string]any, bool) {
 	s.mu.RLock()
@@ -2985,7 +3018,7 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 	}
 
 	s.mu.RLock()
-	if f.FileType == "code" || s.Mode == "git" {
+	if f.FileType == "code" {
 		hunks := f.DiffHunks
 		status := f.Status
 		oldPath := f.OldPath
@@ -2996,6 +3029,23 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 			hunks = []vcs.DiffHunk{}
 		}
 		return map[string]any{"hunks": hunks}, true
+	}
+
+	// Markdown in git mode: hunks plus base content so the frontend can
+	// render a Previous-vs-Current split (same renderers as files-mode
+	// round diffs). I/O happens outside the lock.
+	if s.Mode == "git" {
+		hunks := f.DiffHunks
+		status := f.Status
+		oldPath := f.OldPath
+		focus := s.Focus
+		s.mu.RUnlock()
+		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc)
+		if hunks == nil {
+			hunks = []vcs.DiffHunk{}
+		}
+		prev := gitBaseContentForMarkdown(s, focus, path, oldPath, status, baseRef, repoRoot, vc)
+		return map[string]any{"hunks": hunks, "previous_content": prev}, true
 	}
 
 	// Markdown in files mode: snapshot content, then compute LCS diff outside the lock

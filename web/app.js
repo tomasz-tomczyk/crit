@@ -1677,7 +1677,7 @@
   }
 
   function pierreIsDocumentView(file) {
-    return file.fileType === 'markdown' && file.viewMode === 'document';
+    return file.fileType === 'markdown' && (file.viewMode === 'document' || file.viewMode === 'rendered-diff');
   }
 
   // A file with nothing to render gets Crit's placeholder text instead of an
@@ -1686,7 +1686,7 @@
     if (file.lazy) return null;
     if (file.orphaned) return 'This file is no longer part of the review.';
     const noHunks = !file.diffHunks || file.diffHunks.length === 0;
-    if (file.viewMode === 'document' || !noHunks) return null;
+    if (file.viewMode === 'document' || file.viewMode === 'rendered-diff' || !noHunks) return null;
     if (file.status === 'deleted') return 'This file was deleted.';
     if (file.status === 'renamed') return 'File renamed without changes.';
     return null;
@@ -2987,13 +2987,18 @@
       });
     })(file.path);
 
-    // Add document/diff toggle for markdown files that have diff hunks
-    // Hide when diffActive is on (header-level rendered diff overrides per-file toggle)
+    // Add document/diff toggle for markdown files that have diff hunks.
+    // In git mode with base content available, offer a third Rendered view:
+    // Previous-vs-Current split/unified (follows the existing split/unified
+    // toggle). Markdown only. Hide when diffActive is on (header-level
+    // rendered diff overrides per-file toggle).
     if (file.fileType === 'markdown' && file.diffHunks && file.diffHunks.length > 0 && !diffActive) {
+      const hasRendered = !!(file.previousLineBlocks && file.previousLineBlocks.length > 0);
       const toggle = document.createElement('div');
       toggle.className = 'file-header-toggle';
       toggle.innerHTML =
         '<button type="button" class="toggle-btn' + (file.viewMode === 'document' ? ' active' : '') + '" data-mode="document" aria-pressed="' + (file.viewMode === 'document' ? 'true' : 'false') + '">Document</button>' +
+        (hasRendered ? '<button type="button" class="toggle-btn' + (file.viewMode === 'rendered-diff' ? ' active' : '') + '" data-mode="rendered-diff" aria-pressed="' + (file.viewMode === 'rendered-diff' ? 'true' : 'false') + '">Rendered</button>' : '') +
         '<button type="button" class="toggle-btn' + (file.viewMode === 'diff' ? ' active' : '') + '" data-mode="diff" aria-pressed="' + (file.viewMode === 'diff' ? 'true' : 'false') + '">Diff</button>';
       toggle.addEventListener('click', function(e) {
         const btn = e.target.closest('.toggle-btn');
@@ -3065,7 +3070,8 @@
   // when that toggle is on (files mode), otherwise the rendered document.
   function populateDocumentBody(body, file) {
     const roundDiff = diffActive && file.previousLineBlocks && file.previousLineBlocks.length > 0;
-    body.replaceChildren(roundDiff
+    const renderedDiff = file.viewMode === 'rendered-diff' && file.previousLineBlocks && file.previousLineBlocks.length > 0;
+    body.replaceChildren((roundDiff || renderedDiff)
       ? (diffMode === 'split' ? renderRenderedDiffSplit(file) : renderRenderedDiffUnified(file))
       : renderDocumentView(file));
   }
@@ -3135,14 +3141,14 @@
       applyWordDiffPair(prevDiffBlocks[p], currDiffBlocks[p]);
     }
 
-    // Labels row
+    // Labels row (mode-aware: rounds in files mode, Before/After in git mode)
     const leftLabel = document.createElement('div');
     leftLabel.className = 'diff-view-side-label';
-    leftLabel.textContent = 'Previous round';
+    leftLabel.textContent = session.mode === 'git' ? 'Before' : 'Previous round';
     container.appendChild(leftLabel);
     const rightLabel = document.createElement('div');
     rightLabel.className = 'diff-view-side-label';
-    rightLabel.textContent = 'Current round';
+    rightLabel.textContent = session.mode === 'git' ? 'After' : 'Current round';
     container.appendChild(rightLabel);
 
     // Two-pointer merge for horizontal alignment
