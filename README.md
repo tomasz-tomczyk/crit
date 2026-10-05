@@ -82,7 +82,7 @@ crit http://localhost:3000        # review a running dev server
 crit landing.html                 # review a static HTML file
 ```
 
-In your agent, run `/crit` with any of the arguments above. Run it bare and the agent picks what to launch from the conversation.
+In your agent chat, run `/crit` with any of the arguments above. Run it bare and the agent picks what to launch from the conversation.
 
 ### Story mode
 
