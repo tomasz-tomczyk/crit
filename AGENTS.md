@@ -246,6 +246,7 @@ Session-scoped:
 - `GET|POST /api/base-branch` — read/update active base branch
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
 - `GET  /api/files/list` — list session files (lighter than `/api/session`)
+- `GET  /api/files/comments` — every file's visible comments keyed by path (`?round=N` in files mode); one request instead of one per file
 - `GET|POST /api/comments` — list/add review-level comments
 - `PUT|DELETE /api/review-comment/{id}` (and `/replies[/{rid}]`, `/resolve`) — review-comment CRUD
 

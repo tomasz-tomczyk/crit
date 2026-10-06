@@ -1874,10 +1874,31 @@ func (s *Session) GetComments(filePath string) []Comment {
 	if f == nil {
 		return []Comment{}
 	}
-	result := make([]Comment, 0, len(f.Comments))
+	return visibleCommentsLocked(f.Comments, focusKeyFor(s.Focus), s.Focus)
+}
+
+// GetVisibleComments returns every file's comments that are visible in the
+// current focus, keyed by path. Files with no visible comments are left out.
+// The page uses it to show comments on files whose diffs have not loaded.
+func (s *Session) GetVisibleComments() map[string][]Comment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	focusKey := focusKeyFor(s.Focus)
-	for _, c := range f.Comments {
-		if !visibleInFocusKey(c, focusKey, s.Focus) {
+	result := make(map[string][]Comment)
+	for _, f := range s.Files {
+		if cs := visibleCommentsLocked(f.Comments, focusKey, s.Focus); len(cs) > 0 {
+			result[f.Path] = cs
+		}
+	}
+	return result
+}
+
+// visibleCommentsLocked copies the comments visible under focusKey, with
+// their replies, so callers can read them after the lock is released.
+func visibleCommentsLocked(comments []Comment, focusKey string, focus Focus) []Comment {
+	result := make([]Comment, 0, len(comments))
+	for _, c := range comments {
+		if !visibleInFocusKey(c, focusKey, focus) {
 			continue
 		}
 		if len(c.Replies) > 0 {

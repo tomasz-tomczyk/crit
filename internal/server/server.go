@@ -200,6 +200,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/comments", s.withReady(s.handleReviewComments))
 	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
 	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
+	mux.HandleFunc("/api/files/comments", s.withReady(s.handleAllFileComments))
 	mux.HandleFunc("/api/story", s.withReady(s.handleStory))
 
 	// File-scoped endpoints (use ?path= query param)
@@ -1843,6 +1844,29 @@ func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Sessi
 // each returned comment reflect *current* state, not state-at-round-N — the
 // frontend uses ResolvedRound to compute round-faithful resolution itself.
 // See commentsAtOrBeforeRound for the full Stage 1 vs Stage 2 contract.
+// handleAllFileComments returns every file's visible comments in one
+// response, keyed by path. The page loads diffs lazily on large reviews, and
+// fetching comments per file costs one request each, so it reads them all
+// here instead.
+func (s *Server) handleAllFileComments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	round, hasRound, valid := parseRoundParam(w, r)
+	if !valid {
+		return
+	}
+	sess := s.session.Load()
+	byPath := sess.GetVisibleComments()
+	if hasRound && sess.Mode == "files" {
+		for path, comments := range byPath {
+			byPath[path] = commentsAtOrBeforeRound(comments, round)
+		}
+	}
+	writeJSON(w, byPath)
+}
+
 func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
