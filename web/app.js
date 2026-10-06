@@ -1971,10 +1971,16 @@
   const pierreLoader = window.crit.pierreRuntime.createLoader({
     getFile: getFileByPath,
     load: function(file, signal) {
+      // A comments refresh can land while the diff is loading; keep its
+      // newer list instead of the one fetched with the diff.
+      const commentsAtStart = file.comments;
       return loadSingleFile({
         path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType,
         additions: file.additions, deletions: file.deletions, generated: file.generated,
-      }, currentFileDataScope(), signal);
+      }, currentFileDataScope(), signal).then(function(loaded) {
+        if (loaded && file.comments !== commentsAtStart) loaded.comments = file.comments;
+        return loaded;
+      });
     },
     changed: updateTreeCommentBadges,
   });

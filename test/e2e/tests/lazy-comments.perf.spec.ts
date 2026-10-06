@@ -11,8 +11,8 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('comments on lazy files count and list on open', async ({ page, request }) => {
-  await addComment(request, TAIL_FILE, 1, 'Open on a lazy file');
-  await addComment(request, TAIL_FILE, 2, 'Second open one');
+  const first = await addComment(request, TAIL_FILE, 1, 'Open on a lazy file');
+  const second = await addComment(request, TAIL_FILE, 2, 'Second open one');
   const resolved = await addComment(request, TAIL_FILE, 3, 'Resolved on a lazy file');
   const res = await request.put(
     `/api/comment/${resolved.id}/resolve?path=${encodeURIComponent(TAIL_FILE)}`,
@@ -45,4 +45,22 @@ test('comments on lazy files count and list on open', async ({ page, request }) 
 
   // The diff itself is still deferred.
   expect(diffLoads).toHaveLength(0);
+
+  // Resolving a comment after open reaches the lazy file through the
+  // comments-changed refresh.
+  const resolveRes = await request.put(
+    `/api/comment/${second.id}/resolve?path=${encodeURIComponent(TAIL_FILE)}`,
+    { data: { resolved: true } },
+  );
+  expect(resolveRes.ok()).toBeTruthy();
+  await expect(page.locator('#commentCountNumber')).toHaveText('1');
+  await expect(page.locator(`.tree-file[data-tree-path="${TAIL_FILE}"] .tree-comment-badge`)).toHaveText('1');
+
+  // Clicking the open card loads the diff and shows the inline card.
+  await page.locator('#commentsFilterPill .toggle-btn[data-filter="open"]').click();
+  await expect(cards).toHaveCount(1);
+  await cards.first().click();
+  const inline = page.locator(`#filesContainer .comment-card[data-comment-id="${first.id}"]`);
+  await expect(inline).toBeVisible();
+  await expect(inline).toBeInViewport();
 });
