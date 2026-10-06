@@ -74,6 +74,8 @@ Story ingest opens the review UI and exits — it does **not** wait for the huma
 crit
 ```
 
+Pass `timeout: 86400000` (24 hours) with `run_in_background: true` on every blocking `crit` call. Without it, Claude Code stops background commands after 30 minutes. Claude Code may lower the value to its own limit (2 hours unless the user sets `BASH_MAX_TIMEOUT_MS`).
+
 `crit` reconnects to the story session's daemon (already started by ingest) and blocks until the user clicks "Finish Review".
 
 If ingest printed a review URL, relay it verbatim:
@@ -81,6 +83,18 @@ If ingest printed a review URL, relay it verbatim:
 > **"Crit is open at http://localhost:<port>. Leave inline comments on the diff, then click Finish Review."**
 
 **Do NOT proceed until `crit` completes.** Do NOT ask the user to type anything. Do NOT read the review file early. Wait for the background task to finish — that is how you know the human is done reviewing.
+
+<important if="Claude Code stopped `crit` because it reached its background time limit">
+Tell the user that Claude Code stopped waiting after its background time limit (2 hours by default), and that the review is still open in the browser with their comments.
+
+Offer to raise the limit to 24 hours by adding this to `~/.claude/settings.json` (it takes effect after Claude Code restarts):
+
+```json
+"env": { "BASH_MAX_TIMEOUT_MS": "86400000" }
+```
+
+If the user agrees, merge it into the existing file; do not overwrite other settings. Then, if the user wants you to keep waiting, run the same `crit` command again as in Step 5.
+</important>
 
 ## Step 6: Read the review output
 
