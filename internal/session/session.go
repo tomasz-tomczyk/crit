@@ -1937,27 +1937,6 @@ func (s *Session) FindCommentByID(id string, filePath string) (Comment, string, 
 	return Comment{}, "", false
 }
 
-// GetAllComments returns all comments grouped by file path.
-func (s *Session) GetAllComments() map[string][]Comment {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make(map[string][]Comment)
-	for _, f := range s.Files {
-		if len(f.Comments) > 0 {
-			comments := make([]Comment, len(f.Comments))
-			copy(comments, f.Comments)
-			for i, c := range comments {
-				if len(c.Replies) > 0 {
-					comments[i].Replies = make([]Reply, len(c.Replies))
-					copy(comments[i].Replies, c.Replies)
-				}
-			}
-			result[f.Path] = comments
-		}
-	}
-	return result
-}
-
 // TotalCommentCount returns the total number of comments across all files and review comments.
 func (s *Session) TotalCommentCount() int {
 	s.mu.RLock()

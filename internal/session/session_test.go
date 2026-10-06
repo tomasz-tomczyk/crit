@@ -441,12 +441,12 @@ func TestSession_GetComments_ReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestSession_GetAllComments(t *testing.T) {
+func TestSession_GetVisibleComments(t *testing.T) {
 	s := newTestSession(t)
 	s.AddComment("plan.md", 1, 1, "", "md comment", "", "", "")
 	s.AddComment("main.go", 1, 1, "", "go comment", "", "", "")
 
-	all := s.GetAllComments()
+	all := s.GetVisibleComments()
 	if len(all) != 2 {
 		t.Errorf("expected 2 files with comments, got %d", len(all))
 	}
