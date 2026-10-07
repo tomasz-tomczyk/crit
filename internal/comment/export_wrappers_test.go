@@ -81,7 +81,7 @@ func TestExportWrappers_PersistComments(t *testing.T) {
 	if err := AddReplyToCritJSON(commentID, "reply", "bot", "", false, dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckCommentCLIAllowed(critPath); err != nil {
+	if err := CheckCommentCLIAllowed(critPath, formLineComment); err != nil {
 		t.Fatal(err)
 	}
 }

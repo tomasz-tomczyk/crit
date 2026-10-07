@@ -2,8 +2,8 @@ package comment
 
 import "github.com/tomasz-tomczyk/crit/internal/session"
 
-func CheckCommentCLIAllowed(critPath string) error {
-	return checkCommentCLIAllowed(critPath)
+func CheckCommentCLIAllowed(critPath, form string) error {
+	return checkCommentCLIAllowed(critPath, form)
 }
 
 func AddCommentToCritJSONScoped(filePath string, startLine, endLine int, body, author, userID, outputDir string, scope session.InheritedScope) error {

@@ -32,12 +32,13 @@ func TestExportWrappers_Smoke(t *testing.T) {
 	}
 	_ = loaded
 
-	hash := ComputeShareHash(nil, nil)
-	if hash == "" {
-		t.Error("ComputeShareHash returned empty")
-	}
-	if err := UpdateShareState(critPath, hash, 1); err != nil {
+	files := []ShareFile{{Path: "a.go", Content: "package a\n"}}
+	comments := []ShareComment{{ExternalID: "c1", File: "a.go", StartLine: 2, EndLine: 3, Body: "x"}}
+	if err := UpdateShareState(critPath, files, comments, 1, true); err != nil {
 		t.Fatal(err)
+	}
+	if got := readPlacementReview(t, critPath); got.LastShareHash == "" || got.SharedLines["c1"] != (session.SharedLine{StartLine: 2, EndLine: 3}) {
+		t.Errorf("share state after UpdateShareState = %q %v", got.LastShareHash, got.SharedLines)
 	}
 	if err := PersistShareState(critPath, "https://x/r/t", "del", "layer", "", "", "private"); err != nil {
 		t.Fatal(err)
@@ -46,7 +47,7 @@ func TestExportWrappers_Smoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	comments := []ShareComment{{Body: "x", File: "preview.html"}}
+	comments = []ShareComment{{Body: "x", File: "preview.html"}}
 	RemapPreviewCommentFiles(comments, "docs/preview.html")
 	if comments[0].File != "docs/preview.html" {
 		t.Errorf("remap preview file = %q, want %q", comments[0].File, "docs/preview.html")

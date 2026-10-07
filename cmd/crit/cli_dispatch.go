@@ -133,7 +133,6 @@ Options:
                           Allow non-loopback --host or --public-url
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
-      --no-wait           Save the version and exit; do not start a review
   -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "plan", handler: runPlan, help: `Usage: crit plan [--name <slug>] [options] <file>
        echo "content" | crit plan [--name <slug>] [options]

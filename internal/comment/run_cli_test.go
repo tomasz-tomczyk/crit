@@ -206,25 +206,35 @@ func TestRunComment_InvalidReviewReturnsErrors(t *testing.T) {
 	}
 }
 
-func TestRunCommentLineLevelRejectsLiveReview(t *testing.T) {
-	reviewPath := filepath.Join(t.TempDir(), ".crit")
-	if err := saveCritJSON(reviewPath, CritJSON{
-		ReviewType: "live",
-		Files:      map[string]CritJSONFile{},
-	}); err != nil {
-		t.Fatal(err)
+func TestRunCommentRejectsLiveReviewByForm(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"line", []string{"file.go:1", "body"}, "a line comment (crit comment <path>:<line> <body>) is not supported for live reviews"},
+		{"file", []string{"file.go", "body"}, "a file comment (crit comment <path> <body>) is not supported for live reviews"},
+		{"review", []string{"overall"}, "a review-level comment (crit comment <body>) is not supported for live reviews"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			seedPinReview(t, dir, CritJSON{ReviewType: "live", Files: map[string]CritJSONFile{}})
+			err := RunComment(append([]string{"--output", dir}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "--selector") {
+				t.Fatalf("error = %v, want %q and a --selector hint", err, tt.want)
+			}
+		})
+	}
+}
 
-	err := runCommentLineLevelAtPath(
-		"file.go:1",
-		[]string{"file.go:1", "body"},
-		"bot",
-		"",
-		reviewPath,
-		inheritedScope{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "not supported for live reviews") {
-		t.Fatalf("error = %v, want live review rejection", err)
+func TestRunCommentBareOnLiveReviewPrintsUsage(t *testing.T) {
+	dir := t.TempDir()
+	seedPinReview(t, dir, CritJSON{ReviewType: "live", Files: map[string]CritJSONFile{}})
+	err := RunComment([]string{"--output", dir})
+	var exitErr clicmd.ExitError
+	if !errors.As(err, &exitErr) || strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("error = %v, want usage error", err)
 	}
 }
 
@@ -293,5 +303,26 @@ func TestRunCommentJSONScoped_CountsCommentsAndReplies(t *testing.T) {
 	}
 	if len(loaded.Files["a.go"].Comments[0].Replies) != 1 {
 		t.Errorf("expected reply on c1, got %+v", loaded.Files["a.go"].Comments)
+	}
+}
+
+func TestCommentFormNames(t *testing.T) {
+	if got := commentFormFor([]string{"body"}); got != formReviewComment {
+		t.Errorf("review form = %q", got)
+	}
+	if got := commentFormFor([]string{"a.go:3-4", "body"}); got != formLineComment {
+		t.Errorf("line form = %q", got)
+	}
+	if got := commentFormFor([]string{"a.go", "body"}); got != formFileComment {
+		t.Errorf("file form = %q", got)
+	}
+	if got := bulkEntryForm(BulkCommentEntry{Body: "b"}); got != formReviewComment {
+		t.Errorf("bulk review form = %q", got)
+	}
+	if got := bulkEntryForm(BulkCommentEntry{Path: "a.go", Body: "b"}); got != formFileComment {
+		t.Errorf("bulk file form = %q", got)
+	}
+	if got := bulkEntryForm(BulkCommentEntry{File: "a.go", LineSpec: "2", Body: "b"}); got != formLineComment {
+		t.Errorf("bulk line form = %q", got)
 	}
 }

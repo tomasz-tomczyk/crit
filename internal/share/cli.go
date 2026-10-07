@@ -234,7 +234,7 @@ func handleShareAuthError(targetURL string) {
 }
 
 func runShareExisting(existingCfg session.CritJSON, critPath string, files []ShareFile, sharePaths []string, svcURL, authToken, fallbackAuthor, org, visibility string, showQR bool) error {
-	if fetched, err := FetchWebCommentsForReview(existingCfg.ShareURL, svcURL, existingCfg, authToken); err != nil {
+	if fetched, err := fetchWebCommentsForReview(existingCfg.ShareURL, svcURL, existingCfg, authToken); err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
 			handleShareAuthError(svcURL)
 			return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
@@ -268,7 +268,7 @@ func runShareExisting(existingCfg session.CritJSON, critPath string, files []Sha
 		return err
 	}
 
-	if err := UpdateShareState(critPath, ComputeShareHash(files, allComments), result.ReviewRound); err != nil {
+	if err := updateShareState(critPath, files, allComments, result.ReviewRound, result.Sent); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state: %v\n", err)
 	}
 	if existingCfg.ShareBaseURL == "" {
@@ -296,8 +296,7 @@ func runShareNew(critPath string, files []ShareFile, filePaths []string, svcURL,
 		fmt.Fprintf(os.Stderr, "Warning: could not save share state to review file: %v\n", err)
 	}
 
-	initialComments, _ := LoadCommentsForShare(critPath, filePaths, fallbackAuthor)
-	_ = UpdateShareState(critPath, ComputeShareHash(files, initialComments), res.ReviewRound)
+	_ = updateShareState(critPath, files, res.Comments, res.ReviewRound, true)
 
 	fmt.Println(res.URL)
 	printQR(res.URL, showQR)
@@ -578,7 +577,7 @@ func runFetchUnderLock(critPath string) error {
 		return proxyAuthCLIError("crit fetch")
 	}
 	authToken := target.Auth.Token
-	fetched, err := FetchWebCommentsForReview(cj.ShareURL, target.URL, cj, authToken)
+	fetched, err := fetchWebCommentsForReview(cj.ShareURL, target.URL, cj, authToken)
 	if err != nil {
 		if errors.Is(err, ErrShareUnauthorized) {
 			handleShareAuthError(target.URL)
@@ -603,10 +602,6 @@ func runFetchUnderLock(critPath string) error {
 	printFetchResult(fetched)
 	fmt.Printf("Review file: %s\n", session.ReviewPathsFor(critPath).Review)
 	return nil
-}
-
-func fetchHasUpdates(fetched fetchWebCommentsResult) bool {
-	return len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 || len(fetched.Placements) > 0
 }
 
 func printFetchResult(fetched fetchWebCommentsResult) {

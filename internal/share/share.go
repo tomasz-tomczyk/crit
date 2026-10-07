@@ -129,6 +129,7 @@ type ShareComment struct {
 	EndLine     int                `json:"end_line,omitempty"`
 	Body        string             `json:"body"`
 	Quote       string             `json:"quote,omitempty"`
+	QuoteOffset *int               `json:"quote_offset,omitempty"`
 	Author      string             `json:"author_display_name,omitempty"`
 	UserID      string             `json:"user_id,omitempty"`
 	Scope       string             `json:"scope,omitempty"`
@@ -472,16 +473,17 @@ func commentToShareComment(c session.Comment, filePath, scope, fallbackAuthor, c
 		author = fallbackAuthor
 	}
 	sc := ShareComment{
-		File:      filePath,
-		StartLine: c.StartLine,
-		EndLine:   c.EndLine,
-		Body:      session.InlineAttachmentsAsDataURIs(critPath, c.Body),
-		Quote:     c.Quote,
-		Author:    author,
-		UserID:    c.UserID,
-		Scope:     scope,
-		GitHubID:  c.GitHubID,
-		DOMAnchor: c.DOMAnchor,
+		File:        filePath,
+		StartLine:   c.StartLine,
+		EndLine:     c.EndLine,
+		Body:        session.InlineAttachmentsAsDataURIs(critPath, c.Body),
+		Quote:       c.Quote,
+		Author:      author,
+		UserID:      c.UserID,
+		Scope:       scope,
+		GitHubID:    c.GitHubID,
+		DOMAnchor:   c.DOMAnchor,
+		QuoteOffset: c.QuoteOffset,
 	}
 	if includeResolved {
 		sc.Resolved = c.Resolved
@@ -583,6 +585,7 @@ type WebComment struct {
 	AuthorIdentity    string             `json:"author_identity"`
 	UserID            string             `json:"user_id"`
 	Quote             string             `json:"quote"`
+	QuoteOffset       *int               `json:"quote_offset,omitempty"`
 	Scope             string             `json:"scope"`
 	Replies           []WebReply         `json:"replies"`
 	DOMAnchor         *session.DOMAnchor `json:"dom_anchor,omitempty"`
@@ -632,6 +635,11 @@ func fetchWebComments(shareURL string, localIDs map[string]bool, localFingerprin
 	return fetchWebCommentsFromTarget(shareURL, "", localIDs, localFingerprints, localFingerprintIDs, authToken, nil)
 }
 
+// fetchWebCommentsForReview fetches web comments for the review in cj and
+// also reports placements crit-web carried for local comments. A placement
+// is only taken for a comment still on the lines it was last shared with
+// (cj.SharedLines); a comment the local carry moved since keeps its local
+// placement.
 func fetchWebCommentsForReview(shareURL, shareBaseURL string, cj session.CritJSON, authToken string) (fetchWebCommentsResult, error) {
 	localIDs := buildLocalIDSet(cj)
 	localFingerprints, localFingerprintIDs := buildLocalFingerprintIndex(cj)
@@ -716,18 +724,37 @@ func carriedPlacement(wc WebComment, locals map[string]session.Comment) (session
 	return local, true
 }
 
+// localCommentsByID indexes the local comments that crit-web may place: those
+// still on the lines they were last shared with. Comments with no record
+// (no id, never shared, or a review shared before SharedLines existed) are
+// left out, so they keep their local placement.
 func localCommentsByID(cj session.CritJSON) map[string]session.Comment {
 	out := make(map[string]session.Comment)
+	add := func(c session.Comment) {
+		shared, ok := cj.SharedLines[c.ID]
+		if c.ID == "" || !ok || shared.StartLine != c.StartLine || shared.EndLine != c.EndLine {
+			return
+		}
+		out[c.ID] = c
+	}
 	for _, f := range cj.Files {
 		for _, c := range f.Comments {
-			if c.ID != "" {
-				out[c.ID] = c
-			}
+			add(c)
 		}
 	}
 	for _, c := range cj.ReviewComments {
-		if c.ID != "" {
-			out[c.ID] = c
+		add(c)
+	}
+	return out
+}
+
+// sharedLines records the lines each comment was sent with, keyed by the
+// local comment id (the external_id crit-web stores).
+func sharedLines(comments []ShareComment) map[string]session.SharedLine {
+	out := make(map[string]session.SharedLine, len(comments))
+	for _, c := range comments {
+		if c.ExternalID != "" {
+			out[c.ExternalID] = session.SharedLine{StartLine: c.StartLine, EndLine: c.EndLine}
 		}
 	}
 	return out
@@ -763,10 +790,13 @@ func dropDuplicateWebComment(
 }
 
 // upsertResult holds the response from an upsert (PUT) to crit-web.
+// Sent is false when the hash matched and no PUT was made, so crit-web
+// still holds the comments from the share before.
 type upsertResult struct {
 	URL         string
 	ReviewRound int
 	Changed     bool
+	Sent        bool
 }
 
 // upsertShareToWeb pushes an updated review to crit-web via PUT.
@@ -833,6 +863,7 @@ func upsertShareToWeb(cfg session.CritJSON, files []ShareFile, comments []ShareC
 		return result, err
 	}
 
+	result.Sent = true
 	result.Changed = respBody.Changed
 	result.ReviewRound = respBody.ReviewRound
 	if respBody.URL != "" {
@@ -934,6 +965,14 @@ func highestWebIndex(cj session.CritJSON) int {
 // with HeadSHA + DiffScope=layer so they pass visibleInFocus in range view.
 // See spec §E "Write path — `mergeWebComments`".
 func MergeWebComments(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply) error {
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		mergeWebCommentsInto(cj, newComments, replyUpdates)
+	})
+}
+
+// updateReviewFile loads the review file, applies mutate, stamps UpdatedAt,
+// and saves it.
+func updateReviewFile(critPath string, mutate func(*session.CritJSON)) error {
 	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
@@ -945,12 +984,17 @@ func MergeWebComments(critPath string, newComments []WebComment, replyUpdates ma
 	if cj.Files == nil {
 		cj.Files = make(map[string]session.CritJSONFile)
 	}
+	mutate(&cj)
+	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return session.SaveCritJSON(critPath, cj)
+}
 
+func mergeWebCommentsInto(cj *session.CritJSON, newComments []WebComment, replyUpdates map[string][]WebReply) {
 	// Find the highest existing web-N index so new IDs are globally unique
 	// even if earlier ones were deleted from the review file.
-	webCount := highestWebIndex(cj)
+	webCount := highestWebIndex(*cj)
 
-	scope := focus.ResolvePullScope(&cj)
+	scope := focus.ResolvePullScope(cj)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
@@ -969,6 +1013,9 @@ func MergeWebComments(critPath string, newComments []WebComment, replyUpdates ma
 			EndLine:       wc.EndLine,
 			Body:          wc.Body,
 			Quote:         wc.Quote,
+			QuoteOffset:   wc.QuoteOffset,
+			Anchor:        wc.Anchor,
+			Drifted:       wc.Drifted,
 			Author:        wc.AuthorDisplayName,
 			UserID:        wc.UserID,
 			Scope:         wc.Scope,
@@ -1005,63 +1052,52 @@ func MergeWebComments(critPath string, newComments []WebComment, replyUpdates ma
 			}
 		}
 	}
-
-	cj.UpdatedAt = now
-	return session.SaveCritJSON(critPath, cj)
 }
 
-// applyWebCommentPlacements writes line, anchor, and drifted updates for
-// comments the server carried forward. Matched by the local comment id.
-func applyWebCommentPlacements(critPath string, placements map[string]session.Comment) error {
-	if len(placements) == 0 {
-		return nil
-	}
-	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
+// applyWebCommentPlacements sets line, anchor, and drifted on the comments in
+// cj that the server carried forward. Matched by the local comment id.
+func applyWebCommentPlacements(cj *session.CritJSON, placements map[string]session.Comment) {
+	place := func(c *session.Comment) bool {
+		placed, ok := placements[c.ID]
+		if !ok {
+			return false
+		}
+		c.StartLine = placed.StartLine
+		c.EndLine = placed.EndLine
+		c.Anchor = placed.Anchor
+		c.Drifted = placed.Drifted
+		return true
 	}
 	for path, cf := range cj.Files {
 		changed := false
 		for i := range cf.Comments {
-			placed, ok := placements[cf.Comments[i].ID]
-			if !ok {
-				continue
+			if place(&cf.Comments[i]) {
+				changed = true
 			}
-			cf.Comments[i].StartLine = placed.StartLine
-			cf.Comments[i].EndLine = placed.EndLine
-			cf.Comments[i].Anchor = placed.Anchor
-			cf.Comments[i].Drifted = placed.Drifted
-			changed = true
 		}
 		if changed {
 			cj.Files[path] = cf
 		}
 	}
 	for i := range cj.ReviewComments {
-		placed, ok := placements[cj.ReviewComments[i].ID]
-		if !ok {
-			continue
-		}
-		cj.ReviewComments[i].StartLine = placed.StartLine
-		cj.ReviewComments[i].EndLine = placed.EndLine
-		cj.ReviewComments[i].Anchor = placed.Anchor
-		cj.ReviewComments[i].Drifted = placed.Drifted
+		place(&cj.ReviewComments[i])
 	}
-	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	return session.SaveCritJSON(critPath, cj)
 }
 
+// mergeFetchedComments writes new comments, reply updates and placements
+// from one fetch in a single load and save of the review file.
 func mergeFetchedComments(critPath string, fetched fetchWebCommentsResult) error {
-	if len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 {
-		if err := MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
-			return err
-		}
+	if !fetchHasUpdates(fetched) {
+		return nil
 	}
-	return applyWebCommentPlacements(critPath, fetched.Placements)
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		mergeWebCommentsInto(cj, fetched.NewComments, fetched.ReplyUpdates)
+		applyWebCommentPlacements(cj, fetched.Placements)
+	})
+}
+
+func fetchHasUpdates(fetched fetchWebCommentsResult) bool {
+	return len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 || len(fetched.Placements) > 0
 }
 
 // mergeRepliesIntoComment merges web replies into a comment, deduplicating by body.
@@ -1083,8 +1119,12 @@ func mergeRepliesIntoComment(c session.Comment, webReplies []WebReply) session.C
 	return c
 }
 
-// updateShareState writes LastShareHash and ReviewRound back to the review file.
-func updateShareState(critPath string, hash string, reviewRound int) error {
+// updateShareState writes LastShareHash and ReviewRound back to the review
+// file after a successful share. commentsSent says whether comments went to
+// crit-web in this share; only then are the shared comment lines recorded.
+// When the upsert skipped the PUT, crit-web still has the lines from the
+// share before, so the old record is kept.
+func updateShareState(critPath string, files []ShareFile, comments []ShareComment, reviewRound int, commentsSent bool) error {
 	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
 	if err != nil {
 		return err
@@ -1093,10 +1133,22 @@ func updateShareState(critPath string, hash string, reviewRound int) error {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return err
 	}
-	cj.LastShareHash = hash
+	cj.LastShareHash = computeShareHash(files, comments)
+	if commentsSent {
+		cj.SharedLines = sharedLines(comments)
+	}
 	cj.ReviewRound = reviewRound
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	return session.SaveCritJSON(critPath, cj)
+}
+
+// recordSharedLines writes only the shared comment lines, for shares whose
+// upload happened outside crit (the browser's proxy relay) or that keep the
+// rest of their share state elsewhere (the daemon's first share).
+func recordSharedLines(critPath string, lines map[string]session.SharedLine) error {
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		cj.SharedLines = lines
+	})
 }
 
 func bindShareBaseURL(critPath, baseURL string) error {
@@ -1159,6 +1211,7 @@ func clearShareState(critPath string) error {
 	cj.DeleteToken = ""
 	cj.ShareScope = ""
 	cj.LastShareHash = ""
+	cj.SharedLines = nil
 	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return session.SaveCritJSON(critPath, cj)

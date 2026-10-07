@@ -674,8 +674,8 @@ func TestUpsertShareToWeb_CallsPUTOnChange(t *testing.T) {
 	if !putCalled {
 		t.Error("expected PUT to be called")
 	}
-	if !result.Changed {
-		t.Error("expected result.Changed to be true")
+	if !result.Changed || !result.Sent {
+		t.Errorf("expected Changed and Sent to be true, got %+v", result)
 	}
 	if result.ReviewRound != 2 {
 		t.Errorf("expected ReviewRound 2, got %d", result.ReviewRound)
@@ -731,8 +731,8 @@ func TestUpsertShareToWeb_SkipsPUTWhenUnchanged(t *testing.T) {
 	if putCalled {
 		t.Error("expected PUT NOT to be called when hash unchanged")
 	}
-	if result.Changed {
-		t.Error("expected result.Changed to be false")
+	if result.Changed || result.Sent {
+		t.Errorf("expected Changed and Sent to be false, got %+v", result)
 	}
 }
 
@@ -892,7 +892,7 @@ func TestRunShareExisting_RemoteDeletedCreatesFreshShare(t *testing.T) {
 		ShareURL:    srv.URL + "/r/oldtoken",
 		DeleteToken: "old-delete-token",
 		ShareScope:  ShareScope([]string{"plan.md"}),
-		LastShareHash: ComputeShareHash(
+		LastShareHash: computeShareHash(
 			[]ShareFile{{Path: "plan.md", Content: "# Plan\n"}},
 			nil,
 		),

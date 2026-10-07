@@ -31,7 +31,7 @@ func addPinComment(critPath, selector, route, body, author, userID string) (sess
 	if err != nil {
 		return session.Comment{}, err
 	}
-	c, err := appendPin(&cj, selector, route, body, author, userID)
+	c, err := appendPin(&cj, selector, route, body, author, userID, nil)
 	if err != nil {
 		return session.Comment{}, err
 	}
@@ -43,7 +43,8 @@ func addPinComment(critPath, selector, route, body, author, userID string) (sess
 
 // appendPin adds a live-mode pin to cj. The file key is the page route, matching
 // the browser composer (POST /api/file/comments?path=<pathname>).
-func appendPin(cj *session.CritJSON, selector, route, body, author, userID string) (session.Comment, error) {
+// pages caches live page fetches across calls; nil fetches every time.
+func appendPin(cj *session.CritJSON, selector, route, body, author, userID string, pages livePageCache) (session.Comment, error) {
 	if cj.ReviewType != "live" && cj.ReviewType != "preview" {
 		return session.Comment{}, fmt.Errorf("--selector is only supported for live and preview reviews")
 	}
@@ -60,7 +61,7 @@ func appendPin(cj *session.CritJSON, selector, route, body, author, userID strin
 		Pathname:    route,
 		CSSSelector: selector,
 	}
-	if err := enrichPinAnchor(cj, anchor); err != nil {
+	if err := enrichPinAnchor(cj, anchor, pages); err != nil {
 		return session.Comment{}, err
 	}
 

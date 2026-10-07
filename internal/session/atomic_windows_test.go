@@ -31,6 +31,7 @@ func TestIsWindowsTransientIOErr(t *testing.T) {
 		{"path error syscall sharing violation", &os.PathError{Op: "open", Path: "review.json", Err: syscall.Errno(windows.ERROR_SHARING_VIOLATION)}, true},
 		{"link error syscall access denied", &os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.Errno(windows.ERROR_ACCESS_DENIED)}, true},
 		{"wrapped path error syscall sharing violation", fmt.Errorf("worker 0 read: %w", &os.PathError{Op: "open", Path: "review.json", Err: syscall.Errno(windows.ERROR_SHARING_VIOLATION)}), true},
+		{"wrapped path error path not found", fmt.Errorf("read: %w", &os.PathError{Op: "open", Path: "review.json", Err: syscall.Errno(windows.ERROR_PATH_NOT_FOUND)}), true},
 		{"other", errors.New("boom"), false},
 		{"other syscall", syscall.Errno(syscall.EINVAL), false},
 	}

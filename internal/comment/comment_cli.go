@@ -32,8 +32,9 @@ func isAbsoluteOrTraversal(p string) bool {
 
 // checkCommentCLIAllowed returns an error if the review at critPath is a
 // live or preview review. Those reviews pin DOM elements, so the file/line
-// form does not apply. --selector adds a pin instead.
-func checkCommentCLIAllowed(critPath string) error {
+// form does not apply. --selector adds a pin instead. form names the
+// comment the user tried to add (see commentFormFor).
+func checkCommentCLIAllowed(critPath, form string) error {
 	data, err := os.ReadFile(review.ReviewPathsFor(critPath).Review)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -46,9 +47,43 @@ func checkCommentCLIAllowed(critPath string) error {
 		return nil //nolint:nilerr // malformed review file: do not block CLI
 	}
 	if cj.ReviewType == "live" || cj.ReviewType == "preview" {
-		return fmt.Errorf("crit comment <path>:<line> is not supported for %s reviews; use: crit comment --selector <css> [--route <path>] <body>", cj.ReviewType)
+		return fmt.Errorf("%s is not supported for %s reviews; use: crit comment --selector <css> [--route <path>] <body>", form, cj.ReviewType)
 	}
 	return nil
+}
+
+// Comment forms named in the live/preview rejection, so the error matches
+// what the user ran.
+const (
+	formReviewComment = "a review-level comment (crit comment <body>)"
+	formFileComment   = "a file comment (crit comment <path> <body>)"
+	formLineComment   = "a line comment (crit comment <path>:<line> <body>)"
+)
+
+// commentFormFor names the comment form args would create. args has at
+// least one element.
+func commentFormFor(args []string) string {
+	if len(args) == 1 {
+		return formReviewComment
+	}
+	loc := args[0]
+	if i := strings.LastIndex(loc, ":"); i > 0 && looksLikeLineSpec(loc[i+1:]) {
+		return formLineComment
+	}
+	return formFileComment
+}
+
+// bulkEntryForm names the comment form a JSON entry without a selector would
+// create, in the same words as commentFormFor.
+func bulkEntryForm(e BulkCommentEntry) string {
+	switch {
+	case e.Line > 0 || e.LineSpec != "":
+		return formLineComment
+	case e.File != "" || e.Path != "":
+		return formFileComment
+	default:
+		return formReviewComment
+	}
 }
 
 // appendCommentScoped adds a comment to the session.CritJSON struct in memory with
@@ -333,7 +368,8 @@ func (e *BulkCommentEntry) UnmarshalJSON(data []byte) error {
 // processBulkEntry routes a single bulk comment entry to the appropriate
 // authoring helper. globalAuthor is used when an entry doesn't specify its own
 // author. scope is stamped on every authored comment (empty = today's behavior).
-func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAuthor, globalUserID string, scope session.InheritedScope) error {
+// pages caches live page fetches for pins across the bulk run.
+func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAuthor, globalUserID string, scope session.InheritedScope, pages livePageCache) error {
 	if e.Body == "" {
 		return fmt.Errorf("entry %d: body is required", i)
 	}
@@ -351,7 +387,7 @@ func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAut
 	}
 
 	if e.pinSelector() != "" || e.pinRoute() != "" || cj.ReviewType == "live" || cj.ReviewType == "preview" {
-		return processBulkPinOrDOMReview(cj, i, e, author, userID)
+		return processBulkPinOrDOMReview(cj, i, e, author, userID, pages)
 	}
 
 	if e.Scope == "review" || (e.File == "" && e.Path == "" && e.Line <= 0 && e.LineSpec == "") {
@@ -374,9 +410,9 @@ func processBulkReply(cj *session.CritJSON, i int, e BulkCommentEntry, author, u
 	return nil
 }
 
-func processBulkPinOrDOMReview(cj *session.CritJSON, i int, e BulkCommentEntry, author, userID string) error {
+func processBulkPinOrDOMReview(cj *session.CritJSON, i int, e BulkCommentEntry, author, userID string, pages livePageCache) error {
 	if e.pinSelector() == "" && e.pinRoute() == "" {
-		return fmt.Errorf("entry %d: selector is required for %s reviews (crit comment --selector <css> <body>)", i, cj.ReviewType)
+		return fmt.Errorf("entry %d: %s is not supported for %s reviews; set \"selector\" on the entry (the JSON form of --selector)", i, bulkEntryForm(e), cj.ReviewType)
 	}
 	if e.File != "" || e.Path != "" || e.Line > 0 || e.LineSpec != "" {
 		return fmt.Errorf("entry %d: selector cannot be combined with a file or line", i)
@@ -384,7 +420,7 @@ func processBulkPinOrDOMReview(cj *session.CritJSON, i int, e BulkCommentEntry, 
 	if hasQuote(e) {
 		return fmt.Errorf("entry %d: quote is not valid on a pin", i)
 	}
-	if _, err := appendPin(cj, e.pinSelector(), e.pinRoute(), e.Body, author, userID); err != nil {
+	if _, err := appendPin(cj, e.pinSelector(), e.pinRoute(), e.Body, author, userID, pages); err != nil {
 		return fmt.Errorf("entry %d: %w", i, err)
 	}
 	return nil
@@ -420,21 +456,15 @@ func processBulkFileOrLineEntry(cj *session.CritJSON, i int, e BulkCommentEntry,
 	// Normalize for cross-platform storage — see addCommentToCritJSONScoped.
 	cleaned := filepath.ToSlash(filepath.Clean(normalizedPath))
 
-	isFileLevel := e.Scope == "file" || (e.Line <= 0 && e.LineSpec == "" && e.Path != "" && e.File == "")
-	if isFileLevel && hasQuote(e) {
-		return fmt.Errorf("entry %d: quote needs a line comment", i)
-	}
-
-	if e.Scope == "file" {
+	if e.Scope == "file" || (e.Line <= 0 && e.LineSpec == "" && e.Path != "" && e.File == "") {
+		if hasQuote(e) {
+			return fmt.Errorf("entry %d: quote needs a line comment", i)
+		}
 		appendFileCommentScoped(cj, cleaned, e.Body, author, userID, scope)
 		return nil
 	}
 
 	if e.Line <= 0 && e.LineSpec == "" {
-		if e.Path != "" && e.File == "" {
-			appendFileCommentScoped(cj, cleaned, e.Body, author, userID, scope)
-			return nil
-		}
 		return fmt.Errorf("entry %d: line must be > 0", i)
 	}
 
@@ -528,8 +558,9 @@ func bulkAddCommentsToCritJSONAtPathWithRedirect(entries []BulkCommentEntry, glo
 		return err
 	}
 
+	pages := livePageCache{}
 	for i, e := range entries {
-		if err := processBulkEntry(&targetCJ, i, e, globalAuthor, globalUserID, scope); err != nil {
+		if err := processBulkEntry(&targetCJ, i, e, globalAuthor, globalUserID, scope, pages); err != nil {
 			return err
 		}
 	}

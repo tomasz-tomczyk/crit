@@ -4,6 +4,7 @@ package session
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"time"
 
@@ -68,24 +69,23 @@ func ReadFileShared(path string) ([]byte, error) {
 // isWindowsTransientIOErr reports Windows errors that can appear briefly
 // during concurrent rename/read of the same path and are worth retrying.
 func isWindowsTransientIOErr(err error) bool {
-	if os.IsNotExist(err) {
+	// errors.Is unwraps %w chains, and syscall.Errno maps
+	// ERROR_FILE_NOT_FOUND and ERROR_PATH_NOT_FOUND to fs.ErrNotExist.
+	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
-	// windows.Errno is an alias of syscall.Errno, so this matches both
-	// golang.org/x/sys/windows values and the syscall.Errno values that
-	// os.PathError and os.LinkError carry.
-	var winErrno windows.Errno
-	if errors.As(err, &winErrno) {
-		return isTransientWinErrno(winErrno)
+	// windows.Errno is an alias of syscall.Errno, the type os.PathError and
+	// os.LinkError carry.
+	var errno windows.Errno
+	if errors.As(err, &errno) {
+		return isTransientWinErrno(errno)
 	}
 	return false
 }
 
 func isTransientWinErrno(errno windows.Errno) bool {
 	switch errno {
-	case windows.ERROR_FILE_NOT_FOUND,
-		windows.ERROR_PATH_NOT_FOUND,
-		windows.ERROR_ACCESS_DENIED,
+	case windows.ERROR_ACCESS_DENIED,
 		windows.ERROR_SHARING_VIOLATION,
 		windows.ERROR_LOCK_VIOLATION:
 		return true

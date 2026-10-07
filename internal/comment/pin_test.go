@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andybalholm/cascadia"
+
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"golang.org/x/net/html"
 )
@@ -245,25 +247,6 @@ func TestRunCommentJSONSelectorOnPreview(t *testing.T) {
 	}
 }
 
-func TestLeafTagFromSelector(t *testing.T) {
-	cases := []struct {
-		sel  string
-		want string
-	}{
-		{"h1", "H1"},
-		{"button.primary", "BUTTON"},
-		{"#main > h2:nth-of-type(1)", "H2"},
-		{"body > main > h1", "H1"},
-		{"#cta", ""},
-		{".hero", ""},
-	}
-	for _, tt := range cases {
-		if got := leafTagFromSelector(tt.sel); got != tt.want {
-			t.Errorf("leafTagFromSelector(%q) = %q, want %q", tt.sel, got, tt.want)
-		}
-	}
-}
-
 func TestPreviewRouteEscapeRejected(t *testing.T) {
 	dir := t.TempDir()
 	htmlPath := filepath.Join(dir, "index.html")
@@ -290,7 +273,7 @@ func TestRunCommentJSONLineRejectedOnPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := RunComment([]string{"--json", "--file", jsonPath, "--output", dir})
-	if err == nil || !strings.Contains(err.Error(), "selector is required") {
+	if err == nil || !strings.Contains(err.Error(), "a line comment (crit comment <path>:<line> <body>) is not supported for preview reviews") || !strings.Contains(err.Error(), `"selector"`) {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -341,7 +324,7 @@ func TestAppendPinRejectsBadInput(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := appendPin(tt.cj, tt.sel, "/", tt.body, "bot", "u1")
+			_, err := appendPin(tt.cj, tt.sel, "/", tt.body, "bot", "u1", nil)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want %q", err, tt.want)
 			}
@@ -357,7 +340,7 @@ func TestAppendPinUsesCliArgsOriginAndDefaultsRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	cj := &CritJSON{ReviewType: "preview", CliArgs: []string{"preview", htmlPath}}
-	c, err := appendPin(cj, "button", "", "label", "bot", "u1")
+	c, err := appendPin(cj, "button", "", "label", "bot", "u1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +433,7 @@ func TestPinBulkEntryRejections(t *testing.T) {
 		{BulkCommentEntry{CSSSelector: "h1", Pathname: "/", Body: "  "}, "body is required"},
 	}
 	for _, tt := range cases {
-		err := processBulkEntry(cj, 0, tt.e, "bot", "u1", inheritedScope{})
+		err := processBulkEntry(cj, 0, tt.e, "bot", "u1", inheritedScope{}, nil)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("entry %+v error = %v, want %q", tt.e, err, tt.want)
 		}
@@ -479,11 +462,17 @@ func TestJSONPinUsesSelectorAliases(t *testing.T) {
 	}
 }
 
-func TestLeafTagFromSelectorEdges(t *testing.T) {
+func TestLeafTagFromSelector(t *testing.T) {
 	cases := []struct {
 		sel  string
 		want string
 	}{
+		{"h1", "H1"},
+		{"button.primary", "BUTTON"},
+		{"#main > h2:nth-of-type(1)", "H2"},
+		{"body > main > h1", "H1"},
+		{"#cta", ""},
+		{".hero", ""},
 		{"", ""},
 		{"*", ""},
 		{"::before", ""},
@@ -496,25 +485,72 @@ func TestLeafTagFromSelectorEdges(t *testing.T) {
 			t.Errorf("leafTagFromSelector(%q) = %q, want %q", tt.sel, got, tt.want)
 		}
 	}
-	if err := fillAnchorFromHTML(&DOMAnchor{CSSSelector: ">>>"}, []byte("<html></html>")); err == nil {
-		t.Fatal("expected invalid selector")
-	}
-	if err := enrichPinAnchor(&CritJSON{ReviewType: "diff"}, &DOMAnchor{CSSSelector: "h1"}); err == nil {
-		t.Fatal("expected non-pin review to be rejected")
-	}
-	live := &CritJSON{ReviewType: "live", Files: map[string]CritJSONFile{}}
-	if err := processBulkEntry(live, 0, BulkCommentEntry{Selector: "button", Route: "/dash", Body: "ok"}, "bot", "u1", inheritedScope{}); err != nil {
-		t.Fatal(err)
-	}
+}
+
+func TestFillAnchorFromHTML(t *testing.T) {
 	anchor := &DOMAnchor{CSSSelector: "p"}
-	if err := fillAnchorFromHTML(anchor, []byte(`<html><body><p>Hi<script>nope</script></p></body></html>`)); err != nil {
+	if err := fillAnchorFromHTML(anchor, mustSel(t, "p"), []byte(`<html><body><p>Hi<script>nope</script></p></body></html>`)); err != nil {
 		t.Fatal(err)
 	}
 	if anchor.AccessibleName != "Hi" {
 		t.Fatalf("name = %q", anchor.AccessibleName)
 	}
+	if err := fillAnchorFromHTML(&DOMAnchor{CSSSelector: "h2"}, mustSel(t, "h2"), []byte("<html></html>")); err == nil {
+		t.Fatal("expected not found")
+	}
+}
+
+func mustSel(t *testing.T, selector string) cascadia.Sel {
+	t.Helper()
+	sel, err := cascadia.Parse(selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sel
+}
+
+func TestEnrichPinAnchorRejectsNonPinReview(t *testing.T) {
+	if err := enrichPinAnchor(&CritJSON{ReviewType: "diff"}, &DOMAnchor{CSSSelector: "h1"}, nil); err == nil {
+		t.Fatal("expected non-pin review to be rejected")
+	}
+}
+
+func TestProcessBulkEntryLivePinWithoutPage(t *testing.T) {
+	live := &CritJSON{ReviewType: "live", Files: map[string]CritJSONFile{}}
+	if err := processBulkEntry(live, 0, BulkCommentEntry{Selector: "button", Route: "/dash", Body: "ok"}, "bot", "u1", inheritedScope{}, livePageCache{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRenderNodeErrorNode(t *testing.T) {
 	if renderNode(&html.Node{Type: html.ErrorNode}) != "" {
 		t.Fatal("error nodes should not render")
+	}
+}
+
+func TestLivePageCacheFetchesRouteOnce(t *testing.T) {
+	calls := map[string]int{}
+	old := readLivePageHTML
+	readLivePageHTML = func(origin, route string) ([]byte, error) {
+		calls[route]++
+		return []byte(`<html><body><button>Save</button><h1>T</h1></body></html>`), nil
+	}
+	t.Cleanup(func() { readLivePageHTML = old })
+
+	cj := &CritJSON{ReviewType: "live", Origin: "http://localhost:3000", Files: map[string]CritJSONFile{}}
+	pages := livePageCache{}
+	entries := []BulkCommentEntry{
+		{Selector: "button", Route: "/dash", Body: "one"},
+		{Selector: "h1", Route: "/dash", Body: "two"},
+		{Selector: "h1", Route: "/other", Body: "three"},
+	}
+	for i, e := range entries {
+		if err := processBulkEntry(cj, i, e, "bot", "u1", inheritedScope{}, pages); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls["/dash"] != 1 || calls["/other"] != 1 {
+		t.Fatalf("fetches = %v, want one per route", calls)
 	}
 }
 

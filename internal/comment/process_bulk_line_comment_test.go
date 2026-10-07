@@ -152,7 +152,7 @@ func TestProcessBulkEntryRejectsQuoteWithoutLine(t *testing.T) {
 	}
 	for i, e := range entries {
 		cj := &session.CritJSON{Files: map[string]session.CritJSONFile{}}
-		err := processBulkEntry(cj, i, e, "alice", "u1", session.InheritedScope{})
+		err := processBulkEntry(cj, i, e, "alice", "u1", session.InheritedScope{}, nil)
 		if err == nil || !strings.Contains(err.Error(), "quote needs a line comment") {
 			t.Errorf("entry %d: err = %v, want quote needs a line comment", i, err)
 		}

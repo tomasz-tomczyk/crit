@@ -332,7 +332,7 @@ func TestCommentCLIGuard_LiveReview(t *testing.T) {
 	if err := saveCritJSON(critPath, cj); err != nil {
 		t.Fatalf("saveCritJSON: %v", err)
 	}
-	err := checkCommentCLIAllowed(critPath)
+	err := checkCommentCLIAllowed(critPath, "crit comment <path>:<line>")
 	if err == nil {
 		t.Fatal("expected error for live review")
 	}
@@ -348,7 +348,7 @@ func TestCommentCLIGuard_CodeReview_Allowed(t *testing.T) {
 	if err := saveCritJSON(critPath, cj); err != nil {
 		t.Fatalf("saveCritJSON: %v", err)
 	}
-	if err := checkCommentCLIAllowed(critPath); err != nil {
+	if err := checkCommentCLIAllowed(critPath, "crit comment <path>:<line>"); err != nil {
 		t.Errorf("code review should allow crit comment: %v", err)
 	}
 }

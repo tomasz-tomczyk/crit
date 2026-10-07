@@ -107,6 +107,13 @@ type Server struct {
 	// during shutdown. The shutdown path Wait()s on this with a timeout.
 	bgWG sync.WaitGroup
 
+	// relaySharedLines holds the comment lines of the last payload built for
+	// the browser's proxy relay. The browser uploads it itself, and crit only
+	// learns of success from the POST /api/share-url that follows, which is
+	// where the lines are recorded. Guarded by relaySharedLinesMu.
+	relaySharedLines   map[string]session.SharedLine
+	relaySharedLinesMu sync.Mutex
+
 	// sessionStartedAt records when the daemon started, used by stats recording.
 	sessionStartedAt time.Time
 	// statsRecorded is set after the first stats write so shutdown doesn't
@@ -952,6 +959,9 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 		// direct POST /api/share path) so the shared status is restored on
 		// restart in proxy-auth mode too, not just direct mode.
 		s.session.Load().SetShareScope(share.ShareScope(s.session.Load().FilePathsSnapshot()))
+		if lines := s.takeRelaySharedLines(); lines != nil {
+			s.recordSharedLines(lines)
+		}
 		if s.configConfigured {
 			_ = config.MutateShareTargets(func(_ *[]config.ShareTarget) error { return nil })
 		}
@@ -961,6 +971,7 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 		})
 
 	case http.MethodDelete:
+		s.takeRelaySharedLines() // a pending relay record belongs to the share being removed
 		// Unpublish from crit-web unless the caller already deleted remotely
 		// (proxy_auth popup path passes local_only=1 after the relay DELETE).
 		localOnly := r.URL.Query().Get("local_only") == "1"
@@ -1070,6 +1081,9 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) { //nolint:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// A direct share records its own lines; drop any left from a relay upload
+	// that never confirmed, so a later POST /api/share-url can't write them.
+	s.takeRelaySharedLines()
 	// Read file content for the share. Preview sessions crawl the previewed
 	// HTML origin + assets; other sessions use the on-disk review files (kept
 	// current by review.SaveCritJSON). shareFilesForSession is the single source of
@@ -1149,6 +1163,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) { //nolint:
 	s.session.Load().SetSharedTarget(res.URL, target.URL, res.DeleteToken)
 	s.session.Load().SetShareScope(share.ShareScope(scopePaths))
 	s.session.Load().SetShareOrgInfo(shareReq.Org, shareReq.OrgName, shareReq.Visibility)
+	s.recordSharedLines(share.SharedLines(res.Comments))
 	if s.configConfigured {
 		_ = config.MutateShareTargets(func(_ *[]config.ShareTarget) error { return nil })
 	}
@@ -1301,6 +1316,7 @@ func (s *Server) handleSharePayload(w http.ResponseWriter, r *http.Request) {
 	critPath := sess.CritJSONPath()
 	comments, reviewRound := share.LoadCommentsForShare(critPath, filePaths, s.author)
 	cliArgs := share.LoadCliArgsFromReviewFile(critPath)
+	s.setRelaySharedLines(comments)
 	writeJSON(w, share.BuildSharePayload(files, comments, reviewRound, cliArgs, "", "", ""))
 }
 
@@ -1332,6 +1348,7 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 	// live-route entries, not the HTML's "code" entry), so load across all of
 	// them — not just the first. Without this, sharing via popup loses comments.
 	comments, reviewRound := share.LoadPreviewShareComments(sess.CritJSONPath(), sess.FilePathsSnapshot(), s.author, entryPath)
+	s.setRelaySharedLines(comments)
 	if reviewRound == 0 {
 		reviewRound = 1
 	}
@@ -1369,7 +1386,33 @@ func (s *Server) handleUpsertPayload(w http.ResponseWriter, r *http.Request) {
 	comments, reviewRound := share.LoadShareComments(critPath, files, sess.FilePathsSnapshot(), share.ShareFilePaths(files), s.author, reviewType)
 	cliArgs := s.shareCLIArgsForSession(sess)
 	deleteToken := sess.GetDeleteToken()
+	s.setRelaySharedLines(comments)
 	writeJSON(w, buildUpsertPayload(files, comments, deleteToken, reviewRound, cliArgs))
+}
+
+// setRelaySharedLines remembers the comment lines of a payload handed to the
+// browser's proxy relay, until POST /api/share-url confirms the upload.
+func (s *Server) setRelaySharedLines(comments []shareComment) {
+	s.relaySharedLinesMu.Lock()
+	s.relaySharedLines = share.SharedLines(comments)
+	s.relaySharedLinesMu.Unlock()
+}
+
+func (s *Server) takeRelaySharedLines() map[string]session.SharedLine {
+	s.relaySharedLinesMu.Lock()
+	defer s.relaySharedLinesMu.Unlock()
+	lines := s.relaySharedLines
+	s.relaySharedLines = nil
+	return lines
+}
+
+// recordSharedLines flushes pending session state so the review file exists
+// and holds the new share fields, then writes the shared comment lines.
+// Best effort: without a record, a later pull keeps local placements.
+func (s *Server) recordSharedLines(lines map[string]session.SharedLine) {
+	sess := s.session.Load()
+	_ = sess.SyncWriteFiles()
+	_ = share.RecordSharedLines(sess.CritJSONPath(), lines)
 }
 
 // handleSharePull fetches remote comments from crit-web (with the local bearer
@@ -1401,6 +1444,7 @@ func (s *Server) handleShareReshare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	s.takeRelaySharedLines() // see handleShare
 
 	merged, repliesUpdated := s.softPullForReshare(w)
 	if merged < 0 {
@@ -1430,7 +1474,7 @@ func (s *Server) handleShareReshare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Non-fatal if local hash/round persistence fails — remote upsert already succeeded.
-	_ = share.UpdateShareState(sess.CritJSONPath(), share.ComputeShareHash(files, comments), result.ReviewRound)
+	_ = share.UpdateShareState(sess.CritJSONPath(), files, comments, result.ReviewRound, result.Sent)
 	sess.SyncCommentsFromDisk()
 
 	writeJSON(w, map[string]any{
@@ -1531,22 +1575,20 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		return 0, 0, err
 	}
 
-	localIDs := share.BuildLocalIDSet(cj)
-	localFingerprints, localFingerprintIDs := share.BuildLocalFingerprintIndex(cj)
 	target, targetErr := s.targetForRequest("")
 	if targetErr != nil {
 		return 0, 0, targetErr
 	}
-	fetched, err := share.FetchWebCommentsFromTarget(hostedURL, target.URL, localIDs, localFingerprints, localFingerprintIDs, target.Auth.Token)
+	fetched, err := share.FetchWebCommentsForReview(hostedURL, target.URL, cj, target.Auth.Token)
 	if err != nil {
 		return 0, 0, err
 	}
-	if len(fetched.NewComments) == 0 && len(fetched.ReplyUpdates) == 0 {
+	if !share.FetchHasUpdates(fetched) {
 		sess.SyncCommentsFromDisk()
 		return 0, 0, nil
 	}
 	rekeyPulledPreviewComments(sess, fetched.NewComments)
-	if err := share.MergeWebComments(critPath, fetched.NewComments, fetched.ReplyUpdates); err != nil {
+	if err := share.MergeFetchedComments(critPath, fetched); err != nil {
 		return 0, 0, err
 	}
 	sess.SyncCommentsFromDisk()

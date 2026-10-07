@@ -279,26 +279,77 @@ func (e *roundtripEnv) postRemoteComment(path string, line int, body string) int
 	return resp.ID
 }
 
+// postRemoteReply posts a reply on GitHub. The gh call has flaked with an
+// empty body ("unexpected end of JSON input"), so it is retried. A failed
+// call may still have created the reply, so before each retry it looks the
+// reply up first instead of posting a duplicate.
 func (e *roundtripEnv) postRemoteReply(parentID int64, body string) int64 {
 	e.t.Helper()
 	payload := map[string]any{"body": body, "in_reply_to": parentID}
 	buf, _ := json.Marshal(payload)
-	cmd := exec.Command("gh", "api",
+	const attempts = 3
+	var lastErr error
+	var lastOut []byte
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(time.Duration(attempt-1) * time.Second)
+			if id := e.findRemoteReply(parentID, body); id != 0 {
+				return id
+			}
+		}
+		cmd := exec.Command("gh", "api",
+			fmt.Sprintf("repos/%s/pulls/%d/comments", e.repoSlug, e.prNumber),
+			"--method", "POST", "--input", "-")
+		cmd.Stdin = bytes.NewReader(buf)
+		cmd.Dir = e.workDir
+		out, err := cmd.CombinedOutput()
+		lastOut = out
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var resp struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(out, &resp); err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.ID != 0 {
+			return resp.ID
+		}
+		lastErr = fmt.Errorf("response has no id")
+	}
+	e.t.Fatalf("post remote reply after %d attempts: %v\n%s", attempts, lastErr, lastOut)
+	return 0
+}
+
+// findRemoteReply returns the id of the reply to parentID with this body,
+// or 0 when there is none or the lookup fails.
+func (e *roundtripEnv) findRemoteReply(parentID int64, body string) int64 {
+	cmd := exec.Command("gh", "api", "--paginate",
 		fmt.Sprintf("repos/%s/pulls/%d/comments", e.repoSlug, e.prNumber),
-		"--method", "POST", "--input", "-")
-	cmd.Stdin = bytes.NewReader(buf)
+		"--jq", ".[] | {id, in_reply_to_id, body}")
 	cmd.Dir = e.workDir
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		e.t.Fatalf("post remote reply: %v\n%s", err, out)
+		return 0
 	}
-	var resp struct {
-		ID int64 `json:"id"`
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var c struct {
+			ID          int64  `json:"id"`
+			InReplyToID int64  `json:"in_reply_to_id"`
+			Body        string `json:"body"`
+		}
+		if err := dec.Decode(&c); err != nil {
+			return 0
+		}
+		if c.InReplyToID == parentID && c.Body == body {
+			return c.ID
+		}
 	}
-	if err := json.Unmarshal(out, &resp); err != nil {
-		e.t.Fatalf("parse remote-reply response: %v\n%s", err, out)
-	}
-	return resp.ID
+	return 0
 }
 
 // --- low-level helpers ---

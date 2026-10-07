@@ -907,3 +907,130 @@ func TestRekeyPulledPreviewComments(t *testing.T) {
 		t.Errorf("non-preview session re-keyed comments: %+v", got)
 	}
 }
+
+// A pull takes crit-web's placement for a comment only when the local comment
+// is still on the lines it was last shared with; a local carry wins.
+func TestHandleSharePull_PlacementSkipsLocallyMovedComment(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		sharedLine int
+		wantLine   int
+	}{
+		{"unmoved comment takes web line", 1, 3},
+		{"locally moved comment keeps local line", 5, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode([]map[string]any{{
+					"body": "Fix this", "file_path": "plan.md", "external_id": "c1",
+					"start_line": 3, "end_line": 3, "anchor": "Plan",
+				}})
+			}))
+			defer critWeb.Close()
+
+			s, sess := newShareTestServer(t, critWeb.URL, true)
+			sess.SetSharedURLAndToken(critWeb.URL+"/r/abc123", "delete-tok")
+			cj := readShareTestReview(t, sess)
+			cj.SharedLines = map[string]session.SharedLine{"c1": {StartLine: tc.sharedLine, EndLine: tc.sharedLine}}
+			writeShareTestReview(t, sess, cj)
+
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/share/pull", nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			got := readShareTestReview(t, sess)
+			found := false
+			for _, c := range got.Files["plan.md"].Comments {
+				if c.ID == "c1" {
+					found = true
+					if c.StartLine != tc.wantLine {
+						t.Fatalf("c1 start_line = %d, want %d", c.StartLine, tc.wantLine)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("c1 missing after pull")
+			}
+		})
+	}
+}
+
+func readShareTestReview(t *testing.T, sess *Session) CritJSON {
+	t.Helper()
+	data, err := os.ReadFile(session.ReviewPathsFor(sess.CritJSONPath()).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	return cj
+}
+
+func writeShareTestReview(t *testing.T, sess *Session, cj CritJSON) {
+	t.Helper()
+	data, err := json.Marshal(cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(session.ReviewPathsFor(sess.CritJSONPath()).Review, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The browser's first share records the lines it sent, so a later pull can
+// take crit-web's placements for comments that did not move locally.
+func TestHandleShare_RecordsSharedLines(t *testing.T) {
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"url":          "https://crit.md/r/test123",
+			"delete_token": "tok_test",
+		})
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/share", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	got := readShareTestReview(t, sess)
+	if got.SharedLines["c1"] != (session.SharedLine{StartLine: 1, EndLine: 1}) {
+		t.Fatalf("shared lines = %+v", got.SharedLines)
+	}
+	if got.ShareURL != "https://crit.md/r/test123" {
+		t.Fatalf("share url = %q", got.ShareURL)
+	}
+}
+
+// In the proxy relay the browser uploads the payload itself. The lines of the
+// payload are recorded only when POST /api/share-url confirms the upload.
+func TestHandleShareURL_RecordsRelayPayloadLines(t *testing.T) {
+	s, sess := newShareTestServer(t, "https://crit.example", true)
+	sess.SetSharedURLAndToken("https://crit.example/r/abc123", "delete-tok")
+
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/share/upsert-payload", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("payload status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := readShareTestReview(t, sess); got.SharedLines != nil {
+		t.Fatalf("lines recorded before the upload was confirmed: %+v", got.SharedLines)
+	}
+
+	body := `{"url":"https://crit.example/r/abc123","target_url":"https://crit.example","delete_token":"delete-tok"}`
+	w = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/share-url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("share-url status = %d, body = %s", w.Code, w.Body.String())
+	}
+	got := readShareTestReview(t, sess)
+	if got.SharedLines["c1"] != (session.SharedLine{StartLine: 1, EndLine: 1}) {
+		t.Fatalf("shared lines = %+v", got.SharedLines)
+	}
+}

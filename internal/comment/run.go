@@ -51,12 +51,12 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 		return runSelectorComment(f)
 	}
 
-	if err := checkCommentCLIAllowed(f.reviewPath); err != nil {
-		return err
-	}
-
 	if len(f.args) < 1 {
 		return commentUsageError()
+	}
+
+	if err := checkCommentCLIAllowed(f.reviewPath, commentFormFor(f.args)); err != nil {
+		return err
 	}
 
 	if len(f.args) == 1 {
@@ -278,15 +278,7 @@ func runSelectorComment(f commentFlags) error {
 	if err != nil {
 		return err
 	}
-	route := ""
-	selector := f.selector
-	if c.DOMAnchor != nil {
-		route = c.DOMAnchor.Pathname
-		if c.DOMAnchor.CSSSelector != "" {
-			selector = c.DOMAnchor.CSSSelector
-		}
-	}
-	fmt.Printf("Added pin %s (#%d) on %s (%s)\n", c.ID, c.PinNumber, route, selector)
+	fmt.Printf("Added pin %s (#%d) on %s (%s)\n", c.ID, c.PinNumber, c.DOMAnchor.Pathname, c.DOMAnchor.CSSSelector)
 	return nil
 }
 
@@ -331,9 +323,6 @@ func runCommentLineLevelAtPath(loc string, commentArgs []string, author, userID,
 		return fmt.Errorf("invalid line spec in %q", loc)
 	}
 	body := strings.Join(commentArgs[1:], " ")
-	if guardErr := checkCommentCLIAllowed(critPath); guardErr != nil {
-		return guardErr
-	}
 	if err := addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope); err != nil {
 		return err
 	}

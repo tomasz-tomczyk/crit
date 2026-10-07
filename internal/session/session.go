@@ -554,6 +554,12 @@ type CritJSON struct {
 	CliArgs         []string                `json:"cli_args,omitempty"`
 	Files           map[string]CritJSONFile `json:"files"`
 
+	// SharedLines maps each comment id to the lines it was sent with in the
+	// last share. A pull takes crit-web's placement for a comment only when
+	// the local comment is still on those lines; if the local carry moved
+	// it since, the local placement wins.
+	SharedLines map[string]SharedLine `json:"shared_lines,omitempty"`
+
 	// CWD is the directory the daemon ran in. The session key is a hash of it,
 	// so it cannot be recovered from the key alone — `crit resume` reads it to
 	// restart a review from a different directory. Absent in reviews written
@@ -665,6 +671,12 @@ type StoryCoverage struct {
 	Missing      []string `json:"missing,omitempty"` // human "(file, oldStart)" ids
 	Duplicated   []string `json:"duplicated,omitempty"`
 	AutoRepaired bool     `json:"auto_repaired,omitempty"` // back-fill into Support triggered
+}
+
+// SharedLine is a comment's line range as sent in the last share.
+type SharedLine struct {
+	StartLine int `json:"start_line"`
+	EndLine   int `json:"end_line"`
 }
 
 // CritJSONFile is the per-file section in review files.
@@ -3018,31 +3030,23 @@ func (s *Session) GetFileDiffSnapshot(path string, ignoreWhitespace bool) (map[s
 	}
 
 	s.mu.RLock()
-	if f.FileType == "code" {
+	// Code files, and markdown in git mode, use the VCS hunks. Markdown in
+	// git mode also returns the base content so the frontend can render a
+	// Previous-vs-Current split (same renderers as files-mode round diffs).
+	// I/O happens outside the lock.
+	if f.FileType == "code" || s.Mode == "git" {
 		hunks := f.DiffHunks
 		status := f.Status
 		oldPath := f.OldPath
 		focus := s.Focus
+		withPrevious := f.FileType != "code"
 		s.mu.RUnlock()
 		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc, focus)
 		if hunks == nil {
 			hunks = []vcs.DiffHunk{}
 		}
-		return map[string]any{"hunks": hunks}, true
-	}
-
-	// Markdown in git mode: hunks plus base content so the frontend can
-	// render a Previous-vs-Current split (same renderers as files-mode
-	// round diffs). I/O happens outside the lock.
-	if s.Mode == "git" {
-		hunks := f.DiffHunks
-		status := f.Status
-		oldPath := f.OldPath
-		focus := s.Focus
-		s.mu.RUnlock()
-		hunks = whitespaceIgnoredHunks(hunks, status, oldPath, ignoreWhitespace, path, baseRef, repoRoot, vc, focus)
-		if hunks == nil {
-			hunks = []vcs.DiffHunk{}
+		if !withPrevious {
+			return map[string]any{"hunks": hunks}, true
 		}
 		prev := gitBaseContentForMarkdown(s, focus, path, oldPath, status, baseRef, repoRoot, vc)
 		return map[string]any{"hunks": hunks, "previous_content": prev}, true

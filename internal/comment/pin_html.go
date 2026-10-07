@@ -22,22 +22,45 @@ const pinOuterHTMLMax = 2048
 // tag chain the browser agent would. Tests replace it.
 var readLivePageHTML = readLivePageHTMLDefault
 
-func enrichPinAnchor(cj *session.CritJSON, anchor *session.DOMAnchor) error {
-	if _, err := cascadia.Parse(anchor.CSSSelector); err != nil {
+// livePageCache holds the live pages fetched in one CLI run, keyed by route,
+// so a bulk run with many pins on one page fetches it once. A nil cache
+// fetches every time.
+type livePageCache map[string]livePageResult
+
+type livePageResult struct {
+	data []byte
+	err  error
+}
+
+func (c livePageCache) read(origin, route string) ([]byte, error) {
+	if c == nil {
+		return readLivePageHTML(origin, route)
+	}
+	if r, ok := c[route]; ok {
+		return r.data, r.err
+	}
+	data, err := readLivePageHTML(origin, route)
+	c[route] = livePageResult{data: data, err: err}
+	return data, err
+}
+
+func enrichPinAnchor(cj *session.CritJSON, anchor *session.DOMAnchor, pages livePageCache) error {
+	sel, err := cascadia.Parse(anchor.CSSSelector)
+	if err != nil {
 		return fmt.Errorf("invalid selector %q", anchor.CSSSelector)
 	}
 	switch cj.ReviewType {
 	case "preview":
-		return enrichPreviewAnchor(cj, anchor)
+		return enrichPreviewAnchor(cj, anchor, sel)
 	case "live":
-		enrichLiveAnchor(cj, anchor)
+		enrichLiveAnchor(cj, anchor, sel, pages)
 		return nil
 	default:
 		return fmt.Errorf("--selector is only supported for live and preview reviews")
 	}
 }
 
-func enrichPreviewAnchor(cj *session.CritJSON, anchor *session.DOMAnchor) error {
+func enrichPreviewAnchor(cj *session.CritJSON, anchor *session.DOMAnchor, sel cascadia.Sel) error {
 	filePath, err := previewHTMLFile(cj, anchor.Pathname)
 	if err != nil {
 		return err
@@ -46,7 +69,7 @@ func enrichPreviewAnchor(cj *session.CritJSON, anchor *session.DOMAnchor) error 
 	if err != nil {
 		return fmt.Errorf("reading preview file: %w", err)
 	}
-	if err := fillAnchorFromHTML(anchor, data); err != nil {
+	if err := fillAnchorFromHTML(anchor, sel, data); err != nil {
 		return fmt.Errorf("selector %q not found in %s", anchor.CSSSelector, filePath)
 	}
 	return nil
@@ -57,9 +80,9 @@ func enrichPreviewAnchor(cj *session.CritJSON, anchor *session.DOMAnchor) error 
 // a pin: a tag in the selector (button#save) is enough for the browser to
 // attach it. A selector that matches nothing static and has no tag is stored
 // as-is and still shows in the comment list.
-func enrichLiveAnchor(cj *session.CritJSON, anchor *session.DOMAnchor) {
-	if data, err := readLivePageHTML(cj.Origin, anchor.Pathname); err == nil && len(data) > 0 {
-		if err := fillAnchorFromHTML(anchor, data); err == nil {
+func enrichLiveAnchor(cj *session.CritJSON, anchor *session.DOMAnchor, sel cascadia.Sel, pages livePageCache) {
+	if data, err := pages.read(cj.Origin, anchor.Pathname); err == nil && len(data) > 0 {
+		if err := fillAnchorFromHTML(anchor, sel, data); err == nil {
 			return
 		}
 	}
@@ -68,12 +91,8 @@ func enrichLiveAnchor(cj *session.CritJSON, anchor *session.DOMAnchor) {
 	}
 }
 
-func fillAnchorFromHTML(anchor *session.DOMAnchor, page []byte) error {
+func fillAnchorFromHTML(anchor *session.DOMAnchor, sel cascadia.Sel, page []byte) error {
 	doc, err := html.Parse(strings.NewReader(string(page)))
-	if err != nil {
-		return err
-	}
-	sel, err := cascadia.Parse(anchor.CSSSelector)
 	if err != nil {
 		return err
 	}
