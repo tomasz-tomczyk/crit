@@ -579,7 +579,12 @@
     const hasLazy = fileInfos.some(function(fi, i) { return !loadsEagerly(fi, i); });
 
     if (!hasLazy) {
-      return Promise.all(fileInfos.map(function(fi) { return loadSingleFile(fi, scope); }));
+      const [loaded, byPath] = await Promise.all([
+        Promise.all(fileInfos.map(function(fi) { return loadSingleFile(fi, scope); })),
+        fetchAllFileComments(),
+      ]);
+      loaded.forEach(function(f) { setCommentsFrom(f, byPath); });
+      return loaded;
     }
 
     // Split into eager and lazy batches
@@ -593,13 +598,14 @@
       }
     }
 
-    // Load eager files fully. Lazy files get their comments from one bulk
-    // request so the header count, tree badges and comments panel include
-    // them before their diffs load.
+    // Load eager files fully. Every file gets its comments from one bulk
+    // request, so lazy files' comments count in the header, tree badges and
+    // comments panel before their diffs load.
     const [eagerFiles, commentsByPath] = await Promise.all([
       Promise.all(eager.map(function(fi) { return loadSingleFile(fi, scope); })),
       fetchAllFileComments(),
     ]);
+    eagerFiles.forEach(function(f) { setCommentsFrom(f, commentsByPath); });
 
     // Create lightweight placeholders for lazy files
     const lazyFiles = lazy.map(function(fi) {
@@ -641,6 +647,14 @@
     }
   }
 
+  // Set a freshly loaded file's comments from a fetchAllFileComments result
+  // (empty when the fetch failed).
+  function setCommentsFrom(f, byPath) {
+    if (!f) return;
+    const comments = byPath && byPath[f.path];
+    f.comments = Array.isArray(comments) ? comments : [];
+  }
+
   // Set each file's comments from a fetchAllFileComments result. A null
   // result (failed fetch) leaves the current comments alone.
   function applyAllFileComments(byPath) {
@@ -651,20 +665,19 @@
     }
   }
 
-  // Load a single file's content, comments, and diff from the API.
+  // Load a single file's content and diff from the API. Comments are not
+  // loaded here: they come from the bulk /api/files/comments request
+  // (loadAllFileData), and a lazy file keeps the list it already has, so a
+  // slow load never overwrites comments added while it ran.
   async function loadSingleFile(fi, scope, signal) {
-    // Orphaned files have no content or diff — only fetch comments
+    // Orphaned files have no content or diff, only comments
     if (fi.orphaned) {
-      const comments = await fetch('/api/file/comments?path=' + enc(fi.path))
-        .then(function(r) { return r.ok ? r.json() : []; })
-        .catch(function() { return []; });
       return {
         path: fi.path,
         status: fi.status,
         fileType: fi.file_type,
         content: '',
         previousContent: '',
-        comments: Array.isArray(comments) ? comments : [],
         diffHunks: [],
         lineBlocks: null,
         previousLineBlocks: null,
@@ -690,9 +703,8 @@
     if (ignoreWhitespace && !storyNeedsRawDiff()) {
       diffUrl += '&w=1';
     }
-    const [fileRes, commentsRes, diffRes] = await Promise.all([
+    const [fileRes, diffRes] = await Promise.all([
       fetch('/api/file?path=' + enc(fi.path), { signal }).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
-      fetch('/api/file/comments?path=' + enc(fi.path), { signal }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
       fetch(diffUrl, { signal }).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
     ]);
     if (signal && signal.aborted) return null;
@@ -707,7 +719,6 @@
       fileType: fi.file_type,
       content: content,
       previousContent: diffRes.previous_content || '',
-      comments: Array.isArray(commentsRes) ? commentsRes : [],
       diffHunks: diffRes.hunks || [],
       lineBlocks: null,
       previousLineBlocks: null,
@@ -724,10 +735,12 @@
     };
 
     // Parse markdown content into line blocks. Fenced code is tokenized in
-    // Pierre's workers first, so the blocks render highlighted.
+    // Pierre's workers first, so the blocks render highlighted. Files mode
+    // needs the previous round's blocks for the round diff; git mode builds
+    // the Before blocks on first use (ensurePreviousLineBlocks).
     if (f.fileType === 'markdown') {
       const current = parseMarkdownTokens(f.content);
-      const previous = f.previousContent ? parseMarkdownTokens(f.previousContent) : null;
+      const previous = f.previousContent && session.mode !== 'git' ? parseMarkdownTokens(f.previousContent) : null;
       await window.crit.codeHighlight.prime(fencesIn(current).concat(previous ? fencesIn(previous) : []));
       const parsed = buildMarkdown(current, f.content);
       f.lineBlocks = parsed.blocks;
@@ -738,6 +751,24 @@
     }
 
     return f;
+  }
+
+  // Git mode only: can this markdown file show the Rendered (Before/After)
+  // view? Files mode has the header-level round diff instead.
+  function hasRenderedDiff(file) {
+    return session.mode === 'git' && file.fileType === 'markdown' && !!file.previousContent &&
+      !!file.diffHunks && file.diffHunks.length > 0;
+  }
+
+  // Build a markdown file's Before blocks the first time the Rendered view
+  // needs them. Most files never open it, so loading skips this work.
+  async function ensurePreviousLineBlocks(file) {
+    if (file.previousLineBlocks || !file.previousContent || file.fileType !== 'markdown') return;
+    const content = file.previousContent;
+    const previous = parseMarkdownTokens(content);
+    await window.crit.codeHighlight.prime(fencesIn(previous));
+    if (file.previousContent !== content || file.previousLineBlocks) return;
+    file.previousLineBlocks = buildMarkdown(previous, content).blocks;
   }
 
   // ===== Viewed State =====
@@ -1970,16 +2001,20 @@
   // the stub item in place once this resolves.
   const pierreLoader = window.crit.pierreRuntime.createLoader({
     getFile: getFileByPath,
+    // loadSingleFile returns no comments, so the placeholder keeps its list.
     load: function(file, signal) {
-      // A comments refresh can land while the diff is loading; keep its
-      // newer list instead of the one fetched with the diff.
-      const commentsAtStart = file.comments;
       return loadSingleFile({
         path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType,
         additions: file.additions, deletions: file.deletions, generated: file.generated,
       }, currentFileDataScope(), signal).then(function(loaded) {
-        if (loaded && file.comments !== commentsAtStart) loaded.comments = file.comments;
-        return loaded;
+        if (!loaded || file.viewMode !== 'rendered-diff') return loaded;
+        // A Rendered view restored while the file was lazy: build its
+        // Before blocks, or fall back to Document without base content.
+        if (!hasRenderedDiff(loaded)) {
+          file.viewMode = 'document';
+          return loaded;
+        }
+        return ensurePreviousLineBlocks(loaded).then(function() { return loaded; });
       });
     },
     changed: updateTreeCommentBadges,
@@ -3027,9 +3062,11 @@
     // toggle). Markdown only. Hide when diffActive is on (header-level
     // rendered diff overrides per-file toggle).
     if (file.fileType === 'markdown' && file.diffHunks && file.diffHunks.length > 0 && !diffActive) {
-      const hasRendered = !!(file.previousLineBlocks && file.previousLineBlocks.length > 0);
+      const hasRendered = hasRenderedDiff(file);
       const toggle = document.createElement('div');
       toggle.className = 'file-header-toggle';
+      toggle.setAttribute('role', 'group');
+      toggle.setAttribute('aria-label', 'View for ' + file.path);
       toggle.innerHTML =
         '<button type="button" class="toggle-btn' + (file.viewMode === 'document' ? ' active' : '') + '" data-mode="document" aria-pressed="' + (file.viewMode === 'document' ? 'true' : 'false') + '">Document</button>' +
         (hasRendered ? '<button type="button" class="toggle-btn' + (file.viewMode === 'rendered-diff' ? ' active' : '') + '" data-mode="rendered-diff" aria-pressed="' + (file.viewMode === 'rendered-diff' ? 'true' : 'false') + '">Rendered</button>' : '') +
@@ -3044,8 +3081,15 @@
           selectionStart = null;
           selectionEnd = null;
         }
-        file.viewMode = btn.dataset.mode;
-        renderFileByPath(file.path);
+        const mode = btn.dataset.mode;
+        // A later click wins even if this one is still waiting on the Before blocks.
+        const token = file._viewModeToken = (file._viewModeToken || 0) + 1;
+        const ready = mode === 'rendered-diff' ? ensurePreviousLineBlocks(file) : null;
+        Promise.resolve(ready).then(function() {
+          if (file._viewModeToken !== token) return;
+          file.viewMode = mode;
+          renderFileByPath(file.path);
+        });
       });
       header.appendChild(toggle);
 
@@ -3186,8 +3230,14 @@
     container.appendChild(rightLabel);
 
     // Two-pointer merge for horizontal alignment
-    const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
     const fileForms = getFormsForFile(file.path);
+    const placedOld = new Set();
+    function oldBlock(idx, diffClass) {
+      const frag = renderUnifiedBlock(prevBlocks[idx], diffClass, file, false, idx, null, null, fileForms);
+      frag.appendChild(oldSideBlockComments(prevBlocks[idx], oldCommentsMap, file, placedOld));
+      return frag;
+    }
     let oldIdx = 0, newIdx = 0;
 
     while (oldIdx < prevBlocks.length || newIdx < currBlocks.length) {
@@ -3202,17 +3252,17 @@
         newIdx++;
       } else if (newIdx >= currBlocks.length) {
         // New exhausted — remaining old blocks are deletions
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
+        leftCell.appendChild(oldBlock(oldIdx, 'diff-removed'));
         oldIdx++;
       } else if (prevBlocks[oldIdx].isDiff && currBlocks[newIdx].isDiff) {
         // Both changed — paired change
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
+        leftCell.appendChild(oldBlock(oldIdx, 'diff-removed'));
         rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         oldIdx++;
         newIdx++;
       } else if (prevBlocks[oldIdx].isDiff) {
         // Old removed only — spacer on right
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
+        leftCell.appendChild(oldBlock(oldIdx, 'diff-removed'));
         oldIdx++;
       } else if (currBlocks[newIdx].isDiff) {
         // New added only — spacer on left
@@ -3220,7 +3270,7 @@
         newIdx++;
       } else {
         // Both unchanged — render both, advance both
-        leftCell.appendChild(renderUnifiedBlock(prevBlocks[oldIdx], null, file, false, oldIdx, null, null, fileForms));
+        leftCell.appendChild(oldBlock(oldIdx, null));
         rightCell.appendChild(renderUnifiedBlock(currBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         oldIdx++;
         newIdx++;
@@ -3231,7 +3281,14 @@
     }
 
     attachDocGutterMouseHandler(container);
-    return container;
+    // Leftover old-side comments go above the grid: a grid child would
+    // shift the odd/even cell borders.
+    const unplaced = renderOldSideComments(file, oldCommentsMap, placedOld);
+    if (!unplaced) return container;
+    const frag = document.createDocumentFragment();
+    frag.appendChild(unplaced);
+    frag.appendChild(container);
+    return frag;
   }
 
   function buildContentClasses(block) {
@@ -3336,8 +3393,14 @@
     const oldBlocks = file.previousLineBlocks;
     const newBlocks = file.lineBlocks;
 
-    const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
     const fileForms = getFormsForFile(file.path);
+    const placedOld = new Set();
+    function oldBlock(idx) {
+      const frag = renderUnifiedBlock(oldBlocks[idx], 'diff-removed', file, false, idx, null, null, fileForms);
+      frag.appendChild(oldSideBlockComments(oldBlocks[idx], oldCommentsMap, file, placedOld));
+      return frag;
+    }
 
     // Two-pointer merge: walk both block lists simultaneously
     let oldIdx = 0;
@@ -3350,7 +3413,7 @@
         newIdx++;
       } else if (newIdx >= newBlocks.length) {
         // New exhausted — remaining old blocks are deletions
-        container.appendChild(renderUnifiedBlock(oldBlocks[oldIdx], 'diff-removed', file, false, oldIdx, null, null, fileForms));
+        container.appendChild(oldBlock(oldIdx));
         oldIdx++;
       } else if (classifyBlock(oldBlocks[oldIdx], lineSets.removed)) {
         // Collect consecutive removed blocks
@@ -3374,7 +3437,7 @@
         }
         // Emit all removed then all added
         for (let ri = 0; ri < removedRun.length; ri++) {
-          container.appendChild(renderUnifiedBlock(oldBlocks[removedRun[ri]], 'diff-removed', file, false, removedRun[ri], null, null, fileForms));
+          container.appendChild(oldBlock(removedRun[ri]));
         }
         for (let ai = 0; ai < addedRun.length; ai++) {
           container.appendChild(renderUnifiedBlock(newBlocks[addedRun[ai]], 'diff-added', file, true, addedRun[ai], commentsMap, commentRangeSet, fileForms));
@@ -3384,12 +3447,17 @@
         container.appendChild(renderUnifiedBlock(newBlocks[newIdx], 'diff-added', file, true, newIdx, commentsMap, commentRangeSet, fileForms));
         newIdx++;
       } else {
-        // Both unchanged — emit new block once (with comments), advance both
+        // Both unchanged — emit new block once (with comments), advance both.
+        // Old-side comments on the unchanged old block follow it.
         container.appendChild(renderUnifiedBlock(newBlocks[newIdx], null, file, true, newIdx, commentsMap, commentRangeSet, fileForms));
+        container.appendChild(oldSideBlockComments(oldBlocks[oldIdx], oldCommentsMap, file, placedOld));
         newIdx++;
         oldIdx++;
       }
     }
+
+    const unplaced = renderOldSideComments(file, oldCommentsMap, placedOld);
+    if (unplaced) container.insertBefore(unplaced, container.firstChild);
 
     attachDocGutterMouseHandler(container);
     return container;
@@ -3451,7 +3519,9 @@
     container.className = 'document-wrapper' + (file.fileType === 'code' ? ' code-document' : '');
     if (!file.lineBlocks) return container;
 
-    const { commentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const oldSideComments = renderOldSideComments(file, oldCommentsMap, null);
+    if (oldSideComments) container.appendChild(oldSideComments);
 
     const changeInfo = file.viewMode === 'document' ? getChangeInfo(file) : null;
     // Build a map of afterLine -> deletion marker for quick lookup
@@ -3811,19 +3881,24 @@
   // ===== Comment Helpers =====
 
   // Single-pass builder that produces all three comment index structures:
-  //   commentsMap: { end_line → [comment] }          (document view)
+  //   commentsMap: { end_line → [comment] }          (document view, new side)
+  //   oldCommentsMap: { end_line → [comment] }       (old-side comments)
   //   diffCommentsMap: { "end_line:side" → [comment] } (diff view)
   //   commentedRangeSet: Set<"line:side">              (highlight ranges)
+  // Old-side comments (left on deleted lines in the diff) use old line
+  // numbers, so they must not share a map with the current document's lines.
   function buildCommentIndices(comments) {
     const commentsMap = {};
+    const oldCommentsMap = {};
     const diffCommentsMap = {};
     const rangeSet = new Set();
     const hideResolved = isHideResolved();
     for (const c of comments) {
-      // commentsMap — keyed by end_line only
+      // commentsMap / oldCommentsMap — keyed by end_line only
       const lineKey = c.end_line;
-      if (!commentsMap[lineKey]) commentsMap[lineKey] = [];
-      commentsMap[lineKey].push(c);
+      const byLine = c.side === 'old' && c.scope !== 'file' ? oldCommentsMap : commentsMap;
+      if (!byLine[lineKey]) byLine[lineKey] = [];
+      byLine[lineKey].push(c);
       // diffCommentsMap — keyed by "end_line:side"
       const sideKey = c.end_line + ':' + (c.side || '');
       if (!diffCommentsMap[sideKey]) diffCommentsMap[sideKey] = [];
@@ -3835,7 +3910,7 @@
         for (let ln = c.start_line; ln <= c.end_line; ln++) rangeSet.add(ln + ':' + side);
       }
     }
-    return { commentsMap: commentsMap, diffCommentsMap: diffCommentsMap, rangeSet: rangeSet };
+    return { commentsMap: commentsMap, oldCommentsMap: oldCommentsMap, diffCommentsMap: diffCommentsMap, rangeSet: rangeSet };
   }
 
   function getCommentsForBlock(block, commentsMap) {
@@ -3844,6 +3919,51 @@
       if (commentsMap[ln]) result.push(...commentsMap[ln]);
     }
     return result;
+  }
+
+  function createBlockCommentElement(comment, filePath) {
+    return comment.resolved ? createResolvedElement(comment, filePath) : createCommentElement(comment, filePath);
+  }
+
+  // Old-side comment cards for one Before block of a rendered diff. Each
+  // placed comment is recorded in `placed` so the rest can be listed.
+  function oldSideBlockComments(block, oldCommentsMap, file, placed) {
+    const frag = document.createDocumentFragment();
+    const comments = getCommentsForBlock(block, oldCommentsMap);
+    for (let i = 0; i < comments.length; i++) {
+      placed.add(comments[i].id);
+      frag.appendChild(createBlockCommentElement(comments[i], file.path));
+    }
+    return frag;
+  }
+
+  // Old-side comments use old line numbers, so the current document has no
+  // line to show them on. List the ones no rendered block shows (all of
+  // them in Document view) above the document, so they stay visible and
+  // the comments panel can still jump to them.
+  function renderOldSideComments(file, oldCommentsMap, placed) {
+    const comments = [];
+    Object.keys(oldCommentsMap).forEach(function(line) {
+      oldCommentsMap[line].forEach(function(c) {
+        if (!placed || !placed.has(c.id)) comments.push(c);
+      });
+    });
+    if (comments.length === 0) return null;
+    comments.sort(function(a, b) { return a.end_line - b.end_line; });
+    const section = document.createElement('div');
+    section.className = 'outdated-diff-comments old-side-comments';
+    for (let i = 0; i < comments.length; i++) {
+      const el = createBlockCommentElement(comments[i], file.path);
+      const headerLeft = el.querySelector('.comment-header-left');
+      if (headerLeft) {
+        const badge = document.createElement('span');
+        badge.className = 'outdated-badge';
+        badge.textContent = session.mode === 'git' ? 'Before' : 'Previous round';
+        headerLeft.appendChild(badge);
+      }
+      section.appendChild(el);
+    }
+    return section;
   }
 
   // ===== Gutter Drag Selection =====
@@ -5646,9 +5766,10 @@
     section.hidden = false;
     section.innerHTML = '';
 
-    // File and plan reviews render a centered document, so center the section
-    // with it. Git mode renders file-sections full-width, so left-anchor.
-    if (session.mode === 'files' || session.mode === 'plan') {
+    // File and plan reviews (and live/preview, which use files mode) render a
+    // centered document, so center the section with it. Git mode renders
+    // file-sections full-width, so left-anchor.
+    if (session.mode !== 'git') {
       section.dataset.docLayout = 'centered';
     } else {
       delete section.dataset.docLayout;
@@ -6812,12 +6933,20 @@
           const prev = prevState[files[fi].path];
           if (prev) {
             const contentChanged = prev.fileHash && files[fi].fileHash && prev.fileHash !== files[fi].fileHash;
-            files[fi].viewMode = prev.viewMode;
+            // Rendered needs base content; a loaded file without it falls
+            // back to Document. Lazy files are checked once they load.
+            files[fi].viewMode = prev.viewMode === 'rendered-diff' && !files[fi].lazy && !hasRenderedDiff(files[fi])
+              ? 'document'
+              : prev.viewMode;
             // Lazy files must stay collapsed — they have no content to render
             if (!files[fi].lazy && !contentChanged) files[fi].collapsed = prev.collapsed;
             if (prev.viewed && !contentChanged) files[fi].viewed = true;
           }
         }
+
+        await Promise.all(files.map(function(f) {
+          return f.viewMode === 'rendered-diff' && !f.lazy ? ensurePreviousLineBlocks(f) : null;
+        }));
 
         files.sort(fileSortComparator);
 
@@ -10031,7 +10160,6 @@
       file.oldPath = loaded.oldPath;
       file.content = loaded.content;
       file.previousContent = loaded.previousContent;
-      file.comments = loaded.comments;
       file.diffHunks = loaded.diffHunks;
       file._autoExpandDone = false;
       file.lineBlocks = loaded.lineBlocks;
@@ -10043,6 +10171,9 @@
       delete file._storyLazyPromise;
       // Drop clones built against the empty lazy placeholder.
       storyExpandedFileCache.clear();
+      if (file.viewMode === 'rendered-diff') {
+        return ensurePreviousLineBlocks(file).then(function () { return file; });
+      }
       return file;
     }).catch(function (err) {
       delete file._storyLazyPromise;

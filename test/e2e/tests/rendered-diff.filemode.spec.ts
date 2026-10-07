@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection, revealFile, diffLine } from './helpers';
+import { clearAllComments, loadPage, mdSection, revealFile, diffLine, fileHeader } from './helpers';
 
 /** Get the fixture directory from the session API. */
 async function getFixtureDir(request: APIRequestContext): Promise<string> {
@@ -93,6 +93,15 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     const section = await mdSection(page);
     await expect(section.locator('.diff-view')).toBeVisible();
     await expect(section.locator('.document-wrapper')).toHaveCount(0);
+  });
+
+  test('per-file toggle has no Rendered button (the header Toggle Diff covers it)', async ({ page }) => {
+    await loadPage(page);
+    await mdSection(page);
+    const toggle = fileHeader(page, 'plan.md').locator('.file-header-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle.locator('.toggle-btn[data-mode="document"]')).toBeVisible();
+    await expect(toggle.locator('.toggle-btn[data-mode="rendered-diff"]')).toHaveCount(0);
   });
 
   test('split view has two sides with labels', async ({ page }) => {

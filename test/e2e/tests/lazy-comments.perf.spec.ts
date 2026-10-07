@@ -72,12 +72,13 @@ test('a comments refresh during lazy load is not overwritten', async ({ page, re
   const badge = page.locator(`.tree-file[data-tree-path="${TAIL_FILE}"] .tree-comment-badge`);
   await expect(badge).toHaveText('2');
 
-  // Hold the per-file comments fetch that loads with the diff.
+  // Hold the lazy file's diff load. The load fetches no comments, so the
+  // list the file already has must survive it.
   let release!: () => void;
   const held = new Promise<void>((resolve) => { release = resolve; });
   let fetchStarted!: () => void;
   const started = new Promise<void>((resolve) => { fetchStarted = resolve; });
-  await page.route(`**/api/file/comments?path=${encodeURIComponent(TAIL_FILE)}`, async (route) => {
+  await page.route(`**/api/file/diff?path=${encodeURIComponent(TAIL_FILE)}*`, async (route) => {
     const response = await route.fetch();
     fetchStarted();
     await held;
@@ -88,7 +89,7 @@ test('a comments refresh during lazy load is not overwritten', async ({ page, re
   await page.locator('.panel-comment-block .comment-card').filter({ hasText: 'Open on a lazy file' }).click();
   await started;
 
-  // Resolve the second comment while the load holds the older list.
+  // Resolve the second comment while the load is held.
   const comments = await request.get(`/api/file/comments?path=${encodeURIComponent(TAIL_FILE)}`).then((r) => r.json());
   const second = comments.find((c: { id: string }) => c.id !== first.id);
   const res = await request.put(

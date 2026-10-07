@@ -670,10 +670,7 @@ export const register: Register = (on, options) => {
 
   // ── The Client's messages, and the wheel over the pane ────────────────
 
-  on('ui.message', async ($, e, next) => {
-    if (e.requestId !== PANE) {
-      return next(e)
-    }
+  on('ui.message', { requestId: PANE }, async ($, e) => {
     await onClientMessage($, e.data)
     return {}
   })
@@ -705,7 +702,7 @@ export const register: Register = (on, options) => {
     const drafts = pending.comments.length + pending.replies.length
     const status = hasCrit ? '' : 'no crit review file: code comments stay here'
 
-    const { orphans: _orphans, ...props } = clientPropsOf({
+    const props = clientPropsOf({
       doc: (await read($, docsA))[ui.source],
       threads: threadsFor(ui.source, local, fromCrit),
       ui,

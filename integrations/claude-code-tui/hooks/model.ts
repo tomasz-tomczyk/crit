@@ -3,7 +3,7 @@ import type { SessionMessage } from 'claude-code'
 import type { ChatIndex, ClientRow, ClientThread, Doc, Reply, ReviewProps, Row, Source, Thread, UiState } from '../types'
 
 export const TOOL_PREFIX = 'mcp__crit-tui__'
-export const MAX_ROWS = 6000
+const MAX_ROWS = 6000
 const TOOL_OUTPUT_LINES = 6
 
 export const EMPTY_UI: UiState = {
@@ -26,9 +26,9 @@ export const emptyDoc = (source: Source, title: string, error?: string): Doc => 
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
 
-export const stripAnsi = (text: string) => text.replace(ANSI, '').replace(/\t/g, '  ')
+const stripAnsi = (text: string) => text.replace(ANSI, '').replace(/\t/g, '  ')
 
-export const isClaude = (author: string) => /claude/i.test(author)
+const isClaude = (author: string) => /claude/i.test(author)
 
 // ── Documents ───────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ export function parseDiff(text: string): Row[] {
 }
 
 /** One line telling what a tool call did. */
-export const REVIEW_HEAD = 'Crit review:'
+const REVIEW_HEAD = 'Crit review:'
 
 /** This mod's own tool calls, and the lookup that loads them, are left out of the chat. */
 function isCritPlumbing(tool: string, input: Record<string, unknown>): boolean {
@@ -117,7 +117,7 @@ function isCritPlumbing(tool: string, input: Record<string, unknown>): boolean {
   return tool === 'ToolSearch' && typeof input.query === 'string' && input.query.includes('crit-tui')
 }
 
-export function toolSummary(tool: string, input: Record<string, unknown>): string {
+function toolSummary(tool: string, input: Record<string, unknown>): string {
   const pick = (key: string) => (typeof input[key] === 'string' ? (input[key] as string) : '')
   const arg =
     pick('command') ||
@@ -414,11 +414,11 @@ export function feedbackOf(pending: Pending, index: ChatIndex): string {
 // ── What the pane's Client draws ────────────────────────────────────────
 
 /** Characters of rows sent to the Client at once; its props are capped near 100k. */
-export const WINDOW_CHARS = 60000
+const WINDOW_CHARS = 60000
 const ROW_CHARS = 400
 
 /** The row each thread hangs under: the last row of its range, a `+`/context line first. */
-export function anchorRowOf(rows: readonly Row[], thread: Thread): number {
+function anchorRowOf(rows: readonly Row[], thread: Thread): number {
   let fallback = -1
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]
@@ -436,7 +436,7 @@ export function anchorRowOf(rows: readonly Row[], thread: Thread): number {
 }
 
 /** The rows around `center` that fit the budget, as [from, to). */
-export function windowOf(rows: readonly Row[], center: number, budget = WINDOW_CHARS): [number, number] {
+function windowOf(rows: readonly Row[], center: number, budget = WINDOW_CHARS): [number, number] {
   const cost = (i: number) => Math.min(rows[i]?.text.length ?? 0, ROW_CHARS) + 40
   const mid = Math.min(Math.max(center, 0), Math.max(0, rows.length - 1))
   let from = mid
@@ -465,7 +465,7 @@ export function clientPropsOf(args: {
   status: string
   toSend?: number
   unread?: number
-}): ReviewProps & { orphans: number } {
+}): ReviewProps {
   const { doc, ui } = args
   const sent = new Set(args.sent)
   const seen = new Set(args.seen)
@@ -547,7 +547,6 @@ export function clientPropsOf(args: {
     threads,
     wheel: ui.wheel,
     wheelBy: ui.wheelBy,
-    orphans,
   }
 }
 

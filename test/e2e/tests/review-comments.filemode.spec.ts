@@ -23,4 +23,23 @@ test.describe('Review-level comments — File Mode', () => {
     await cards.first().locator('.delete-btn').click();
     await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(0);
   });
+
+  test('review conversation is centered over the document', async ({ page }) => {
+    const conversation = page.locator('#reviewConversation');
+    await expect(conversation).toBeVisible();
+    await expect(conversation).toHaveAttribute('data-doc-layout', 'centered');
+    // Equal space on both sides inside the parent's content box.
+    const gaps = await conversation.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      const parent = el.parentElement!;
+      const p = parent.getBoundingClientRect();
+      const cs = getComputedStyle(parent);
+      return {
+        left: r.left - (p.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth)),
+        right: (p.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth)) - r.right,
+      };
+    });
+    expect(gaps.left).toBeGreaterThan(0);
+    expect(Math.abs(gaps.left - gaps.right)).toBeLessThan(2);
+  });
 });

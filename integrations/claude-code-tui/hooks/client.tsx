@@ -166,7 +166,7 @@ const last = (props: ReviewProps) => props.rows.at(-1)?.i ?? 0
 
 const COMPOSER_MAX = 6
 
-function bodyRows(surface: ClientSurface<State>, state: State) {
+function bodyRows(surface: ClientSurface<State>) {
   return Math.max(3, surface.rows - HEADER - FOOTER)
 }
 
@@ -314,7 +314,7 @@ function onKey(event: ClientKeyEvent) {
   const surface = live.surface
   const state = live.state
   if (!surface || !state) return
-  const page = Math.max(1, Math.floor(bodyRows(surface, state) / 2))
+  const page = Math.max(1, Math.floor(bodyRows(surface) / 2))
   const next = state.mode === 'browse' ? onBrowseKey(state, event, page) : onComposeKey(state, event)
   if (next !== state) commit(next)
 }
@@ -324,7 +324,7 @@ function onPointer(event: ClientPointerEvent) {
   const state = live.state
   if (!surface || !state || state.mode !== 'browse') return
 
-  const height = bodyRows(surface, state)
+  const height = bodyRows(surface)
   let top = state.top
   if (event.type === 'move' && state.isDragging) {
     if (event.y < HEADER && top > 0) top -= 1
@@ -408,7 +408,7 @@ export default function Review(props: ReviewProps, surface: ClientSurface<State>
   }
 
   const width = Math.max(30, surface.columns || 80)
-  const height = bodyRows(surface, next)
+  const height = bodyRows(surface)
   const lines = linesOf(props, width, next)
   live.lines = lines
   next = scrolled(next, lines, height)
