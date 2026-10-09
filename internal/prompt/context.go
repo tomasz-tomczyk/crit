@@ -24,6 +24,7 @@ type Context struct {
 	CommentsJSON           string // all comments in the session
 	Approved               bool
 	InternalSessionMode    string // files | git | plan — for default action builders
+	PlanHook               string // plan_mode | codex when a plan hook waits on the review
 }
 
 // TemplateData returns a map with snake_case keys for text/template.
@@ -43,6 +44,7 @@ func (c Context) TemplateData() map[string]any {
 		"comments_json":            c.CommentsJSON,
 		"approved":                 c.Approved,
 		"internal_session_mode":    c.InternalSessionMode,
+		"plan_hook":                c.PlanHook,
 	}
 	if c.SessionStats != nil {
 		data["session_stats"] = map[string]any{

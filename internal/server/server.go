@@ -2734,6 +2734,7 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := s.session.Load()
+	planHook := planHookParam(r, sess)
 
 	// Subscribe BEFORE round-complete to avoid missing the finish event
 	// if the user clicks "Finish Review" in the brief window between
@@ -2766,6 +2767,12 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				if nextCommand == "" {
 					nextCommand = session.NextRoundCommand(sess)
 				}
+				if planHook != "" {
+					// The finish event carries the prompt for a manual
+					// `crit plan` client; a plan hook needs its own wording.
+					finishData.Prompt, finishData.PromptMeta = s.renderFinishPromptsFor(sess, finishData.Approved, finishData.Stats, planHook)
+					nextCommand = ""
+				}
 				cycleResp := map[string]any{
 					"status":       "finished",
 					"prompt":       finishData.Prompt,
@@ -2797,6 +2804,20 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusGatewayTimeout)
 			return
 		}
+	}
+}
+
+// planHookParam returns the plan hook kind a review-cycle client declared
+// (plan_mode or codex), or "" for any other client or session mode.
+func planHookParam(r *http.Request, sess *Session) string {
+	if sess.Mode != "plan" {
+		return ""
+	}
+	switch v := r.URL.Query().Get("plan_hook"); v {
+	case "plan_mode", "codex":
+		return v
+	default:
+		return ""
 	}
 }
 

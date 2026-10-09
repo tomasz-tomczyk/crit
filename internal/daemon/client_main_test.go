@@ -65,7 +65,7 @@ func TestRunReviewClientRaw_WaitsForReadiness(t *testing.T) {
 	}
 
 	entry := SessionEntry{Port: port}
-	approved, _ := RunReviewClientRaw(entry, "")
+	approved, _ := RunReviewClientRaw(entry, "", "plan_mode")
 
 	if !reviewCycleCalled.Load() {
 		t.Error("review-cycle was never called")
@@ -105,7 +105,7 @@ func TestRunReviewClientRaw_NoReadinessDelay(t *testing.T) {
 	}
 
 	start := time.Now()
-	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "")
+	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "", "plan_mode")
 	elapsed := time.Since(start)
 
 	if approved {
@@ -150,7 +150,7 @@ func TestRunReviewClientRaw_DaemonShutdownDeniesNotApproves(t *testing.T) {
 			fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
 		}
 
-		approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "")
+		approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "", "plan_mode")
 		if approved {
 			t.Fatal("expected approved=false on daemon shutdown, got true (silent auto-approve)")
 		}
@@ -193,7 +193,7 @@ func TestRunReviewClientRaw_DaemonShutdownDeniesNotApproves(t *testing.T) {
 			fmt.Sscanf(ts.URL, "http://localhost:%d", &port)
 		}
 
-		approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "")
+		approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "", "plan_mode")
 		if approved {
 			t.Fatal("expected approved=false on connection drop, got true (silent auto-approve)")
 		}
@@ -299,7 +299,7 @@ func TestRunReviewClientRaw_ReturnsInitializationError(t *testing.T) {
 
 	port := 0
 	fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
-	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "")
+	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, "", "plan_mode")
 	if approved {
 		t.Fatal("expected approved=false")
 	}
@@ -327,7 +327,7 @@ func TestRunReviewClientRaw_ReturnsPreservedDaemonFailure(t *testing.T) {
 	approved, prompt := RunReviewClientRaw(SessionEntry{
 		Port:      port,
 		StartedAt: generation,
-	}, key)
+	}, key, "plan_mode")
 	if approved {
 		t.Fatal("expected approved=false")
 	}
@@ -358,7 +358,7 @@ func TestRunReviewClientRaw_DoesNotExposeFallbackDaemonLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, key)
+	approved, prompt := RunReviewClientRaw(SessionEntry{Port: port}, key, "plan_mode")
 	if approved {
 		t.Fatal("expected approved=false")
 	}
@@ -458,5 +458,30 @@ func TestRunReviewClient_PrintsSessionSummaryWhenNotQuiet(t *testing.T) {
 	})
 	if !strings.Contains(stderr, "Session:") {
 		t.Fatalf("expected session summary, got %q", stderr)
+	}
+}
+
+func TestRunReviewClientRaw_SendsPlanHook(t *testing.T) {
+	gotPlanHook := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session":
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		case "/api/review-cycle":
+			gotPlanHook <- r.URL.Query().Get("plan_hook")
+			json.NewEncoder(w).Encode(map[string]any{"approved": true, "prompt": ""})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	port := 0
+	fmt.Sscanf(ts.URL, "http://127.0.0.1:%d", &port)
+	if approved, _ := RunReviewClientRaw(SessionEntry{Port: port}, "", "codex"); !approved {
+		t.Fatal("expected approved=true")
+	}
+	if got := <-gotPlanHook; got != "codex" {
+		t.Errorf("plan_hook = %q, want codex", got)
 	}
 }

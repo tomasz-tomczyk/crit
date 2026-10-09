@@ -289,14 +289,14 @@ func emitCodexStopDecision(approved bool, prompt string) {
 }
 
 var runCodexPlanReviewHook = func(sessionID string, content []byte) {
-	runPlanReviewHook("crit plan-hook --mode codex", sessionID, content, emitCodexStopDecision)
+	runPlanReviewHook("crit plan-hook --mode codex", "codex", sessionID, content, emitCodexStopDecision)
 }
 
 var runClaudePlanReviewHook = func(sessionID string, content []byte, emitDecision func(bool, string)) {
-	runPlanReviewHook("crit plan-hook", sessionID, content, emitDecision)
+	runPlanReviewHook("crit plan-hook", "plan_mode", sessionID, content, emitDecision)
 }
 
-func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision func(bool, string)) {
+func runPlanReviewHook(logPrefix, planHook, sessionID string, content []byte, emitDecision func(bool, string)) {
 	slug := resolveHookSlug(sessionID, content)
 
 	storageDir, err := PlanStorageDir(slug)
@@ -346,7 +346,7 @@ func runPlanReviewHook(logPrefix, sessionID string, content []byte, emitDecision
 		installDaemonSignalHandler(entry.PID)
 	}
 
-	approved, prompt := daemon.RunReviewClientRaw(entry, key)
+	approved, prompt := daemon.RunReviewClientRaw(entry, key, planHook)
 	stopDaemonOnApproval(approved, entry, key, cfg.CleanupOnApproveEnabled())
 	emitDecision(approved, prompt)
 }

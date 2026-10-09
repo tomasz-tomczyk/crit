@@ -5954,3 +5954,62 @@ func TestThemesPage_ServedWithoutSession(t *testing.T) {
 		t.Errorf("GET /themes did not serve the theme preview page")
 	}
 }
+
+// Plan reviews started by the plan hook continue when the agent submits the
+// plan again, not by running `crit plan --name`, which blocks in plan mode.
+func TestReviewCycle_PlanHookNextRound(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    string
+		wantNext string
+		want     string
+		notWant  string
+	}{
+		{"manual crit plan", "", "crit plan --name my-feature", "crit plan --name my-feature", "exit plan mode"},
+		{"plan mode hook", "?plan_hook=plan_mode", "", "exit plan mode again", "crit plan --name"},
+		{"codex hook", "?plan_hook=codex", "", "end your turn with the revised plan", "crit plan --name"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			session.Mode = "plan"
+			session.PlanDir = "/tmp/plans/my-feature"
+			session.SetAwaitingFirstReview(true)
+			session.AddComment("test.md", 1, 1, "", "expand step 2", "", "", "")
+
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				req := httptest.NewRequest("POST", "/api/review-cycle"+tc.query, nil)
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, req)
+				done <- w
+			}()
+
+			waitForSubscriberCount(t, session, 1)
+			s.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/finish", nil))
+
+			select {
+			case w := <-done:
+				var resp map[string]any
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatal(err)
+				}
+				if got, _ := resp["next_command"].(string); got != tc.wantNext {
+					t.Errorf("next_command = %q, want %q", got, tc.wantNext)
+				}
+				prompt, _ := resp["prompt"].(string)
+				if !strings.Contains(prompt, tc.want) {
+					t.Errorf("prompt missing %q:\n%s", tc.want, prompt)
+				}
+				if strings.Contains(prompt, tc.notWant) {
+					t.Errorf("prompt should not contain %q:\n%s", tc.notWant, prompt)
+				}
+				if !strings.Contains(prompt, "crit comment --plan my-feature --reply-to") {
+					t.Errorf("prompt should keep the reply instruction:\n%s", prompt)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("review-cycle did not return in time")
+			}
+		})
+	}
+}

@@ -2,7 +2,11 @@
 
 {{if .comments_unresolved_json}}{{.comments_unresolved_json}}
 
-{{end}}{{if eq .internal_session_mode "plan"}}Revise the plan to address each comment. To reply to comments, use `crit comment --plan {{.plan_slug}} --reply-to <id> --author <your-name> "<explanation>"`.{{else}}Address each comment. For each one, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> "<explanation>"`.{{end}}{{if .next_round_cmd}}
+{{end}}{{if eq .internal_session_mode "plan"}}Revise the plan to address each comment. To reply to comments, use `crit comment --plan {{.plan_slug}} --reply-to <id> --author <your-name> "<explanation>"`.{{else}}Address each comment. For each one, reply explaining what you did using `crit comment --reply-to <comment-id> --author <your-name> "<explanation>"`.{{end}}{{if eq .plan_hook "codex"}}
+
+When you're done, end your turn with the revised plan. That starts the next review round.{{else if .plan_hook}}
+
+When you're done, exit plan mode again with the revised plan. That starts the next review round.{{else if .next_round_cmd}}
 
 When you're done, run:
 
