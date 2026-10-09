@@ -52,6 +52,9 @@ All custom JS uses the IIFE + dual-export pattern:
 |--------|-----------|---------|
 | `crit-icons.js` | `window.crit.icons` | SVG icon constants (ICON_CHEVRON, ICON_EDIT, etc.) |
 | `crit-line-blocks.js` | `window.crit.lineBlocks` | buildLineBlocks (markdown → commentable line blocks) |
+| `crit-renderers.js` | `window.crit.renderers` | Pluggable renderer registry (fence + file renderers, render targets, anchorFor clicks). See `docs/renderers.md` |
+| `crit-diagram-overlay.js` | `window.crit.diagramOverlay` | Fullscreen pan/zoom view for rendered SVG output |
+| `crit-renderer-mermaid.js` | (registers `mermaid` twice) | Built-in Mermaid renderer: a fence registration for ```` ```mermaid ````, a file registration for `*.mermaid` / `*.mmd` |
 | `crit-code-highlight.js` | `window.crit.codeHighlight` | Shiki highlighting for fenced code (comments, documents) via Pierre's worker pool |
 | `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff for the rendered markdown diff (files mode rounds) |
 | `crit-pierre-adapter.js` | `window.crit.pierreAdapter` | Pure mapping: Crit hunks/comments/forms → Pierre diffs, annotations, themes |

@@ -40,8 +40,8 @@ test('renderStoryFileGroup loads lazy files instead of claiming hunks are gone',
     /file\.lazy[\s\S]{0,120}Loading diff[\s\S]{0,80}These hunks are no longer in the diff\./,
   );
   assert.match(body, /ensureStoryLazyFile\(file\)\.then/);
-  // After hydrate, refresh nav / hide-resolved / mermaid like renderStoryFileByPath.
-  assert.match(body, /replaceWith\(replacement\);\s*renderMermaidBlocks\(\);\s*rebuildNavList\(\);\s*applyHideResolved\(\);\s*renderStoryRail\(\);/s);
+  // After hydrate, refresh nav / hide-resolved / rendered blocks like renderStoryFileByPath.
+  assert.match(body, /replaceWith\(replacement\);\s*renderPluggableBlocks\(\);\s*rebuildNavList\(\);\s*applyHideResolved\(\);\s*renderStoryRail\(\);/s);
 });
 test('story FileDiffs are cleaned up before their DOM is replaced', () => {
   // FileDiff subscribes to worker theme changes until cleanUp(); dropping the

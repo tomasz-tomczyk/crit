@@ -33,7 +33,14 @@ A_SHA=$(git rev-parse HEAD)
 
 git checkout -qb feat-b
 echo "beta" > b.txt
-git add b.txt
+# A Mermaid file in the A..B layer: renderers.rangemode.spec.ts checks that
+# git mode opens it on Source and loads mermaid.min.js only for Diagram.
+cat > flow.mmd << 'MMDFILE'
+flowchart TD
+  Start[Receive request] --> Auth{Authorized?}
+  Auth -->|yes| Handle[Handle request]
+MMDFILE
+git add b.txt flow.mmd
 git commit -qm "feat B"
 B_SHA=$(git rev-parse HEAD)
 

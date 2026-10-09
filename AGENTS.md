@@ -42,7 +42,8 @@ crit/
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
-16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
+16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`). New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
+17. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
 
 <important if="you are writing a plan, design doc, or implementation proposal, or about to commit">
 Do not commit plan files to the repo — keep them as untracked local files (or in `/tmp`). This includes `*-plan.md`, `*-proposal.md`, and other AI-generated design docs. Repo history should contain implementation, not planning artifacts. Exception: test fixtures under `test/` that a test explicitly reads.

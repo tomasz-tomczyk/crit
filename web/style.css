@@ -1282,8 +1282,8 @@ body.dragging { user-select: none; cursor: grabbing; }
   font-size: 0.8rem;
 }
 
-/* ===== Mermaid Diagrams ===== */
-.line-content.mermaid-block {
+/* ===== Pluggable renderers (mermaid, user renderers) ===== */
+.line-content.render-block {
   background: var(--crit-editor-bg-card);
   border: 1px solid var(--crit-border);
   border-radius: 8px;
@@ -1291,11 +1291,29 @@ body.dragging { user-select: none; cursor: grabbing; }
   margin: 6px 0;
   text-align: center;
   min-height: 60px;
+}
+.crit-render {
   position: relative;
 }
-.mermaid svg {
+.crit-render-output svg {
   max-width: 100%;
   height: auto;
+}
+.crit-render-source {
+  text-align: left;
+}
+.crit-render-error {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--crit-red);
+  border: 1px dashed var(--crit-red);
+  border-radius: 6px;
+}
+/* Diagram parts the renderer maps to source lines take a click to comment. */
+.crit-render[data-crit-anchorable] .crit-render-output :is(g.node, g.cluster, .edgeLabel, .actor, .messageText, .statediagram-state, .classGroup) {
+  cursor: pointer;
 }
 
 /* Expand affordance on rendered diagrams. Always rendered (so keyboard
@@ -1303,11 +1321,11 @@ body.dragging { user-select: none; cursor: grabbing; }
    diagram is hovered or the button itself takes focus; touch gets an
    always-visible 44px target. Absolute positioning keeps it out of the
    document flow, so showing it never shifts diagram layout. */
-.mermaid-expand {
+.crit-render-expand {
   display: flex;
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: -8px;
+  right: -8px;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -1324,19 +1342,20 @@ body.dragging { user-select: none; cursor: grabbing; }
   pointer-events: none;
   transition: opacity var(--crit-dur-fast) var(--crit-ease);
 }
-.mermaid-expand:hover {
+.crit-render-expand:hover {
   color: var(--crit-editor-fg);
   background: var(--crit-editor-bg-hover);
 }
-.mermaid-expand:focus-visible { box-shadow: var(--crit-focus); }
-.line-content.mermaid-block:hover .mermaid-expand,
-.mermaid-expand:focus,
-.mermaid-expand:focus-visible {
+.crit-render-expand:focus-visible { box-shadow: var(--crit-focus); }
+.line-content.render-block:hover .crit-render-expand,
+.crit-render:hover .crit-render-expand,
+.crit-render-expand:focus,
+.crit-render-expand:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
 @media (pointer: coarse) {
-  .mermaid-expand {
+  .crit-render-expand {
     opacity: 1;
     pointer-events: auto;
     min-width: 44px;
@@ -1344,8 +1363,8 @@ body.dragging { user-select: none; cursor: grabbing; }
   }
 }
 
-/* ===== Mermaid fullscreen overlay (GitHub-style pan/zoom) ===== */
-.mermaid-overlay {
+/* ===== Diagram fullscreen overlay (GitHub-style pan/zoom, crit-diagram-overlay.js) ===== */
+.diagram-overlay {
   display: none;
   position: fixed;
   inset: 0;
@@ -1356,8 +1375,8 @@ body.dragging { user-select: none; cursor: grabbing; }
   flex-direction: column;
   padding: 16px;
 }
-.mermaid-overlay.active { display: flex; }
-.mermaid-overlay-toolbar {
+.diagram-overlay.active { display: flex; }
+.diagram-overlay-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1368,14 +1387,14 @@ body.dragging { user-select: none; cursor: grabbing; }
   margin-bottom: 12px;
   box-shadow: var(--crit-shadow);
 }
-.mermaid-overlay-zoom {
+.diagram-overlay-zoom {
   min-width: 52px;
   text-align: center;
   font-size: 13px;
   color: var(--crit-fg-secondary);
   font-variant-numeric: tabular-nums;
 }
-.mermaid-overlay-viewport {
+.diagram-overlay-viewport {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -1386,20 +1405,20 @@ body.dragging { user-select: none; cursor: grabbing; }
   cursor: grab;
   touch-action: none;
 }
-.mermaid-overlay-viewport.panning { cursor: grabbing; }
-.mermaid-overlay-canvas {
+.diagram-overlay-viewport.panning { cursor: grabbing; }
+.diagram-overlay-canvas {
   transform-origin: 0 0;
   will-change: transform;
   width: max-content;
 }
-.mermaid-overlay-canvas svg {
+.diagram-overlay-canvas svg {
   display: block;
   max-width: none;
   height: auto;
 }
 @media (max-width: 768px) {
-  .mermaid-overlay { padding: 8px; }
-  .mermaid-overlay-toolbar { flex-wrap: wrap; justify-content: center; }
+  .diagram-overlay { padding: 8px; }
+  .diagram-overlay-toolbar { flex-wrap: wrap; justify-content: center; }
 }
 
 /* ===== Images ===== */

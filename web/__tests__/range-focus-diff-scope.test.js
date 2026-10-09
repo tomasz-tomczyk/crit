@@ -30,8 +30,10 @@ const loadSingleFile = new Function(`
   let ignoreWhitespace = false;
   let defaultMarkdownView = '';
   const session = { mode: 'git' };
+  const window = { crit: { renderers: { forFile: function() { return null; } } } };
   function enc(value) { return value; }
   ${extractFunction('initialViewMode')}
+  ${extractFunction('fileRendererFor')}
   ${extractFunction('loadSingleFile').replace(/^function /, 'async function ')}
   return loadSingleFile;
 `)();

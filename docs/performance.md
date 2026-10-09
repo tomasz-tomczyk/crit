@@ -160,10 +160,13 @@ From external review of this branch; each needs its own PR with measurements:
    `renderFileByPath` → `refreshPierreDocument`). Highest remaining
    interaction cost for large markdown — update drag visuals without a full
    re-render, or defer non-selection work.
-2. **Mermaid on mount paths.** `renderMermaidBlocks()` runs after many
-   remounts with no budget; diagrams on large plans can dominate TBT.
-   Consider lazy-rendering mermaid (only when `code.language-mermaid`
-   exists) and a perf-E2E fixture with diagrams.
+2. **Diagrams on mount paths.** `renderPluggableBlocks()` runs after many
+   remounts. It renders only targets that are new or were rendered in
+   another theme, and `mermaid.min.js` loads only when the first diagram
+   renders, but the first render of many diagrams on a large plan can
+   dominate TBT. Consider
+   rendering targets as they scroll into view, and a perf-E2E fixture with
+   diagrams.
 3. **Session-init bench.** Myers and review JSON are benched; `NewSessionFromGit`
    / `RefreshFileList` (eager ×25 + numstat for N files, gating daemon
    readiness) is not. Needs a temp-git-repo fixture — keep it out of the

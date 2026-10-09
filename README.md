@@ -323,6 +323,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Vim keybindings.** `j`/`k` to navigate, `c` to comment, `Shift+F` to finish. `?` for the full reference.
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
+- **Diagrams and custom renderers.** Mermaid fences render as diagrams, and `.mermaid` / `.mmd` files get a Diagram / Source toggle. In a Mermaid file, click a diagram node to comment on the line that defines it. See the **[renderers guide](docs/renderers.md)**.
 - **Live file watching.** The browser reloads automatically when the source file changes.
 - **Paired UI and code themes.** Choose light and dark Shiki-based palettes in Settings; code, rendered markdown and review UI share their colours. System/Light/Dark selects the active palette. Preferences persist in a cookie across ports.
 - **Configurable code font.** Code-review Settings → Display → Code font lists coding/monospace fonts detected by the local Crit daemon, plus Default, System monospace, and a custom `font-family` fallback. Applies to code and diffs, and persists across sessions.

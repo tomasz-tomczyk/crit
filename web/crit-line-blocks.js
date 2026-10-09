@@ -1,5 +1,6 @@
 // crit-line-blocks.js — Line block building for markdown and code files.
-// Dependencies: window.crit.commentCardHelpers.escapeHtml, window.crit.codeHighlight
+// Dependencies: window.crit.commentCardHelpers.escapeHtml, window.crit.codeHighlight,
+// window.crit.renderers (optional)
 (function () {
   'use strict';
 
@@ -11,6 +12,11 @@
   // caller (codeHighlight.prime), otherwise fences render as plain text.
   function codeHighlight() {
     return (typeof window !== 'undefined' && window.crit && window.crit.codeHighlight) || null;
+  }
+
+  // Pluggable renderers (crit-renderers.js); absent → fences render as code.
+  function renderers() {
+    return (typeof window !== 'undefined' && window.crit && window.crit.renderers) || null;
   }
 
   function slugifyHeading(text) {
@@ -71,12 +77,20 @@
   function handleFenceToken(token, blocks, sourceLines, coveredUpTo, blockStart, blockEnd) {
     var lang = token.info.trim().split(/\s+/)[0] || '';
 
-    // Mermaid diagrams: render as a single block (not split per-line)
-    if (lang === 'mermaid') {
+    // Fences a pluggable renderer claims (mermaid, ...) are one block, not
+    // split per line. The source lines sit between the fence markers.
+    var rr = renderers();
+    var renderer = rr && rr.forFence(lang);
+    if (renderer) {
+      var contentLines = rr.lineCount(token.content);
       blocks.push({
         startLine: blockStart + 1, endLine: blockEnd,
-        html: '<pre><code class="language-mermaid">' + escapeHtml(token.content) + '</code></pre>',
-        isEmpty: false, cssClass: 'mermaid-block'
+        html: rr.targetHTML(renderer.name, 'fence', token.content, {
+          lang: lang,
+          startLine: contentLines ? blockStart + 2 : 0,
+          endLine: blockStart + 1 + contentLines,
+        }),
+        isEmpty: false, cssClass: 'render-block'
       });
       return addGapLineBlocks(blocks, sourceLines, blockEnd, blockEnd);
     }

@@ -58,9 +58,9 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('shows all files including directory contents in file tree', async ({ page }) => {
-    // Should have 5 files: plan.md, main.go, handler.ex, lib/utils.ex, lib/config.ex
+    // Should have 6 files: plan.md, main.go, handler.ex, flow.mmd, lib/utils.ex, lib/config.ex
     const treeFiles = page.locator('.tree-file');
-    await expect(treeFiles).toHaveCount(5);
+    await expect(treeFiles).toHaveCount(6);
   });
 
   test('file tree shows directory path for nested files', async ({ page }) => {
@@ -86,17 +86,18 @@ test.describe('Multi-File Mode — Loading', () => {
 
   test('stats show correct file count', async ({ page }) => {
     const stats = page.locator('#fileTreeStats');
-    await expect(stats).toContainText('5');
+    await expect(stats).toContainText('6');
   });
 
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
-    // Fixture passes: plan.md main.go handler.ex lib/
+    // Fixture passes: plan.md main.go handler.ex flow.mmd lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
     await expect(page.locator('.pierre-file-header').first()).toBeVisible();
     expect(await listOrder(page)).toEqual([
       'plan.md',
       'main.go',
       'handler.ex',
+      'flow.mmd',
       'lib/config.ex',
       'lib/utils.ex',
     ]);

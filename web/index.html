@@ -287,16 +287,16 @@
   </div>
 </div>
 
-<div class="mermaid-overlay" id="mermaidOverlay" role="dialog" aria-modal="true" aria-label="Diagram fullscreen view">
-  <div class="mermaid-overlay-toolbar" role="toolbar" aria-label="Diagram view controls">
-    <button class="btn btn-sm" id="mermaidZoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button>
-    <span class="mermaid-overlay-zoom" id="mermaidZoomLabel" aria-live="polite">100%</span>
-    <button class="btn btn-sm" id="mermaidZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-    <button class="btn btn-sm" id="mermaidZoomReset" aria-label="Reset view" title="Reset view">Reset</button>
-    <button class="btn btn-sm" id="mermaidOverlayClose" aria-label="Close fullscreen view" title="Close (Esc)">&times;</button>
+<div class="diagram-overlay" id="diagramOverlay" role="dialog" aria-modal="true" aria-label="Diagram fullscreen view">
+  <div class="diagram-overlay-toolbar" role="toolbar" aria-label="Diagram view controls">
+    <button class="btn btn-sm" id="diagramZoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button>
+    <span class="diagram-overlay-zoom" id="diagramZoomLabel" aria-live="polite">100%</span>
+    <button class="btn btn-sm" id="diagramZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+    <button class="btn btn-sm" id="diagramZoomReset" aria-label="Reset view" title="Reset view">Reset</button>
+    <button class="btn btn-sm" id="diagramOverlayClose" aria-label="Close fullscreen view" title="Close (Esc)">&times;</button>
   </div>
-  <div class="mermaid-overlay-viewport" id="mermaidOverlayViewport">
-    <div class="mermaid-overlay-canvas" id="mermaidOverlayCanvas"></div>
+  <div class="diagram-overlay-viewport" id="diagramOverlayViewport">
+    <div class="diagram-overlay-canvas" id="diagramOverlayCanvas"></div>
   </div>
 </div>
 
@@ -455,7 +455,6 @@
       var v1 = document.createElement('script'); v1.src = 'markdown-it.min.js'; v1.async = false; document.body.appendChild(v1);
       var dp = document.createElement('script'); dp.src = 'dompurify.min.js'; dp.async = false; document.body.appendChild(dp);
       var chm = document.createElement('script'); chm.src = 'comment-html.js'; chm.async = false; document.body.appendChild(chm);
-      var v3 = document.createElement('script'); v3.src = 'mermaid.min.js'; v3.async = false; document.body.appendChild(v3);
       var v4 = document.createElement('script'); v4.src = 'diff-match-patch.min.js'; v4.async = false; document.body.appendChild(v4);
       // Shared helpers (escapeHTML, fetchJSON, installSidebarResize, theme cookie, etc.)
       // used by app.js. Must load before app.js.
@@ -480,6 +479,11 @@
       // Shiki highlighting for fenced code (comments, documents), then line-block
       // building (buildLineBlocks). Both must load before app.js.
       var chl = document.createElement('script'); chl.src = 'crit-code-highlight.js'; chl.async = false; document.body.appendChild(chl);
+      // Pluggable renderers (registry, fullscreen overlay, built-in mermaid).
+      // Must load before crit-line-blocks.js and app.js.
+      var rg = document.createElement('script'); rg.src = 'crit-renderers.js'; rg.async = false; document.body.appendChild(rg);
+      var dov = document.createElement('script'); dov.src = 'crit-diagram-overlay.js'; dov.async = false; document.body.appendChild(dov);
+      var rm = document.createElement('script'); rm.src = 'crit-renderer-mermaid.js'; rm.async = false; document.body.appendChild(rm);
       var lb = document.createElement('script'); lb.src = 'crit-line-blocks.js'; lb.async = false; document.body.appendChild(lb);
       // Word-level diff computation (pure functions). Must load before app.js.
       var df = document.createElement('script'); df.src = 'crit-diff-renderer.js'; df.async = false; document.body.appendChild(df);

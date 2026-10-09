@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { loadPage, switchToDocumentView } from './helpers';
 
 test.describe('Page Loading', () => {
   test('page loads without errors, loading disappears, file sections appear', async ({ page }) => {
@@ -34,6 +34,19 @@ test.describe('Page Loading', () => {
   test('does not show PR toggle when no PR exists', async ({ page, request }) => {
     await loadPage(page);
     await expect(page.locator('.pr-toggle-btn')).not.toBeVisible();
+  });
+
+  // Pluggable renderers (issue #989) load their libraries on first use: a
+  // review without diagrams keeps today's page weight.
+  test('a review without diagrams never requests mermaid.min.js', async ({ page }) => {
+    const requested: string[] = [];
+    page.on('request', req => requested.push(req.url()));
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    await expect(doc.locator('.line-block').first()).toBeVisible();
+    await expect(page.locator('.crit-render')).toHaveCount(0);
+    expect(requested.some(u => u.endsWith('/app.js'))).toBe(true);
+    expect(requested.filter(u => u.includes('mermaid.min.js'))).toEqual([]);
   });
 });
 

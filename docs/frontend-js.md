@@ -13,10 +13,11 @@ items, and the scroll, focus and styling contracts that hold it together.
 | Review list (git and files mode): virtualization, sticky headers, scroll | Pierre `CodeView` in `#filesContainer` |
 | Diff/code rendering: Shiki highlighting, word diffs, split/unified, context expansion | Pierre (tokenization in its worker pool) |
 | Story chapter diffs | Pierre `FileDiff` per chapter file group (`renderPierreInlineDiff`) |
-| File header (viewed, collapse, Document/Diff toggle, badges, comment button) | Crit, in Pierre's custom header slot (`buildPierreFileHeader`) |
+| File header (viewed, collapse, Document/Diff toggle, `<label> / Source` toggle for renderer-claimed files, badges, comment button) | Crit, in Pierre's custom header slot (`buildPierreFileHeader`) |
 | Comment threads, forms, outdated block, placeholders | Crit elements as Pierre annotations |
 | Rendered markdown (Document view) | Crit's line-block document (`renderDocumentView`), hosted as an annotation |
 | Fenced code in comments and documents | Shiki via Pierre's worker pool (`crit-code-highlight.js`) |
+| Diagrams and other rendered views (` ```mermaid ` fences, `*.mmd` files in the `<label>` view) | Pluggable renderers (`crit-renderers.js`, `crit-renderer-mermaid.js`), inside Crit's line-block document; see [renderers.md](renderers.md) |
 | Keyboard (j/k, visual range, `c`), comment nav, tree jumps | Crit, calling CodeView's scroll/selection APIs |
 | Session, API, comment model, sidebar, settings, live mode | Crit |
 
@@ -32,6 +33,9 @@ There is no second diff engine and no highlight.js.
 | `web/crit-pierre-runtime.js` | Lazy file loading, request invalidation and worker-pool lifecycle. |
 | `web/crit-palette.css`, `web/pierre/palettes.js` | Semantic token mapping and generated palette foundations for every bundled theme. |
 | `web/crit-code-highlight.js` | Shiki for fenced code outside Pierre surfaces (prime/lines/upgrade). |
+| `web/crit-renderers.js` | Pluggable renderer registry: fence and file registrations, render targets (source kept as a `<pre>` fallback), theme-stamped re-render, `anchorFor` clicks. See [renderers.md](renderers.md). |
+| `web/crit-renderer-mermaid.js` | Built-in Mermaid renderer (fences, `*.mermaid` / `*.mmd`). Loads `mermaid.min.js` on the first diagram, so reviews without one never fetch it. |
+| `web/crit-diagram-overlay.js` | Fullscreen pan/zoom view for `zoomable` renderers' SVG output (Expand). |
 | `web/app.js` (Pierre section) | Lifecycle (`ensurePierreView`, `renderPierreFiles`, `refreshPierreFile`, `disposePierreView`), annotation builders, keyboard, jumps, selection, quote highlights, line tints, touch. |
 | `scripts/build-pierre.mjs` | Builds `web/pierre/` (see Bundle). |
 | `scripts/crit-theme-palette.mjs` | Theme → Crit UI palette (surfaces, accent, border, status colours). Borders are derived from the editor background, not the theme's `panel.border`. `web/__tests__/crit-theme-palette.test.js` checks every bundled theme. |
@@ -60,6 +64,7 @@ engine. No generated dependency source is rewritten. Budgets:
 | Loaded diff (git mode, files-mode round diffs) | `diff` item. The old side is rebuilt from the new content and the hunks (`reconstructOldContent`) so Pierre can expand context; if content and hunks disagree it falls back to the patch alone. |
 | Files-mode code file | `file` item with the whole file (`buildFileContents`). |
 | Markdown in Document view | Empty `file` item whose line-0 annotation is the rendered document (`kind: 'document'`). |
+| Renderer-claimed code file in its rendered view (`viewMode: 'rendered'`, e.g. `*.mmd` on Diagram) | Same document item, holding one block that spans the whole file. Source switches back to the diff (git) or code (files). |
 | Deleted/renamed with nothing to show, orphaned | Empty `file` item with a placeholder annotation. |
 | Not fetched yet (server-side lazy) | Stub `diff` item (see Loading). |
 

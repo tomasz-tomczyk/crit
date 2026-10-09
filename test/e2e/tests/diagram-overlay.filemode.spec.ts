@@ -30,13 +30,13 @@ async function syncPlanWithMermaid(
 
 async function expandButton(page: Page): Promise<Locator> {
   const section = await mdSection(page);
-  const block = section.locator('.line-content.mermaid-block').first();
+  const block = section.locator('.line-content.render-block').first();
   await expect(block).toBeVisible();
   await block.scrollIntoViewIfNeeded();
   // Desktop Expand is opacity:0 / pointer-events:none until hover or focus.
   // Pierre pauses pointer events briefly after a scroll, so a hover that
   // lands during the pause doesn't register; re-hover until it reveals.
-  const btn = block.locator('.mermaid-expand');
+  const btn = block.locator('.crit-render-expand');
   await expect(async () => {
     await block.hover();
     await expect(btn).toHaveCSS('pointer-events', 'auto', { timeout: 500 });
@@ -50,8 +50,8 @@ async function expandButton(page: Page): Promise<Locator> {
 // drops the hover that reveals the button, so hover + click as one retry.
 async function clickExpand(page: Page): Promise<Locator> {
   const btn = await expandButton(page);
-  const overlay = page.locator('#mermaidOverlay');
-  const block = page.locator('.line-content.mermaid-block').first();
+  const overlay = page.locator('#diagramOverlay');
+  const block = page.locator('.line-content.render-block').first();
   await expect(async () => {
     await block.hover();
     await expect(btn).toHaveCSS('pointer-events', 'auto', { timeout: 500 });
@@ -63,7 +63,7 @@ async function clickExpand(page: Page): Promise<Locator> {
 
 async function openOverlay(page: Page): Promise<Locator> {
   await clickExpand(page);
-  const overlay = page.locator('#mermaidOverlay');
+  const overlay = page.locator('#diagramOverlay');
   await expect(overlay).toHaveClass(/active/);
   return overlay;
 }
@@ -95,41 +95,54 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await expect(btn).toContainText('Expand');
   });
 
+  // Fence comments cover the whole fence (gutter); a node click is inert.
+  test('clicking a node in a mermaid fence does not open a comment form', async ({ page }) => {
+    await loadPage(page);
+    const section = await mdSection(page);
+    const block = section.locator('.line-content.render-block').first();
+    await expect(block.locator('.crit-render[data-crit-state="rendered"]')).toBeVisible();
+    await expect(block.locator('.crit-render')).not.toHaveAttribute('data-crit-anchorable', /.*/);
+    const node = block.locator('.crit-render-output g.node', { hasText: 'Start' });
+    await node.scrollIntoViewIfNeeded();
+    await node.click();
+    await expect(section.locator('.comment-form')).toHaveCount(0);
+  });
+
   test('Expand opens overlay with a cloned SVG', async ({ page }) => {
     await loadPage(page);
     await openOverlay(page);
 
-    const canvas = page.locator('#mermaidOverlayCanvas');
+    const canvas = page.locator('#diagramOverlayCanvas');
     await expect(canvas.locator('svg')).toHaveCount(1);
-    await expect(page.locator('#mermaidOverlayClose')).toBeFocused();
+    await expect(page.locator('#diagramOverlayClose')).toBeFocused();
   });
 
   test('zoom in/out updates label and Reset restores fit percent', async ({ page }) => {
     await loadPage(page);
     await openOverlay(page);
 
-    const label = page.locator('#mermaidZoomLabel');
+    const label = page.locator('#diagramZoomLabel');
     const fitText = await label.textContent();
     expect(fitText).toMatch(/^\d+%$/);
 
-    await page.locator('#mermaidZoomIn').click();
+    await page.locator('#diagramZoomIn').click();
     await expect(label).not.toHaveText(fitText!);
 
     const zoomedIn = await label.textContent();
-    await page.locator('#mermaidZoomOut').click();
+    await page.locator('#diagramZoomOut').click();
     await expect(label).not.toHaveText(zoomedIn!);
 
-    await page.locator('#mermaidZoomReset').click();
+    await page.locator('#diagramZoomReset').click();
     await expect(label).toHaveText(fitText!);
   });
 
   test('Esc closes overlay and returns focus to Expand', async ({ page }) => {
     await loadPage(page);
     const btn = await clickExpand(page);
-    await expect(page.locator('#mermaidOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#diagramOverlay')).toHaveClass(/active/);
 
     await page.keyboard.press('Escape');
-    await expect(page.locator('#mermaidOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
     await expect(btn).toBeFocused();
   });
 
@@ -137,8 +150,8 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await loadPage(page);
     await openOverlay(page);
 
-    await page.locator('#mermaidOverlayClose').click();
-    await expect(page.locator('#mermaidOverlay')).not.toHaveClass(/active/);
+    await page.locator('#diagramOverlayClose').click();
+    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
   });
 
   test('backdrop click dismisses overlay', async ({ page }) => {
@@ -146,8 +159,8 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await openOverlay(page);
 
     // Hit the overlay padding (16px) so target === overlay, not a child.
-    await page.locator('#mermaidOverlay').click({ position: { x: 8, y: 8 } });
-    await expect(page.locator('#mermaidOverlay')).not.toHaveClass(/active/);
+    await page.locator('#diagramOverlay').click({ position: { x: 8, y: 8 } });
+    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
   });
 
   test('theme change closes overlay', async ({ page }) => {
@@ -159,7 +172,7 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await page.evaluate(() => {
       (window as unknown as { applyTheme: (t: string) => void }).applyTheme('dark');
     });
-    await expect(page.locator('#mermaidOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
 
     await page.evaluate(() => {
       (window as unknown as { applyTheme: (t: string) => void }).applyTheme('system');
@@ -171,6 +184,6 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await openOverlay(page);
 
     await request.post('/api/round-complete');
-    await expect(page.locator('#mermaidOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
   });
 });
