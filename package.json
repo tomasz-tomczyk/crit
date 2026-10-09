@@ -2,7 +2,7 @@
   "name": "crit",
   "private": true,
   "dependencies": {
-    "@pierre/diffs": "1.5.1",
+    "@pierre/diffs": "1.5.2",
     "@sanity/diff-match-patch": "3.2.1",
     "dompurify": "3.4.15",
     "markdown-it": "15.0.2",
