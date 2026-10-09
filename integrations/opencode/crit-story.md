@@ -56,7 +56,8 @@ crit
 
 Same loop as `/crit`: read finish stdout → address comments on **source files**
 (not the story JSON) with `crit comment --reply-to` → run `crit` again for the
-next round → stop when approved.
+next round → stop when approved. Keep explanations in the Crit replies; do not
+repeat them in chat.
 
 ## Out of scope during authoring
 
