@@ -126,7 +126,7 @@ On subsequent calls, `crit` automatically signals round-complete first, then blo
 
 Run it in the background with `timeout: 86400000`, as in Step 2.
 
-Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
+Tell the user only: **"Replied in Crit. Review the changes in your browser and click Finish Review when ready."** Do not repeat your replies or list the comments in chat. The reviewer reads them in Crit.
 
 **Do NOT proceed until `crit` completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
 

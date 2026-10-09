@@ -134,6 +134,6 @@ Use the same shell strategy selected in Step 2:
 - Background-capable shell: invoke the next `crit` round with `background: true` and no `timeout`, then end the response and wait for the automatic completion notification.
 - Foreground-only shell: invoke the next `crit` round with `timeout: 86400000` and block until it completes.
 
-Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
+Tell the user only: **"Replied in Crit. Review the changes in your browser and click Finish Review when ready."** Do not repeat your replies or list the comments in chat. The reviewer reads them in Crit.
 
 **Do NOT proceed until `crit` completes.** When it does, return to Step 3. If the user finishes with zero comments, the review is approved — stop the loop and proceed.

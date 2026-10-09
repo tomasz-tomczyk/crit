@@ -147,7 +147,7 @@ The finish prompt on stdout includes the command to run again — use it to star
 
 On subsequent calls, `crit` automatically signals round-complete first, then blocks until the next "Finish Review" click.
 
-Tell the user: **"Changes applied. Review the diff in your browser and click Finish Review when ready."**
+Tell the user only: **"Replied in Crit. Review the changes in your browser and click Finish Review when ready."** Do not repeat your replies or list the comments in chat. The reviewer reads them in Crit.
 
 **Do NOT proceed until `crit` completes.** When it does, return to Step 6. If the user finishes with zero comments, the review is approved — stop the loop and proceed.
 

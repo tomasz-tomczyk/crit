@@ -78,6 +78,7 @@ and `body`. Do not use `--resolve` unless explicitly requested.
 For mid-round re-entry, use `crit comments --json`.
 
 Run the next-round command printed on stdout with the same monitor pattern.
-Tell the user changes are ready for review, await command completion, and
-repeat this step until approved. Do not call `crit push` or `crit share`
+Tell the user only that you replied in Crit and the changes are ready for
+review. Do not repeat your replies or list the comments in chat. Await
+command completion, and repeat this step until approved. Do not call `crit push` or `crit share`
 unless the user asks.

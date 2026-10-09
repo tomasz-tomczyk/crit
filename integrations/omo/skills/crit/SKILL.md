@@ -92,8 +92,9 @@ schema and session disambiguation. Plan edits reload live in the browser.
 Run the next-round command printed by Crit using the same monitor pattern.
 It signals round-complete and then waits for the next Finish Review.
 
-Tell the user: "Changes applied. Review the diff in your browser and click
-Finish Review when ready." Await command completion, then return to Step 3.
+Tell the user only: "Replied in Crit. Review the changes in your browser and
+click Finish Review when ready." Do not repeat your replies or list the
+comments in chat. The reviewer reads them in Crit. Await command completion, then return to Step 3.
 Continue until the reviewer approves.
 
 ## Sharing
