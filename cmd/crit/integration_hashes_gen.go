@@ -16,7 +16,7 @@ var integrationHashes = map[string]string{
 	"integrations/claude-code-tui/tests/model.test.ts":           "722a1e6880ffe1b8690a70fbb31e46b5b9cfb8e6e3b46b1634b4df3885e5f68d",
 	"integrations/claude-code-tui/tests/register.test.ts":        "0d2049e38c1ae0af026086ece31e1f4dbe96d671443b9d3606eb920e741afaed",
 	"integrations/claude-code-tui/types/index.d.ts":              "9d62589644f129086da9403f39e6533d4e4e30437f87cf89021c2f5eeadf82e8",
-	"integrations/claude-code/.claude-plugin/plugin.json":        "5f053bf5091fbce9ac1078cdc1b59087649819625afaf9eb08faead2d4cd8d32",
+	"integrations/claude-code/.claude-plugin/plugin.json":        "1e9eae5daf70f5e8365a21c2b710236ac65047eeda23fb159cb2b69e04466053",
 	"integrations/claude-code/hooks/hooks.json":                  "beba2c8bd252637ff31b57ed868e4d56135e1a3f429f872befbd2d34b834512b",
 	"integrations/claude-code/skills/crit-cli/SKILL.md":          "5ce67dca507ee5a9098b7735f1a87c497ec2eed24268a02df516ee3db713bf4a",
 	"integrations/claude-code/skills/crit-story/SKILL.md":        "8045c8c050aa9e42cf32477953f359022277886a67bc76ff1239f750dfff6bd5",
