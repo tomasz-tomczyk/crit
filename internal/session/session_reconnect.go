@@ -40,7 +40,11 @@ func PlanReconnectCommand(slug string) string {
 }
 
 // NextRoundCommand returns the command agents should run after addressing feedback.
+// It is empty while a plan hook waits: that agent resubmits the plan instead.
 func NextRoundCommand(sess *Session) string {
+	if sess.PlanHook() != "" {
+		return ""
+	}
 	if sess != nil && sess.Mode == "plan" {
 		if slug := filepath.Base(sess.PlanDir); slug != "" && slug != "." {
 			return PlanReconnectCommand(slug)

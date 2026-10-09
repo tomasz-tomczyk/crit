@@ -40,6 +40,7 @@ func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[stri
 		FilesWithComments:   filesWithUnresolvedComments(sess),
 		Approved:            approved,
 		InternalSessionMode: sess.Mode,
+		PlanHook:            sess.PlanHook(),
 	}
 	if sess.Mode == "plan" && sess.PlanDir != "" {
 		ctx.PlanSlug = filepath.Base(sess.PlanDir)
@@ -99,13 +100,6 @@ func filesWithUnresolvedComments(sess *Session) []string {
 }
 
 func (s *Server) renderFinishPrompts(sess *Session, approved bool, stats map[string]any) (promptStr string, meta *prompt.Meta) {
-	return s.renderFinishPromptsFor(sess, approved, stats, "")
-}
-
-// renderFinishPromptsFor renders the finish prompt for a plan hook client.
-// The hook starts the next round when the agent submits the plan again, so
-// the prompt must not tell the agent to run `crit plan --name`.
-func (s *Server) renderFinishPromptsFor(sess *Session, approved bool, stats map[string]any, planHook string) (promptStr string, meta *prompt.Meta) {
 	globalPrompts, projectPrompts := config.LoadPromptMaps(s.projectDir)
 	_, projectHooks := config.LoadHookMaps(s.projectDir)
 	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
@@ -113,10 +107,6 @@ func (s *Server) renderFinishPromptsFor(sess *Session, approved bool, stats map[
 		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
 	}
 	ctx := s.buildPromptContext(sess, approved, stats)
-	if planHook != "" {
-		ctx.PlanHook = planHook
-		ctx.NextRoundCmd = ""
-	}
 	result := prompt.RenderFinish(globalPrompts, projectPrompts, s.projectDir, s.homeDir, trust.UseProject, ctx)
 	return result.Prompt, result.Meta
 }

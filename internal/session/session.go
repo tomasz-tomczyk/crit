@@ -510,6 +510,7 @@ type Session struct {
 	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
 	awaitingFirstReview bool      // true until first review-cycle completes
 	waitingForAgent     bool      // true between finish (with unresolved comments) and round-complete
+	planHook            string    // plan_mode | codex while a plan hook waits on review-cycle
 	browserClients      int32     // number of connected SSE browser clients (atomic)
 
 	// Focus is the discriminator that selects what the session is showing.
@@ -2278,6 +2279,23 @@ func (s *Session) SetAwaitingFirstReview(v bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.awaitingFirstReview = v
+}
+
+// SetPlanHook records the kind of plan hook waiting on the review ("" when none).
+func (s *Session) SetPlanHook(v string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.planHook = v
+}
+
+// PlanHook returns the kind of plan hook waiting on the review, or "".
+func (s *Session) PlanHook() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.planHook
 }
 
 // setWaitingForAgent marks whether the session is in the "waiting for agent edits" phase.

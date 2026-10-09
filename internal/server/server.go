@@ -2734,7 +2734,13 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := s.session.Load()
-	planHook := planHookParam(r, sess)
+	// A plan hook starts the next round when the agent submits the plan
+	// again. While it waits, the finish prompt says that instead of
+	// `crit plan --name`.
+	if planHook := planHookParam(r, sess); planHook != "" {
+		sess.SetPlanHook(planHook)
+		defer sess.SetPlanHook("")
+	}
 
 	// Subscribe BEFORE round-complete to avoid missing the finish event
 	// if the user clicks "Finish Review" in the brief window between
@@ -2766,12 +2772,6 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 				nextCommand := finishData.NextCommand
 				if nextCommand == "" {
 					nextCommand = session.NextRoundCommand(sess)
-				}
-				if planHook != "" {
-					// The finish event carries the prompt for a manual
-					// `crit plan` client; a plan hook needs its own wording.
-					finishData.Prompt, finishData.PromptMeta = s.renderFinishPromptsFor(sess, finishData.Approved, finishData.Stats, planHook)
-					nextCommand = ""
 				}
 				cycleResp := map[string]any{
 					"status":       "finished",

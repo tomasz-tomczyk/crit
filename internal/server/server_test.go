@@ -5986,29 +5986,63 @@ func TestReviewCycle_PlanHookNextRound(t *testing.T) {
 			}()
 
 			waitForSubscriberCount(t, session, 1)
-			s.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/finish", nil))
+			finish := httptest.NewRecorder()
+			s.ServeHTTP(finish, httptest.NewRequest("POST", "/api/finish", nil))
 
-			select {
-			case w := <-done:
+			check := func(who string, body []byte) {
+				t.Helper()
 				var resp map[string]any
-				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				if err := json.Unmarshal(body, &resp); err != nil {
 					t.Fatal(err)
 				}
 				if got, _ := resp["next_command"].(string); got != tc.wantNext {
-					t.Errorf("next_command = %q, want %q", got, tc.wantNext)
+					t.Errorf("%s next_command = %q, want %q", who, got, tc.wantNext)
 				}
 				prompt, _ := resp["prompt"].(string)
 				if !strings.Contains(prompt, tc.want) {
-					t.Errorf("prompt missing %q:\n%s", tc.want, prompt)
+					t.Errorf("%s prompt missing %q:\n%s", who, tc.want, prompt)
 				}
 				if strings.Contains(prompt, tc.notWant) {
-					t.Errorf("prompt should not contain %q:\n%s", tc.notWant, prompt)
+					t.Errorf("%s prompt should not contain %q:\n%s", who, tc.notWant, prompt)
 				}
 				if !strings.Contains(prompt, "crit comment --plan my-feature --reply-to") {
-					t.Errorf("prompt should keep the reply instruction:\n%s", prompt)
+					t.Errorf("%s prompt should keep the reply instruction:\n%s", who, prompt)
 				}
+			}
+			// The browser shows the same prompt the waiting agent gets.
+			check("finish", finish.Body.Bytes())
+
+			select {
+			case w := <-done:
+				check("review-cycle", w.Body.Bytes())
 			case <-time.After(2 * time.Second):
 				t.Fatal("review-cycle did not return in time")
+			}
+			if got := session.PlanHook(); got != "" {
+				t.Errorf("PlanHook() = %q after review-cycle returned, want empty", got)
+			}
+		})
+	}
+}
+
+func TestPlanHookParam(t *testing.T) {
+	tests := []struct {
+		name  string
+		mode  string
+		query string
+		want  string
+	}{
+		{"plan mode hook", "plan", "?plan_hook=plan_mode", "plan_mode"},
+		{"codex hook", "plan", "?plan_hook=codex", "codex"},
+		{"no param", "plan", "", ""},
+		{"unknown value", "plan", "?plan_hook=gemini", ""},
+		{"not a plan session", "files", "?plan_hook=plan_mode", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/api/review-cycle"+tc.query, nil)
+			if got := planHookParam(r, &Session{Mode: tc.mode}); got != tc.want {
+				t.Errorf("planHookParam = %q, want %q", got, tc.want)
 			}
 		})
 	}

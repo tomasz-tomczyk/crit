@@ -610,6 +610,10 @@ func TestNextRoundCommand(t *testing.T) {
 	if got := NextRoundCommand(planNoSlug); got != "crit --session abc123def456" {
 		t.Errorf("plan without slug NextRoundCommand() = %q", got)
 	}
+	plan.SetPlanHook("plan_mode")
+	if got := NextRoundCommand(plan); got != "" {
+		t.Errorf("plan with waiting hook NextRoundCommand() = %q, want empty", got)
+	}
 }
 
 func TestValidSessionKey(t *testing.T) {

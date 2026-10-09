@@ -243,10 +243,14 @@ func TestEnvMapAndJSONPayload(t *testing.T) {
 		TotalCount:        5,
 		Approved:          false,
 		FilesWithComments: []string{"a.go", "b.go"},
+		PlanHook:          "codex",
 	}
 	env := hooks.EnvMap(ctx)
 	if env["CRIT_REVIEW_PATH"] != "/tmp/r.json" || env["CRIT_UNRESOLVED_COUNT"] != "3" || env["CRIT_APPROVED"] != "false" {
 		t.Fatalf("env = %+v", env)
+	}
+	if env["CRIT_PLAN_HOOK"] != "codex" {
+		t.Fatalf("CRIT_PLAN_HOOK = %q", env["CRIT_PLAN_HOOK"])
 	}
 	if env["CRIT_FILES_WITH_COMMENTS"] != "a.go\nb.go" {
 		t.Fatalf("files env = %q", env["CRIT_FILES_WITH_COMMENTS"])
@@ -254,6 +258,9 @@ func TestEnvMapAndJSONPayload(t *testing.T) {
 	payload := string(hooks.JSONPayload(ctx))
 	if !strings.Contains(payload, `"unresolved_count": 3`) {
 		t.Fatalf("payload missing unresolved_count: %s", payload)
+	}
+	if !strings.Contains(payload, `"plan_hook": "codex"`) {
+		t.Fatalf("payload missing plan_hook: %s", payload)
 	}
 	if !strings.Contains(payload, `"files_with_comments"`) || !strings.Contains(payload, `"a.go"`) || !strings.Contains(payload, `"b.go"`) {
 		t.Fatalf("payload missing files_with_comments: %s", payload)

@@ -117,7 +117,8 @@ All `CRIT_*` env vars are strings (shell env vars can only carry strings). Numer
 | `CRIT_INTERNAL_SESSION_MODE` | `files`, `git`, or `plan` |
 | `CRIT_COMMENTS_CMD` | `crit comments --json '<review>'` - retrieve unresolved comments |
 | `CRIT_COMMENTS_ALL_CMD` | `crit comments --json --all '<review>'` - all comments |
-| `CRIT_NEXT_ROUND_CMD` | Command to start the next round |
+| `CRIT_NEXT_ROUND_CMD` | Command to start the next round. Empty when a plan hook started the round |
+| `CRIT_PLAN_HOOK` | `plan_mode` or `codex` when a plan hook is waiting on the review, otherwise empty |
 | `CRIT_COMMENTS_UNRESOLVED_JSON` | Unresolved comment threads as a JSON array |
 | `CRIT_COMMENTS_JSON` | All comments in the session as a JSON array |
 | `CRIT_SESSION_DURATION_SECONDS` | Session duration (when stats available) |
