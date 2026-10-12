@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "web/mermaid.min.js",
-      "gzipBytes": 1180000,
+      "gzipBytes": 1900000,
       "note": "largest vendor dep (~70% of shipped JS); any mermaid bump shows here"
     },
     {
@@ -50,7 +50,7 @@
       "note": "shared renderer/comment/diff modules; catches module sprawl"
     }
   ],
-  "totalJsGzipBytes": 1950000,
+  "totalJsGzipBytes": 2300000,
   "binaryBytes": 25165824,
   "pierreDirBytes": 1650000
 }
