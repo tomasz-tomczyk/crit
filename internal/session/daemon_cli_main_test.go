@@ -87,3 +87,45 @@ func TestBackgroundCleanupUsesGlobalStaleReviewDays(t *testing.T) {
 		t.Fatalf("100-day-old review should be deleted with stale_review_days=90, stat error: %v", err)
 	}
 }
+
+// stubIntegrationHooks swaps the hooks cmd/crit wires in and returns a pointer
+// to the missing integrations passed to PrintMissingHintsFn.
+func stubIntegrationHooks(t *testing.T, installed map[string]bool, missing []string) *[]string {
+	t.Helper()
+	oldInstalled, oldCheck, oldPrint := InstalledAgentsFn, CheckMissingIntegrationsFn, PrintMissingHintsFn
+	t.Cleanup(func() {
+		InstalledAgentsFn, CheckMissingIntegrationsFn, PrintMissingHintsFn = oldInstalled, oldCheck, oldPrint
+	})
+	var printed []string
+	InstalledAgentsFn = func(string, string) map[string]bool { return installed }
+	CheckMissingIntegrationsFn = func(string, string) []string { return missing }
+	PrintMissingHintsFn = func(m []string) int { printed = m; return len(m) }
+	return &printed
+}
+
+func TestHintMissingIntegrations(t *testing.T) {
+	t.Run("prints missing integrations", func(t *testing.T) {
+		t.Setenv("CRIT_NO_INTEGRATION_CHECK", "")
+		printed := stubIntegrationHooks(t, nil, []string{"gemini"})
+		HintMissingIntegrations()
+		if len(*printed) != 1 || (*printed)[0] != "gemini" {
+			t.Errorf("printed = %v, want [gemini]", *printed)
+		}
+	})
+	t.Run("silent when an integration is installed", func(t *testing.T) {
+		t.Setenv("CRIT_NO_INTEGRATION_CHECK", "")
+		printed := stubIntegrationHooks(t, map[string]bool{"claude-code": true}, []string{"gemini"})
+		HintMissingIntegrations()
+		if *printed != nil {
+			t.Errorf("printed = %v, want nothing", *printed)
+		}
+	})
+	t.Run("disabled by CRIT_NO_INTEGRATION_CHECK", func(t *testing.T) {
+		t.Setenv("CRIT_NO_INTEGRATION_CHECK", "1")
+		printed := stubIntegrationHooks(t, nil, []string{"gemini"})
+		HintMissingIntegrations()
+		if *printed != nil {
+			t.Errorf("printed = %v, want nothing", *printed)
+		}
+	})
+}

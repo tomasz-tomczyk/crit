@@ -15,11 +15,13 @@ import (
 
 // Windows counterparts of the POSIX inline-hook tests in hooks_test.go, which
 // skip on Windows. They cover inlineShell's `cmd /c` branch (run.go). Commands
-// are kept quote-free because cmd.exe's quote handling differs from sh.
+// are kept quote-free because cmd.exe's quote handling differs from sh. The
+// redirect goes first so a digit at the end of a value ("sk123>") is never
+// parsed as a handle number.
 
 func TestRun_InlineCmdWindows_EnvAndStdout(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "marker.txt")
-	ec := hooks.ExecutableCommand{Kind: "inline", Arg: "echo %CRIT_SESSION_KEY%>%HOOK_OUT%& echo mode-%CRIT_MODE%"}
+	ec := hooks.ExecutableCommand{Kind: "inline", Arg: ">%HOOK_OUT% echo %CRIT_SESSION_KEY%& echo mode-%CRIT_MODE%"}
 	res, err := hooks.Run(context.Background(), ec, hooks.Input{
 		Env: map[string]string{
 			"CRIT_SESSION_KEY": "sk123",

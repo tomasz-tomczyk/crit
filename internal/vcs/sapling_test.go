@@ -192,6 +192,37 @@ func TestDetectVCS_SaplingOverride(t *testing.T) {
 	}
 }
 
+// TestDetectVCS_OverrideFallsBackWhenToolMissing runs on every machine, with or
+// without jj and sl installed: PATH holds only git, so each override takes the
+// warning path and falls back to git inside a repo and to nil outside one.
+func TestDetectVCS_OverrideFallsBackWhenToolMissing(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("PATH", filepath.Dir(gitPath))
+	repo := initTestRepo(t)
+	notRepo := t.TempDir()
+
+	for _, tc := range []struct{ override, binary string }{
+		{"sl", "sl"}, {"sapling", "sl"}, {"jj", "jj"}, {"jujutsu", "jj"},
+	} {
+		t.Run(tc.override, func(t *testing.T) {
+			if _, err := exec.LookPath(tc.binary); err == nil {
+				t.Skipf("%s is installed next to git; cannot hide it", tc.binary)
+			}
+			withCwd(t, repo)
+			if v := DetectVCS(tc.override); v == nil || v.Name() != "git" {
+				t.Errorf("DetectVCS(%q) in a git repo = %T, want *GitVCS", tc.override, v)
+			}
+			withCwd(t, notRepo)
+			if v := DetectVCS(tc.override); v != nil {
+				t.Errorf("DetectVCS(%q) outside a repo = %T, want nil", tc.override, v)
+			}
+		})
+	}
+}
+
 func TestHasSLDirFrom_DetectsDotSL(t *testing.T) {
 	root := t.TempDir()
 	child := filepath.Join(root, "nested", "repo")

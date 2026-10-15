@@ -19,7 +19,18 @@ import (
 // Avoid shelling out to `gh` during tests. Tests that want to exercise
 // display-name resolution should pre-populate userNameCache directly.
 func init() {
-	fetchGHUserName = func(login string) (string, error) { return "", nil }
+	SetFetchGHUserNameForTest(func(string) (string, error) { return "", nil })
+}
+
+func TestSetFetchGHUserNameForTestRestores(t *testing.T) {
+	restore := SetFetchGHUserNameForTest(func(login string) (string, error) { return "Name of " + login, nil })
+	if got, _ := fetchGHUserName("ada"); got != "Name of ada" {
+		t.Fatalf("swapped lookup = %q, want %q", got, "Name of ada")
+	}
+	restore()
+	if got, _ := fetchGHUserName("ada"); got != "" {
+		t.Fatalf("restored lookup = %q, want the init stub's empty name", got)
+	}
 }
 
 // outputDataRootIdentity returns the review identity folder under dataRoot,

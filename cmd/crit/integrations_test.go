@@ -660,6 +660,30 @@ func TestRunCheck_NoStale(t *testing.T) {
 	}
 }
 
+func TestCheckForgeCLIsReportsAuthState(t *testing.T) {
+	bin := isolateAgentPATH(t)
+	writeStubBinary(t, bin, "gh", "Logged in to github.com")
+	// glab is installed but not logged in: non-zero exit, two output lines.
+	glab, body := filepath.Join(bin, "glab"), "#!/bin/sh\necho 'not logged in'\necho 'run glab auth login'\nexit 1\n"
+	if runtime.GOOS == "windows" {
+		glab, body = glab+".bat", "@echo not logged in\r\n@echo run glab auth login\r\n@exit /b 1\r\n"
+	}
+	if err := os.WriteFile(glab, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := checkForgeCLIs()
+	if len(got) != 2 {
+		t.Fatalf("checkForgeCLIs = %+v, want gh and glab", got)
+	}
+	if got[0].binary != "gh" || !got[0].authenticated || got[0].detail != "" {
+		t.Errorf("gh status = %+v, want authenticated with no detail", got[0])
+	}
+	if got[1].binary != "glab" || got[1].authenticated || strings.TrimSpace(got[1].detail) != "not logged in" {
+		t.Errorf("glab status = %+v, want unauthenticated with the first output line as detail", got[1])
+	}
+}
+
 func TestPrintForgeCLIHintsRendersDetectionSeparately(t *testing.T) {
 	oldStderr := os.Stderr
 	r, w, err := os.Pipe()
