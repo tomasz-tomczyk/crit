@@ -76,7 +76,13 @@ func Git(t *testing.T, dir string, args ...string) string {
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
+	// Auto-maintenance makes `git commit` start a detached `git maintenance`
+	// or `gc` that can keep writing into .git after the test ends, so
+	// t.TempDir's cleanup fails with "directory not empty".
+	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir,
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false",
+		"GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0")
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+dir)
 	}
