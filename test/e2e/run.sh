@@ -50,8 +50,14 @@ cleanup() {
   trap - EXIT INT TERM
   for pid in "${PW_PIDS[@]+"${PW_PIDS[@]}"}"; do kill "$pid" 2>/dev/null || true; done
   # TERM lets each fixture script's trap stop its crit child and delete its
-  # temp dirs (see e2e_cleanup in lib.sh); then reap them.
-  for pid in "${FIXTURE_PIDS[@]+"${FIXTURE_PIDS[@]}"}"; do kill "$pid" 2>/dev/null || true; done
+  # temp dirs (see e2e_cleanup in lib.sh); then reap them. Bash runs that
+  # trap only after the current foreground command exits, so a fixture stuck
+  # in setup (a hung git or go build, one that never got ready) would block
+  # the wait below. Signal its direct children too.
+  for pid in "${FIXTURE_PIDS[@]+"${FIXTURE_PIDS[@]}"}"; do
+    kill "$pid" 2>/dev/null || true
+    if command -v pkill >/dev/null 2>&1; then pkill -TERM -P "$pid" 2>/dev/null || true; fi
+  done
   for pid in "${FIXTURE_PIDS[@]+"${FIXTURE_PIDS[@]}"}" "${PW_PIDS[@]+"${PW_PIDS[@]}"}"; do
     wait "$pid" 2>/dev/null || true
   done
@@ -132,6 +138,12 @@ fi
 PWLOGS=$(mktemp -d)
 FAILED=0
 
+# Each invocation gets its own --output dir under test-results/. Playwright
+# empties its output dir when it starts, so with one shared dir a project that
+# starts late (mobile, or one with a slow fixture) wiped the failure
+# screenshots of projects that had already finished. Clear the parent once.
+rm -rf test-results
+
 # run_project <log-name> <port> [env assignments...] -- <playwright args...>
 # E2E_ONLY_SERVER (see playwright.config.ts) keeps each invocation's managed
 # webServers to the one fixture it needs; without it every parallel
@@ -144,7 +156,7 @@ run_project() {
   shift
   (
     wait_fixture "$port" || exit 1
-    exec env ${envs[@]+"${envs[@]}"} npx playwright test "$@"
+    exec env ${envs[@]+"${envs[@]}"} npx playwright test --output="test-results/$name" "$@"
   ) > "$PWLOGS/$name.log" 2>&1 &
   printf -v "$(pw_var "$name")" '%s' "$!"
   PW_PIDS+=("$!")
@@ -208,6 +220,21 @@ for f in "$PWLOGS"/*.log; do
   fi
   echo
 done
+
+# Merge each project's .last-run.json into test-results/.last-run.json, the
+# file `make e2e-failed` (--last-failed) reads.
+node -e '
+const fs = require("fs"), path = require("path");
+const root = "test-results", failed = [];
+for (const d of fs.readdirSync(root)) {
+  try {
+    const r = JSON.parse(fs.readFileSync(path.join(root, d, ".last-run.json"), "utf8"));
+    failed.push(...(r.failedTests || []));
+  } catch (e) {}
+}
+fs.writeFileSync(path.join(root, ".last-run.json"),
+  JSON.stringify({ status: failed.length ? "failed" : "passed", failedTests: failed }, null, 2));
+' 2>/dev/null || echo "e2e: could not merge .last-run.json files" >&2
 
 if [ $FAILED -ne 0 ]; then
   echo "Some projects failed. Run 'make e2e-failed' or check individual project logs."

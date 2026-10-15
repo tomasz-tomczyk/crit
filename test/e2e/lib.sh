@@ -14,9 +14,16 @@ export E2E_IS_WINDOWS
 # objects, so the next `git add` in a fixture script races a background
 # repack that deletes .git/objects/XX dirs ("unable to create temporary
 # file"). Applies to every git the fixture scripts and crit run.
-export GIT_CONFIG_COUNT=2
-export GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
-export GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0
+# Append after any GIT_CONFIG_* entries already in the environment, and only
+# once: run.sh sources this file and so does every fixture script it starts.
+if [ -z "${E2E_GIT_MAINTENANCE_OFF:-}" ]; then
+  _e2e_n="${GIT_CONFIG_COUNT:-0}"
+  export "GIT_CONFIG_KEY_$_e2e_n=maintenance.auto" "GIT_CONFIG_VALUE_$_e2e_n=false"
+  _e2e_n=$((_e2e_n + 1))
+  export "GIT_CONFIG_KEY_$_e2e_n=gc.auto" "GIT_CONFIG_VALUE_$_e2e_n=0"
+  export GIT_CONFIG_COUNT=$((_e2e_n + 1)) E2E_GIT_MAINTENANCE_OFF=1
+  unset _e2e_n
+fi
 
 # Directory where setup scripts write per-port state files that are read back
 # by Playwright tests (Node side). MUST be a path that resolves identically
