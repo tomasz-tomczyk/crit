@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import {
   clearAllComments, loadPage, revealFile, diffLine, clickWhenHittable, hoverLine, showLine,
-  scanDiffRows, lineRange, waitForScrollStable,
+  scanDiffRows, lineRange, waitForScrollStable, waitHighlighted,
 } from './helpers';
 
 // routes.go: hunk 1 ends at new line 14 (old 10), hunk 2 starts at new 52
@@ -36,8 +36,11 @@ function rows(page: Page, item: Locator) {
 
 // Click an expand control once it is the hit target, then wait for the
 // separator label to change (Pierre re-renders the gap after a click, and a
-// second click before that would land on the re-mounting separator).
+// second click before that would land on the re-mounting separator). Shiki's
+// first highlighted render also replaces the separators, so wait for it
+// (line 14 sits just above the gap) before clicking once.
 async function expand(page: Page, item: Locator, control: Locator, remaining: string | null) {
+  await waitHighlighted(item, 14);
   await clickWhenHittable(page, control);
   if (remaining) await expect(gapLabel(item)).toHaveText(remaining);
   await waitForScrollStable(page);

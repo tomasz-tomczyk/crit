@@ -193,23 +193,29 @@ test.describe('Multi-Round — Frontend', () => {
     await expect(page.locator(`.tree-file[data-tree-path="${firstPath}"]`)).toHaveClass(/viewed/);
   });
 
-  test('carried-forward comments show their original round as the latest-round badge, inline and in the panel', async ({ page, request }) => {
+  test('round badges: a carried-forward comment shows its original round as latest, a new one the current round, inline and in the panel', async ({ page, request }) => {
     const round1 = await currentRound(request);
-    await addFileComment(request, 1, 'Carried badge test');
+    const carried = await addFileComment(request, 1, 'Carried badge test');
     await agentRound(request);
+    const fresh = await addFileComment(request, 2, 'Current round badge test');
     await loadPage(page);
     await revealFile(page, FILE);
 
     // The comment from round1 carries its original round, and is marked
     // round-latest since it was addressed in the most recent round.
-    const badge = page.locator('#filesContainer .comment-round-badge');
-    await expect(badge).toHaveCount(1);
-    await expect(badge).toHaveText('R' + round1);
-    await expect(badge).toHaveClass(/round-latest/);
+    const badge = (id: string) => page.locator(`#filesContainer .comment-card[data-comment-id="${id}"] .comment-round-badge`);
+    await expect(page.locator('#filesContainer .comment-round-badge')).toHaveCount(2);
+    await expect(badge(carried.id)).toHaveText('R' + round1);
+    await expect(badge(carried.id)).toHaveClass(/round-latest/);
+    // A comment made this round carries the current round.
+    await expect(badge(fresh.id)).toHaveText('R' + (round1 + 1));
+    await expect(badge(fresh.id)).toHaveClass(/round-current/);
 
     await page.locator('#commentCount').click();
     await expect(page.locator('#commentsPanel')).toBeVisible();
-    await expect(page.locator('#commentsPanel .comment-round-badge').first()).toHaveText('R' + round1);
+    const panelBadge = (id: string) => page.locator(`#commentsPanel .comment-card[data-comment-id="${id}"] .comment-round-badge`);
+    await expect(panelBadge(carried.id)).toHaveText('R' + round1);
+    await expect(panelBadge(fresh.id)).toHaveText('R' + (round1 + 1));
   });
 });
 

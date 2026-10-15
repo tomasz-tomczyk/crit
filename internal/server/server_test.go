@@ -1440,6 +1440,9 @@ func TestGetConfig(t *testing.T) {
 	if resp["hosted_url"] != "" {
 		t.Errorf("hosted_url should be empty initially, got %v", resp["hosted_url"])
 	}
+	if resp["delete_token"] != "" {
+		t.Errorf("delete_token should be empty initially, got %v", resp["delete_token"])
+	}
 	if resp["version"] != "v1.2.3" {
 		t.Errorf("version = %v, want v1.2.3", resp["version"])
 	}

@@ -327,13 +327,24 @@ export async function hoverLine(page: Page, item: Locator, line: number, side: D
 export async function openLineComment(page: Page, item: Locator, line: number, side: DiffSide = 'new'): Promise<Locator> {
   // Layout/highlighting can remount the utility between the hover assertion
   // and measuring it. Retry preparation, then click exactly once.
-  const forms = page.locator('#filesContainer .comment-form');
   // A late re-layout (lazy hydration of a neighbouring file) can shift rows
   // between measuring the "+" and clicking it, so the click hovers — and
-  // opens — a different line. New-side headers name the line ("Comment on
-  // Line N"); if the wrong one opened, cancel it and try again.
+  // opens — a different line. A form's data-form-key names its line range
+  // and side ("path:start:end:side"), so the opened form is found by key in
+  // this file, never by DOM position: other forms (drafts on later lines or
+  // files) may already be open. If the wrong line opened, cancel it and try
+  // again.
+  const forms = item.locator('.comment-form');
+  const formKeys = () => forms.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.formKey || ''));
+  const isWanted = (key: string) => {
+    const parts = key.split(':');
+    const keySide = parts.pop();
+    const end = Number(parts.pop());
+    const start = Number(parts.pop());
+    return start === line && end === line && (keySide === 'old') === (side === 'old');
+  };
   for (let attempt = 1; ; attempt++) {
-    const before = await forms.count();
+    const before = new Set(await formKeys());
     let box: { x: number; y: number; width: number; height: number } | null = null;
     await expect(async () => {
       const button = await hoverLine(page, item, line, side);
@@ -346,21 +357,26 @@ export async function openLineComment(page: Page, item: Locator, line: number, s
       expect(await hitsCentre(button)).toBe(true);
     }).toPass({ timeout: 10_000 });
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    const form = forms.last();
+    // The requested line's form (new, or already open), else one that was
+    // not open before the click (a wrong-line open).
+    let opened = '';
+    await expect.poll(async () => {
+      const keys = await formKeys();
+      opened = keys.find(isWanted) ?? keys.find(k => !before.has(k)) ?? '';
+      return opened;
+    }, { message: `no comment form opened for line ${line} (${side})` }).not.toBe('');
+    const form = item.locator(`.comment-form[data-form-key="${cssAttr(opened)}"]`);
     await expect(form.locator('textarea')).toBeVisible();
-    if (side === 'old') return form;
-    const header = form.locator('.comment-form-header');
-    const want = `Comment on Line ${line}`;
-    const got = (await header.textContent())?.trim();
-    if (attempt >= 3 || got === want) {
-      await expect(header).toHaveText(want);
+    if (isWanted(opened)) {
+      if (side === 'new') await expect(form.locator('.comment-form-header')).toHaveText(`Comment on Line ${line}`);
       return form;
     }
+    expect(attempt, `openLineComment wanted line ${line} (${side}) but opened form ${opened}`).toBeLessThan(3);
     // Record the retry so a recurring wrong-line open shows in the report
     // instead of passing silently.
-    test.info().annotations.push({ type: 'openLineComment retry', description: `wanted "${want}", opened "${got}"` });
+    test.info().annotations.push({ type: 'openLineComment retry', description: `wanted line ${line} (${side}), opened ${opened}` });
     await form.getByRole('button', { name: 'Cancel' }).click();
-    await expect(forms).toHaveCount(before);
+    await expect(form).toHaveCount(0);
   }
 }
 

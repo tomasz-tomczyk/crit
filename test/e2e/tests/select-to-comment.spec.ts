@@ -174,8 +174,25 @@ test.describe('Select-to-comment (git mode)', () => {
       });
       await page.keyboard.press('c');
 
-      // Two forms open simultaneously — pressing c with a new selection adds another
-      await expect(section.locator('.comment-form')).toHaveCount(2);
+      // Two forms open simultaneously — pressing c with a new selection adds another.
+      // This has failed rarely in full runs (one form left open) and could not
+      // be reproduced alone; on failure, record where focus and the first
+      // form's text ended up, so the report shows whether `c` was typed into
+      // the first form, or the first form was closed as empty.
+      await expect(section.locator('.comment-form')).toHaveCount(2).catch(async (err) => {
+        const state = await page.evaluate(() => {
+          const active = document.activeElement as HTMLElement | null;
+          return {
+            active: active ? `${active.tagName}.${active.className} ${active.closest('.comment-form')?.getAttribute('data-form-key') ?? ''}` : null,
+            forms: Array.from(document.querySelectorAll('.comment-form')).map(f =>
+              `${f.getAttribute('data-form-key')}=${JSON.stringify((f.querySelector('textarea') as HTMLTextAreaElement | null)?.value)}`),
+            selection: window.getSelection()?.toString().slice(0, 60),
+          };
+        });
+        test.info().annotations.push({ type: 'second-form failure state', description: JSON.stringify(state) });
+        throw err;
+      });
+      await expect(firstTextarea).toHaveValue('In progress');
     });
 
     test('multi-block selection spans correct line range', async ({ page }) => {
