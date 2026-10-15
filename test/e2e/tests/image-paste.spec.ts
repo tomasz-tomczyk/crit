@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView, addComment, getMdPath, openDocLineComment } from './helpers';
 
 // Tiny 1x1 transparent PNG, base64-encoded. Decoded client-side and fed into
 // the synthetic ClipboardEvent / DragEvent so the upload endpoint sees real
@@ -43,105 +43,58 @@ async function dropImage(page: Page, target: Locator) {
 // Match the markdown ref produced by uploadAndInsertImage on success.
 const ATTACHMENT_REF_RE = /!\[[^\]]*\]\(attachments\/[0-9a-f-]+\.png\)/;
 
+const ATTACHMENT_REF_ALL = new RegExp(ATTACHMENT_REF_RE.source, 'g');
+
+// The textarea's value once it holds `n` attachment refs (uploads are async:
+// each placeholder is swapped for the real markdown ref when it finishes).
+async function expectRefs(textarea: Locator, n: number) {
+  await expect.poll(async () => ((await textarea.inputValue()).match(ATTACHMENT_REF_ALL) || []).length).toBe(n);
+}
+
 test.describe('Image paste & drag-drop', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
   });
 
-  test('pasting image into new top-level comment form inserts markdown ref', async ({ page }) => {
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const section = await mdSection(page);
-    await section.locator('.line-block').first().hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-
-    await pasteImage(page, textarea);
-
-    // The upload is async — wait for the placeholder to be swapped for the
-    // real markdown ref. toHaveValue auto-retries up to the expect timeout.
-    await expect(textarea).toHaveValue(ATTACHMENT_REF_RE);
-  });
-
-  test('pasting image into reply form inserts markdown ref (regression for top-level-only bug)', async ({ page, request }) => {
+  // Every composer wires paste and drop: new comments, replies, reply edits.
+  test('pasting or dropping an image inserts a markdown ref in comment, reply and reply-edit textareas', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Existing comment');
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const section = await mdSection(page);
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-
-    // Click reply input to expand into the textarea.
-    await card.locator('.reply-input').click();
-    const replyTextarea = card.locator('.reply-textarea');
-    await expect(replyTextarea).toBeFocused();
-
-    await pasteImage(page, replyTextarea);
-
-    await expect(replyTextarea).toHaveValue(ATTACHMENT_REF_RE);
-  });
-
-  test('dropping image file onto new comment textarea inserts markdown ref', async ({ page }) => {
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const section = await mdSection(page);
-    await section.locator('.line-block').first().hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
-
-    await dropImage(page, textarea);
-
-    await expect(textarea).toHaveValue(ATTACHMENT_REF_RE);
-  });
-
-  test('dropping image file onto reply textarea inserts markdown ref', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Existing comment');
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const section = await mdSection(page);
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-
-    await card.locator('.reply-input').click();
-    const replyTextarea = card.locator('.reply-textarea');
-    await expect(replyTextarea).toBeFocused();
-
-    await dropImage(page, replyTextarea);
-
-    await expect(replyTextarea).toHaveValue(ATTACHMENT_REF_RE);
-  });
-
-  test('pasting image into reply EDIT textarea inserts markdown ref', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    const comment = await addComment(request, mdPath, 1, 'Top comment');
-    await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
+    const top = await addComment(request, mdPath, 1, 'Top comment');
+    const reply = await request.post(`/api/comment/${top.id}/replies?path=${encodeURIComponent(mdPath)}`, {
       data: { body: 'Original reply', author: 'reviewer' },
     });
+    expect(reply.ok()).toBeTruthy();
+    const existing = await addComment(request, mdPath, 3, 'Existing comment');
+
     await loadPage(page);
-    await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
 
-    const section = await mdSection(page);
-    const reply = section.locator('.comment-reply').first();
-    await expect(reply).toBeVisible();
+    // New top-level comment form: paste, then drop.
+    const textarea = await openDocLineComment(page, doc, 4);
+    await pasteImage(page, textarea);
+    await expectRefs(textarea, 1);
+    await dropImage(page, textarea);
+    await expectRefs(textarea, 2);
 
-    // Open the reply edit form.
-    await reply.hover();
-    await reply.locator('.reply-actions button[title="Edit"]').click();
-    const editTextarea = reply.locator('textarea');
+    // Reply form (regression for the top-level-only bug): paste, then drop.
+    const card = doc.locator(`.comment-card[data-comment-id="${existing.id}"]`);
+    await expect(card).toBeVisible();
+    await card.locator('.reply-input').click();
+    const replyTextarea = card.locator('.reply-textarea');
+    await expect(replyTextarea).toBeFocused();
+    await pasteImage(page, replyTextarea);
+    await expectRefs(replyTextarea, 1);
+    await dropImage(page, replyTextarea);
+    await expectRefs(replyTextarea, 2);
+
+    // Editing an existing reply.
+    const replyEl = doc.locator(`.comment-card[data-comment-id="${top.id}"] .comment-reply`).first();
+    await expect(replyEl).toBeVisible();
+    await replyEl.hover();
+    await replyEl.locator('.reply-actions button[title="Edit"]').click();
+    const editTextarea = replyEl.locator('textarea');
     await expect(editTextarea).toBeVisible();
-
     await pasteImage(page, editTextarea);
-
     await expect(editTextarea).toHaveValue(/Original reply.*!\[[^\]]*\]\(attachments\/[0-9a-f-]+\.png\)/s);
   });
 });

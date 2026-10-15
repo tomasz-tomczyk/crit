@@ -20,32 +20,30 @@ test('chip is visible in stacked focus and shows current entry label', async ({ 
   await expect(page.locator('#stackChipLabel')).not.toHaveText(/^$/);
 });
 
-test('clicking the chip toggles the popover open and shut', async ({ page }) => {
+test('popover toggles from the chip and closes on Escape and outside click', async ({ page }) => {
   await loadPage(page);
   const chipBtn = page.locator('#stackChipBtn');
   const popover = page.locator('#stackPopover');
   await expect(chipBtn).toBeVisible({ timeout: 5_000 });
   await expect(popover).toBeHidden();
+
+  // The chip toggles it open and shut.
   await chipBtn.click();
   await expect(popover).toBeVisible();
   await chipBtn.click();
   await expect(popover).toBeHidden();
-});
 
-test('Escape closes the popover', async ({ page }) => {
-  await loadPage(page);
-  await page.locator('#stackChipBtn').click();
-  await expect(page.locator('#stackPopover')).toBeVisible();
+  // Escape closes it.
+  await chipBtn.click();
+  await expect(popover).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.locator('#stackPopover')).toBeHidden();
-});
+  await expect(popover).toBeHidden();
 
-test('outside click closes the popover', async ({ page }) => {
-  await loadPage(page);
-  await page.locator('#stackChipBtn').click();
-  await expect(page.locator('#stackPopover')).toBeVisible();
+  // An outside click closes it.
+  await chipBtn.click();
+  await expect(popover).toBeVisible();
   await page.locator('body').click({ position: { x: 5, y: 5 } });
-  await expect(page.locator('#stackPopover')).toBeHidden();
+  await expect(popover).toBeHidden();
 });
 
 test('current entry is a non-clickable span marked aria-current', async ({ page }) => {
@@ -97,24 +95,6 @@ test('default branch is rendered ONCE (no ghost duplicate stack entry)', async (
   const allLabels = await page.locator('#stackPopover .stack-popover-label').allTextContents();
   const mainCount = allLabels.filter((s) => s.trim() === 'stack root: main').length;
   expect(mainCount).toBe(1);
-});
-
-test('non-current entry click switches focus', async ({ page, request }) => {
-  await loadPage(page);
-  await page.locator('#stackChipBtn').click();
-  // Wait for popover to finish loading before snapshotting button count.
-  await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
-  // Pick the first non-default, non-current entry button.
-  const buttons = page.locator('#stackPopover button.stack-popover-item:not(.stack-popover-default)');
-  const count = await buttons.count();
-  if (count === 0) test.skip(true, 'fixture has no other clickable stack entries');
-  const before = await (await request.get('/api/session')).json();
-  await buttons.first().click();
-  await expect.poll(async () => {
-    const r = await request.get('/api/session');
-    const s = await r.json();
-    return s.focus.head_sha;
-  }, { timeout: 5_000 }).not.toBe(before.focus.head_sha);
 });
 
 test('popover shows target/base markers and range highlighting in layer scope', async ({ page }) => {

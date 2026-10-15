@@ -1,111 +1,77 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
-import { clearAllComments, addComment, loadPage, mdSection, switchToDocumentView, getReviewFilePath } from './helpers';
-import { stateFilePath } from './state-file';
+import {
+  clearAllComments, addComment, loadPage, switchToDocumentView, getReviewFilePath, readFixtureState,
+} from './helpers';
 
-// Read fixture state written by setup-fixtures.sh
-function readFixtureState(): { critBin: string; fixtureDir: string; fakeHome: string } {
-  const raw = fs.readFileSync(stateFilePath(process.env.CRIT_TEST_PORT || '3123'), 'utf8');
-  const env: Record<string, string> = {};
-  for (const line of raw.trim().split('\n')) {
-    const eq = line.indexOf('=');
-    if (eq >= 0) {
-      env[line.slice(0, eq)] = line.slice(eq + 1);
-    }
-  }
-  if (!env['CRIT_BIN'] || !env['CRIT_FIXTURE_DIR'] || !env['FAKE_HOME']) {
+// Run `crit comment <args>` in the fixture dir, against the fixture's daemon.
+function critComment(args: string) {
+  const env = readFixtureState();
+  const critBin = env['CRIT_BIN'];
+  const fixtureDir = env['CRIT_FIXTURE_DIR'];
+  const fakeHome = env['FAKE_HOME'];
+  if (!critBin || !fixtureDir || !fakeHome) {
     throw new Error('CRIT_BIN, CRIT_FIXTURE_DIR, or FAKE_HOME not set in state file');
   }
-  return { critBin: env['CRIT_BIN'], fixtureDir: env['CRIT_FIXTURE_DIR'], fakeHome: env['FAKE_HOME'] };
+  // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
+  // spawned `crit comment` would otherwise look for the daemon registry in
+  // the runner's real home and miss the fixture's daemon.
+  execSync(`"${critBin}" comment ${args}`, {
+    shell: true, timeout: 5000, cwd: fixtureDir,
+    env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome },
+  } as const);
 }
 
 test.describe('CLI comment sync — live browser update', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('crit comment adds a comment and updates the header badge via SSE', async ({ page }) => {
     await loadPage(page);
-    await switchToDocumentView(page);
-  });
-
-  test('crit comment adds a comment that appears in the browser via SSE', async ({ page }) => {
-    const { critBin, fixtureDir, fakeHome } = readFixtureState();
-    // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
-    // spawned `crit comment` would otherwise look for the daemon registry in
-    // the runner's real home and miss the fixture's daemon.
-    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
-    const section = await mdSection(page);
-
-    // Wait for document to be stable before asserting no comments
-    await expect(section.locator('.line-block').first()).toBeVisible();
-    await expect(section.locator('.comment-card')).toHaveCount(0);
-
-    // Run CLI comment in the fixture dir (uses daemon registry via HOME)
-    execSync(`"${critBin}" comment plan.md:1 "Hello from CLI"`, execOpts);
-
-    // SSE should trigger re-fetch; comment card should appear
-    await expect(section.locator('.comment-body')).toContainText('Hello from CLI', { timeout: 5000 });
-  });
-
-  test('crit comment updates header badge count via SSE', async ({ page }) => {
-    const { critBin, fixtureDir, fakeHome } = readFixtureState();
-    // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
-    // spawned `crit comment` would otherwise look for the daemon registry in
-    // the runner's real home and miss the fixture's daemon.
-    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
-    const section = await mdSection(page);
-    const countEl = page.locator('#commentCount');
+    const doc = await switchToDocumentView(page);
     const badgeEl = page.locator('#commentCountNumber');
 
-    // Wait for document to be stable, badge should be visible but empty
-    await expect(section.locator('.line-block').first()).toBeVisible();
+    // Wait for the document to be stable before asserting there are no comments.
+    await expect(doc.locator('.line-block').first()).toBeVisible();
+    await expect(doc.locator('.comment-card')).toHaveCount(0);
     await expect(badgeEl).toHaveText('');
 
-    // Add a comment via CLI
-    execSync(`"${critBin}" comment plan.md:1 "Badge update test"`, execOpts);
+    critComment('plan.md:1 "Hello from CLI"');
 
-    // Header badge should appear with count 1
-    await expect(countEl).toBeVisible({ timeout: 5000 });
+    // SSE triggers a re-fetch: the card appears and the badge counts it.
+    await expect(doc.locator('.comment-body')).toContainText('Hello from CLI');
+    await expect(page.locator('#commentCount')).toBeVisible();
     await expect(badgeEl).toHaveText('1');
   });
 
   test('crit comment --clear removes all comments in the browser via SSE', async ({ page, request }) => {
-    const { critBin, fixtureDir, fakeHome } = readFixtureState();
-    // On Windows, Go's os.UserHomeDir() reads USERPROFILE, not HOME — so the
-    // spawned `crit comment` would otherwise look for the daemon registry in
-    // the runner's real home and miss the fixture's daemon.
-    const execOpts = { shell: true, timeout: 5000, cwd: fixtureDir, env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } } as const;
-    const section = await mdSection(page);
-
-    // Add a comment via the API, then reload so the browser picks up the in-memory state.
     await addComment(request, 'plan.md', 1, 'Comment to be cleared');
     await loadPage(page);
-    await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
+    await expect(doc.locator('.comment-body')).toContainText('Comment to be cleared');
 
-    await expect(section.locator('.comment-body')).toContainText('Comment to be cleared', { timeout: 5000 });
-
-    // Wait until review file on disk contains the comment (debounce has fired).
-    // Discover the review file path from the finish API.
+    // Wait until the review file on disk holds the comment (debounce fired):
+    // --clear works on that file.
     await request.post('/api/finish');
     const reviewFilePath = await getReviewFilePath(request);
     await expect(async () => {
-      const content = fs.readFileSync(reviewFilePath, 'utf8');
-      expect(content).toContain('Comment to be cleared');
-    }).toPass({ timeout: 3000 });
+      expect(fs.readFileSync(reviewFilePath, 'utf8')).toContain('Comment to be cleared');
+    }).toPass();
 
-    // Run --clear via CLI
-    execSync(`"${critBin}" comment --clear`, execOpts);
+    critComment('--clear');
 
-    // SSE should trigger re-fetch; no comment cards remain
-    await expect(section.locator('.comment-card')).toHaveCount(0, { timeout: 5000 });
+    // SSE triggers a re-fetch; no comment cards remain.
+    await expect(doc.locator('.comment-card')).toHaveCount(0);
   });
 
   test('a reply being typed keeps focus when an agent reply arrives via SSE', async ({ page, request }) => {
-    const section = await mdSection(page);
     const comment = await addComment(request, 'plan.md', 1, 'Reviewer comment');
     await loadPage(page);
-    await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
 
-    const card = section.locator('.comment-card[data-comment-id="' + comment.id + '"]');
+    const card = doc.locator('.comment-card[data-comment-id="' + comment.id + '"]');
     await card.locator('.reply-input').click();
     const replyTextarea = card.locator('.reply-textarea');
     await expect(replyTextarea).toBeFocused();
@@ -117,7 +83,7 @@ test.describe('CLI comment sync — live browser update', () => {
       { data: { body: 'Agent reply', author: 'Agent' } },
     );
     expect(agentReply.ok()).toBeTruthy();
-    await expect(card.locator('.reply-body')).toContainText('Agent reply', { timeout: 5000 });
+    await expect(card.locator('.reply-body')).toContainText('Agent reply');
 
     await expect(replyTextarea).toBeFocused();
     await page.keyboard.type(' continues');

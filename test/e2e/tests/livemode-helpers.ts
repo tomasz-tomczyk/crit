@@ -121,12 +121,17 @@ export async function setViewportPreset(
 /**
  * Set the iframe's route by replacing the path component of its current
  * src. Uses URL ctor to avoid regex pitfalls.
+ *
+ * Clears the chrome's `__critLiveMessages` log first, so a later
+ * waitAgentReadyAfterRoute() / openPinComposerNoNav() waits for the NEW
+ * document's agent-ready instead of matching the previous page's handshake.
  */
 export async function setIframeRoute(page: Page, path: string): Promise<void> {
   await expect(page.locator('#critLiveIframe')).toBeVisible({ timeout: 15_000 });
   await page.evaluate((p) => {
     const ifr = document.getElementById('critLiveIframe') as HTMLIFrameElement | null;
     if (!ifr) throw new Error('#critLiveIframe not found');
+    (window as unknown as { __critLiveMessages?: unknown[] }).__critLiveMessages = [];
     ifr.src = new URL(p, ifr.src).toString();
   }, path);
   // Wait for navigation to settle.
@@ -244,11 +249,8 @@ export async function openPinComposerNoNav(
 
 /**
  * Wait for an `agent-ready` to appear in the chrome's message log. Used after
- * setIframeRoute() to a new path, where a fresh agent boots and re-handshakes.
- *
- * Callers that need to disambiguate the new handshake from a stale one should
- * clear `__critLiveMessages` BEFORE setIframeRoute() — see usages in
- * agent.livemode.spec.ts. This helper simply polls for any agent-ready.
+ * setIframeRoute() to a new path, where a fresh agent boots and re-handshakes;
+ * setIframeRoute() clears the log, so a stale handshake can't satisfy this.
  */
 export async function waitAgentReadyAfterRoute(page: Page): Promise<void> {
   await expect.poll(

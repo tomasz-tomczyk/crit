@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, waitForScrollStable, setDiffStyle, reviewScroller } from './helpers';
+import { clearAllComments, loadPage, waitForScrollStable, setDiffStyle, reviewScroller } from './helpers';
 
 // Switching diff mode rebuilds every file's diff. It used to collapse the
 // document so the browser clamped the scroll to the top of the review instead
@@ -27,6 +27,11 @@ function newSideRows(): { filePath: string; line: string; el: Element }[] {
 }
 
 test.describe('Scroll position across view toggles', () => {
+  // Leftover comment cards from earlier specs would change the layout.
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
   test('switching split/unified keeps the mid-viewport line in place', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 400 });
     await loadPage(page);

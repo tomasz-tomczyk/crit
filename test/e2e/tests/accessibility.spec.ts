@@ -1,10 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { loadPage } from './helpers';
+import { clearAllComments, loadPage } from './helpers';
 
 test.describe('Accessibility', () => {
-  test.beforeEach(async ({ page }) => {
-    await loadPage(page);
+  // Each test loads the page itself (with its boost setting), so beforeEach
+  // only resets server state: a leftover comment would change what is audited.
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
   });
 
   // Switch to an explicit theme and wait until it has fully applied.
@@ -23,12 +25,16 @@ test.describe('Accessibility', () => {
       (t) => (window as unknown as { applyTheme: (c: string) => void }).applyTheme(t),
       theme,
     );
+    // The test switches theme twice on one page: also require the requested
+    // theme, or the previous theme's settled palette would satisfy the check.
     await page.waitForFunction(
-      () => {
+      (t) => {
         const root = document.documentElement;
         const css = getComputedStyle(root);
-        return !!root.dataset.critPalette && css.getPropertyValue('--crit-bg-page').trim() === css.getPropertyValue('--crit-palette-bg').trim();
+        return root.dataset.theme === t && !!root.dataset.critPalette &&
+          css.getPropertyValue('--crit-bg-page').trim() === css.getPropertyValue('--crit-palette-bg').trim();
       },
+      theme,
     );
   }
 
@@ -91,23 +97,21 @@ test.describe('Accessibility', () => {
     });
   }
 
+  // One load per boost setting: audit the default theme, then each explicit
+  // theme (gutter contrast + full audit).
   for (const boost of [false, true]) {
     const label = boost ? ' (syntax boost on)' : '';
 
-    test('should have no critical accessibility violations' + label, async ({ page }) => {
+    test('has no accessibility or color contrast violations in any theme' + label, async ({ page }) => {
       await setBoost(page, boost);
       await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
-      expect(await audit(page, boost)).toEqual([]);
-    });
+      expect(await audit(page, boost), 'default theme: no critical accessibility violations').toEqual([]);
 
-    for (const theme of ['dark', 'light'] as const) {
-      test(`should have no color contrast violations in ${theme} theme${label}`, async ({ page }) => {
-        await setBoost(page, boost);
-        await expect(page.locator('diffs-container [data-line]').first()).toBeVisible();
+      for (const theme of ['dark', 'light'] as const) {
         await setTheme(page, theme);
-        expect(await gutterContrastFailures(page), 'diff line numbers meet WCAG AA independently of syntax boost').toEqual([]);
-        expect(await audit(page, boost)).toEqual([]);
-      });
-    }
+        expect(await gutterContrastFailures(page), `${theme}: diff line numbers meet WCAG AA independently of syntax boost`).toEqual([]);
+        expect(await audit(page, boost), `${theme}: no color contrast violations`).toEqual([]);
+      }
+    });
   }
 });

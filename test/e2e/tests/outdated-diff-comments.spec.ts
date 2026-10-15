@@ -1,40 +1,22 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, addComment } from './helpers';
+import { clearAllComments, loadPage, goSection, addComment, resolveComment } from './helpers';
 
-// Get the server.go file path from the session
-async function getServerGoPath(request: APIRequestContext): Promise<string> {
-  const session = await (await request.get('/api/session')).json();
-  const goFile = session.files.find((f: { path: string }) => f.path === 'server.go');
-  expect(goFile).toBeTruthy();
-  return goFile.path;
+const FILE = 'server.go';
+
+interface DiffLine { Type: string; OldNum: number; NewNum: number }
+
+async function diffLines(request: APIRequestContext): Promise<DiffLine[]> {
+  const diffData = await (await request.get(`/api/file/diff?path=${encodeURIComponent(FILE)}`)).json();
+  const lines = (diffData.hunks || []).flatMap((h: { Lines: DiffLine[] }) => h.Lines);
+  expect(lines.length).toBeGreaterThan(0); // Guard: diff must have real hunks
+  return lines;
 }
 
-// Collect all line:side keys present in a file's diff hunks
-async function getRenderedDiffKeys(request: APIRequestContext, filePath: string): Promise<Set<string>> {
-  const diffResp = await request.get(`/api/file/diff?path=${encodeURIComponent(filePath)}`);
-  const diffData = await diffResp.json();
-  const hunks = diffData.hunks || [];
-  const keys = new Set<string>();
-  for (const hunk of hunks) {
-    for (const line of hunk.Lines) {
-      if (line.Type === 'del' && line.OldNum) keys.add(line.OldNum + ':old');
-      if (line.Type === 'add' && line.NewNum) keys.add(line.NewNum + ':');
-      if (line.Type === 'context') {
-        if (line.OldNum) keys.add(line.OldNum + ':old');
-        if (line.NewNum) keys.add(line.NewNum + ':');
-      }
-    }
-  }
-  return keys;
-}
-
-// Find a new-side line number that is NOT in any diff hunk for the file
-async function findNonHunkLine(request: APIRequestContext, filePath: string): Promise<number> {
-  const keys = await getRenderedDiffKeys(request, filePath);
-  expect(keys.size).toBeGreaterThan(0); // Guard: diff must have real hunks
-  // Pick a line number that's not in any hunk. Start from 1000.
+// A new-side line number that is NOT in any diff hunk for the file.
+async function findNonHunkLine(request: APIRequestContext): Promise<number> {
+  const newSide = new Set((await diffLines(request)).filter(l => l.Type !== 'del' && l.NewNum).map(l => l.NewNum));
   for (let n = 1000; n < 2000; n++) {
-    if (!keys.has(n + ':')) return n;
+    if (!newSide.has(n)) return n;
   }
   throw new Error('Could not find a non-hunk line number');
 }
@@ -52,127 +34,52 @@ test.describe('Outdated Diff Comments', () => {
     await clearAllComments(request);
   });
 
-  test('comment on non-hunk line renders with Outdated badge', async ({ page, request }) => {
-    const filePath = await getServerGoPath(request);
-
-    // Create a comment at a line number that doesn't appear in any diff hunk.
-    // This simulates what happens when a comment was on a line that existed in
-    // a previous round's diff but the agent removed that change.
-    const nonHunkLine = await findNonHunkLine(request, filePath);
-    await addComment(request, filePath, nonHunkLine, 'This line was removed from the diff');
+  test('a comment on a non-hunk line renders in the Outdated block, stays there when resolved, is listed in the panel, and can be edited and deleted', async ({ page, request }) => {
+    // Simulates a comment on a line that existed in a previous round's diff
+    // but whose change the agent removed.
+    const nonHunkLine = await findNonHunkLine(request);
+    const outdated = await addComment(request, FILE, nonHunkLine, 'This line was removed from the diff');
+    const resolved = await addComment(request, FILE, nonHunkLine, 'Resolve me after outdated');
+    await resolveComment(request, FILE, resolved.id);
 
     await loadPage(page);
     const section = await goSection(page);
-    await expect(section).toBeVisible();
 
-    // The comment should appear with an Outdated badge
     const outdatedBadge = section.locator('.outdated-badge');
-    await expect(outdatedBadge).toBeVisible({ timeout: 5_000 });
-    await expect(outdatedBadge).toHaveText('Outdated');
+    await expect(outdatedBadge.first()).toHaveText('Outdated');
+    const block = section.locator('.outdated-diff-comments');
+    await expect(block.locator('.comment-card .comment-body').first()).toContainText('This line was removed from the diff');
+    // The resolved one keeps its resolved state inside the outdated block.
+    await expect(block.locator('.comment-card.resolved-card')).toHaveCount(1);
+    await expect(block.locator('.comment-card:not(.resolved-card)')).toHaveCount(1);
 
-    // The comment body should be readable, inside the outdated block
-    await expect(section.locator('.outdated-diff-comments .comment-card .comment-body')).toContainText('This line was removed from the diff');
-  });
-
-  test('outdated diff comment is resolvable', async ({ page, request }) => {
-    const filePath = await getServerGoPath(request);
-    const nonHunkLine = await findNonHunkLine(request, filePath);
-
-    const comment = await addComment(request, filePath, nonHunkLine, 'Resolve me after outdated');
-
-    await loadPage(page);
-    const section = await goSection(page);
-
-    // Verify outdated badge appears
-    await expect(section.locator('.outdated-badge')).toBeVisible({ timeout: 5_000 });
-
-    // Resolve the comment via API
-    await expect(await request.put(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(filePath)}`, {
-      data: { resolved: true },
-    })).toBeOK();
-
-    // Reload and verify resolved state with outdated badge
-    await loadPage(page);
-    const sectionAfter = await goSection(page);
-    await expect(sectionAfter.locator('.outdated-badge')).toBeVisible();
-    await expect(sectionAfter.locator('.comment-card.resolved-card')).toBeVisible();
-  });
-
-  test('outdated comment shows in All Comments panel', async ({ page, request }) => {
-    const filePath = await getServerGoPath(request);
-    const nonHunkLine = await findNonHunkLine(request, filePath);
-
-    await addComment(request, filePath, nonHunkLine, 'Panel outdated check');
-
-    await loadPage(page);
-
-    // Open comments panel
     await page.locator('#commentCount').click();
     await expect(page.locator('#commentsPanel')).toBeVisible();
+    await expect(page.locator('#commentsPanel')).toContainText('This line was removed from the diff');
 
-    // Comment should appear in the panel
-    await expect(page.locator('#commentsPanel')).toContainText('Panel outdated check');
+    // Outdated comments keep full CRUD: edit one and delete the other.
+    await expect(await request.put(`/api/comment/${outdated.id}?path=${encodeURIComponent(FILE)}`, {
+      data: { body: 'Edited outdated comment' },
+    })).toBeOK();
+    await expect(await request.delete(`/api/comment/${resolved.id}?path=${encodeURIComponent(FILE)}`)).toBeOK();
+    await loadPage(page);
+    const after = (await goSection(page)).locator('.outdated-diff-comments');
+    await expect(after.locator('.comment-card')).toHaveCount(1);
+    await expect(after.locator('.comment-body')).toContainText('Edited outdated comment');
+    await expect(after.locator('.outdated-badge')).toBeVisible();
   });
 
-  test('normal diff comment does NOT get Outdated badge', async ({ page, request }) => {
-    const filePath = await getServerGoPath(request);
-
-    // Find a line that IS in a diff hunk (addition line)
-    const diffResp = await request.get(`/api/file/diff?path=${encodeURIComponent(filePath)}`);
-    const diffData = await diffResp.json();
-    const hunks = diffData.hunks || [];
-    let inHunkLine = 0;
-    for (const hunk of hunks) {
-      for (const line of hunk.Lines) {
-        if (line.Type === 'add' && line.NewNum) {
-          inHunkLine = line.NewNum;
-          break;
-        }
-      }
-      if (inHunkLine) break;
-    }
+  test('a normal diff comment does NOT get an Outdated badge', async ({ page, request }) => {
+    const inHunkLine = (await diffLines(request)).find(l => l.Type === 'add' && l.NewNum)?.NewNum ?? 0;
     expect(inHunkLine).toBeGreaterThan(0);
-
-    await addComment(request, filePath, inHunkLine, 'Normal diff comment');
+    await addComment(request, FILE, inHunkLine, 'Normal diff comment');
 
     await loadPage(page);
     const section = await goSection(page);
-    await expect(section).toBeVisible();
 
-    // Comment should appear WITHOUT Outdated badge
     await expect(section.locator('.comment-card')).toBeVisible();
     await expect(section.locator('.comment-body')).toContainText('Normal diff comment');
     await expect(section.locator('.outdated-badge')).toHaveCount(0);
     await expect(section.locator('.outdated-diff-comments')).toHaveCount(0);
-  });
-
-  test('outdated comment has full CRUD (edit and delete)', async ({ page, request }) => {
-    const filePath = await getServerGoPath(request);
-    const nonHunkLine = await findNonHunkLine(request, filePath);
-
-    const comment = await addComment(request, filePath, nonHunkLine, 'Editable outdated comment');
-
-    await loadPage(page);
-    const section = await goSection(page);
-
-    // Verify outdated badge appears
-    await expect(section.locator('.outdated-badge')).toBeVisible({ timeout: 5_000 });
-    await expect(section.locator('.comment-body')).toContainText('Editable outdated comment');
-
-    // Edit the comment via API
-    await expect(await request.put(`/api/comment/${comment.id}?path=${encodeURIComponent(filePath)}`, {
-      data: { body: 'Edited outdated comment' },
-    })).toBeOK();
-
-    await loadPage(page);
-    await expect((await goSection(page)).locator('.comment-body')).toContainText('Edited outdated comment');
-    await expect((await goSection(page)).locator('.outdated-badge')).toBeVisible();
-
-    // Delete the comment via API
-    await expect(await request.delete(`/api/comment/${comment.id}?path=${encodeURIComponent(filePath)}`)).toBeOK();
-
-    await loadPage(page);
-    await expect((await goSection(page)).locator('.outdated-badge')).toHaveCount(0);
-    await expect((await goSection(page)).locator('.comment-card')).toHaveCount(0);
   });
 });

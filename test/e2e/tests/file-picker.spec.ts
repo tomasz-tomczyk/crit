@@ -1,150 +1,88 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, switchToDocumentView, mdDocument } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView, openDocLineComment } from './helpers';
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test.describe('File Picker Autocomplete — Git Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('@ opens the picker; it filters, selects by keyboard or click, closes on Escape, and ignores mid-word @', async ({ page }) => {
     // Wait for the file list API to complete during page load
     const filesListPromise = page.waitForResponse(resp =>
       resp.url().includes('/api/files/list') && resp.status() === 200
     );
     await loadPage(page);
     await filesListPromise;
-    await switchToDocumentView(page);
-  });
-
-  /** Helper: open a comment form on the first markdown line block and return the textarea. */
-  async function openCommentForm(page: import('@playwright/test').Page) {
-    const section = mdDocument(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await expect(gutterBtn).toBeVisible();
-    await gutterBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeVisible();
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
     await expect(textarea).toBeFocused();
-    return textarea;
-  }
-
-  test('typing @ shows file picker dropdown', async ({ page }) => {
-    const textarea = await openCommentForm(page);
-
-    await textarea.pressSequentially('@');
 
     const dropdown = page.locator('.file-picker-dropdown');
+    const items = dropdown.locator('.file-picker-item');
+
+    // Typing @ shows the dropdown, first item active.
+    await textarea.pressSequentially('@');
     await expect(dropdown).toBeVisible();
+    await expect(items.first()).toBeVisible();
+    await expect(items.first()).toHaveClass(/active/);
 
-    await expect(dropdown.locator('.file-picker-item').first()).toBeVisible();
-  });
+    // ArrowDown moves to the second item; Enter selects it.
+    await textarea.press('ArrowDown');
+    await expect(items.nth(1)).toHaveClass(/active/);
+    await expect(items.first()).not.toHaveClass(/active/);
+    const activePath = await items.nth(1).getAttribute('data-path');
+    expect(activePath).toBeTruthy();
+    await textarea.press('Enter');
+    await expect(dropdown).toBeHidden();
+    await expect(textarea).toHaveValue(new RegExp(`@${escapeRegExp(activePath!)}`));
 
-  test('file picker filters results as you type', async ({ page }) => {
-    const textarea = await openCommentForm(page);
+    // Clicking an item inserts its path.
+    await textarea.fill('');
+    await textarea.pressSequentially('@');
+    await expect(dropdown).toBeVisible();
+    const firstItem = items.first();
+    const filePath = await firstItem.getAttribute('data-path');
+    expect(filePath).toBeTruthy();
+    await firstItem.click();
+    await expect(dropdown).toBeHidden();
+    await expect(textarea).toHaveValue(new RegExp(`@${escapeRegExp(filePath!)}`));
 
-    // Wait for the final filtered API response after typing the full query.
-    // pressSequentially fires a fetch per keystroke; without waiting for the
-    // last one (q=server), the dropdown may still show intermediate results
-    // (e.g. q=s) — causing a race condition that flakes in CI.
+    // Results filter as you type. pressSequentially fires a fetch per
+    // keystroke; wait for the last one (q=server), or the dropdown may still
+    // show intermediate results.
+    await textarea.fill('');
     const filteredResponse = page.waitForResponse(resp =>
-      resp.url().includes('/api/files/list') &&
-      resp.url().includes('q=server') &&
-      resp.status() === 200
+      resp.url().includes('/api/files/list') && resp.url().includes('q=server') && resp.status() === 200
     );
     await textarea.pressSequentially('@server');
     await filteredResponse;
-
-    const dropdown = page.locator('.file-picker-dropdown');
     await expect(dropdown).toBeVisible();
-
-    // All visible items should contain "server" (case-insensitive)
-    const items = dropdown.locator('.file-picker-item');
     await expect(items.first()).toBeVisible();
     await expect(async () => {
       const texts = await items.allTextContents();
       expect(texts.length).toBeGreaterThan(0);
       for (const text of texts) expect(text.toLowerCase()).toContain('server');
     }).toPass();
-  });
 
-  test('selecting a file inserts path into textarea', async ({ page }) => {
-    const textarea = await openCommentForm(page);
-
-    await textarea.pressSequentially('@');
-
-    const dropdown = page.locator('.file-picker-dropdown');
-    await expect(dropdown).toBeVisible();
-
-    // Get the first item's path before clicking
-    const firstItem = dropdown.locator('.file-picker-item').first();
-    const filePath = await firstItem.getAttribute('data-path');
-    expect(filePath).toBeTruthy();
-
-    await firstItem.click();
-
-    // Dropdown should close
-    await expect(dropdown).toBeHidden();
-
-    // Textarea should contain @filepath
-    await expect(textarea).toHaveValue(new RegExp(`@${filePath!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  });
-
-  test('keyboard navigation with ArrowDown and Enter selects item', async ({ page }) => {
-    const textarea = await openCommentForm(page);
-
-    await textarea.pressSequentially('@');
-
-    const dropdown = page.locator('.file-picker-dropdown');
-    await expect(dropdown).toBeVisible();
-
-    // First item should be active by default
-    const items = dropdown.locator('.file-picker-item');
-    await expect(items.first()).toHaveClass(/active/);
-
-    // ArrowDown should move to second item
-    await textarea.press('ArrowDown');
-    await expect(items.nth(1)).toHaveClass(/active/);
-    await expect(items.first()).not.toHaveClass(/active/);
-
-    // Get the path of the now-active item
-    const activePath = await items.nth(1).getAttribute('data-path');
-    expect(activePath).toBeTruthy();
-
-    // Enter should select it
-    await textarea.press('Enter');
-
-    // Dropdown should close
-    await expect(dropdown).toBeHidden();
-
-    // Textarea should contain the selected path
-    await expect(textarea).toHaveValue(new RegExp(`@${activePath!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  });
-
-  test('Escape closes file picker without inserting', async ({ page }) => {
-    const textarea = await openCommentForm(page);
-
-    await textarea.pressSequentially('@');
-
-    const dropdown = page.locator('.file-picker-dropdown');
-    await expect(dropdown).toBeVisible();
-
+    // Escape closes the picker without inserting anything.
     await textarea.press('Escape');
-
-    // Dropdown should close
     await expect(dropdown).toBeHidden();
+    await expect(textarea).toHaveValue('@server');
 
-    // Textarea should still have just the @ character
-    await expect(textarea).toHaveValue('@');
-  });
-
-  test('file picker does not trigger mid-word', async ({ page }) => {
-    const textarea = await openCommentForm(page);
-
-    // Type a word then @ — the @ is mid-word so no dropdown
+    // A mid-word @ does not trigger the picker: no lookup is made for it.
+    // The following word-start @ does, which proves the input was handled.
+    await textarea.fill('');
+    const lookups: string[] = [];
+    page.on('request', req => {
+      if (req.url().includes('/api/files/list')) lookups.push(new URL(req.url()).search);
+    });
     await textarea.pressSequentially('email@');
-
-    const dropdown = page.locator('.file-picker-dropdown');
-    // Give a moment for any potential dropdown to appear, then assert it's not there
-    await expect(dropdown).toBeHidden();
+    await textarea.pressSequentially(' @');
+    await expect(dropdown).toBeVisible();
+    expect(lookups).toEqual(['?q=']);
   });
 });

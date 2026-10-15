@@ -85,23 +85,6 @@ test.describe('Native rendered tables', () => {
     expect(split).toEqual([]);
   });
 
-  test('table-row comment forms cancel with both button and Escape', async ({ page }) => {
-    let row = decisionRow(page, 'Auth method');
-    await row.hover();
-    await row.locator('.line-comment-gutter').click();
-    await expect(page.locator('.comment-form')).toBeVisible();
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.locator('.comment-form')).toHaveCount(0);
-
-    row = decisionRow(page, 'Auth method');
-    await row.hover();
-    await row.locator('.line-comment-gutter').click();
-    const textarea = page.locator('.comment-form textarea');
-    await expect(textarea).toBeFocused();
-    await textarea.press('Escape');
-    await expect(page.locator('.comment-form')).toHaveCount(0);
-  });
-
   test('selected phrases in any table cell are highlighted when commenting', async ({ page }) => {
     const optionsCell = mdDocument(page).getByRole('cell', { name: 'OAuth, API keys, JWT', exact: true });
     await selectPhrase(optionsCell, 'API keys');
@@ -130,7 +113,7 @@ test.describe('Native rendered tables', () => {
     await expect(mdDocument(page).locator('mark.quote-highlight').nth(1)).toHaveText('OAuth');
   });
 
-  test('row stripes and interaction backgrounds do not shift around annotations', async ({ page }) => {
+  test('row stripes and interaction backgrounds do not shift around a row form, which cancels with the button and Escape', async ({ page }) => {
     const evenRow = decisionRow(page, 'Key storage');
     const oddRow = decisionRow(page, 'Header format');
     await expect(evenRow).toHaveClass(/table-even/);
@@ -149,6 +132,19 @@ test.describe('Native rendered tables', () => {
     ]);
     expect(after).toEqual(before);
     await expect(decisionRow(page, 'Auth method')).toHaveClass(/selected|form-selected/);
+
+    // Table-row comment forms cancel with both the button and Escape.
+    await expect(page.locator('.comment-form')).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('.comment-form')).toHaveCount(0);
+
+    const row = decisionRow(page, 'Auth method');
+    await row.hover();
+    await row.locator('.line-comment-gutter').click();
+    const textarea = page.locator('.comment-form textarea');
+    await expect(textarea).toBeFocused();
+    await textarea.press('Escape');
+    await expect(page.locator('.comment-form')).toHaveCount(0);
   });
 
   test('drag highlights every selected table row with one endpoint utility and no bracket', async ({ page }) => {
@@ -159,11 +155,10 @@ test.describe('Native rendered tables', () => {
     const middle = decisionRow(page, 'Key storage').locator('.line-comment-gutter');
     await middle.evaluate(el => el.scrollIntoView({ block: 'center' }));
     await waitUntilHittable(middle);
-    const firstBox = await first.boundingBox();
-    const lastBox = await last.boundingBox();
-    expect(firstBox).toBeTruthy();
-    expect(lastBox).toBeTruthy();
-    if (!firstBox || !lastBox) return;
+    const firstBox = (await first.boundingBox())!;
+    const lastBox = (await last.boundingBox())!;
+    expect(firstBox, 'first row gutter has a box').not.toBeNull();
+    expect(lastBox, 'last row gutter has a box').not.toBeNull();
 
     await page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + 10);
     await page.mouse.down();

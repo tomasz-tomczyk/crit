@@ -55,71 +55,6 @@ test.describe('Multi-Form Comments', () => {
     await expect(goSec.locator('.comment-form')).toHaveCount(0);
   });
 
-  test('submitting one form does not affect other open forms', async ({ page }) => {
-    const firstForm = await openGoForm(page);
-    await firstForm.locator('textarea').fill('Keep this open');
-
-    const secondForm = await openJsForm(page);
-    await secondForm.locator('textarea').fill('Submit this one');
-    await secondForm.locator('.btn-primary').click();
-
-    // Second becomes a comment card
-    const jsSec = await jsSection(page);
-    await expect(jsSec.locator('.comment-card')).toBeVisible();
-    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
-
-    // First form still open with text
-    const goSec = await goSection(page);
-    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
-    await expect(goSec.locator('.comment-card')).toHaveCount(0);
-  });
-
-  test('cancelling one form does not affect other open forms', async ({ page }) => {
-    const firstForm = await openGoForm(page);
-    await firstForm.locator('textarea').fill('Keep this open');
-
-    const secondForm = await openJsForm(page);
-    await secondForm.getByRole('button', { name: 'Cancel' }).click();
-
-    const jsSec = await jsSection(page);
-    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
-
-    const goSec = await goSection(page);
-    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
-  });
-
-  test('Escape in textarea cancels only that form', async ({ page }) => {
-    const firstForm = await openGoForm(page);
-    await firstForm.locator('textarea').fill('Keep this open');
-
-    const secondForm = await openJsForm(page);
-    await secondForm.locator('textarea').press('Escape');
-
-    const jsSec = await jsSection(page);
-    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
-
-    const goSec = await goSection(page);
-    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
-  });
-
-  test('Ctrl+Enter in textarea submits only that form', async ({ page }) => {
-    const firstForm = await openGoForm(page);
-    await firstForm.locator('textarea').fill('Keep this open');
-
-    const secondForm = await openJsForm(page);
-    await secondForm.locator('textarea').fill('Submit via shortcut');
-    await secondForm.locator('textarea').press('Control+Enter');
-
-    const jsSec = await jsSection(page);
-    await expect(jsSec.locator('.comment-card')).toBeVisible();
-    await expect(jsSec.locator('.comment-card .comment-body')).toContainText('Submit via shortcut');
-    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
-
-    const goSec = await goSection(page);
-    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
-    await expect(goSec.locator('.comment-card')).toHaveCount(0);
-  });
-
   test('clicking same gutter line twice does not duplicate form', async ({ page }) => {
     const goSec = await goSection(page);
     const form = await openLineComment(page, goSec, 5);
@@ -137,48 +72,70 @@ test.describe('Multi-Form Comments', () => {
     await expect(goSec.locator('.comment-form textarea')).toBeFocused();
   });
 
-  test('multiple forms on same file at different lines', async ({ page }) => {
-    // Switch to document view for markdown file
-    const section = await switchToDocumentView(page);
+  test('submitting one form (button or Ctrl+Enter) does not affect other open forms', async ({ page }) => {
+    const firstForm = await openGoForm(page);
+    await firstForm.locator('textarea').fill('Keep this open');
 
-    // Open form on first gutter
-    const firstLineBlock = section.locator('.line-block').first();
-    await firstLineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
+    const secondForm = await openJsForm(page);
+    await secondForm.locator('textarea').fill('Submit this one');
+    await secondForm.locator('.btn-primary').click();
 
-    const firstForm = section.locator('.comment-form').first();
-    await expect(firstForm).toBeVisible();
-    await firstForm.locator('textarea').fill('First line comment');
+    // Second becomes a comment card
+    const jsSec = await jsSection(page);
+    await expect(jsSec.locator('.comment-card')).toBeVisible();
+    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
 
-    // Open form on a different gutter (use nth to get a different line)
-    const thirdLineBlock = section.locator('.line-block').nth(2);
-    await thirdLineBlock.hover();
-    await section.locator('.line-comment-gutter').nth(2).click();
+    // Ctrl+Enter submits only the form it is typed in.
+    const thirdForm = await openJsForm(page);
+    await thirdForm.locator('textarea').fill('Submit via shortcut');
+    await thirdForm.locator('textarea').press('Control+Enter');
+    await expect(jsSec.locator('.comment-card')).toHaveCount(2);
+    await expect(jsSec.locator('.comment-card .comment-body').last()).toContainText('Submit via shortcut');
+    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
 
-    // Verify two forms exist, first keeps its text
-    await expect(section.locator('.comment-form')).toHaveCount(2);
-    await expect(section.locator('.comment-form textarea').first()).toHaveValue('First line comment');
+    // First form still open with text, and nothing submitted on server.go
+    const goSec = await goSection(page);
+    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
+    await expect(goSec.locator('.comment-card')).toHaveCount(0);
   });
 
-  test('first form range gets form-selected highlight when second form opens on same file (document view)', async ({ page }) => {
+  test('Cancel and Escape close only their own form', async ({ page }) => {
+    const firstForm = await openGoForm(page);
+    await firstForm.locator('textarea').fill('Keep this open');
+
+    const secondForm = await openJsForm(page);
+    await secondForm.getByRole('button', { name: 'Cancel' }).click();
+    const jsSec = await jsSection(page);
+    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
+
+    const thirdForm = await openJsForm(page);
+    await thirdForm.locator('textarea').press('Escape');
+    await expect(jsSec.locator('.comment-form')).toHaveCount(0);
+
+    const goSec = await goSection(page);
+    await expect(goSec.locator('.comment-form textarea')).toHaveValue('Keep this open');
+  });
+
+  test('two forms on different lines of one document: the first keeps its text and range highlight', async ({ page }) => {
     const section = await switchToDocumentView(page);
 
+    // Open form on the first block and fill it, so it isn't auto-closed.
     const firstLineBlock = section.locator('.line-block').first();
     await firstLineBlock.hover();
     await section.locator('.line-comment-gutter').first().click();
     await expect(section.locator('.comment-form')).toHaveCount(1);
-    // Fill so it isn't auto-closed when the second form opens
-    await section.locator('.comment-form textarea').fill('first');
+    await section.locator('.comment-form textarea').fill('First line comment');
 
-    // Open second form on a different line
+    // Open a second form on a different line.
     const thirdLineBlock = section.locator('.line-block').nth(2);
     await thirdLineBlock.hover();
     await section.locator('.line-comment-gutter').nth(2).click();
-    await expect(section.locator('.comment-form')).toHaveCount(2);
 
-    // First block should carry form-selected (its range is covered by an open form)
+    await expect(section.locator('.comment-form')).toHaveCount(2);
+    await expect(section.locator('.comment-form textarea').first()).toHaveValue('First line comment');
+    // First block carries form-selected (its range is covered by an open
+    // form); the third carries selected (it is the current selection).
     await expect(firstLineBlock).toHaveClass(/form-selected/);
-    // Third block should carry selected (it is the current selection)
     await expect(thirdLineBlock).toHaveClass(/selected/);
   });
 

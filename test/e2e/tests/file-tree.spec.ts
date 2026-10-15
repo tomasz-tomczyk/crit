@@ -1,42 +1,56 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { clearAllComments, loadPage, fileHeader, goSection, openLineComment, reviewScroller } from './helpers';
+
+function treeFile(page: Page, name: string) {
+  return page.locator('.tree-file', { has: page.locator('.tree-file-name', { hasText: name }) });
+}
 
 // ============================================================
 // File Tree Panel — Git Mode
 // ============================================================
 test.describe('File Tree — Git Mode', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
+  test('tree lists every session file with names, stats and status icons', async ({ page }) => {
     await loadPage(page);
+    await expect(page.locator('#fileTreePanel')).toBeVisible();
+
+    // Git fixture has: plan.md, skill.md, server.go, handler.js, deleted.txt, routes.go, legacy.go (committed)
+    // + utils.go, login.feature (staged), config.yaml (untracked) = 10 total
+    await expect(page.locator('.tree-file')).toHaveCount(10);
+    const tree = page.locator('#fileTreePanel');
+    for (const name of ['plan.md', 'server.go', 'handler.js', 'deleted.txt', 'utils.go', 'config.yaml']) {
+      await expect(tree.locator('.tree-file-name', { hasText: name })).toBeVisible();
+    }
+
+    // Header: file count, addition and deletion stats.
+    const stats = page.locator('#fileTreeStats');
+    await expect(stats).toBeVisible();
+    await expect(stats).toContainText('10');
+    await expect(page.locator('#fileTreeStats .tree-stat-add')).toHaveText(/\+\d+/);
+    await expect(page.locator('#fileTreeStats .tree-stat-del')).toHaveText(/-\d+/);
+
+    // plan.md, skill.md, handler.js, login.feature, and config.yaml (untracked) are added
+    await expect(page.locator('.tree-file-status-icon.added')).toHaveCount(5);
+    // server.go, routes.go, legacy.go, and utils.go (staged modification) are modified
+    await expect(page.locator('.tree-file-status-icon.modified')).toHaveCount(4);
+    // deleted.txt is deleted
+    await expect(page.locator('.tree-file-status-icon.deleted')).toHaveCount(1);
   });
 
-  test('file tree panel is visible', async ({ page }) => {
-    const panel = page.locator('#fileTreePanel');
-    await expect(panel).toBeVisible();
-  });
-
-  test('header toggle hides and restores the file tree', async ({ page }) => {
+  test('header toggle hides the tree, content takes the space, and the state survives a reload', async ({ page }) => {
+    await loadPage(page);
     const panel = page.locator('#fileTreePanel');
     const toggle = page.locator('#fileTreeToggle');
     await expect(panel).toBeVisible();
+    const openBox = (await page.locator('.main-content').boundingBox())!;
 
     await toggle.click();
     await expect(panel).toBeHidden();
     await expect(page.locator('#fileTreeResizer')).toBeHidden();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-
-    // Collapsed state survives a reload (persisted in the crit-settings cookie).
-    await loadPage(page);
-    await expect(page.locator('#fileTreePanel')).toBeHidden();
-
-    await page.locator('#fileTreeToggle').click();
-    await expect(page.locator('#fileTreePanel')).toBeVisible();
-  });
-
-  test('collapsed tree stays left-anchored and expands into freed space', async ({ page }) => {
-    const openBox = (await page.locator('.main-content').boundingBox())!;
-
-    await page.locator('#fileTreeToggle').click();
-    await expect(page.locator('#fileTreePanel')).toBeHidden();
 
     // Content expands into the vacated sidebar: left edge moves left (not
     // toward center), width grows. toPass() lets the slide transition settle.
@@ -52,20 +66,33 @@ test.describe('File Tree — Git Mode', () => {
       const right = (layout.x + layout.width) - (main.x + main.width);
       expect(right).toBeGreaterThanOrEqual(left - 1);
     }).toPass();
+
+    // The collapsed resizer is not tabbable.
+    await expect(page.locator('#fileTreeResizer')).toHaveCSS('visibility', 'hidden');
+    const focused = await page.evaluate(() => {
+      const r = document.getElementById('fileTreeResizer');
+      if (!r) return 'missing';
+      r.focus();
+      return document.activeElement === r ? 'focused' : 'skipped';
+    });
+    expect(focused).toBe('skipped');
+
+    // Collapsed state survives a reload (persisted in the crit-settings cookie).
+    await loadPage(page);
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+    await page.locator('#fileTreeToggle').click();
+    await expect(page.locator('#fileTreePanel')).toBeVisible();
   });
 
-  test('b toggles the file tree', async ({ page }) => {
+  test('b toggles the file tree, and is a no-op when the toggle is CSS-hidden (mobile)', async ({ page }) => {
+    await loadPage(page);
     const panel = page.locator('#fileTreePanel');
     await expect(panel).toBeVisible();
     await page.locator('body').press('b');
     await expect(panel).toBeHidden();
     await page.locator('body').press('b');
     await expect(panel).toBeVisible();
-  });
 
-  test('b is a no-op when the toggle is CSS-hidden (mobile)', async ({ page }) => {
-    const panel = page.locator('#fileTreePanel');
-    await expect(panel).toBeVisible();
     await page.setViewportSize({ width: 375, height: 812 });
     await expect(page.locator('#fileTreeToggle')).toBeHidden();
     await page.locator('body').press('b');
@@ -76,126 +103,31 @@ test.describe('File Tree — Git Mode', () => {
     await expect(page.locator('body')).not.toHaveClass(/file-tree-collapsed/);
   });
 
-  test('collapsed file-tree resizer is not tabbable', async ({ page }) => {
-    await page.locator('#fileTreeToggle').click();
-    await expect(page.locator('#fileTreePanel')).toBeHidden();
-    await expect(page.locator('#fileTreeResizer')).toHaveCSS('visibility', 'hidden');
-    const focused = await page.evaluate(() => {
-      const r = document.getElementById('fileTreeResizer');
-      if (!r) return 'missing';
-      r.focus();
-      return document.activeElement === r ? 'focused' : 'skipped';
-    });
-    expect(focused).toBe('skipped');
-  });
+  test('clicking a file scrolls its header to the top and marks only it active', async ({ page }) => {
+    await loadPage(page);
 
-  test('file tree lists all files from the session', async ({ page }) => {
-    // Git fixture has: plan.md, skill.md, server.go, handler.js, deleted.txt, routes.go, legacy.go (committed)
-    // + utils.go, login.feature (staged), config.yaml (untracked) = 10 total
-    const treeFiles = page.locator('.tree-file');
-    await expect(treeFiles).toHaveCount(10);
-  });
-
-  test('file tree shows correct file names', async ({ page }) => {
-    // Wait for the expected files to be visible individually rather than
-    // taking a count() snapshot that races with tree rendering.
-    const tree = page.locator('#fileTreePanel');
-    await expect(tree.locator('.tree-file-name', { hasText: 'plan.md' })).toBeVisible();
-    await expect(tree.locator('.tree-file-name', { hasText: 'server.go' })).toBeVisible();
-    await expect(tree.locator('.tree-file-name', { hasText: 'handler.js' })).toBeVisible();
-    await expect(tree.locator('.tree-file-name', { hasText: 'deleted.txt' })).toBeVisible();
-    await expect(tree.locator('.tree-file-name', { hasText: 'utils.go' })).toBeVisible();
-    await expect(tree.locator('.tree-file-name', { hasText: 'config.yaml' })).toBeVisible();
-  });
-
-  test('file tree header shows file count', async ({ page }) => {
-    const stats = page.locator('#fileTreeStats');
-    await expect(stats).toBeVisible();
-    await expect(stats).toContainText('10');
-  });
-
-  test('file tree header shows addition stats', async ({ page }) => {
-    const addStat = page.locator('#fileTreeStats .tree-stat-add');
-    await expect(addStat).toBeVisible();
-    const text = await addStat.textContent();
-    expect(text).toMatch(/\+\d+/);
-  });
-
-  test('file tree header shows deletion stats', async ({ page }) => {
-    const delStat = page.locator('#fileTreeStats .tree-stat-del');
-    await expect(delStat).toBeVisible();
-    const text = await delStat.textContent();
-    expect(text).toMatch(/-\d+/);
-  });
-
-  test('clicking a file in tree scrolls to its section', async ({ page }) => {
-    const treeFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'handler.js' }),
-    });
-    await treeFile.click();
-
+    await treeFile(page, 'handler.js').click();
     await expect(fileHeader(page, 'handler.js')).toBeInViewport();
-  });
 
-  test('clicking a file in tree scrolls its header to the top of viewport', async ({ page }) => {
-    // Scroll to the bottom so we need to scroll back up. CodeView scrolls
-    // #filesContainer, not the window.
+    const serverFile = treeFile(page, 'server.go');
+    await serverFile.click();
+    await expect(serverFile).toHaveClass(/active/);
+    const handlerFile = treeFile(page, 'handler.js');
+    await handlerFile.click();
+    await expect(handlerFile).toHaveClass(/active/);
+    await expect(serverFile).not.toHaveClass(/active/);
+
+    // From the bottom, plan.md's header lands just below the sticky header.
+    // CodeView scrolls #filesContainer, not the window.
     await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
     await expect(fileHeader(page, 'plan.md')).not.toBeInViewport();
-
-    // Click the first file (plan.md) in the tree
-    const treeFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'plan.md' }),
-    });
-    await treeFile.click();
-
-    // The file header should be near the top of the viewport (below the sticky header)
-    const header = fileHeader(page, 'plan.md');
+    await treeFile(page, 'plan.md').click();
     await expect(async () => {
-      const box = await header.boundingBox();
+      const box = await fileHeader(page, 'plan.md').boundingBox();
       expect(box).toBeTruthy();
       // Should be positioned just below the sticky header (~49px + 8px padding)
       expect(box!.y).toBeLessThan(100);
     }).toPass();
-  });
-
-  test('clicking a file in tree marks it as active', async ({ page }) => {
-    const treeFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'server.go' }),
-    });
-    await treeFile.click();
-    await expect(treeFile).toHaveClass(/active/);
-  });
-
-  test('only one file is active at a time', async ({ page }) => {
-    // Click server.go
-    const serverFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'server.go' }),
-    });
-    await serverFile.click();
-    await expect(serverFile).toHaveClass(/active/);
-
-    // Click handler.js
-    const handlerFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'handler.js' }),
-    });
-    await handlerFile.click();
-    await expect(handlerFile).toHaveClass(/active/);
-    await expect(serverFile).not.toHaveClass(/active/);
-  });
-
-  test('file status icons have correct classes', async ({ page }) => {
-    // plan.md, skill.md, handler.js, login.feature, and config.yaml (untracked) are added
-    const addedIcons = page.locator('.tree-file-status-icon.added');
-    await expect(addedIcons).toHaveCount(5);
-
-    // server.go, routes.go, legacy.go, and utils.go (staged modification) are modified
-    const modifiedIcons = page.locator('.tree-file-status-icon.modified');
-    await expect(modifiedIcons).toHaveCount(4);
-
-    // deleted.txt is deleted
-    const deletedIcons = page.locator('.tree-file-status-icon.deleted');
-    await expect(deletedIcons).toHaveCount(1);
   });
 });
 
@@ -203,52 +135,27 @@ test.describe('File Tree — Git Mode', () => {
 // File Tree Comment Badges — Git Mode
 // ============================================================
 test.describe('File Tree Comment Badges — Git Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('comment badge appears when a comment is added and goes when it is deleted', async ({ page }) => {
     await loadPage(page);
-  });
+    await expect(page.locator('.tree-file').first()).toBeVisible();
+    await expect(page.locator('.tree-comment-badge')).toHaveCount(0);
 
-  test('no comment badges shown when there are no comments', async ({ page }) => {
-    const badges = page.locator('.tree-comment-badge');
-    await expect(badges).toHaveCount(0);
-  });
-
-  test('comment badge appears after adding a comment', async ({ page }) => {
-    // Add a comment on server.go (diff file)
     const section = await goSection(page);
     const form = await openLineComment(page, section, 1);
     await form.locator('textarea').fill('Badge test');
     await form.locator('.btn-primary').click();
     await expect(section.locator('.comment-card')).toBeVisible();
 
-    // Tree should now show a badge on server.go
-    const serverTreeFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'server.go' }),
-    });
-    const badge = serverTreeFile.locator('.tree-comment-badge');
+    const badge = treeFile(page, 'server.go').locator('.tree-comment-badge');
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('1');
-  });
 
-  test('comment badge updates when comment is deleted', async ({ page }) => {
-    // Add a comment on server.go
-    const section = await goSection(page);
-    const form = await openLineComment(page, section, 1);
-    await form.locator('textarea').fill('Badge delete test');
-    await form.locator('.btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    // Verify badge exists
-    const serverTreeFile = page.locator('.tree-file', {
-      has: page.locator('.tree-file-name', { hasText: 'server.go' }),
-    });
-    await expect(serverTreeFile.locator('.tree-comment-badge')).toBeVisible();
-
-    // Delete the comment
     await section.locator('.comment-actions .delete-btn').click();
     await expect(section.locator('.comment-card')).toHaveCount(0);
-
-    // Badge should be gone
-    await expect(serverTreeFile.locator('.tree-comment-badge')).toHaveCount(0);
+    await expect(badge).toHaveCount(0);
   });
 });

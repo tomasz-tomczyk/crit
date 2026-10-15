@@ -1,22 +1,14 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection, revealFile, diffLine, fileHeader } from './helpers';
-
-/** Get the fixture directory from the session API. */
-async function getFixtureDir(request: APIRequestContext): Promise<string> {
-  const res = await request.get('/api/session');
-  const data = await res.json();
-  return data.cwd;
-}
+import { clearAllComments, loadPage, mdSection, revealFile, diffLine, fileHeader, roundComplete, sessionCwd } from './helpers';
 
 /**
  * Trigger a round-complete with a modified plan.md so that previousContent
  * differs from current content, producing diff hunks for the rendered diff.
  */
 async function triggerRoundWithModifiedPlan(request: APIRequestContext) {
-  const dir = await getFixtureDir(request);
-  const planPath = path.join(dir, 'plan.md');
+  const planPath = path.join(await sessionCwd(request), 'plan.md');
 
   // Read current plan.md and append unique content so repeated calls produce diffs
   const original = fs.readFileSync(planPath, 'utf-8');
@@ -24,54 +16,48 @@ async function triggerRoundWithModifiedPlan(request: APIRequestContext) {
   const modified = original + `\n\n## Update ${timestamp}\n\nNew content added at ${timestamp}.\n`;
   fs.writeFileSync(planPath, modified);
 
-  // Signal round-complete so the server snapshots + re-reads
-  const res = await request.post('/api/round-complete');
-  expect(res.ok()).toBeTruthy();
-
-  // Poll until diff data is available after round-complete processing
+  // Signal round-complete and wait until the server has re-read the file.
+  await roundComplete(request);
   await expect(async () => {
-    const diffRes = await request.get('/api/file/diff?path=plan.md');
-    const diff = await diffRes.json();
+    const diff = await (await request.get('/api/file/diff?path=plan.md')).json();
     expect(diff.previous_content).toBeTruthy();
     expect(diff.hunks?.length).toBeGreaterThan(0);
   }).toPass({ timeout: 5000 });
 }
 
+// Every test appends to plan.md; put the file (and the server's copy) back
+// for the specs that run after this one.
+let planPath: string;
+let originalPlan: string;
+test.beforeAll(async ({ request }) => {
+  planPath = path.join(await sessionCwd(request), 'plan.md');
+  originalPlan = fs.readFileSync(planPath, 'utf-8');
+});
+test.afterAll(async ({ request }) => {
+  fs.writeFileSync(planPath, originalPlan);
+  await roundComplete(request);
+});
+
 // ============================================================
 // Rendered Diff — File Mode — Toggle Diff button
 // ============================================================
 test.describe('Rendered Diff — File Mode — Toggle Button', () => {
-  test('Toggle Diff button visibility depends on whether diffs exist', async ({ page, request }) => {
-    // Check if server already has round-complete state from previous tests
-    const sessionRes = await request.get('/api/session');
-    const session = await sessionRes.json();
-
+  test('Toggle Diff button appears once a round has diffs and toggles its active class', async ({ page, request }) => {
+    // clearAllComments resets the session to round 1 with no previous
+    // content, so there are no diffs yet and the button is hidden.
+    await clearAllComments(request);
     await loadPage(page);
     const btn = page.locator('#diffToggle');
+    await expect(btn).toBeHidden();
 
-    if (session.review_round <= 1) {
-      // Fresh server — no round-complete yet, button should be hidden
-      await expect(btn).toBeHidden();
-    }
-    // After triggering round-complete with changes, button should appear
-    await clearAllComments(request);
+    // After a round-complete with changes the button appears, inactive.
     await triggerRoundWithModifiedPlan(request);
     await loadPage(page);
     await expect(btn).toBeVisible();
-  });
-
-  test('Toggle Diff button gets active class when clicked', async ({ page, request }) => {
-    await clearAllComments(request);
-    await triggerRoundWithModifiedPlan(request);
-
-    await loadPage(page);
-    const btn = page.locator('#diffToggle');
     await expect(btn).not.toHaveClass(/active/);
 
     await btn.click();
     await expect(btn).toHaveClass(/active/);
-
-    // Click again to deactivate
     await btn.click();
     await expect(btn).not.toHaveClass(/active/);
   });
@@ -86,53 +72,34 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     await triggerRoundWithModifiedPlan(request);
   });
 
-  test('clicking Toggle Diff shows split diff view by default', async ({ page }) => {
+  test('Toggle Diff shows a split diff of the round and toggles back to the document', async ({ page }) => {
     await loadPage(page);
-    await page.locator('#diffToggle').click();
-
     const section = await mdSection(page);
-    await expect(section.locator('.diff-view')).toBeVisible();
-    await expect(section.locator('.document-wrapper')).toHaveCount(0);
-  });
 
-  test('per-file toggle has no Rendered button (the header Toggle Diff covers it)', async ({ page }) => {
-    await loadPage(page);
-    await mdSection(page);
+    // The per-file toggle has no Rendered button (the header Toggle Diff covers it).
     const toggle = fileHeader(page, 'plan.md').locator('.file-header-toggle');
     await expect(toggle).toBeVisible();
     await expect(toggle.locator('.toggle-btn[data-mode="document"]')).toBeVisible();
     await expect(toggle.locator('.toggle-btn[data-mode="rendered-diff"]')).toHaveCount(0);
-  });
 
-  test('split view has two sides with labels', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
+    // Split view is the default.
+    const btn = page.locator('#diffToggle');
+    await btn.click();
+    const diff = section.locator('.diff-view');
+    await expect(diff).toBeVisible();
+    await expect(section.locator('.document-wrapper')).toHaveCount(0);
 
-    const section = await mdSection(page);
+    // Two labelled sides.
     const labels = section.locator('.diff-view-side-label');
     await expect(labels).toHaveCount(2);
     await expect(labels.nth(0)).toHaveText('Previous round');
     await expect(labels.nth(1)).toHaveText('Current round');
-  });
 
-  test('split view shows diff-added blocks on current side', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-
-    const section = await mdSection(page);
+    // The appended section shows up as added on the current side.
     const addedBlocks = section.locator('.diff-view .line-block.diff-added');
     await expect(addedBlocks.first()).toBeVisible();
-    // The appended section shows up as added on the current side
     await expect(addedBlocks.filter({ hasText: 'New content added at' }).last()).toBeVisible();
-  });
 
-  test('split view shows diff-removed blocks on previous side', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-
-    const section = await mdSection(page);
-    const diff = section.locator('.diff-view');
-    await expect(diff).toBeVisible();
     // Cells alternate previous (even) / current (odd). Removed blocks only
     // ever sit on the previous side, added blocks only on the current side.
     const misplaced = await diff.evaluate(el => {
@@ -146,47 +113,17 @@ test.describe('Rendered Diff — File Mode — Split View', () => {
     });
     expect(misplaced.cells).toBeGreaterThan(0);
     expect(misplaced.bad).toBe(0);
-  });
 
-  test('split view shows line numbers', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-
-    const section = await mdSection(page);
+    // Line numbers; the left side is not commentable, the right side is.
     const lineNums = section.locator('.diff-view .line-num');
     await expect(lineNums.first()).toBeVisible();
     await expect(lineNums.first()).toHaveText(/^\d+$/);
-  });
+    await expect(section.locator('.diff-view .diff-no-comment')).not.toHaveCount(0);
+    await expect(section.locator('.diff-view .line-comment-gutter:not(.diff-no-comment)')).not.toHaveCount(0);
 
-  test('left side has non-commentable gutters', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-
-    const section = await mdSection(page);
-    const noCommentGutters = section.locator('.diff-view .diff-no-comment');
-    await expect(noCommentGutters).not.toHaveCount(0);
-  });
-
-  test('right side has commentable gutters', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-
-    const section = await mdSection(page);
-    const commentGutters = section.locator('.diff-view .line-comment-gutter:not(.diff-no-comment)');
-    await expect(commentGutters).not.toHaveCount(0);
-  });
-
-  test('clicking Toggle Diff again returns to document view', async ({ page }) => {
-    await loadPage(page);
-    const btn = page.locator('#diffToggle');
+    // Clicking Toggle Diff again returns to document view.
     await btn.click();
-
-    const section = await mdSection(page);
-    await expect(section.locator('.diff-view')).toBeVisible();
-
-    // Click again to return to document view
-    await btn.click();
-    await expect(section.locator('.diff-view')).toHaveCount(0);
+    await expect(diff).toHaveCount(0);
     await expect(section.locator('.document-wrapper')).toBeVisible();
   });
 });
@@ -200,69 +137,38 @@ test.describe('Rendered Diff — File Mode — Unified View', () => {
     await triggerRoundWithModifiedPlan(request);
   });
 
-  test('Split/Unified toggle appears when Toggle Diff is active', async ({ page }) => {
+  test('Split/Unified toggle follows Toggle Diff and switches between the two views', async ({ page }) => {
     await loadPage(page);
     const diffModeToggle = page.locator('#diffModeToggle');
     await expect(diffModeToggle).toBeHidden();
 
+    // Appears when Toggle Diff is active.
     await page.locator('#diffToggle').click();
     await expect(diffModeToggle).toBeVisible();
-  });
 
-  test('Split/Unified toggle hides when Toggle Diff is deactivated', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-    await expect(page.locator('#diffModeToggle')).toBeVisible();
-
-    await page.locator('#diffToggle').click();
-    await expect(page.locator('#diffModeToggle')).toBeHidden();
-  });
-
-  test('clicking Unified switches to unified diff view', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-
-    const unifiedBtn = page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]');
-    await unifiedBtn.click();
-
-    const section = await mdSection(page);
-    await expect(section.locator('.diff-view-unified')).toBeVisible();
-    await expect(section.locator('.diff-view')).toHaveCount(0);
-  });
-
-  test('unified view shows diff-added and diff-removed blocks interleaved', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
+    // Unified view replaces the split view.
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-
     const section = await mdSection(page);
+    const unified = section.locator('.diff-view-unified');
+    await expect(unified).toBeVisible();
+    await expect(section.locator('.diff-view')).toHaveCount(0);
+
+    // Added blocks and line numbers in unified view.
     const addedBlocks = section.locator('.diff-view-unified .line-block.diff-added');
     await expect(addedBlocks.first()).toBeVisible();
     await expect(addedBlocks.filter({ hasText: 'New content added at' }).last()).toBeVisible();
-  });
-
-  test('unified view shows line numbers', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-    await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-
-    const section = await mdSection(page);
     const lineNums = section.locator('.diff-view-unified .line-num');
     await expect(lineNums.first()).toBeVisible();
     await expect(lineNums.first()).toHaveText(/^\d+$/);
-  });
 
-  test('switching back to Split shows split view', async ({ page }) => {
-    await loadPage(page);
-    await page.locator('#diffToggle').click();
-    await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
-
-    const section = await mdSection(page);
-    await expect(section.locator('.diff-view-unified')).toBeVisible();
-
+    // Switching back to Split shows the split view.
     await page.locator('#diffModeToggle .toggle-btn[data-mode="split"]').click();
     await expect(section.locator('.diff-view')).toBeVisible();
-    await expect(section.locator('.diff-view-unified')).toHaveCount(0);
+    await expect(unified).toHaveCount(0);
+
+    // Hides again when Toggle Diff is deactivated.
+    await page.locator('#diffToggle').click();
+    await expect(diffModeToggle).toBeHidden();
   });
 });
 
@@ -350,8 +256,6 @@ test.describe('Rendered Diff — File Mode — Comments', () => {
 test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () => {
   test('word-diff does not highlight common words shifted by line reflow', async ({ page, request }) => {
     await clearAllComments(request);
-    const dir = await getFixtureDir(request);
-    const planPath = path.join(dir, 'plan.md');
     const original = fs.readFileSync(planPath, 'utf-8');
 
     // Replace the overview paragraph with text that wraps at ~80 chars.
@@ -372,11 +276,7 @@ test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () =
     // Write v1 content, trigger round to snapshot it
     const v1Content = original.replace(/^## Overview\n\n.*?(?=\n\n##)/ms, '## Overview\n\n' + v1Para);
     fs.writeFileSync(planPath, v1Content);
-    await request.post('/api/round-complete');
-    await expect(async () => {
-      const s = await (await request.get('/api/session')).json();
-      expect(s.review_round).toBeGreaterThanOrEqual(2);
-    }).toPass({ timeout: 5000 });
+    await roundComplete(request);
 
     // Now write v2 content (SQS insertion + reflow) and trigger another round.
     // The file watcher polls every 1s and must detect the edit before
@@ -385,15 +285,11 @@ test.describe('Rendered Diff — File Mode — Paragraph Reflow Word Diff', () =
     // then trigger round-complete once.
     const v2Content = v1Content.replace(v1Para, v2Para);
     fs.writeFileSync(planPath, v2Content);
-    // Poll until the file watcher detects the edit (sleep inside retry loop is
-    // the documented exception to the no-setTimeout rule).
-    await expect(async () => {
-      await new Promise(r => setTimeout(r, 500));
-      const fileRes = await request.get('/api/file?path=plan.md');
-      const file = await fileRes.json();
-      expect(file.content).toContain('SQS');
-    }).toPass({ timeout: 5000 });
-    await request.post('/api/round-complete');
+    await expect.poll(async () => {
+      const file = await (await request.get('/api/file?path=plan.md')).json();
+      return file.content as string;
+    }, { timeout: 5000 }).toContain('SQS');
+    await roundComplete(request);
     await expect(async () => {
       const diffRes = await request.get('/api/file/diff?path=plan.md');
       const diff = await diffRes.json();
@@ -476,8 +372,6 @@ test.describe('Rendered Diff — File Mode — Round-Complete', () => {
     await expect((await mdSection(page)).locator('.diff-view')).toBeVisible();
 
     // Trigger another round-complete (modify file again)
-    const dir = await getFixtureDir(request);
-    const planPath = path.join(dir, 'plan.md');
     const content = fs.readFileSync(planPath, 'utf-8');
     fs.writeFileSync(planPath, content + '\n\n## Appendix\n\nAdditional notes.\n');
 
@@ -494,8 +388,6 @@ test.describe('Rendered Diff — File Mode — Round-Complete', () => {
 
   test('Toggle Diff button is visible after SSE round-complete with changes', async ({ page, request }) => {
     // Modify file and trigger round-complete via SSE flow
-    const dir = await getFixtureDir(request);
-    const planPath = path.join(dir, 'plan.md');
     const content = fs.readFileSync(planPath, 'utf-8');
     fs.writeFileSync(planPath, content + `\n\n## New Section ${Date.now()}\n\nAdded via test.\n`);
 

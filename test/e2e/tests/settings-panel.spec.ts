@@ -1,10 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loadPage, clearAllComments, selectedLines } from './helpers';
 
+// The overlay shell (open/close, Esc, backdrop click, ?, tab switching and its
+// scroll reset, focus trap) is unit-tested in web/__tests__/crit-settings-overlay.test.js,
+// and pane markup in crit-settings-panes.test.js. These tests cover the wiring
+// in the real page: which tab opens, what each pane shows, and settings that
+// change the page and persist across reloads.
+
 // Keyboard focus: a Pierre-selected diff line, or a focused document block.
 function keyboardFocus(page: Page) {
   return page.locator('.kb-nav.focused').or(selectedLines(page));
 }
+
+const overlay = (page: Page) => page.locator('.settings-overlay');
 
 test.describe('Settings Panel', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -12,86 +20,81 @@ test.describe('Settings Panel', () => {
     await loadPage(page);
   });
 
-  test('gear icon opens panel to Settings tab', async ({ page }) => {
+  test('gear opens the Settings tab; each tab shows its pane', async ({ page }) => {
+    // The theme pill lives in the settings dialog, not the header.
+    await expect(page.locator('.header .theme-pill')).toHaveCount(0);
+    // The old standalone shortcuts overlay is gone (shortcuts are a tab here).
+    await expect(page.locator('#shortcutsOverlay')).toHaveCount(0);
+
     await page.click('#settingsToggle');
-    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
+    await expect(overlay(page)).toHaveClass(/active/);
     await expect(page.locator('.settings-tab.active')).toHaveText('Settings');
-    await expect(page.locator('.settings-pane[data-pane="settings"]')).toHaveClass(/active/);
-  });
+    const settings = page.locator('.settings-pane[data-pane="settings"]');
+    await expect(settings).toHaveClass(/active/);
 
-  test('? key opens panel to Shortcuts tab', async ({ page }) => {
-    await page.keyboard.press('?');
-    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
-    await expect(page.locator('.settings-tab.active')).toHaveText('Shortcuts');
-  });
+    // Display section: theme, code font and width.
+    await expect(settings.locator('.settings-display-label').first()).toHaveText('Theme');
+    await expect(settings.locator('.settings-display-label').filter({ hasText: 'Code font' })).toBeVisible();
+    await expect(settings.locator('.settings-display-label').filter({ hasText: 'Content Width' })).toBeVisible();
+    // Core configuration cards — always rendered (in various states). Share
+    // title varies (Share vs Sharing enabled).
+    await expect(settings.locator('.config-card-title', { hasText: 'Account' })).toBeVisible();
+    await expect(settings.locator('.config-card-title', { hasText: 'Agent Command' })).toBeVisible();
+    await expect(settings.locator('.config-card-title', { hasText: /Share|Sharing enabled/ }).first()).toBeVisible();
 
-  test('Escape closes the panel', async ({ page }) => {
-    await page.click('#settingsToggle');
-    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
-  });
-
-  test('clicking outside closes the panel', async ({ page }) => {
-    await page.click('#settingsToggle');
-    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
-    // Click the overlay background (not the dialog)
-    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
-    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
-  });
-
-  test('tab switching works', async ({ page }) => {
-    await page.click('#settingsToggle');
     await page.click('.settings-tab[data-tab="shortcuts"]');
     await expect(page.locator('.settings-pane[data-pane="shortcuts"]')).toHaveClass(/active/);
+
     await page.click('.settings-tab[data-tab="updates"]');
-    await expect(page.locator('.settings-pane[data-pane="updates"]')).toHaveClass(/active/);
+    const updates = page.locator('.settings-pane[data-pane="updates"]');
+    await expect(updates).toHaveClass(/active/);
+    await expect(updates.locator('.settings-section-label', { hasText: 'Crit' })).toBeVisible();
+    await expect(updates.locator('.updates-crit-row')).toBeVisible();
+    await expect(updates.locator('.settings-section-label', { hasText: 'AI integrations' })).toBeVisible();
+
     await page.click('.settings-tab[data-tab="about"]');
-    await expect(page.locator('.settings-pane[data-pane="about"]')).toHaveClass(/active/);
+    const about = page.locator('.settings-pane[data-pane="about"]');
+    await expect(about).toHaveClass(/active/);
+    await expect(about.locator('.about-header h2')).toHaveText('Crit');
+    await expect(about.locator('.about-session')).toBeVisible();
+    await expect(about.locator('.about-links')).toBeVisible();
+
     await page.click('.settings-tab[data-tab="settings"]');
-    await expect(page.locator('.settings-pane[data-pane="settings"]')).toHaveClass(/active/);
+    await expect(settings).toHaveClass(/active/);
   });
 
-  test('tab switching resets the shared content scroll position', async ({ page }) => {
-    await page.click('#settingsToggle');
-    const content = page.locator('.settings-content');
-    const scrolled = await content.evaluate((element) => {
-      const spacer = document.createElement('div');
-      spacer.style.height = '2000px';
-      element.appendChild(spacer);
-      element.scrollTop = element.scrollHeight;
-      return element.scrollTop;
-    });
-    expect(scrolled).toBeGreaterThan(0);
-
-    await page.click('.settings-tab[data-tab="about"]');
-    await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBe(0);
-  });
-
-  test('? key toggles shortcuts tab when panel is open on shortcuts', async ({ page }) => {
+  test('? opens grouped Shortcuts; ?, Escape and the backdrop close the dialog', async ({ page }) => {
     await page.keyboard.press('?');
-    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
-    await page.keyboard.press('?');
-    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
-  });
-
-  test('? key switches to shortcuts tab when panel is open on different tab', async ({ page }) => {
-    await page.click('#settingsToggle'); // opens to Settings tab
-    await expect(page.locator('.settings-tab.active')).toHaveText('Settings');
-    await page.keyboard.press('?');
+    await expect(overlay(page)).toHaveClass(/active/);
     await expect(page.locator('.settings-tab.active')).toHaveText('Shortcuts');
-    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
-  });
-
-  test('shortcuts pane shows grouped keyboard shortcuts', async ({ page }) => {
-    await page.keyboard.press('?');
-    const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
     // Code-review mode shows five groups: Navigation, Comments, Review, Story,
     // View (the Live group is filtered out; Story shortcuts carry a "story mode"
     // badge and always render, like the "file mode"/"vcs mode" badged entries).
+    const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
     await expect(pane.locator('.shortcuts-group-label')).toHaveCount(5);
     await expect(pane.locator('.shortcuts-group-label').first()).toHaveText('Navigation');
     await expect(pane.locator('.shortcuts-group-label').nth(3)).toHaveText('Story');
+
+    // ? again on the Shortcuts tab closes.
+    await page.keyboard.press('?');
+    await expect(overlay(page)).not.toHaveClass(/active/);
+
+    // ? on another tab switches to Shortcuts instead of closing.
+    await page.click('#settingsToggle');
+    await page.click('.settings-tab[data-tab="settings"]');
+    await expect(page.locator('.settings-tab.active')).toHaveText('Settings');
+    await page.keyboard.press('?');
+    await expect(page.locator('.settings-tab.active')).toHaveText('Shortcuts');
+    await expect(overlay(page)).toHaveClass(/active/);
+
+    await page.keyboard.press('Escape');
+    await expect(overlay(page)).not.toHaveClass(/active/);
+
+    await page.click('#settingsToggle');
+    await expect(overlay(page)).toHaveClass(/active/);
+    // Click the overlay background (not the dialog)
+    await overlay(page).click({ position: { x: 10, y: 10 } });
+    await expect(overlay(page)).not.toHaveClass(/active/);
   });
 
   test('custom shortcut is applied immediately, persists, and can be reset', async ({ page }) => {
@@ -101,7 +104,7 @@ test.describe('Settings Panel', () => {
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('ArrowDown');
 
-    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
+    await overlay(page).click({ position: { x: 10, y: 10 } });
     await page.keyboard.press('j');
     await expect(keyboardFocus(page)).toHaveCount(0);
     await page.keyboard.press('ArrowDown');
@@ -115,12 +118,12 @@ test.describe('Settings Panel', () => {
     await page.keyboard.press('?');
     await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('ArrowDown');
     await page.locator('.shortcut-reset-all').click();
-    await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
+    await overlay(page).click({ position: { x: 10, y: 10 } });
     await page.keyboard.press('j');
     await expect(keyboardFocus(page).first()).toBeVisible();
   });
 
-  test('shortcut conflicts are shown without changing the row height', async ({ page }) => {
+  test('conflicting and reserved shortcuts are rejected with a toast, without changing the row height', async ({ page }) => {
     await page.keyboard.press('?');
     await page.locator('.settings-dialog').evaluate(async (element) => {
       await Promise.all(element.getAnimations().map((animation) => animation.finished));
@@ -137,24 +140,13 @@ test.describe('Settings Panel', () => {
       'already assigned to “Next block”',
     );
     await expect(row.locator('.shortcut-inline-feedback')).toHaveCount(0);
-  });
 
-  test('modified submit chords stay reserved', async ({ page }) => {
-    await page.keyboard.press('?');
+    // Modified submit chords stay reserved.
     const finishReview = page.locator('[data-shortcut-id="finish_review"]');
     await finishReview.click();
     await page.keyboard.press('Control+Shift+Enter');
-
-    await expect(page.locator('.mini-toast--error')).toContainText('is reserved by Crit');
+    await expect(page.locator('.mini-toast--error').filter({ hasText: 'is reserved by Crit' })).toBeVisible();
     await expect(finishReview).toContainText('Shift+F');
-  });
-
-  test('settings pane shows display section with theme, code font and width', async ({ page }) => {
-    await page.click('#settingsToggle');
-    const pane = page.locator('.settings-pane[data-pane="settings"]');
-    await expect(pane.locator('.settings-display-label').first()).toHaveText('Theme');
-    await expect(pane.locator('.settings-display-label').filter({ hasText: 'Code font' })).toBeVisible();
-    await expect(pane.locator('.settings-display-label').filter({ hasText: 'Content Width' })).toBeVisible();
   });
 
   test('system code font overrides --crit-font-code and persists across reload', async ({ page }) => {
@@ -240,57 +232,38 @@ test.describe('Settings Panel', () => {
     expect(requests).toBe(2);
   });
 
-  test('settings pane shows configuration cards', async ({ page }) => {
-    await page.click('#settingsToggle');
-    const pane = page.locator('.settings-pane[data-pane="settings"]');
-    // Core cards — always rendered (in various states). Share title varies
-    // (Share vs Sharing enabled). Integration updates live on the Updates tab.
-    await expect(pane.locator('.config-card-title', { hasText: 'Account' })).toBeVisible();
-    await expect(pane.locator('.config-card-title', { hasText: 'Agent Command' })).toBeVisible();
-    await expect(
-      pane.locator('.config-card-title', { hasText: /Share|Sharing enabled/ }).first(),
-    ).toBeVisible();
-  });
+  // Merged from theme.spec.ts: the theme pill sets data-theme (system removes
+  // it), moves its indicator, and persists in the crit-settings cookie.
+  test('theme and width pills update <html>, the indicator follows, and the theme persists', async ({ page }) => {
+    const html = page.locator('html');
+    const indicatorLeft = () => page.locator('#settingsThemeIndicator').evaluate(el => parseFloat(el.style.left));
 
-  test('updates pane shows Crit status and AI integrations', async ({ page }) => {
     await page.click('#settingsToggle');
-    await page.click('.settings-tab[data-tab="updates"]');
-    const pane = page.locator('.settings-pane[data-pane="updates"]');
-    await expect(pane.locator('.settings-section-label', { hasText: 'Crit' })).toBeVisible();
-    await expect(pane.locator('.updates-crit-row')).toBeVisible();
-    await expect(pane.locator('.settings-section-label', { hasText: 'AI integrations' })).toBeVisible();
-  });
+    // System theme: no data-theme attribute, indicator at 0%.
+    await expect(html).not.toHaveAttribute('data-theme', /.*/);
+    await expect.poll(indicatorLeft).toBe(0);
 
-  test('about pane shows version and session info', async ({ page }) => {
-    await page.click('#settingsToggle');
-    await page.click('.settings-tab[data-tab="about"]');
-    const pane = page.locator('.settings-pane[data-pane="about"]');
-    await expect(pane.locator('.about-header h2')).toHaveText('Crit');
-    await expect(pane.locator('.about-session')).toBeVisible();
-    await expect(pane.locator('.about-links')).toBeVisible();
-  });
-
-  test('theme toggle in settings panel changes theme', async ({ page }) => {
-    await page.click('#settingsToggle');
-    await page.click('[data-settings-theme="dark"]');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await page.click('[data-settings-theme="light"]');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  });
+    await expect(html).toHaveAttribute('data-theme', 'light');
+    await expect.poll(indicatorLeft).toBeCloseTo(33.333, 1);
 
-  test('width toggle changes content width', async ({ page }) => {
-    await page.click('#settingsToggle');
+    await page.click('[data-settings-theme="dark"]');
+    await expect(html).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(indicatorLeft).toBeCloseTo(66.666, 1);
+
+    await page.click('[data-settings-theme="system"]');
+    await expect(html).not.toHaveAttribute('data-theme', /.*/);
+    await expect.poll(indicatorLeft).toBe(0);
+
     await page.click('[data-settings-width="compact"]');
-    await expect(page.locator('html')).toHaveAttribute('data-width', 'compact');
+    await expect(html).toHaveAttribute('data-width', 'compact');
     await page.click('[data-settings-width="wide"]');
-    await expect(page.locator('html')).toHaveAttribute('data-width', 'wide');
-  });
+    await expect(html).toHaveAttribute('data-width', 'wide');
 
-  test('theme pill is not in header', async ({ page }) => {
-    await expect(page.locator('.header .theme-pill')).toHaveCount(0);
-  });
-
-  test('no old shortcuts overlay in DOM', async ({ page }) => {
-    await expect(page.locator('#shortcutsOverlay')).toHaveCount(0);
+    // An explicit theme survives a reload.
+    await page.click('[data-settings-theme="dark"]');
+    await expect(html).toHaveAttribute('data-theme', 'dark');
+    await loadPage(page);
+    await expect(html).toHaveAttribute('data-theme', 'dark');
   });
 });

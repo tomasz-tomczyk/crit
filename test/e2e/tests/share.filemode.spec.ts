@@ -1,36 +1,23 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { clearAllComments, loadPage } from './helpers';
 
 // ============================================================
-// Share Feature — File Mode
+// Share Feature — File Mode (default share_url, no --share-url flag)
 // ============================================================
 test.describe('Share — File Mode', () => {
-  test('share button is visible with default share_url', async ({ page }) => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
+  test('share button is visible with default share_url and starts in its idle state', async ({ page }) => {
     await loadPage(page);
 
     const shareBtn = page.locator('#shareBtn');
     await expect(shareBtn).toBeVisible();
     await expect(shareBtn).toHaveText('Share');
-  });
-
-  test('share button does not have success styling initially', async ({ page }) => {
-    await loadPage(page);
-
-    const shareBtn = page.locator('#shareBtn');
     await expect(shareBtn).not.toHaveClass(/btn-success/);
-  });
-
-  test('no share-related toasts on initial load', async ({ page }) => {
-    await loadPage(page);
-
-    const shareToast = page.locator('#toast-share');
-    await expect(shareToast).toHaveCount(0);
-  });
-
-  test('no share popover on initial load', async ({ page }) => {
-    await loadPage(page);
-
-    const modal = page.locator('.share-overlay');
-    await expect(modal).toHaveCount(0);
+    // No share toast or popover on initial load.
+    await expect(page.locator('#toast-share')).toHaveCount(0);
+    await expect(page.locator('.share-overlay')).toHaveCount(0);
   });
 });

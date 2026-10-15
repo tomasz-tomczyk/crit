@@ -1,7 +1,7 @@
-import { test, expect, type Page, type APIRequestContext, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection } from './helpers';
+import { clearAllComments, loadPage, mdSection, roundComplete, sessionCwd } from './helpers';
 
 const MERMAID_SNIPPET = `
 
@@ -12,21 +12,6 @@ flowchart LR
   A[Start] --> B[End]
 \`\`\`
 `;
-
-async function getFixtureDir(request: APIRequestContext): Promise<string> {
-  const res = await request.get('/api/session');
-  const data = await res.json();
-  return data.cwd;
-}
-
-async function syncPlanWithMermaid(
-  request: APIRequestContext,
-  fixtureDir: string,
-  originalContent: string,
-) {
-  fs.writeFileSync(path.join(fixtureDir, 'plan.md'), originalContent + MERMAID_SNIPPET);
-  await request.post('/api/round-complete');
-}
 
 async function expandButton(page: Page): Promise<Locator> {
   const section = await mdSection(page);
@@ -69,35 +54,34 @@ async function openOverlay(page: Page): Promise<Locator> {
 }
 
 test.describe('Mermaid fullscreen overlay — File Mode', () => {
-  let fixtureDir: string;
+  let planPath: string;
   let originalContent: string;
 
+  // Append a mermaid fence to plan.md once and wait until the server has
+  // re-read it; no test here edits the file.
   test.beforeAll(async ({ request }) => {
-    fixtureDir = await getFixtureDir(request);
-    originalContent = fs.readFileSync(path.join(fixtureDir, 'plan.md'), 'utf-8');
+    planPath = path.join(await sessionCwd(request), 'plan.md');
+    originalContent = fs.readFileSync(planPath, 'utf-8');
+    fs.writeFileSync(planPath, originalContent + MERMAID_SNIPPET);
+    await roundComplete(request);
   });
 
-  test.afterAll(() => {
-    if (fixtureDir && originalContent) {
-      fs.writeFileSync(path.join(fixtureDir, 'plan.md'), originalContent);
-    }
+  test.afterAll(async ({ request }) => {
+    fs.writeFileSync(planPath, originalContent);
+    await roundComplete(request);
   });
 
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await syncPlanWithMermaid(request, fixtureDir, originalContent);
   });
 
-  test('rendered diagram exposes Expand affordance', async ({ page }) => {
+  // Fence comments cover the whole fence (gutter); a node click is inert.
+  test('rendered fence exposes Expand and a node click opens no comment form', async ({ page }) => {
     await loadPage(page);
     const btn = await expandButton(page);
     await expect(btn).toHaveAttribute('aria-label', 'Open diagram fullscreen');
     await expect(btn).toContainText('Expand');
-  });
 
-  // Fence comments cover the whole fence (gutter); a node click is inert.
-  test('clicking a node in a mermaid fence does not open a comment form', async ({ page }) => {
-    await loadPage(page);
     const section = await mdSection(page);
     const block = section.locator('.line-content.render-block').first();
     await expect(block.locator('.crit-render[data-crit-state="rendered"]')).toBeVisible();
@@ -108,82 +92,62 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await expect(section.locator('.comment-form')).toHaveCount(0);
   });
 
-  test('Expand opens overlay with a cloned SVG', async ({ page }) => {
+  test('overlay shows a cloned SVG, zooms, and closes via button, backdrop and Esc', async ({ page }) => {
     await loadPage(page);
-    await openOverlay(page);
+    const overlay = await openOverlay(page);
 
-    const canvas = page.locator('#diagramOverlayCanvas');
-    await expect(canvas.locator('svg')).toHaveCount(1);
+    // Expand opens the overlay with a cloned SVG and focuses Close.
+    await expect(page.locator('#diagramOverlayCanvas svg')).toHaveCount(1);
     await expect(page.locator('#diagramOverlayClose')).toBeFocused();
-  });
 
-  test('zoom in/out updates label and Reset restores fit percent', async ({ page }) => {
-    await loadPage(page);
-    await openOverlay(page);
-
+    // Zoom in/out updates the label; Reset restores the fit percent.
     const label = page.locator('#diagramZoomLabel');
-    const fitText = await label.textContent();
-    expect(fitText).toMatch(/^\d+%$/);
-
+    await expect(label).toHaveText(/^\d+%$/);
+    const fitText = (await label.textContent())!;
     await page.locator('#diagramZoomIn').click();
-    await expect(label).not.toHaveText(fitText!);
-
-    const zoomedIn = await label.textContent();
+    await expect(label).not.toHaveText(fitText);
+    const zoomedIn = (await label.textContent())!;
     await page.locator('#diagramZoomOut').click();
-    await expect(label).not.toHaveText(zoomedIn!);
-
+    await expect(label).not.toHaveText(zoomedIn);
     await page.locator('#diagramZoomReset').click();
-    await expect(label).toHaveText(fitText!);
-  });
+    await expect(label).toHaveText(fitText);
 
-  test('Esc closes overlay and returns focus to Expand', async ({ page }) => {
-    await loadPage(page);
+    // Close button dismisses it.
+    await page.locator('#diagramOverlayClose').click();
+    await expect(overlay).not.toHaveClass(/active/);
+
+    // Backdrop click dismisses it. Hit the overlay padding (16px) so
+    // target === overlay, not a child.
+    await openOverlay(page);
+    await overlay.click({ position: { x: 8, y: 8 } });
+    await expect(overlay).not.toHaveClass(/active/);
+
+    // Esc dismisses it and returns focus to Expand.
     const btn = await clickExpand(page);
-    await expect(page.locator('#diagramOverlay')).toHaveClass(/active/);
-
+    await expect(overlay).toHaveClass(/active/);
     await page.keyboard.press('Escape');
-    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
+    await expect(overlay).not.toHaveClass(/active/);
     await expect(btn).toBeFocused();
   });
 
-  test('close button dismisses overlay', async ({ page }) => {
+  test('theme change and round-complete close the overlay', async ({ page, request }) => {
     await loadPage(page);
-    await openOverlay(page);
-
-    await page.locator('#diagramOverlayClose').click();
-    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
-  });
-
-  test('backdrop click dismisses overlay', async ({ page }) => {
-    await loadPage(page);
-    await openOverlay(page);
-
-    // Hit the overlay padding (16px) so target === overlay, not a child.
-    await page.locator('#diagramOverlay').click({ position: { x: 8, y: 8 } });
-    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
-  });
-
-  test('theme change closes overlay', async ({ page }) => {
-    await loadPage(page);
-    await openOverlay(page);
+    const overlay = await openOverlay(page);
 
     // Settings sits under the mermaid overlay (z-index), so drive applyTheme
     // directly — same close path as the settings theme buttons.
-    await page.evaluate(() => {
-      (window as unknown as { applyTheme: (t: string) => void }).applyTheme('dark');
-    });
-    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
+    const applyTheme = (t: string) => page.evaluate(theme => {
+      (window as unknown as { applyTheme: (t: string) => void }).applyTheme(theme);
+    }, t);
+    try {
+      await applyTheme('dark');
+      await expect(overlay).not.toHaveClass(/active/);
+    } finally {
+      await applyTheme('system');
+    }
 
-    await page.evaluate(() => {
-      (window as unknown as { applyTheme: (t: string) => void }).applyTheme('system');
-    });
-  });
-
-  test('round-complete closes overlay', async ({ page, request }) => {
-    await loadPage(page);
     await openOverlay(page);
-
-    await request.post('/api/round-complete');
-    await expect(page.locator('#diagramOverlay')).not.toHaveClass(/active/);
+    await roundComplete(request);
+    await expect(overlay).not.toHaveClass(/active/);
   });
 });

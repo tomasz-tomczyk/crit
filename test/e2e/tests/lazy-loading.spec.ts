@@ -1,26 +1,19 @@
 import { test, expect } from '@playwright/test';
 import { loadPage, clearAllComments, revealFile } from './helpers';
 
+// Under-threshold sessions mark no file lazy: internal/session
+// TestNewSessionFromGitUnderThreshold (and TestNewSessionFromGitLazyThreshold
+// for the over-threshold split).
 test.describe('Lazy loading', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
   });
 
-  test('session API does not mark files as lazy when under threshold', async ({ request }) => {
-    const res = await request.get('/api/session');
-    const session = await res.json();
-
-    // Git-mode fixture has <25 files — none should be lazy
-    expect(session.files.length).toBeGreaterThan(0);
-    expect(session.files.length).toBeLessThan(25);
-
-    for (const file of session.files) {
-      expect(file.lazy).toBeFalsy();
-    }
-  });
-
   test('all files render fully when under threshold', async ({ page, request }) => {
     const session = await (await request.get('/api/session')).json();
+    // Git-mode fixture has <25 files — none should be lazy.
+    expect(session.files.length).toBeLessThan(25);
+    expect(session.files.filter((f: { lazy?: boolean }) => f.lazy)).toEqual([]);
     // Files with changed lines (the fixture's deleted.txt is an empty file).
     const paths: string[] = session.files
       .filter((f: { additions: number; deletions: number }) => f.additions + f.deletions > 0)

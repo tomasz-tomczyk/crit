@@ -4,7 +4,7 @@ import {
   type DiffSide, setDiffStyle,
 } from './helpers';
 
-// server.go has two hunks separated by a small unchanged gap that Crit
+// server.go has hunks separated by a small unchanged gap that Crit
 // expands automatically (new lines 12-19 / old lines 9-16). Comments on a
 // line inside that gap exercise the "expanded context" path: the line is
 // not part of any hunk in the raw diff.
@@ -72,23 +72,15 @@ for (const mode of ['split', 'unified'] as const) {
         }
       });
 
-      test(`submit comment on expanded context line ${where}`, async ({ page, request }) => {
+      test(`submit, edit and delete a comment on an expanded context line ${where}`, async ({ page, request }) => {
         const item = await goSection(page);
         const body = `Comment on expanded context line ${where}`;
         await commentOnGapLine(page, item, side, body);
         await expectAnchored(request, side, body);
-      });
 
-      test(`edit comment on expanded context line ${where}`, async ({ page, request }) => {
-        const item = await goSection(page);
-        await commentOnGapLine(page, item, side, 'Original expanded comment');
-        await editCard(page, item, 'Original expanded comment', 'Edited expanded comment');
+        await editCard(page, item, body, 'Edited expanded comment');
         await expectAnchored(request, side, 'Edited expanded comment');
-      });
 
-      test(`delete comment on expanded context line ${where}`, async ({ page, request }) => {
-        const item = await goSection(page);
-        await commentOnGapLine(page, item, side, 'Delete me expanded');
         await deleteCard(item);
         await expect.poll(async () => (await serverComments(request)).length).toBe(0);
       });

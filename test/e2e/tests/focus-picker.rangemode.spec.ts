@@ -34,39 +34,15 @@ test.beforeEach(async ({ request }) => {
   await ensureStackedFocus(request);
 });
 
-test('chip is visible in stacked range focus', async ({ page }) => {
-  await loadPage(page);
-  await expect(page.locator('#stackChip')).toBeVisible();
-});
-
-test('stack chip ✕ exit is visible in range focus', async ({ page }) => {
-  await loadPage(page);
-  await expect(page.locator('#stackChipExit')).toBeVisible();
-  await expect(page.locator('#stackChipExit')).toHaveAttribute('aria-label', /working tree/i);
-});
-
-test('popover lists feat-a, feat-b, feat-c', async ({ page }) => {
-  await loadPage(page);
-  await openStackPopover(page);
-  await expect(page.locator('#stackPopover .stack-popover-item').first()).toBeVisible();
-  await expect(page.locator('#stackPopover')).toContainText('feat-a');
-  await expect(page.locator('#stackPopover')).toContainText('feat-b');
-  await expect(page.locator('#stackPopover')).toContainText('feat-c');
-});
-
-test('popover renders the default branch as the last entry (base marker)', async ({ page }) => {
-  await loadPage(page);
-  await openStackPopover(page);
-  const dbItem = page.locator('#stackPopover .stack-popover-default');
-  await expect(dbItem).toBeVisible();
-  await expect(dbItem).toContainText(/stack root:.*main/);
-});
-
-test('popover order is head->base (feat-c, feat-b, feat-a, stack root: main)', async ({ page }) => {
+test('popover lists feat-c, feat-b, feat-a then the stack root: main (head->base)', async ({ page }) => {
   await loadPage(page);
   await openStackPopover(page);
   const items = page.locator('#stackPopover .stack-popover-item');
   await expect(items.first()).toBeVisible();
+  // The default branch renders as the last entry, a base marker.
+  const dbItem = page.locator('#stackPopover .stack-popover-default');
+  await expect(dbItem).toBeVisible();
+  await expect(dbItem).toContainText(/stack root:.*main/);
   // 4 entries expected: feat-c/b/a + stack root: main.
   await expect(items).toHaveCount(4);
   const labels = await items.evaluateAll((els) =>
@@ -125,22 +101,6 @@ test('chip stays visible in range mode; popover shows no-stack placeholder', asy
   await expect(page.locator('#stackChip')).toBeVisible();
   await openStackPopover(page);
   await expect(page.locator('#stackPopover')).toContainText(/no surrounding stack/i);
-});
-
-test('chip body opens popover; ✕ exit does NOT open popover (clicks independent)', async ({ page, request }) => {
-  await loadPage(page);
-  const popover = page.locator('#stackPopover');
-  const exitBtn = page.locator('#stackChipExit');
-  await expect(popover).toBeHidden();
-  // Clicking the ✕ exit must not bubble into the chip's open-popover handler.
-  // Use Promise to ensure no popover ever appears between the click and the
-  // focus switch resolving.
-  await exitBtn.click();
-  await expect(popover).toBeHidden();
-  await expect.poll(async () => {
-    const r = await request.get('/api/session');
-    return (await r.json()).focus.kind;
-  }, { timeout: 5_000 }).toBe('working_tree');
 });
 
 test('focus-changed SSE re-renders the chip and popover (current marker moves)', async ({ page, request }) => {

@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, revealFile, fileHeader, diffLine } from './helpers';
+import { addComment, clearAllComments, loadPage, revealFile, fileHeader, diffLine, roundComplete, sessionCwd } from './helpers';
 
 // Pluggable renderers (issue #989): the built-in mermaid renderer claims
 // .mmd / .mermaid files and gives them a Diagram / Source toggle.
@@ -58,14 +58,23 @@ test.describe('Pluggable renderers — Mermaid files', () => {
       .toEqual(['2-2']);
   });
 
+});
+
+test.describe('Pluggable renderers — seeded comments', () => {
   test('line comments show below the diagram', async ({ page, request }) => {
-    const res = await request.post(`/api/file/comments?path=${encodeURIComponent(MMD)}`, {
-      data: { start_line: 4, end_line: 4, body: 'Return 403 here' },
-    });
-    expect(res.ok()).toBeTruthy();
+    await clearAllComments(request);
+    await addComment(request, MMD, 4, 'Return 403 here');
     await loadPage(page);
     const item = await revealFile(page, MMD);
-    await expect(item.locator('.comment-card .comment-body')).toContainText('Return 403 here');
+    const svg = item.locator('.crit-render-output svg');
+    const card = item.locator('.comment-card', { hasText: 'Return 403 here' });
+    await expect(svg).toBeVisible();
+    await expect(card).toBeVisible();
+    await expect.poll(async () => {
+      const s = await svg.boundingBox();
+      const c = await card.boundingBox();
+      return !!s && !!c && c.y >= s.y + s.height - 1;
+    }, { message: 'comment card sits below the diagram' }).toBe(true);
   });
 });
 
@@ -114,12 +123,11 @@ test.describe('Pluggable renderers — lazy loading', () => {
 test.describe('Pluggable renderers — render errors', () => {
   test('an invalid diagram shows the source and the error, not a blank block', async ({ page, request }) => {
     await clearAllComments(request);
-    const cwd = (await (await request.get('/api/session')).json()).cwd as string;
-    const file = path.join(cwd, MMD);
+    const file = path.join(await sessionCwd(request), MMD);
     const original = fs.readFileSync(file, 'utf8');
     fs.writeFileSync(file, 'flowchart TD\n  A --> \n  this is not mermaid ((\n');
     try {
-      await request.post('/api/round-complete');
+      await roundComplete(request);
       await loadPage(page);
       const item = await revealFile(page, MMD);
       const target = item.locator('.crit-render');
@@ -130,7 +138,7 @@ test.describe('Pluggable renderers — render errors', () => {
       await expect(diffLine(await revealFile(page, 'main.go'), 1)).toBeVisible();
     } finally {
       fs.writeFileSync(file, original);
-      await request.post('/api/round-complete');
+      await roundComplete(request);
     }
   });
 });

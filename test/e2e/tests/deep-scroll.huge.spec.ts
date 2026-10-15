@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments, fileHeader, fileItem, reviewScroller } from './helpers';
+import { loadPage, clearAllComments, expectSettledAt, fileHeader, fileItem, reviewScroller } from './helpers';
 
 // A review tall enough that the file list passes 2^22px (~2,500 files).
 // Pierre's CodeView owns the scroll container (#filesContainer) and
@@ -75,36 +75,9 @@ async function expectItemHitTests(page: Page, path: string) {
   expect(sideHit, 'sidebar hit-tests').toBe(true);
 }
 
-// After a jump the file's header must stay where it landed while Pierre
-// hydrates and measures the neighbours — no drift, no stick jitter.
-async function expectSettledAt(page: Page, path: string) {
-  const header = fileHeader(page, path);
-  await expect(header).toBeInViewport();
-  // Pierre can remount the item once as it measures; start sampling when
-  // the header is back, then require it to hold. A remount mid-window
-  // (common on slower Windows CI) discards the partial samples.
-  const tops: number[] = [];
-  while (tops.length < 10) {
-    await expect.poll(async () => (await header.boundingBox()) !== null).toBe(true);
-    const box = await header.boundingBox();
-    if (!box) {
-      tops.length = 0;
-      continue;
-    }
-    tops.push(Math.round(box.y));
-    await page.waitForFunction(() => new Promise(r => setTimeout(() => r(true), 100)));
-  }
-  expect(Math.max(...tops) - Math.min(...tops), `header top samples ${tops.join(',')}`).toBeLessThanOrEqual(2);
-}
-
 async function mountedItems(page: Page) {
   return page.locator('#filesContainer diffs-container').count();
 }
-
-test('fixture is taller than the 2^22px line (guards the guard)', async ({ page }) => {
-  await loadPage(page);
-  await expect.poll(async () => (await scrollState(page)).height).toBeGreaterThan(CHROME_BREAK_Y + 200_000);
-});
 
 test('tree jump to the deepest files lands, settles, paints and hit-tests', async ({ page }) => {
   await loadPage(page);
@@ -123,38 +96,40 @@ test('tree jump to the deepest files lands, settles, paints and hit-tests', asyn
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.wheel(0, -600);
   await expect.poll(async () => (await scrollState(page)).top).toBeLessThan(before - 300);
+
+  // Jumping back near the top after the deep jumps keeps mounted work
+  // bounded: virtualized, a handful of items around the viewport, not
+  // thousands. The tree lists every file (2,500 rows); the diff surface must
+  // not add per-file DOM on top of that.
+  await page.locator(`.tree-file[data-tree-path="${order[10]}"]`).click();
+  await expect(fileHeader(page, order[10])).toBeInViewport();
+  const mounted = await mountedItems(page);
+  const nodes = await page.evaluate(() => document.getElementsByTagName('*').length);
+  console.log(`[huge] mounted items after jumps=${mounted}; light DOM nodes=${nodes}`);
+  expect(mounted).toBeLessThanOrEqual(40);
+  expect(nodes).toBeLessThan(60_000);
 });
 
-test('scrolling to the bottom renders, paints and hit-tests', async ({ page }) => {
+test('scrolling to the bottom renders, paints, hit-tests and adds no horizontal scroll', async ({ page }) => {
   await loadPage(page);
   // CodeView sizes the list on its first layout; scroll once it has.
   await expect.poll(async () => {
     await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
     return (await scrollState(page)).top;
   }).toBeGreaterThan(CHROME_BREAK_Y);
+  // Guards the guard: the fixture really is taller than the 2^22px line,
+  // with margin, or every deep assertion here is vacuous.
+  expect((await scrollState(page)).height).toBeGreaterThan(CHROME_BREAK_Y + 200_000);
   const order = await reviewOrder(page);
   const last = order[order.length - 1];
   await expect(fileHeader(page, last)).toBeInViewport();
   await expectPainted(page);
   await expectItemHitTests(page, last);
-});
-
-test('deep navigation keeps mounted work bounded', async ({ page }) => {
-  await loadPage(page);
-  const order = await reviewOrder(page);
-  const initial = await mountedItems(page);
-  for (const path of [order[Math.floor(order.length / 2)], order[order.length - 1], order[10]]) {
-    await page.locator(`.tree-file[data-tree-path="${path}"]`).click();
-    await expect(fileHeader(page, path)).toBeInViewport();
-  }
-  const mounted = await mountedItems(page);
-  const nodes = await page.evaluate(() => document.getElementsByTagName('*').length);
-  console.log(`[huge] mounted items initial=${initial} after jumps=${mounted}; light DOM nodes=${nodes}`);
-  // Virtualized: a handful of items around the viewport, not thousands.
-  expect(mounted).toBeLessThanOrEqual(40);
-  // The tree lists every file (2,500 rows); the diff surface must not add
-  // per-file DOM on top of that.
-  expect(nodes).toBeLessThan(60_000);
+  // The off-canvas comments panel adds no horizontal page scroll at depth.
+  expect(await page.evaluate(() => {
+    const se = document.documentElement;
+    return se.scrollWidth <= se.clientWidth;
+  })).toBe(true);
 });
 
 // The server's lazy flag only means "not loaded on the server yet". Once
@@ -162,10 +137,14 @@ test('deep navigation keeps mounted work bounded', async ({ page }) => {
 // thousands of concurrent requests fail (ERR_INSUFFICIENT_RESOURCES) and
 // those files would render empty.
 test('reload after the server has loaded every file keeps file requests bounded', async ({ page, request }) => {
-  test.setTimeout(180_000);
+  // Warm every file server-side, 50 requests at a time (one at a time took
+  // ~40s for 2,500 files).
   const session = await (await request.get('/api/session')).json();
-  for (const f of session.files as { path: string }[]) {
-    await request.get(`/api/file?path=${encodeURIComponent(f.path)}`);
+  const paths = (session.files as { path: string }[]).map(f => f.path);
+  for (let i = 0; i < paths.length; i += 50) {
+    await Promise.all(paths.slice(i, i + 50).map(async p => {
+      await expect(await request.get(`/api/file?path=${encodeURIComponent(p)}`)).toBeOK();
+    }));
   }
   const warmed = await (await request.get('/api/session')).json();
   expect(warmed.files.filter((f: { lazy?: boolean }) => f.lazy)).toHaveLength(0);
@@ -187,16 +166,4 @@ test('reload after the server has loaded every file keeps file requests bounded'
   console.log(`[huge] warm reload: max in-flight file requests ${maxInFlight}`);
   expect(maxInFlight).toBeLessThanOrEqual(100);
   expect(failed).toBe(0);
-});
-
-test('the off-canvas comments panel adds no horizontal page scroll', async ({ page }) => {
-  await loadPage(page);
-  await expect.poll(async () => {
-    await reviewScroller(page).evaluate(el => { el.scrollTop = el.scrollHeight; });
-    return (await scrollState(page)).top;
-  }).toBeGreaterThan(CHROME_BREAK_Y);
-  expect(await page.evaluate(() => {
-    const se = document.documentElement;
-    return se.scrollWidth <= se.clientWidth;
-  })).toBe(true);
 });

@@ -1,15 +1,17 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, switchToDocumentView, mdDocument } from './helpers';
+import { clearAllComments, loadPage, switchToDocumentView } from './helpers';
 
+// Read-only checks on plan.md's rendered document, all from one load.
 test.describe('Markdown Rendering — plan.md', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
-    await switchToDocumentView(page);
   });
 
-  test('renders h1 and h2 headings', async ({ page }) => {
-    const section = mdDocument(page);
+  test('document view renders headings, tables, code, lists, task items, blockquotes, nested bullets and gutters', async ({ page }) => {
+    await loadPage(page);
+    const section = await switchToDocumentView(page);
+
+    // renders h1 and h2 headings
 
     // h1: "Authentication Plan"
     const h1 = section.locator('h1', { hasText: 'Authentication Plan' });
@@ -25,10 +27,8 @@ test.describe('Markdown Rendering — plan.md', () => {
     await expect(section.locator('h2', { hasText: 'Implementation Steps' })).toBeVisible();
     await expect(section.locator('h2', { hasText: 'Open Questions' })).toBeVisible();
     await expect(section.locator('h2', { hasText: 'Timeline' })).toBeVisible();
-  });
 
-  test('renders tables with th and td elements', async ({ page }) => {
-    const section = mdDocument(page);
+    // renders tables with th and td elements
 
     // Table elements should be present
     const tables = section.locator('table');
@@ -50,10 +50,8 @@ test.describe('Markdown Rendering — plan.md', () => {
 
     // Verify specific table content (use exact match to avoid ambiguity)
     await expect(section.getByRole('cell', { name: 'API keys', exact: true })).toBeVisible();
-  });
 
-  test('renders code blocks with syntax highlighting', async ({ page }) => {
-    const section = mdDocument(page);
+    // renders code blocks with syntax highlighting
 
     // Code lines should be visible (per-line rendering of code blocks)
     const codeLines = section.locator('.line-block:has(> .line-content.code-line)');
@@ -69,10 +67,8 @@ test.describe('Markdown Rendering — plan.md', () => {
     await expect(tokens.first()).toBeVisible();
     // `func` keyword is its own colored token, distinct from the plain text
     await expect(tokens.filter({ hasText: /^func$/ }).first()).toBeVisible();
-  });
 
-  test('renders ordered lists', async ({ page }) => {
-    const section = mdDocument(page);
+    // renders ordered lists
 
     // Ordered list elements
     const olElements = section.locator('ol');
@@ -85,10 +81,8 @@ test.describe('Markdown Rendering — plan.md', () => {
     // Check that specific ordered list content is present
     await expect(section.locator('ol li', { hasText: 'Add auth middleware' })).toBeVisible();
     await expect(section.locator('ol li', { hasText: 'Write integration tests' })).toBeVisible();
-  });
 
-  test('renders task list items with checked and unchecked markers', async ({ page }) => {
-    const section = mdDocument(page);
+    // renders task list items with checked and unchecked markers
 
     // markdown-it renders task list items as <li> with literal [ ] and [x] text
     // At least one unchecked item: "[ ] Create migration..."
@@ -98,10 +92,8 @@ test.describe('Markdown Rendering — plan.md', () => {
     // At least one checked item: "[x] Define key format..."
     const checkedItems = section.locator('li', { hasText: /^\[x\]/ });
     await expect(checkedItems.first()).toBeVisible();
-  });
 
-  test('renders blockquotes', async ({ page }) => {
-    const section = mdDocument(page);
+    // renders blockquotes
 
     // Blockquote element should be visible
     const blockquotes = section.locator('blockquote');
@@ -109,10 +101,8 @@ test.describe('Markdown Rendering — plan.md', () => {
 
     // Verify blockquote content from plan.md
     await expect(section.locator('blockquote', { hasText: 'rate-limit' })).toBeVisible();
-  });
 
-  test('nested bullet items are split into individually-commentable line blocks', async ({ page }) => {
-    const section = mdDocument(page);
+    // nested bullet items are split into individually-commentable line blocks
 
     // Each nested bullet from the "Nested Tasks" fixture should produce its own
     // .line-block with a unique data-start-line, so users can comment on each
@@ -145,10 +135,8 @@ test.describe('Markdown Rendering — plan.md', () => {
 
     // The nested wrapper class is present, confirming semantic nesting was preserved.
     await expect(section.locator('.line-block ul.crit-list-wrapper').first()).toBeVisible();
-  });
 
-  test('line gutters exist in DOM with visible line numbers', async ({ page }) => {
-    const section = mdDocument(page);
+    // line gutters exist in DOM with visible line numbers
 
     // Line gutters exist in the DOM (needed for comment interaction)
     const lineGutters = section.locator('.line-gutter');

@@ -10,45 +10,41 @@ test.beforeEach(async ({ request }) => {
   await ensureRangeFocus(request);
 });
 
-test('pill is hidden in range mode and visible after switching to working tree', async ({ page, request }) => {
+// One round trip through the stack chip ✕ exit and the Resume pill.
+test('✕ exit leaves range mode without opening the popover; Resume restores the previous range', async ({ page, request }) => {
   await loadPage(page);
-  // We're in range mode; the resume pill must NOT be visible yet (no last
-  // range focus stashed because the session was booted into range, not
-  // toggled out of one).
-  await expect(page.locator('#resumePrPill')).toBeHidden();
-  await expect(page.locator('#stackChipExit')).toBeVisible();
-
-  // Toggle to working tree via the stack chip ✕ exit.
-  await page.locator('#stackChipExit').click();
-
-  // Wait for focus update + UI re-render.
-  await expect.poll(async () => {
-    const r = await request.get('/api/session');
-    const s = await r.json();
-    return s.focus && s.focus.kind;
-  }, { timeout: 5_000 }).toBe('working_tree');
-
-  // Resume pill should now appear.
-  await expect(page.locator('#resumePrPill')).toBeVisible({ timeout: 5_000 });
-});
-
-test('clicking Resume restores the previous range focus', async ({ page, request }) => {
-  await loadPage(page);
-  // Capture the current range head SHA, switch to WT, then click Resume.
   const start = await (await request.get('/api/session')).json();
   expect(start.focus.kind).toBe('range');
   const startHead = start.focus.head_sha;
 
-  await page.locator('#stackChipExit').click();
+  // Range mode: only b.txt; the ✕ exit is visible; no resume pill yet (the
+  // session was booted into range, not toggled out of one).
+  await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toBeVisible();
+  const exitBtn = page.locator('#stackChipExit');
+  await expect(exitBtn).toBeVisible();
+  await expect(exitBtn).toHaveAttribute('aria-label', /working tree/i);
+  await expect(page.locator('#resumePrPill')).toBeHidden();
+  const popover = page.locator('#stackPopover');
+  await expect(popover).toBeHidden();
+
+  // Clicking ✕ must not bubble into the chip's open-popover handler.
+  await exitBtn.click();
+  await expect(popover).toBeHidden();
   await expect.poll(async () => {
-    const r = await request.get('/api/session');
-    return (await r.json()).focus.kind;
+    const s = await (await request.get('/api/session')).json();
+    return s.focus && s.focus.kind;
   }, { timeout: 5_000 }).toBe('working_tree');
 
+  // File list rebuilds for working tree (all three files vs main), and the
+  // Resume pill appears.
+  await expect(page.locator('.tree-file', { hasText: 'a.txt' })).toBeVisible({ timeout: 5_000 });
+  await expect(page.locator('.tree-file', { hasText: 'c.txt' })).toBeVisible();
+  await expect(page.locator('#resumePrPill')).toBeVisible({ timeout: 5_000 });
+
+  // Resume restores the previous range focus.
   await page.locator('#resumePrPill').click();
   await expect.poll(async () => {
-    const r = await request.get('/api/session');
-    const s = await r.json();
+    const s = await (await request.get('/api/session')).json();
     return s.focus.kind === 'range' ? s.focus.head_sha : '';
   }, { timeout: 5_000 }).toBe(startHead);
 });

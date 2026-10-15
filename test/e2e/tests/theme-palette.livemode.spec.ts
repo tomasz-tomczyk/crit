@@ -11,6 +11,7 @@ test.describe('theme palette — live mode', () => {
     }]);
     await page.goto('/live');
     const html = page.locator('html');
+    await expect(html).toHaveAttribute('data-theme', 'dark');
     await expect(html).toHaveAttribute('data-crit-palette', 'dracula-soft');
     await expect(page.locator('.header')).toHaveCSS('background-color', await page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue('--crit-palette-surface').trim()

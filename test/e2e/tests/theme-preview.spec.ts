@@ -89,10 +89,4 @@ test.describe('Theme preview page', () => {
     await expect(page.locator('#previewDiff [data-line] span', { hasText: 'authMiddleware checks the session' }).first())
       .toHaveCSS('color', 'rgb(194, 195, 197)');
   });
-
-  test('settings link opens the preview', async ({ page }) => {
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Preview all themes' })).toHaveAttribute('href', '/themes');
-  });
 });

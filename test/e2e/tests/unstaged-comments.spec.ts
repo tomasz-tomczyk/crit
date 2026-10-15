@@ -1,44 +1,13 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, diffLine, loadPage, openLineComment, revealFile } from './helpers';
-import { stateFilePath } from './state-file';
-
-// Read fixture state written by setup-fixtures.sh
-function readFixtureState(): { critBin: string; fixtureDir: string } {
-  const raw = fs.readFileSync(stateFilePath(process.env.CRIT_TEST_PORT || '3123'), 'utf8');
-  const env: Record<string, string> = {};
-  for (const line of raw.trim().split('\n')) {
-    const eq = line.indexOf('=');
-    if (eq >= 0) {
-      env[line.slice(0, eq)] = line.slice(eq + 1);
-    }
-  }
-  if (!env['CRIT_BIN'] || !env['CRIT_FIXTURE_DIR']) {
-    throw new Error('CRIT_BIN or CRIT_FIXTURE_DIR not set in state file');
-  }
-  return { critBin: env['CRIT_BIN'], fixtureDir: env['CRIT_FIXTURE_DIR'] };
-}
-
-async function switchScope(page: Page, scope: string) {
-  const responsePromise = page.waitForResponse(resp =>
-    resp.url().includes('/api/session') && resp.status() === 200
-  );
-  await page.click(`#scopeToggle .toggle-btn[data-scope="${scope}"]`);
-  await responsePromise;
-  await expect(page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`)).toHaveClass(/active/);
-}
+import { clearAllComments, diffLine, loadPage, openLineComment, revealFile, readFixtureState, roundComplete, switchScope } from './helpers';
 
 // config.yaml is the pre-existing unstaged (untracked) file created by setup-fixtures.sh.
 // It exists before the server starts, so its diff renders correctly.
 const FIXTURE_UNSTAGED_FILE = 'config.yaml';
 
-function configSection(page: Page) {
-  return revealFile(page, FIXTURE_UNSTAGED_FILE);
-}
-
 // unstaged-test.py is created at runtime AFTER the server is already running.
-// The file watcher detects it, but the diff may not render correctly.
 const RUNTIME_UNSTAGED_FILE = 'unstaged-test.py';
 const RUNTIME_UNSTAGED_CONTENT = `# Unstaged test file
 def hello():
@@ -52,181 +21,107 @@ if __name__ == "__main__":
     goodbye()
 `;
 
-function runtimeSection(page: Page) {
-  return revealFile(page, RUNTIME_UNSTAGED_FILE);
+async function addCommentOnLine1(page: Page, section: Awaited<ReturnType<typeof revealFile>>, body: string) {
+  await openLineComment(page, section, 1);
+  await page.locator('.comment-form textarea').fill(body);
+  await page.locator('.comment-form .btn-primary').click();
+  const card = section.locator('.comment-card');
+  await expect(card).toBeVisible();
+  await expect(card.locator('.comment-body')).toContainText(body);
+}
+
+// The file watcher must have picked up (or dropped) the runtime file before
+// a page loads, or the page renders a stale file list.
+async function waitForSessionFile(request: APIRequestContext, present: boolean) {
+  await expect.poll(async () => {
+    // Scoped sessions re-read git status per request; the cached "all" list
+    // only refreshes on round-complete.
+    const session = await (await request.get('/api/session?scope=unstaged')).json();
+    return session.files.some((f: { path: string }) => f.path === RUNTIME_UNSTAGED_FILE);
+  }).toBe(present);
 }
 
 // ============================================================
 // Comments on pre-existing unstaged file (config.yaml from fixture)
 // ============================================================
 test.describe('Unstaged File Comments — pre-existing file', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('commenting on a pre-existing unstaged file updates the badges and persists across reload', async ({ page }) => {
     await loadPage(page);
-  });
-
-  test.afterEach(async ({ page }) => {
-    await page.evaluate(() => {
-      document.cookie = 'crit-diff-scope=all; path=/; max-age=31536000; SameSite=Strict';
-    });
-  });
-
-  test('can add a comment on a pre-existing unstaged file', async ({ page }) => {
     await switchScope(page, 'unstaged');
-
-    const section = await configSection(page);
+    const section = await revealFile(page, FIXTURE_UNSTAGED_FILE);
 
     // config.yaml is untracked, shown as all-addition diff
     await expect(diffLine(section, 1)).toHaveAttribute('data-line-type', 'change-addition');
-    const form = await openLineComment(page, section, 1);
-    await expect(form).toBeVisible();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Comment on unstaged config');
-    await page.locator('.comment-form .btn-primary').click();
-
-    // Comment card should appear
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Comment on unstaged config');
-  });
-
-  test('comment count badge updates for unstaged file comment', async ({ page }) => {
-    await switchScope(page, 'unstaged');
-
-    const section = await configSection(page);
-
-    const countEl = page.locator('#commentCount');
     await expect(page.locator('#commentCountNumber')).toHaveText('');
 
-    // Add a comment
-    await openLineComment(page, section, 1);
+    await addCommentOnLine1(page, section, 'Persistent unstaged comment');
 
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Badge test');
-    await page.locator('.comment-form .btn-primary').click();
-
-    await expect(section.locator('.comment-card')).toBeVisible();
-    await expect(countEl).toBeVisible();
-    await expect(countEl).toHaveText('1');
-  });
-
-  test('file tree shows comment badge for unstaged file', async ({ page }) => {
-    await switchScope(page, 'unstaged');
-
-    const section = await configSection(page);
-
-    await openLineComment(page, section, 1);
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Tree badge test');
-    await page.locator('.comment-form .btn-primary').click();
-
-    await expect(section.locator('.comment-card')).toBeVisible();
-
+    // Header count and file-tree badge both update.
+    await expect(page.locator('#commentCount')).toBeVisible();
+    await expect(page.locator('#commentCount')).toHaveText('1');
     const treeFile = page.locator('.tree-file').filter({ hasText: FIXTURE_UNSTAGED_FILE });
-    await expect(treeFile.locator('.tree-comment-badge')).toBeVisible();
     await expect(treeFile.locator('.tree-comment-badge')).toHaveText('1');
-  });
 
-  test('unstaged comment persists after page reload', async ({ page }) => {
-    await switchScope(page, 'unstaged');
-
-    const section = await configSection(page);
-
-    await openLineComment(page, section, 1);
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Persistent unstaged comment');
-    await page.locator('.comment-form .btn-primary').click();
-
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    // Reload
+    // Reload: scope persists via cookie and the comment is still there.
     await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    // Scope persists via cookie
+    await expect(page.locator('.loading')).toBeHidden();
     await expect(page.locator('#scopeToggle .toggle-btn[data-scope="unstaged"]')).toHaveClass(/active/);
-
-    const reloadedSection = await configSection(page);
-    await expect(reloadedSection.locator('.comment-card')).toBeVisible();
+    const reloadedSection = await revealFile(page, FIXTURE_UNSTAGED_FILE);
     await expect(reloadedSection.locator('.comment-body')).toContainText('Persistent unstaged comment');
   });
 });
 
 // ============================================================
-// BUG: Unstaged file created after server start shows "No changes"
-// The file watcher detects the new file, but git diff returns empty
-// hunks, rendering the section with "No changes" and no commentable lines.
+// Regression: an unstaged file created after server start used to show
+// "No changes" — the watcher saw it, but git diff returned empty hunks.
 // ============================================================
-test.describe('Unstaged File Comments — runtime-created file (bug reproduction)', () => {
+test.describe('Unstaged File Comments — runtime-created file', () => {
   let fixtureDir: string;
 
-  test.beforeAll(() => {
-    const state = readFixtureState();
-    fixtureDir = state.fixtureDir;
+  test.beforeAll(async ({ request }) => {
+    fixtureDir = readFixtureState().CRIT_FIXTURE_DIR;
+    expect(fixtureDir).toBeTruthy();
     fs.writeFileSync(path.join(fixtureDir, RUNTIME_UNSTAGED_FILE), RUNTIME_UNSTAGED_CONTENT);
+    await waitForSessionFile(request, true);
   });
 
-  test.afterAll(() => {
-    const filePath = path.join(fixtureDir, RUNTIME_UNSTAGED_FILE);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+  test.afterAll(async ({ request }) => {
+    fs.rmSync(path.join(fixtureDir, RUNTIME_UNSTAGED_FILE), { force: true });
+    // Later specs count the session's files; don't leave this one behind.
+    await waitForSessionFile(request, false);
+    // The default ("all") list only drops a deleted file on round-complete.
+    // If any round-complete ran while the file existed, it is still listed
+    // there, so refresh it and check the list the page loads.
+    await roundComplete(request);
+    await expect.poll(async () => {
+      const session = await (await request.get('/api/session')).json();
+      return session.files.some((f: { path: string }) => f.path === RUNTIME_UNSTAGED_FILE);
+    }).toBe(false);
   });
 
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('runtime-created unstaged file is listed, renders its additions, and takes comments', async ({ page }) => {
     await loadPage(page);
-  });
-
-  test.afterEach(async ({ page }) => {
-    await page.evaluate(() => {
-      document.cookie = 'crit-diff-scope=all; path=/; max-age=31536000; SameSite=Strict';
-    });
-  });
-
-  test('runtime-created unstaged file appears in file tree', async ({ page }) => {
     await switchScope(page, 'unstaged');
     await expect(page.locator('.tree-file-name', { hasText: RUNTIME_UNSTAGED_FILE })).toBeVisible();
-  });
 
-  test('runtime-created unstaged file renders diff with addition lines (not "No changes")', async ({ page }) => {
-    await switchScope(page, 'unstaged');
-
-    const section = await runtimeSection(page);
-
-    // BUG: The file shows "No changes" instead of an all-addition diff.
-    // This assertion will FAIL if the bug is present.
+    const section = await revealFile(page, RUNTIME_UNSTAGED_FILE);
     const first = diffLine(section, 1);
-    await expect(first).toBeVisible({ timeout: 5000 });
     await expect(first).toHaveAttribute('data-line-type', 'change-addition');
     await expect(first).toContainText('# Unstaged test file');
     await expect(diffLine(section, 10)).toContainText('goodbye()');
+
+    await addCommentOnLine1(page, section, 'Comment on runtime unstaged file');
   });
 
-  test('can comment on runtime-created unstaged file', async ({ page }) => {
-    await switchScope(page, 'unstaged');
-
-    const section = await runtimeSection(page);
-
-    // BUG: Cannot comment because no diff lines are rendered.
-    await expect(diffLine(section, 1)).toBeVisible({ timeout: 5000 });
-    await openLineComment(page, section, 1);
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Comment on runtime unstaged file');
-    await page.locator('.comment-form .btn-primary').click();
-
-    const card = section.locator('.comment-card');
-    await expect(card).toBeVisible();
-    await expect(card.locator('.comment-body')).toContainText('Comment on runtime unstaged file');
-  });
-
-  test('API can accept comments for runtime-created unstaged file', async ({ request }) => {
-    // BUG: The API may reject comments for files it detected via watcher
-    // but hasn't fully loaded into the session.
+  test('API accepts comments for a runtime-created unstaged file', async ({ request }) => {
     const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(RUNTIME_UNSTAGED_FILE)}`, {
       data: { start_line: 2, end_line: 2, body: 'API comment on runtime unstaged' },
     });

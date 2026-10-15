@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments, fileHeader, revealFile } from './helpers';
+import { loadPage, clearAllComments, fileHeader, revealFile, switchScope } from './helpers';
 
 // Pierre file items currently mounted in the diff pane. CodeView virtualizes
 // long lists, so exact counts are only meaningful for short (fully mounted)
@@ -8,43 +8,41 @@ function paneFiles(page: Page) {
   return page.locator('#filesContainer .pierre-file-header');
 }
 
-async function switchScope(page: Page, scope: string) {
-  const responsePromise = page.waitForResponse(resp =>
-    resp.url().includes('/api/session') && resp.status() === 200
-  );
-  await page.click(`#scopeToggle .toggle-btn[data-scope="${scope}"]`);
-  await responsePromise;
-  // Wait for the clicked button to become active
-  await expect(page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`)).toHaveClass(/active/);
+function scopeBtn(page: Page, scope: string) {
+  return page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`);
+}
+
+// Saved scope lives in the consolidated crit-settings cookie (diffScope).
+// Set it before loadPage, which only defaults diffScope when it is unset.
+async function saveScope(page: Page, scope: string) {
+  await page.context().addCookies([{
+    name: 'crit-settings',
+    value: encodeURIComponent(JSON.stringify({ diffScope: scope })),
+    domain: 'localhost',
+    path: '/',
+  }]);
+}
+
+// Serve /api/session with only `scopes` available.
+async function limitScopes(page: Page, scopes: string[]) {
+  await page.route('**/api/session*', async route => {
+    const response = await route.fetch();
+    const json = await response.json();
+    json.available_scopes = scopes;
+    await route.fulfill({ json });
+  });
 }
 
 test.beforeEach(async ({ request }) => {
   await clearAllComments(request);
 });
 
-test.afterEach(async ({ page }) => {
-  // Reset scope cookie so other test files aren't affected
-  await page.evaluate(() => {
-    document.cookie = 'crit-diff-scope=all; path=/; max-age=31536000; SameSite=Strict';
-  });
-});
-
-async function pressShiftScope(page: Page, digit: string, scope: string) {
-  const keyMap: Record<string, string> = { '1': '!', '2': '@', '3': '#', '4': '$' };
-  await page.keyboard.press(keyMap[digit]);
-  await expect(page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`)).toHaveClass(/active/);
-}
-
 test.describe('Scope Toggle', () => {
-  test('scope toggle is visible in git mode with All active by default', async ({ page }) => {
+  test('scope toggle is visible in git mode with All active and Branch offered on a feature branch', async ({ page }) => {
     await loadPage(page);
     await expect(page.locator('#scopeToggle')).toBeVisible();
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
-  });
-
-  test('Branch button is visible on feature branch', async ({ page }) => {
-    await loadPage(page);
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).toBeVisible();
+    await expect(scopeBtn(page, 'all')).toHaveClass(/active/);
+    await expect(scopeBtn(page, 'branch')).toBeVisible();
   });
 
   test('switching to branch scope shows only committed files', async ({ page }) => {
@@ -61,13 +59,30 @@ test.describe('Scope Toggle', () => {
     await revealFile(page, 'plan.md');
   });
 
-  test('switching to staged scope shows only staged files', async ({ page }) => {
+  test('staged scope shows only staged files in pane and tree, survives a reload, and All restores the full list', async ({ page }) => {
     await loadPage(page);
     await switchScope(page, 'staged');
+    // Only the clicked button is active.
+    await expect(scopeBtn(page, 'all')).not.toHaveClass(/active/);
     // Staged: utils.go, login.feature
     await expect(paneFiles(page)).toHaveCount(2);
     await expect(fileHeader(page, 'utils.go')).toBeVisible();
     await expect(fileHeader(page, 'login.feature')).toBeVisible();
+    await expect(page.locator('.tree-file')).toHaveCount(2);
+    await expect(page.locator('.tree-file-name', { hasText: 'utils.go' })).toBeVisible();
+
+    // Scope persists across reload.
+    await page.reload();
+    await expect(page.locator('.loading')).toBeHidden();
+    await expect(scopeBtn(page, 'staged')).toHaveClass(/active/);
+    await expect(paneFiles(page)).toHaveCount(2);
+    await expect(fileHeader(page, 'utils.go')).toBeVisible();
+
+    // Back to All: the full list returns (branch + unstaged files render).
+    await switchScope(page, 'all');
+    await expect.poll(() => page.locator('.tree-file').count()).toBeGreaterThan(7);
+    await expect(fileHeader(page, 'config.yaml')).toBeVisible();
+    await revealFile(page, 'server.go');
   });
 
   test('switching to unstaged scope shows only unstaged files', async ({ page }) => {
@@ -78,96 +93,44 @@ test.describe('Scope Toggle', () => {
     await expect(fileHeader(page, 'config.yaml')).toBeVisible();
   });
 
-  test('switching back to all scope restores full file list', async ({ page }) => {
+  test('unavailable scopes are disabled, not hidden, and clicking one does nothing', async ({ page }) => {
+    await limitScopes(page, ['all', 'branch']);
     await loadPage(page);
-    await switchScope(page, 'staged');
-    await expect(paneFiles(page)).toHaveCount(2);
-    await switchScope(page, 'all');
-    await expect(async () => {
-      const count = await page.locator('.tree-file').count();
-      expect(count).toBeGreaterThanOrEqual(5);
-    }).toPass({ timeout: 5000 });
-    // The pane shows the full list again: branch + unstaged files render
-    await expect(fileHeader(page, 'config.yaml')).toBeVisible();
-    await revealFile(page, 'server.go');
-  });
-
-  test('active button styling updates on click', async ({ page }) => {
-    await loadPage(page);
-    await switchScope(page, 'staged');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).toHaveClass(/active/);
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
-  });
-
-  test('scope persists across page reload', async ({ page }) => {
-    await loadPage(page);
-    await switchScope(page, 'staged');
-    await expect(paneFiles(page)).toHaveCount(2);
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).toHaveClass(/active/);
-    await expect(paneFiles(page)).toHaveCount(2);
-    await expect(fileHeader(page, 'utils.go')).toBeVisible();
-  });
-
-  test('file tree updates when scope changes', async ({ page }) => {
-    await loadPage(page);
-    await switchScope(page, 'staged');
-    await expect(page.locator('.tree-file')).toHaveCount(2);
-    await expect(page.locator('.tree-file-name', { hasText: 'utils.go' })).toBeVisible();
-  });
-
-  test('unavailable scopes are disabled not hidden', async ({ page }) => {
-    // Intercept session API to return only "all" and "branch" as available
-    await page.route('**/api/session*', async route => {
-      const response = await route.fetch();
-      const json = await response.json();
-      json.available_scopes = ['all', 'branch'];
-      await route.fulfill({ json });
-    });
-    await loadPage(page);
-    const staged = page.locator('#scopeToggle .toggle-btn[data-scope="staged"]');
-    const unstaged = page.locator('#scopeToggle .toggle-btn[data-scope="unstaged"]');
     // Buttons are visible but disabled
-    await expect(staged).toBeVisible();
-    await expect(unstaged).toBeVisible();
-    await expect(staged).toBeDisabled();
-    await expect(unstaged).toBeDisabled();
+    await expect(scopeBtn(page, 'staged')).toBeVisible();
+    await expect(scopeBtn(page, 'unstaged')).toBeVisible();
+    await expect(scopeBtn(page, 'staged')).toBeDisabled();
+    await expect(scopeBtn(page, 'unstaged')).toBeDisabled();
     // Available scopes are enabled
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toBeEnabled();
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).toBeEnabled();
+    await expect(scopeBtn(page, 'all')).toBeEnabled();
+    await expect(scopeBtn(page, 'branch')).toBeEnabled();
+
+    // force: Playwright won't click disabled elements otherwise.
+    await scopeBtn(page, 'staged').click({ force: true });
+    await expect(scopeBtn(page, 'all')).toHaveClass(/active/);
+    await expect(scopeBtn(page, 'staged')).not.toHaveClass(/active/);
   });
 
   test('falls back to all when saved scope becomes unavailable', async ({ page }) => {
-    // Set cookie to "staged" before loading
-    await page.context().addCookies([{
-      name: 'crit-diff-scope',
-      value: 'staged',
-      domain: 'localhost',
-      path: '/',
-    }]);
-    // Intercept session API to exclude "staged" from available scopes
-    await page.route('**/api/session*', async route => {
-      const response = await route.fetch();
-      const json = await response.json();
-      json.available_scopes = ['all', 'branch'];
-      await route.fulfill({ json });
+    await saveScope(page, 'staged');
+    await limitScopes(page, ['all', 'branch']);
+    const scopes: (string | null)[] = [];
+    page.on('request', req => {
+      if (new URL(req.url()).pathname === '/api/session') scopes.push(new URL(req.url()).searchParams.get('scope'));
     });
     await loadPage(page);
-    // Should fall back to "all"
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).not.toHaveClass(/active/);
+    // The saved scope really was requested first, then dropped for "all".
+    expect(scopes[0]).toBe('staged');
+    await expect(scopeBtn(page, 'all')).toHaveClass(/active/);
+    await expect(scopeBtn(page, 'staged')).not.toHaveClass(/active/);
+    // All includes the unstaged config.yaml, which staged would not.
+    await expect(fileHeader(page, 'config.yaml')).toBeVisible();
   });
 
   test('falls back to all and re-fetches files when stale scope returns empty list', async ({ page }) => {
     // Simulate: user was on a feature branch with "branch" scope, then switched to
     // the default branch where branch scope returns no files.
-    await page.context().addCookies([{
-      name: 'crit-settings',
-      value: encodeURIComponent(JSON.stringify({ diffScope: 'branch' })),
-      domain: 'localhost',
-      path: '/',
-    }]);
+    await saveScope(page, 'branch');
 
     let requestCount = 0;
     await page.route('**/api/session*', async route => {
@@ -187,65 +150,31 @@ test.describe('Scope Toggle', () => {
     await loadPage(page);
 
     // Should fall back to "all" and re-fetch — files must render
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).not.toHaveClass(/active/);
-    await expect(paneFiles(page).first()).toBeVisible({ timeout: 5000 });
+    await expect(scopeBtn(page, 'all')).toHaveClass(/active/);
+    await expect(scopeBtn(page, 'branch')).not.toHaveClass(/active/);
+    await expect(paneFiles(page).first()).toBeVisible();
     // "all" includes the unstaged config.yaml, which branch scope would not
     await expect(fileHeader(page, 'config.yaml')).toBeVisible();
     // Must have made at least 2 session requests: initial (branch) + corrected (all)
     expect(requestCount).toBeGreaterThanOrEqual(2);
   });
 
-  test('Shift+1 activates All scope', async ({ page }) => {
+  test('Shift+1..4 switch between All, Branch, Staged and Unstaged', async ({ page }) => {
     await loadPage(page);
-    // Start on branch scope so the shortcut has a visible effect
-    await switchScope(page, 'branch');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).toHaveClass(/active/);
+    const shifted: Record<string, string> = { '1': '!', '2': '@', '3': '#', '4': '$' };
+    const press = async (digit: string, scope: string) => {
+      await page.keyboard.press(shifted[digit]);
+      await expect(scopeBtn(page, scope)).toHaveClass(/active/);
+      await expect(page.locator('#scopeToggle .toggle-btn.active')).toHaveCount(1);
+    };
 
-    await pressShiftScope(page, '1', 'all');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="branch"]')).not.toHaveClass(/active/);
-  });
-
-  test('Shift+2 activates Branch scope', async ({ page }) => {
-    await loadPage(page);
-    await pressShiftScope(page, '2', 'branch');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
-  });
-
-  test('Shift+3 activates Staged scope', async ({ page }) => {
-    await loadPage(page);
-    await pressShiftScope(page, '3', 'staged');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
-  });
-
-  test('Shift+4 activates Unstaged scope', async ({ page }) => {
-    await loadPage(page);
-    await pressShiftScope(page, '4', 'unstaged');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).not.toHaveClass(/active/);
-  });
-
-  test('pressing Shift+1 when All is already active does nothing', async ({ page }) => {
-    await loadPage(page);
-    // All is active by default
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
-
-    // Press Shift+1 — no API call expected since scope is unchanged, just assert stable state
+    // Shift+1 while All is already active leaves it active.
     await page.keyboard.press('!');
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
-  });
+    await expect(scopeBtn(page, 'all')).toHaveClass(/active/);
 
-  test('clicking a disabled scope button does nothing', async ({ page }) => {
-    await page.route('**/api/session*', async route => {
-      const response = await route.fetch();
-      const json = await response.json();
-      json.available_scopes = ['all', 'branch'];
-      await route.fulfill({ json });
-    });
-    await loadPage(page);
-    // Click disabled staged button (force: true because Playwright won't click disabled elements)
-    await page.click('#scopeToggle .toggle-btn[data-scope="staged"]', { force: true });
-    // "all" should still be active (no state change expected)
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="all"]')).toHaveClass(/active/);
-    await expect(page.locator('#scopeToggle .toggle-btn[data-scope="staged"]')).not.toHaveClass(/active/);
+    await press('2', 'branch');
+    await press('3', 'staged');
+    await press('4', 'unstaged');
+    await press('1', 'all');
   });
 });

@@ -18,6 +18,8 @@ test.describe('Markdown frontmatter — skill.md', () => {
   });
 
   test('renders YAML frontmatter as commentable highlighted code', async ({ page, request }) => {
+    const frontmatterComment = await addComment(request, 'skill.md', 2, 'Frontmatter comment');
+    const bodyComment = await addComment(request, 'skill.md', 10, 'Body comment');
     await loadPage(page);
     const section = await switchSkillToDocumentView(page);
 
@@ -34,23 +36,16 @@ test.describe('Markdown frontmatter — skill.md', () => {
       await expect(section.locator(`.line-block[data-start-line="${line}"]`)).toHaveCount(1);
     }
 
-    const frontmatterComment = await addComment(request, 'skill.md', 2, 'Frontmatter comment');
-    const bodyComment = await addComment(request, 'skill.md', 10, 'Body comment');
-
-    await loadPage(page);
-    const reloadedSection = await switchSkillToDocumentView(page);
-    const frontmatterCard = reloadedSection.locator(`.comment-card[data-comment-id="${frontmatterComment.id}"]`);
-    const bodyCard = reloadedSection.locator(`.comment-card[data-comment-id="${bodyComment.id}"]`);
+    const frontmatterCard = section.locator(`.comment-card[data-comment-id="${frontmatterComment.id}"]`);
+    const bodyCard = section.locator(`.comment-card[data-comment-id="${bodyComment.id}"]`);
     await expect(frontmatterCard).toBeVisible();
     await expect(bodyCard).toBeVisible();
     await expect(frontmatterCard).toContainText('Frontmatter comment');
     await expect(bodyCard).toContainText('Body comment');
     // Anchored to the frontmatter / body lines (has-comment on the line-block).
-    await expect(reloadedSection.locator('.line-block[data-start-line="2"].has-comment')).toBeVisible();
-    await expect(reloadedSection.locator('.line-block[data-start-line="10"].has-comment')).toBeVisible();
-    await expect(reloadedSection.locator('.line-block[data-start-line="2"]')).toContainText('name: demo-skill');
-    await expect(reloadedSection.locator('.line-block[data-start-line="10"]')).toContainText('Skill Body');
-
-    await reloadedSection.screenshot({ path: 'test-results/markdown-frontmatter-skill.png' });
+    await expect(section.locator('.line-block[data-start-line="2"].has-comment')).toBeVisible();
+    await expect(section.locator('.line-block[data-start-line="10"].has-comment')).toBeVisible();
+    await expect(section.locator('.line-block[data-start-line="2"]')).toContainText('name: demo-skill');
+    await expect(section.locator('.line-block[data-start-line="10"]')).toContainText('Skill Body');
   });
 });

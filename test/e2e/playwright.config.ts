@@ -30,6 +30,7 @@ const debug = !!process.env.E2E_DEBUG;
 // pre-started by run.sh, so the kept entry is always reused, never booted.
 // Unset (default): all entries — local runs behave exactly as before.
 const ONLY_SERVER = process.env.E2E_ONLY_SERVER || 'all';
+const STRICT_FLAKE_SERVERS = new Set(['perf', 'huge', 'share']);
 
 interface FixtureServer {
   key: string;
@@ -125,6 +126,12 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
+  // The structural guardrail projects must be deterministic: a pass-on-retry
+  // there hides a real regression (perf's tree-jump flaked in most CI runs
+  // before its settle check tolerated Pierre remounts). run.sh runs each
+  // project in its own invocation with E2E_ONLY_SERVER set, so this scopes
+  // the strict mode to those projects without touching global retries.
+  failOnFlakyTests: !!process.env.CI && STRICT_FLAKE_SERVERS.has(ONLY_SERVER),
   workers: 1,
   reporter: process.env.CI
     ? [['github'], ['html', { open: 'never' }], ['list']]

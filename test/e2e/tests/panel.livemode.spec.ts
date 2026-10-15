@@ -266,8 +266,11 @@ test.describe('live-mode comments panel — M15 reopen via navbar', () => {
     // Set an explicit width via the persisted setting key so the test isn't
     // sensitive to the resizer-drag implementation.
     await page.evaluate(() => {
-      const helpers = (window as any).crit && (window as any).crit.shared;
-      if (helpers && helpers.setSetting) helpers.setSetting('live_commentsPanelWidth', 540);
+      const shared = (window as unknown as {
+        crit?: { shared?: { setSetting?: (key: string, value: number) => void } };
+      }).crit?.shared;
+      if (!shared?.setSetting) throw new Error('window.crit.shared.setSetting missing');
+      shared.setSetting('live_commentsPanelWidth', 540);
     });
     await page.reload();
     await expect.poll(

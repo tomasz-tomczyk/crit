@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments, fileHeader, fileItem } from './helpers';
+import { loadPage, clearAllComments, expectSettledAt, fileHeader, fileItem } from './helpers';
 
 // Perf guardrails for large reviews (300 files / ~9k changed lines fixture).
 //
@@ -223,15 +223,10 @@ test('tree jump to the deepest file lands on it and stays put while content sett
   // Hydrated: the real markdown diff, not the blank line-count stub.
   await expect(fileItem(page, TAIL_FILE).locator('[data-line]').filter({ hasText: /\S/ }).first()).toBeVisible();
 
-  // Header sits at the top of the list and does not drift over ~1s.
-  const tops: number[] = [];
-  for (let i = 0; i < 10; i++) {
-    const box = await header.boundingBox();
-    tops.push(box ? Math.round(box.y) : NaN);
-    await page.waitForFunction(() => new Promise((r) => setTimeout(() => r(true), 100)));
-  }
+  // Header sits at the top of the list and does not drift over ~1s
+  // (expectSettledAt tolerates Pierre remounting the item in place).
+  const tops = await expectSettledAt(page, TAIL_FILE);
   console.log(`tree jump: header top samples ${tops.join(',')}`);
-  expect(Math.max(...tops) - Math.min(...tops), `header top samples ${tops.join(',')}`).toBeLessThanOrEqual(2);
   const pane = (await page.locator('#filesContainer').boundingBox())!;
   expect(tops[tops.length - 1]).toBeLessThan(pane.y + 60);
 

@@ -1,8 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import { clearAllComments } from './helpers';
 
+// The badge logic itself (hidden tab badges, visible tab is a no-op, clear
+// restores the title, idempotent set/clear) is unit-tested in
+// web/__tests__/crit-tab-ready.test.js. This covers the wiring: a real
+// round-complete SSE badges a hidden tab, and visibility clears it.
+
 // The bullet prefix the app prepends to document.title when the badge is active.
-const BADGE_PREFIX = '\u25CF ';
+const BADGE_PREFIX = '● ';
 
 // Override document.visibilityState / document.hidden in the page context so
 // the app sees the tab as hidden or visible on demand, then dispatch
@@ -21,81 +26,41 @@ async function setVisibility(page: Page, visible: boolean) {
   }, visible);
 }
 
-// Load the page with ?test query param so the tab-badge test hook is exposed.
-async function loadPageWithTestParam(page: Page) {
-  await page.goto('/?test');
-  await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-  await page.waitForFunction(() => !!(window as unknown as { __critTabBadge?: unknown }).__critTabBadge);
-}
-
 test.describe('Tab-Ready Indicator', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
   });
 
-  test('title prefixed on file-changed when tab hidden', async ({ page, request }) => {
-    await loadPageWithTestParam(page);
-    const originalTitle = await page.title();
-    expect(originalTitle.startsWith(BADGE_PREFIX)).toBe(false);
-
-    // Simulate user tabbing away.
-    await setVisibility(page, false);
-
-    // Trigger a round-complete — the server emits file-changed via SSE.
-    await request.post('/api/round-complete');
-
-    await expect.poll(() => page.title(), { timeout: 5000 }).toMatch(new RegExp('^' + BADGE_PREFIX));
-  });
-
-  test('no prefix when tab visible during round-complete', async ({ page, request }) => {
-    await loadPageWithTestParam(page);
-
-    // Force visible state so test behaves identically in headed and headless runs.
-    await setVisibility(page, true);
-
-    await request.post('/api/round-complete');
-
-    // Wait for the round-complete side effect (overlay deactivates) then assert.
-    await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 5000 });
-
+  test('round-complete badges a hidden tab, the badge clears when the tab becomes visible, and set/clear are idempotent', async ({ page, request }) => {
+    // ?test exposes the tab-badge test hook; wait for it so listeners are wired.
+    await page.goto('/?test');
+    await expect(page.locator('.loading')).toBeHidden();
+    await page.waitForFunction(() => !!(window as unknown as { __critTabBadge?: unknown }).__critTabBadge);
     expect((await page.title()).startsWith(BADGE_PREFIX)).toBe(false);
-  });
 
-  test('prefix clears when visibility returns to visible', async ({ page, request }) => {
-    await loadPageWithTestParam(page);
-
+    // Simulate user tabbing away; the server emits file-changed via SSE.
     await setVisibility(page, false);
     await request.post('/api/round-complete');
-    await expect.poll(() => page.title(), { timeout: 5000 }).toMatch(new RegExp('^' + BADGE_PREFIX));
+    await expect.poll(() => page.title()).toMatch(new RegExp('^' + BADGE_PREFIX));
 
     await setVisibility(page, true);
+    await expect.poll(() => page.title()).not.toMatch(new RegExp('^' + BADGE_PREFIX));
 
-    await expect.poll(() => page.title(), { timeout: 2000 }).not.toMatch(new RegExp('^' + BADGE_PREFIX));
-  });
-
-  test('rapid set/clear cycles end in the correct state', async ({ page }) => {
-    await loadPageWithTestParam(page);
-
-    // Direct helper calls — exercises idempotency without SSE races.
-    await page.evaluate(() => {
+    // Repeated set/clear through the page hook is idempotent: the prefix is
+    // never doubled and a final clear removes it.
+    const title = await page.title();
+    const prefixed = await page.evaluate(() => {
       const api = (window as unknown as { __critTabBadge: { set: () => void; clear: () => void } }).__critTabBadge;
       api.set();
-      api.set(); // idempotent
+      api.set();
+      const afterSet = document.title;
       api.clear();
-      api.clear(); // idempotent
+      api.clear();
       api.set();
       api.clear();
+      return { afterSet, afterClear: document.title };
     });
-    expect((await page.title()).startsWith(BADGE_PREFIX)).toBe(false);
-
-    await page.evaluate(() => {
-      (window as unknown as { __critTabBadge: { set: () => void } }).__critTabBadge.set();
-    });
-    await expect.poll(() => page.title(), { timeout: 2000 }).toMatch(new RegExp('^' + BADGE_PREFIX));
-
-    await page.evaluate(() => {
-      (window as unknown as { __critTabBadge: { clear: () => void } }).__critTabBadge.clear();
-    });
-    await expect.poll(() => page.title(), { timeout: 2000 }).not.toMatch(new RegExp('^' + BADGE_PREFIX));
+    expect(prefixed.afterSet).toBe(BADGE_PREFIX + title);
+    expect(prefixed.afterClear).toBe(title);
   });
 });

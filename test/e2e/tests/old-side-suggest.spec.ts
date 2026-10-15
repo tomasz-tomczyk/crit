@@ -25,26 +25,23 @@ test.describe('Old-side suggest button', () => {
     await clearAllComments(request);
   });
 
-  test('suggest on old-side deletion line inserts old content', async ({ page }) => {
+  test('Suggest inserts the old content on a deletion line and the new content on an addition line', async ({ page }) => {
     await loadPage(page);
     const section = await goSection(page);
 
-    const { line, text } = await firstChangedLine(section, 'old');
+    const old = await firstChangedLine(section, 'old');
     // The same line number on the new side holds different text, so an
     // old-side suggestion that reads the new file is caught.
-    const newText = (await diffLine(section, line, 'new').first().textContent()) ?? '';
-    expect(newText.trim()).not.toBe(text.trim());
+    const newText = (await diffLine(section, old.line, 'new').first().textContent()) ?? '';
+    expect(newText.trim()).not.toBe(old.text.trim());
+    const oldTextarea = await suggestOn(page, section, old.line, 'old');
+    await expect.poll(() => oldTextarea.inputValue()).toBe('```suggestion\n' + old.text + '\n```');
+    // Close it so the next form is the only one open.
+    await section.locator('.comment-form').getByRole('button', { name: 'Cancel' }).click();
+    await expect(section.locator('.comment-form')).toHaveCount(0);
 
-    const textarea = await suggestOn(page, section, line, 'old');
-    await expect.poll(() => textarea.inputValue()).toBe('```suggestion\n' + text + '\n```');
-  });
-
-  test('suggest on new-side addition line still inserts new content', async ({ page }) => {
-    await loadPage(page);
-    const section = await goSection(page);
-
-    const { line, text } = await firstChangedLine(section, 'new');
-    const textarea = await suggestOn(page, section, line, 'new');
-    await expect.poll(() => textarea.inputValue()).toBe('```suggestion\n' + text + '\n```');
+    const added = await firstChangedLine(section, 'new');
+    const newTextarea = await suggestOn(page, section, added.line, 'new');
+    await expect.poll(() => newTextarea.inputValue()).toBe('```suggestion\n' + added.text + '\n```');
   });
 });

@@ -1,7 +1,6 @@
 import { test, expect, type Locator } from '@playwright/test';
 import {
-  clearAllComments, loadPage, getMdPath, mdSection, switchToDocumentView,
-  tapCenter,
+  clearAllComments, loadPage, getMdPath, mdSection, switchToDocumentView, tapCenter,
 } from './helpers';
 
 async function expectTouchTargets(targets: Locator, expectedCount?: number) {
@@ -26,54 +25,38 @@ async function expectTouchTargets(targets: Locator, expectedCount?: number) {
 // visible (no hover), and comment textareas use 16px font-size to
 // suppress iOS Safari focus-zoom.
 test.describe('Mobile touch targets (F2)', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
   });
 
-  test('header and file icon buttons meet 44x44 targets', async ({ page }) => {
+  test('header and file icon buttons meet 44x44 targets; comment textarea is >= 16px', async ({ page }) => {
+    await loadPage(page);
     // The TOC toggle is intentionally hidden below 600px; settings remains
     // the visible header icon control at this project's 375px viewport.
     await expectTouchTargets(page.locator('#settingsToggle'), 1);
     await expectTouchTargets(page.locator('.comment-count-btn'), 1);
     await expectTouchTargets(page.locator('.file-header-copy-path'));
-  });
 
-  test('comment-nav buttons meet 44x44 target when comments exist', async ({ page, request }) => {
-    // comment-nav-btn only renders when at least one comment exists.
-    // Post one via API so the buttons appear.
-    const mdPath = await getMdPath(request);
-    const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'nav target test' },
-    });
-    expect(resp.ok()).toBeTruthy();
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
-    await expectTouchTargets(page.locator('.comment-nav-btn'), 2);
-  });
-
-  test('comment textarea uses font-size >= 16px (iOS zoom prevention)', async ({ page }) => {
     // Open a comment form to expose its textarea: tap a markdown line's
-    // comment gutter in Document view.
+    // comment gutter in Document view (a line below the sticky file header /
+    // picker bar, centred on screen).
     const doc = await switchToDocumentView(page);
-    // A line below the sticky file header / picker bar, centred on screen.
     const gutter = doc.locator('.line-comment-gutter').nth(2);
     await expect(gutter).toBeVisible();
     await tapCenter(page, gutter);
-
     const textarea = page.locator('.comment-form textarea').first();
     await expect(textarea).toBeVisible();
-    const fontSize = await textarea.evaluate((el: Element) =>
-      parseFloat(getComputedStyle(el).fontSize)
-    );
-    expect(fontSize).toBeGreaterThanOrEqual(16);
+    // iOS zoom prevention.
+    await expect.poll(() => textarea.evaluate(el => parseFloat(getComputedStyle(el).fontSize)))
+      .toBeGreaterThanOrEqual(16);
   });
 
-  test('reply actions stay visible and meet 44x44 targets without hover', async ({ page, request }) => {
+  test('with a comment: nav buttons and always-visible reply actions meet 44x44 targets', async ({ page, request }) => {
+    // comment-nav-btn only renders when at least one comment exists; reply
+    // actions need a reply.
     const mdPath = await getMdPath(request);
     const commentResp = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
-      data: { start_line: 1, end_line: 1, body: 'reply-actions size test' },
+      data: { start_line: 1, end_line: 1, body: 'touch target test' },
     });
     expect(commentResp.ok()).toBeTruthy();
     const comment = await commentResp.json();
@@ -82,11 +65,11 @@ test.describe('Mobile touch targets (F2)', () => {
       { data: { body: 'reply' } },
     );
     expect(replyResp.ok()).toBeTruthy();
+    await loadPage(page);
 
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await expectTouchTargets(page.locator('.comment-nav-btn'), 2);
+
     await mdSection(page);
-
     const replyActions = page.locator('.reply-actions');
     await expect(replyActions).toBeVisible();
     await expect(replyActions).toHaveCSS('opacity', '1');

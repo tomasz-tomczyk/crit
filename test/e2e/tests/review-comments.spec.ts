@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { clearAllComments, loadPage } from './helpers';
 
 // ============================================================
@@ -9,179 +9,134 @@ import { clearAllComments, loadPage } from './helpers';
 // inline `#reviewConversation` section at the top of the document, not in the
 // side panel. Cards still mirror in the panel for navigation; clicking a panel
 // card scrolls to the inline section.
+
+async function seedReviewComment(request: APIRequestContext, body: string) {
+  await expect(await request.post('/api/comments', { data: { body } })).toBeOK();
+}
+
 test.describe('Review-level comments — Git Mode', () => {
-  test.beforeEach(async ({ request, page }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
   });
 
-  test('G shortcut opens review comment form inline', async ({ page }) => {
-    await page.keyboard.press('Shift+G');
+  test.describe('starting empty', () => {
+    test.beforeEach(async ({ page }) => {
+      await loadPage(page);
+    });
 
-    const form = page.locator('#reviewConversation .comment-form textarea');
-    await expect(form).toBeVisible();
-    await expect(form).toBeFocused();
+    test('G opens the inline form; Escape closes it, and Ctrl+Enter submits without re-opening it', async ({ page }) => {
+      await page.keyboard.press('Shift+G');
+      const textarea = page.locator('#reviewConversation .comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await expect(textarea).toBeFocused();
+
+      await textarea.press('Escape');
+      await expect(page.locator('#reviewConversation .comment-form')).toHaveCount(0);
+
+      await page.keyboard.press('Shift+G');
+      await textarea.fill('submitted with ctrl+enter');
+      await textarea.press('Control+Enter');
+
+      const cards = page.locator('#reviewConversation .comment-card');
+      await expect(cards).toHaveCount(1);
+      await expect(cards.first()).toContainText('submitted with ctrl+enter');
+      // The form must not re-render itself with the just-submitted text.
+      await expect(page.locator('#reviewConversation .comment-form')).toHaveCount(0);
+      await expect(page.locator('.review-conversation-add-more')).toBeVisible();
+    });
+
+    test('empty state composer opens the form and the Submit button adds a comment', async ({ page }) => {
+      const empty = page.locator('.review-conversation-empty');
+      await expect(empty).toBeVisible();
+      await empty.click();
+
+      const textarea = page.locator('#reviewConversation .comment-form textarea');
+      await expect(textarea).toBeVisible();
+      await expect(textarea).toBeFocused();
+      await textarea.fill('General feedback');
+      await page.locator('#reviewConversation .comment-form .btn-primary').click();
+
+      const cards = page.locator('#reviewConversation .comment-card');
+      await expect(cards).toHaveCount(1);
+      await expect(cards.first()).toContainText('General feedback');
+    });
   });
 
-  test('can add a review-level comment via G shortcut', async ({ page }) => {
-    await page.keyboard.press('Shift+G');
-    await page.locator('#reviewConversation .comment-form textarea').fill('General feedback');
-    await page.locator('#reviewConversation .comment-form .btn-primary').click();
+  test.describe('with a seeded review comment', () => {
+    test('renders on load, counts in the header, and shows in the tree conversation row', async ({ page, request }) => {
+      await seedReviewComment(request, 'api review comment');
+      await loadPage(page);
 
-    const cards = page.locator('#reviewConversation .comment-card');
-    await expect(cards).toHaveCount(1);
-    await expect(cards.first()).toContainText('General feedback');
-  });
+      await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
+      await expect(page.locator('#reviewConversation .comment-card').first()).toContainText('api review comment');
+      await expect(page.locator('#commentCountNumber')).toHaveText('1');
 
-  test('review comments added via API render on load', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'api review comment' } });
-    await loadPage(page);
+      const row = page.locator('.tree-conversation-row');
+      await expect(row).toBeVisible();
+      await expect(row).toContainText('Review conversation');
+      await expect(row.locator('.tree-conversation-badge')).toHaveText('1');
+    });
 
-    await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
-    await expect(page.locator('#reviewConversation .comment-card').first()).toContainText('api review comment');
-  });
+    test('can edit, reply to, and delete a review comment', async ({ page, request }) => {
+      await seedReviewComment(request, 'original review');
+      await loadPage(page);
 
-  test('can delete review comments', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'to delete' } });
-    await loadPage(page);
+      const card = page.locator('#reviewConversation .comment-card').first();
+      await expect(card).toBeVisible();
 
-    const card = page.locator('#reviewConversation .comment-card').first();
-    await expect(card).toBeVisible();
-    await card.locator('.delete-btn').click();
+      await card.locator('button[title="Edit"]').click();
+      const textarea = page.locator('#reviewConversation .comment-form textarea');
+      await expect(textarea).toHaveValue('original review');
+      await textarea.fill('updated review');
+      await page.locator('#reviewConversation .comment-form .btn-primary').click();
+      await expect(page.locator('#reviewConversation .comment-card .comment-body')).toContainText('updated review');
 
-    await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(0);
-  });
+      const replyInput = card.locator('.reply-form .reply-input');
+      await expect(replyInput).toBeVisible();
+      await replyInput.click();
+      const replyTextarea = card.locator('.reply-form .reply-textarea');
+      await expect(replyTextarea).toBeVisible();
+      await replyTextarea.fill('a reply');
+      await card.locator('.reply-form .btn-primary').click();
+      await expect(card.locator('.reply-body')).toContainText('a reply');
 
-  test('empty state composer opens form', async ({ page }) => {
-    const empty = page.locator('.review-conversation-empty');
-    await expect(empty).toBeVisible();
-    await empty.click();
+      await card.locator('.delete-btn').first().click();
+      await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(0);
+    });
 
-    const form = page.locator('#reviewConversation .comment-form textarea');
-    await expect(form).toBeVisible();
-    await expect(form).toBeFocused();
-  });
+    test('clicking a panel review-comment card navigates to and flashes the inline card', async ({ page, request }) => {
+      await seedReviewComment(request, 'panel navigation target');
+      await loadPage(page);
 
-  test('Escape closes review comment form', async ({ page }) => {
-    await page.keyboard.press('Shift+G');
-    const textarea = page.locator('#reviewConversation .comment-form textarea');
-    await expect(textarea).toBeVisible();
+      await page.keyboard.press('Shift+C');
+      await expect(page.locator('#commentsPanel')).not.toHaveClass(/comments-panel-hidden/);
 
-    await textarea.press('Escape');
+      const panelCard = page.locator('#commentsPanelBody .comment-card').first();
+      await expect(panelCard).toBeVisible();
+      await panelCard.click();
 
-    await expect(page.locator('#reviewConversation .comment-form')).toHaveCount(0);
-  });
+      // Tree row should become active and the inline card should briefly highlight
+      await expect(page.locator('.tree-conversation-row')).toHaveClass(/active/);
+      await expect(page.locator('#reviewConversation .comment-card.comment-card-highlight')).toBeVisible();
+    });
 
-  test('Ctrl+Enter submits review comment', async ({ page }) => {
-    await page.keyboard.press('Shift+G');
-    const textarea = page.locator('#reviewConversation .comment-form textarea');
-    await textarea.fill('submitted with ctrl+enter');
-    await textarea.press('Control+Enter');
+    test('section can be collapsed and expanded', async ({ page, request }) => {
+      await seedReviewComment(request, 'a thread');
+      await loadPage(page);
 
-    await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
-    await expect(page.locator('#reviewConversation .comment-card').first()).toContainText('submitted with ctrl+enter');
-  });
+      const section = page.locator('#reviewConversation');
+      const toggle = section.locator('.review-conversation-toggle');
 
-  test('review comments included in comment count', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'count test' } });
-    await loadPage(page);
+      // Initially expanded — the thread is visible
+      await expect(section.locator('.comment-card')).toBeVisible();
 
-    const badge = page.locator('#commentCount');
-    await expect(badge).toBeVisible();
-  });
+      await toggle.click();
+      await expect(section).toHaveClass(/collapsed/);
+      await expect(section.locator('.comment-card')).toBeHidden();
 
-  test('can edit a review comment', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'original review' } });
-    await loadPage(page);
-
-    const card = page.locator('#reviewConversation .comment-card').first();
-    await expect(card).toBeVisible();
-
-    await card.locator('button[title="Edit"]').click();
-
-    const textarea = page.locator('#reviewConversation .comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await expect(textarea).toHaveValue('original review');
-
-    await textarea.clear();
-    await textarea.fill('updated review');
-    await page.locator('#reviewConversation .comment-form .btn-primary').click();
-
-    await expect(page.locator('#reviewConversation .comment-card .comment-body')).toContainText('updated review');
-  });
-
-  test('file tree has Review conversation row with badge', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'tree row test' } });
-    await loadPage(page);
-
-    const row = page.locator('.tree-conversation-row');
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('Review conversation');
-    await expect(row.locator('.tree-conversation-badge')).toHaveText('1');
-  });
-
-  test('can reply to a review-level comment', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'parent thread' } });
-    await loadPage(page);
-
-    const card = page.locator('#reviewConversation .comment-card').first();
-    const replyInput = card.locator('.reply-form .reply-input');
-    await expect(replyInput).toBeVisible();
-    await replyInput.click();
-
-    const textarea = card.locator('.reply-form .reply-textarea');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('a reply');
-    await card.locator('.reply-form .btn-primary').click();
-
-    await expect(card.locator('.reply-body')).toContainText('a reply');
-  });
-
-  test('clicking a panel review-comment card navigates to and flashes the inline card', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'panel navigation target' } });
-    await loadPage(page);
-
-    // Open the comments panel
-    await page.keyboard.press('Shift+C');
-    await expect(page.locator('#commentsPanel')).not.toHaveClass(/comments-panel-hidden/);
-
-    const panelCard = page.locator('#commentsPanelBody .comment-card').first();
-    await expect(panelCard).toBeVisible();
-    await panelCard.click();
-
-    // Tree row should become active and the inline card should briefly highlight
-    await expect(page.locator('.tree-conversation-row')).toHaveClass(/active/);
-    await expect(page.locator('#reviewConversation .comment-card.comment-card-highlight')).toBeVisible();
-  });
-
-  test('after submit, form does not re-open pre-populated with submitted text', async ({ page }) => {
-    await page.keyboard.press('Shift+G');
-    const textarea = page.locator('#reviewConversation .comment-form textarea');
-    await textarea.fill('one-shot comment');
-    await page.locator('#reviewConversation .comment-form .btn-primary').click();
-
-    await expect(page.locator('#reviewConversation .comment-card')).toHaveCount(1);
-    // The form must not re-render itself with the just-submitted text.
-    await expect(page.locator('#reviewConversation .comment-form')).toHaveCount(0);
-    await expect(page.locator('.review-conversation-add-more')).toBeVisible();
-  });
-
-  test('section can be collapsed and expanded', async ({ page, request }) => {
-    await request.post('/api/comments', { data: { body: 'a thread' } });
-    await loadPage(page);
-
-    const section = page.locator('#reviewConversation');
-    const toggle = section.locator('.review-conversation-toggle');
-
-    // Initially expanded — the thread is visible
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    await toggle.click();
-    await expect(section).toHaveClass(/collapsed/);
-    await expect(section.locator('.comment-card')).toBeHidden();
-
-    await toggle.click();
-    await expect(section).not.toHaveClass(/collapsed/);
-    await expect(section.locator('.comment-card')).toBeVisible();
+      await toggle.click();
+      await expect(section).not.toHaveClass(/collapsed/);
+      await expect(section.locator('.comment-card')).toBeVisible();
+    });
   });
 });

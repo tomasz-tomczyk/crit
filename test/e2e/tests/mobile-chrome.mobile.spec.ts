@@ -10,17 +10,9 @@ test.describe('Mobile chrome layout (F1)', () => {
     await loadPage(page);
   });
 
-  test('file-tree sidebar is hidden at mobile viewport', async ({ page }) => {
-    const fileTree = page.locator('#fileTreePanel');
-    await expect(fileTree).toBeHidden();
-  });
-
-  test('comments-panel sidebar is hidden at mobile viewport', async ({ page }) => {
-    const commentsPanel = page.locator('#commentsPanel');
-    await expect(commentsPanel).toBeHidden();
-  });
-
-  test('secondary header controls are hidden at mobile viewport', async ({ page }) => {
+  test('sidebars and secondary controls are hidden; the file picker lists every session file', async ({ page, request }) => {
+    await expect(page.locator('#fileTreePanel')).toBeHidden();
+    await expect(page.locator('#commentsPanel')).toBeHidden();
     // app.js init runs style.display = '' on these unconditionally; the
     // mobile breakpoint uses !important to win.
     await expect(page.locator('#branchContext')).toBeHidden();
@@ -28,32 +20,18 @@ test.describe('Mobile chrome layout (F1)', () => {
     // #scopeToggle specifically: the story Diff/Story toggle (#storyViewToggle)
     // reuses the .scope-toggle pill styling, so the bare class matches two.
     await expect(page.locator('#scopeToggle')).toBeHidden();
-  });
 
-  test('mobile file picker is visible when sidebar is hidden', async ({ page }) => {
-    const pickerBar = page.locator('#mobileFilePickerBar');
-    await expect(pickerBar).toBeVisible();
-
+    await expect(page.locator('#mobileFilePickerBar')).toBeVisible();
     const picker = page.locator('#mobileFilePicker');
     await expect(picker).toBeVisible();
-  });
-
-  test('mobile file picker lists all session files', async ({ page }) => {
-    const picker = page.locator('#mobileFilePicker');
-    await expect(picker).toBeVisible();
-
-    // git-mode fixture has multiple files. Wait until the picker has been
-    // populated (renderFileTree runs after the session loads).
-    await expect(async () => {
-      expect(await picker.locator('option').count()).toBeGreaterThanOrEqual(2);
-    }).toPass();
+    // renderFileTree fills the picker after the session loads.
+    const session = await (await request.get('/api/session?scope=all')).json();
+    await expect(picker.locator('option')).toHaveCount(session.files.length);
   });
 
   test('custom arrow shortcut does not hijack the mobile file picker', async ({ page }) => {
     const picker = page.locator('#mobileFilePicker');
-    await expect(async () => {
-      expect(await picker.locator('option').count()).toBeGreaterThanOrEqual(2);
-    }).toPass();
+    await expect.poll(() => picker.locator('option').count()).toBeGreaterThanOrEqual(2);
 
     await page.locator('#settingsToggle').click();
     await page.locator('.settings-tab[data-tab="shortcuts"]').click();
@@ -61,12 +39,15 @@ test.describe('Mobile chrome layout (F1)', () => {
     await page.keyboard.press('ArrowDown');
     await page.locator('.settings-overlay').click({ position: { x: 10, y: 10 } });
 
+    // A window bubble-phase listener runs after the app's document keydown
+    // handler, so it sees whether that handler cancelled the key.
     await page.evaluate(() => {
-      (window as typeof window & { __pickerDefaultPrevented?: boolean }).__pickerDefaultPrevented = true;
-      document.querySelector('#mobileFilePicker')!.addEventListener('keydown', (event) => {
-        setTimeout(() => {
-          (window as typeof window & { __pickerDefaultPrevented?: boolean }).__pickerDefaultPrevented = event.defaultPrevented;
-        }, 0);
+      const w = window as typeof window & { __pickerDefaultPrevented?: boolean };
+      w.__pickerDefaultPrevented = undefined;
+      window.addEventListener('keydown', (event) => {
+        if (event.target === document.querySelector('#mobileFilePicker')) {
+          w.__pickerDefaultPrevented = event.defaultPrevented;
+        }
       }, { once: true });
     });
     await picker.focus();
@@ -79,17 +60,10 @@ test.describe('Mobile chrome layout (F1)', () => {
 
   test('selecting a file scrolls that file section into view', async ({ page }) => {
     const picker = page.locator('#mobileFilePicker');
-    await expect(picker).toBeVisible();
-
-    // Need at least 2 options to test a meaningful change.
-    await expect(async () => {
-      expect(await picker.locator('option').count()).toBeGreaterThanOrEqual(2);
-    }).toPass();
-
-    const options = await picker.locator('option').allTextContents();
-    expect(options.length).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => picker.locator('option').count()).toBeGreaterThanOrEqual(2);
 
     // Pick the LAST file in the list so it's most likely to be below the fold.
+    const options = await picker.locator('option').allTextContents();
     const targetPath = options[options.length - 1];
     await picker.selectOption(targetPath);
 

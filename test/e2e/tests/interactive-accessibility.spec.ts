@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { addComment, clearAllComments, fileHeader, fileItem, getMdPath, goSection, loadPage } from './helpers';
+import {
+  addComment, clearAllComments, fileHeader, fileItem, getMdPath, goSection, loadPage, resolveComment,
+  waitForScrollStable, waitUntilHittable,
+} from './helpers';
 
 test.describe('Interactive accessibility', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -45,11 +48,7 @@ test.describe('Interactive accessibility', () => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'Open filter comment');
     const resolved = await addComment(request, mdPath, 3, 'Resolved filter comment');
-    const resolveResponse = await request.put(
-      `/api/comment/${resolved.id}/resolve?path=${encodeURIComponent(mdPath)}`,
-      { data: { resolved: true } },
-    );
-    expect(resolveResponse.ok()).toBeTruthy();
+    await resolveComment(request, mdPath, resolved.id);
 
     await loadPage(page);
     await page.locator('#commentCount').click();
@@ -83,10 +82,17 @@ test.describe('Interactive accessibility', () => {
     await expect(chevron()).toHaveAccessibleName(/server\.go/);
 
     // Focus + keypress must be atomic: a remount between focus() and the
-    // keypress drops focus and the toggle never fires. State guards make
-    // retries idempotent (no double-toggle).
+    // keypress drops focus and the toggle never fires. Collapsing/expanding
+    // re-lays out the list (the sticky header moves and re-mounts), so wait
+    // for the scroll position to settle and the button to take hits before
+    // each attempt. State guards make retries idempotent (no double-toggle).
+    const settle = async () => {
+      await waitForScrollStable(page);
+      await waitUntilHittable(chevron());
+    };
     await expect(async () => {
       if (await collapsed()) return;
+      await settle();
       await chevron().focus();
       await page.keyboard.press('Enter');
       await expect(fileHeader(page, 'server.go')).toHaveClass(/\bcollapsed\b/, { timeout: 2_000 });
@@ -97,6 +103,7 @@ test.describe('Interactive accessibility', () => {
 
     await expect(async () => {
       if (!(await collapsed())) return;
+      await settle();
       await chevron().focus();
       await page.keyboard.press('Space');
       await expect(fileHeader(page, 'server.go')).not.toHaveClass(/\bcollapsed\b/, { timeout: 2_000 });

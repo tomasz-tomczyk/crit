@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext, type Page, type Locator } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { clearAllComments, loadPage, mdSection, fileHeader } from './helpers';
+import { clearAllComments, loadPage, mdSection, fileHeader, sessionCwd } from './helpers';
 
 // Git mode: the per-file Rendered view shows a markdown file's Before
 // (base) and After blocks. plan.md is new on the fixture branch, so in the
@@ -52,8 +52,7 @@ async function addOldSideComment(request: APIRequestContext, body: string) {
 
 test.describe.serial('Rendered Diff — Git Mode', () => {
   test.beforeAll(async ({ request }) => {
-    const session = await (await request.get('/api/session')).json();
-    planPath = path.join(session.cwd, 'plan.md');
+    planPath = path.join(await sessionCwd(request), 'plan.md');
     original = fs.readFileSync(planPath, 'utf-8');
     expect(original).toContain(OLD_LINE);
     fs.writeFileSync(planPath, original.replace(OLD_LINE, NEW_LINE));
@@ -80,7 +79,7 @@ test.describe.serial('Rendered Diff — Git Mode', () => {
     await expect(toggleBtn(page, 'rendered-diff')).toHaveCount(0);
   });
 
-  test('Rendered shows Before/After in split and unified layouts', async ({ page }) => {
+  test('Rendered shows Before/After in split and unified layouts, and an After block takes comments', async ({ page }) => {
     await loadUnstaged(page);
     const section = await mdSection(page);
     const rendered = toggleBtn(page, 'rendered-diff');
@@ -105,12 +104,8 @@ test.describe.serial('Rendered Diff — Git Mode', () => {
 
     await page.locator('#diffModeToggle .toggle-btn[data-mode="split"]').click();
     await expect(section.locator('.diff-view')).toBeVisible();
-  });
 
-  test('can comment on an After block', async ({ page }) => {
-    await loadUnstaged(page);
-    const section = await mdSection(page);
-    await toggleBtn(page, 'rendered-diff').click();
+    // An After block takes comments.
     const added = section.locator('.diff-view .line-block.diff-added').filter({ hasText: 'token authentication' });
     await added.scrollIntoViewIfNeeded();
     await added.hover();

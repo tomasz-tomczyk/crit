@@ -15,32 +15,19 @@ async function expectAllFilesRender(page: Page) {
 }
 
 test.describe('File Mode — Page Loading', () => {
-  test.beforeEach(async ({ page }) => {
+  test('page loads file sections with file-mode header chrome', async ({ page }) => {
     await loadPage(page);
-  });
-
-  test('page loads and shows file sections', async ({ page }) => {
     await expectAllFilesRender(page);
-  });
 
-  test('no branch name shown in header (file mode)', async ({ page }) => {
+    // No branch name in the header (file mode, even inside a git repo).
     await expect(page.locator('#branchContext')).toBeHidden();
-  });
-
-  test('document title includes file names (no branch)', async ({ page }) => {
+    // Document title lists the file names instead of a branch.
     await expect(page).toHaveTitle(/Crit — .*plan\.md/);
-  });
-
-  test('diff mode toggle is hidden in file mode', async ({ page }) => {
+    // Diff mode toggle stays hidden until a round produces diffs.
     await expect(page.locator('#diffModeToggle')).toBeHidden();
-  });
-
-  test('file headers do not show status badge in file mode', async ({ page }) => {
+    // File headers do not show a git status badge.
     await expect(page.locator('.file-header-badge')).toHaveCount(0);
-  });
-
-  test('stack breadcrumb and chip exit are hidden in file mode', async ({ page }) => {
-    await expect(page.locator('#stackBreadcrumb')).toBeHidden();
+    // The stack chip ✕ exit is a git-mode range control.
     await expect(page.locator('#stackChipExit')).toBeHidden();
   });
 });

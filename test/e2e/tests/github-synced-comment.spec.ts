@@ -1,25 +1,21 @@
 import { test, expect } from '@playwright/test';
-import type { APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { addComment, clearAllComments, getMdPath, loadPage, mdSection, switchToDocumentView, getReviewFilePath } from './helpers';
-
-// Poll session API until the review round increments past `previousRound`.
-async function waitForRound(request: APIRequestContext, previousRound: number) {
-  await expect(async () => {
-    const session = await request.get('/api/session').then(r => r.json());
-    expect(session.review_round).toBeGreaterThan(previousRound);
-  }).toPass({ timeout: 5000 });
-}
+import {
+  addComment, clearAllComments, getMdPath, loadPage, mdSection, switchToDocumentView,
+  getReviewFilePath, roundComplete,
+} from './helpers';
 
 // GitHub-synced comment badge -- verifies that a comment whose review.json
 // entry carries `github_id` renders the .github-badge in the UI.
 // The signal mirrors what crit-web will receive in the share payload (#370).
+// (No badge without github_id: web/__tests__/crit-comment-card.test.js,
+// "GitHub badge omitted when comment.github_id is missing or zero".)
 test.describe('GitHub-synced comment badge (#370)', () => {
-  test('renders .github-badge when comment.github_id is set', async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
-    await switchToDocumentView(page);
+  });
 
+  test('renders .github-badge when comment.github_id is set in the review file', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
 
     // 1. Add a comment via the API so the daemon state is consistent.
@@ -31,9 +27,8 @@ test.describe('GitHub-synced comment badge (#370)', () => {
 
     // 3. Wait for the comment to be persisted, then stamp github_id.
     await expect(async () => {
-      const content = fs.readFileSync(critJsonPath, 'utf8');
-      expect(content).toContain('Synced from GitHub');
-    }).toPass({ timeout: 3000 });
+      expect(fs.readFileSync(critJsonPath, 'utf8')).toContain('Synced from GitHub');
+    }).toPass();
 
     const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf8'));
     let stamped = false;
@@ -48,33 +43,16 @@ test.describe('GitHub-synced comment badge (#370)', () => {
 
     // 4. Use round-complete to force the daemon to reload the file
     //    deterministically (avoids mtime-poll race on Windows CI).
-    const round = (await request.get('/api/session').then(r => r.json())).review_round;
-    await request.post('/api/round-complete');
-    await waitForRound(request, round);
+    await roundComplete(request);
 
-    // 5. Reload and verify the badge renders.
+    // 5. Load and verify the badge renders.
     await loadPage(page);
     await switchToDocumentView(page);
 
     const section = await mdSection(page);
     const badge = section.locator('.github-badge');
-    await expect(badge).toHaveCount(1, { timeout: 5000 });
+    await expect(badge).toHaveCount(1);
     await expect(badge).toHaveText('GitHub');
     await expect(badge).toHaveAttribute('title', 'Synced from GitHub');
-  });
-
-  test('omits .github-badge when github_id is missing', async ({ page, request }) => {
-    await clearAllComments(request);
-
-    const mdPath = await getMdPath(request);
-    // Add the comment before loading the page so it's present on first render.
-    await addComment(request, mdPath, 1, 'Plain local comment');
-
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const section = await mdSection(page);
-    await expect(section.locator('.comment-body')).toContainText('Plain local comment', { timeout: 5000 });
-    await expect(section.locator('.github-badge')).toHaveCount(0);
   });
 });

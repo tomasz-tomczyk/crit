@@ -1,7 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   clearAllComments, loadPage, goSection, switchToDocumentView, dragBetween,
-  dragLineRange, openLineComment, diffLine, waitUntilHittable, setDiffStyle, selectedRows,
+  dragLineRange, diffLine, waitUntilHittable, setDiffStyle, selectedRows,
+  openDocLineComment, showLine, waitForScrollStable,
 } from './helpers';
 
 // Switching to Document view scrolls: wait until the start gutter takes
@@ -16,136 +17,50 @@ async function dragGutters(page: Page, from: Locator, to: Locator) {
 
 // ============================================================
 // Markdown Drag Selection (git mode — plan.md in document view)
+// A single gutter click's single-line header: comments.spec.ts.
 // ============================================================
 test.describe('Markdown Drag Selection — Git Mode', () => {
-  let section: Locator;
-
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('gutter drag selects a range; submit or cancel clears the selection and keeps keyboard focus', async ({ page }) => {
     await loadPage(page);
-    section = await switchToDocumentView(page);
-  });
-
-  test('dragging across gutter elements opens comment form with multi-line header', async ({ page }) => {
-
-    // Get the first and third line-comment-gutter elements
+    const section = await switchToDocumentView(page);
     const gutters = section.locator('.line-comment-gutter');
-    const firstGutter = gutters.nth(0);
-    const thirdGutter = gutters.nth(2);
-
-    await dragGutters(page, firstGutter, thirdGutter);
-
-    // Comment form should open with "Lines" in the header (multi-line range)
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    const header = page.locator('.comment-form-header');
-    await expect(header).toContainText('Lines');
-  });
-
-  test('after drag, selected line blocks have .selected class', async ({ page }) => {
-
-    const gutters = section.locator('.line-comment-gutter');
-    const firstGutter = gutters.nth(0);
-    const thirdGutter = gutters.nth(2);
-
-    await dragGutters(page, firstGutter, thirdGutter);
-
-    // Every block from the first to the third gutter is selected (the form
-    // spans them), and nothing past it.
     const blocks = section.locator('.line-block.kb-nav');
+    const form = section.locator('.comment-form');
+
+    // Dragging across gutters opens a multi-line form, and every block from
+    // the first to the third gutter is selected — nothing past it.
+    await dragGutters(page, gutters.nth(0), gutters.nth(2));
+    await expect(form).toBeVisible();
+    await expect(form.locator('.comment-form-header')).toContainText('Lines');
     await expect(blocks.nth(0)).toHaveClass(/selected/);
     await expect(blocks.nth(1)).toHaveClass(/selected/);
     await expect(blocks.nth(2)).toHaveClass(/selected/);
     await expect(blocks.nth(3)).not.toHaveClass(/selected/);
-  });
 
-  test('single click on gutter opens single-line comment form', async ({ page }) => {
-
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await expect(gutterBtn).toBeVisible();
-    await gutterBtn.click();
-
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    const header = page.locator('.comment-form-header');
-    await expect(header).toContainText('Line');
-    // Single-line should not contain "Lines" (with the 's')
-    const headerText = await header.textContent();
-    expect(headerText).toMatch(/Line \d+$/);
-  });
-});
-
-// ============================================================
-// Line highlight cleared after comment submit/cancel
-// ============================================================
-test.describe('Line Highlight Cleared — Markdown Git Mode', () => {
-  let section: Locator;
-
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    section = await switchToDocumentView(page);
-  });
-
-  test('drag-select then submit clears selected class and keeps keyboard focus', async ({ page }) => {
-    const gutters = section.locator('.line-comment-gutter');
-    const firstGutter = gutters.nth(0);
-    const thirdGutter = gutters.nth(2);
-
-    await dragGutters(page, firstGutter, thirdGutter);
-
-    // Verify selection exists before submit
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    // Submit the comment
-    await page.locator('.comment-form textarea').fill('Test comment');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(page.locator('.comment-card')).toBeVisible();
-
-    await expect(section.locator('.line-block.selected')).toHaveCount(0);
-    await expect(section.locator('.line-block.focused')).toHaveCount(1);
-  });
-
-  test('drag-select then cancel clears selected class and keeps keyboard focus', async ({ page }) => {
-    const gutters = section.locator('.line-comment-gutter');
-    const firstGutter = gutters.nth(0);
-    const thirdGutter = gutters.nth(2);
-
-    await dragGutters(page, firstGutter, thirdGutter);
-
-    const form = page.locator('.comment-form');
-    await expect(form).toBeVisible();
-
-    // Cancel the comment
-    await page.locator('.comment-form button', { hasText: 'Cancel' }).click();
+    // Cancel clears the selection; keyboard focus stays.
+    await form.locator('button', { hasText: 'Cancel' }).click();
     await expect(form).toBeHidden();
-
     await expect(section.locator('.line-block.selected')).toHaveCount(0);
     await expect(section.locator('.line-block.focused')).toHaveCount(1);
-  });
 
-  test('single-line click then submit clears selected class and keeps keyboard focus', async ({ page }) => {
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
+    // Single-line click then submit.
+    const textarea = await openDocLineComment(page, section, 0);
+    await textarea.fill('Single line comment');
+    await form.locator('.btn-primary').click();
+    await expect(section.locator('.comment-card', { hasText: 'Single line comment' })).toBeVisible();
+    await expect(section.locator('.line-block.selected')).toHaveCount(0);
+    await expect(section.locator('.line-block.focused')).toHaveCount(1);
 
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await expect(gutterBtn).toBeVisible();
-    await gutterBtn.click();
-
-    const form = page.locator('.comment-form');
+    // Drag-select then submit.
+    await dragGutters(page, gutters.nth(0), gutters.nth(2));
     await expect(form).toBeVisible();
-
-    // Submit
-    await page.locator('.comment-form textarea').fill('Single line comment');
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(page.locator('.comment-card')).toBeVisible();
-
+    await form.locator('textarea').fill('Test comment');
+    await form.locator('.btn-primary').click();
+    await expect(section.locator('.comment-card', { hasText: 'Test comment' })).toBeVisible();
     await expect(section.locator('.line-block.selected')).toHaveCount(0);
     await expect(section.locator('.line-block.focused')).toHaveCount(1);
   });
@@ -179,30 +94,20 @@ test.describe('Diff Drag Selection — Split Mode', () => {
   });
 
   // server.go new lines 23-34 are one run of additions (authMiddleware).
-  test('dragging the gutter + across addition lines opens multi-line comment form', async ({ page }) => {
+  // A single click on the "+" (single-line header): comments.spec.ts.
+  test('dragging the gutter + across addition lines selects exactly them and comments on the range', async ({ page }) => {
     const item = await goSection(page);
     const form = await dragLineRange(page, item, 23, 25);
     await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 23-25');
-
-    await submitForm(page, form, 'split drag range');
-    const c = await persisted(page, 'split drag range');
-    expect([c.start_line, c.end_line, c.side || '']).toEqual([23, 25, '']);
-  });
-
-  test('single click on the gutter + opens single-line comment form', async ({ page }) => {
-    const item = await goSection(page);
-    const form = await openLineComment(page, item, 23);
-    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 23');
-  });
-
-  test('dragging selects exactly the dragged lines on the new side', async ({ page }) => {
-    const item = await goSection(page);
-    await dragLineRange(page, item, 23, 25);
     await expect.poll(() => selectedRows(item)).toEqual([
       '23:change-addition', '24:change-addition', '25:change-addition',
     ]);
     // The old side of those rows is not part of the range.
     expect(await selectedRows(item, 'code[data-deletions]')).toEqual([]);
+
+    await submitForm(page, form, 'split drag range');
+    const c = await persisted(page, 'split drag range');
+    expect([c.start_line, c.end_line, c.side || '']).toEqual([23, 25, '']);
   });
 });
 
@@ -215,28 +120,24 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
     await expect(item.locator('code[data-unified]')).toBeVisible();
   });
 
-  test('dragging across addition lines in unified mode opens comment form', async ({ page }) => {
+  test('unified drag selects the dragged lines, and works from a context line onto additions', async ({ page }) => {
     const item = await goSection(page);
     const form = await dragLineRange(page, item, 23, 24);
     await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 23-24');
-  });
+    await expect.poll(() => selectedRows(item)).toEqual(['23:change-addition', '24:change-addition']);
+    await form.locator('button', { hasText: 'Cancel' }).click();
+    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
 
-  test('drag works from a context line onto an addition (no type restriction)', async ({ page }) => {
-    // server.go new 35 is context (`func main() {`), 36-40 are additions.
-    const item = await goSection(page);
+    // No type restriction: server.go new 35 is context (`func main() {`),
+    // 36-40 are additions.
+    await showLine(page, diffLine(item, 37));
     await expect(diffLine(item, 35)).toHaveAttribute('data-line-type', 'context');
-    const form = await dragLineRange(page, item, 35, 37);
-    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 35-37');
+    const mixed = await dragLineRange(page, item, 35, 37);
+    await expect(mixed.locator('.comment-form-header')).toHaveText('Comment on Lines 35-37');
 
-    await submitForm(page, form, 'unified mixed drag');
+    await submitForm(page, mixed, 'unified mixed drag');
     const c = await persisted(page, 'unified mixed drag');
     expect([c.start_line, c.end_line, c.side || '']).toEqual([35, 37, '']);
-  });
-
-  test('unified drag selects the dragged lines', async ({ page }) => {
-    const item = await goSection(page);
-    await dragLineRange(page, item, 23, 24);
-    await expect.poll(() => selectedRows(item)).toEqual(['23:change-addition', '24:change-addition']);
   });
 
   test('unified drag from deletion spans across context lines after release', async ({ page }) => {
@@ -246,10 +147,14 @@ test.describe('Diff Drag Selection — Unified Mode', () => {
     // server.go: old 21 and old 23 are deletions; old 22 / new 42 is context
     // between them.
     const item = await goSection(page);
+    // Pierre virtualizes rows within a file and re-mounts them while the list
+    // settles: bring both ends of the span on screen (a raw scrollIntoView on
+    // a row that is not mounted yet fails with "not attached").
+    await showLine(page, diffLine(item, 21, 'old'));
+    await showLine(page, diffLine(item, 23, 'old'));
     await expect(diffLine(item, 21, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
-    // Pierre virtualizes rows within a file; bring the span on screen.
-    await diffLine(item, 21, 'old').scrollIntoViewIfNeeded();
     await expect(diffLine(item, 23, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
+    await waitForScrollStable(page);
 
     const form = await dragLineRange(page, item, 21, 23, 'old');
     await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 21-23');

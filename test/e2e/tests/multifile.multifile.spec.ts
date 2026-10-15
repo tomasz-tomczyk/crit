@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import {
-  clearAllComments, loadPage, revealFile, fileItem, diffLine, openLineComment,
+  addComment, clearAllComments, loadPage, revealFile, fileItem, diffLine, openLineComment,
   reviewScroller, nextFrames,
 } from './helpers';
 
@@ -10,7 +10,7 @@ function planSection(page: Page) {
   return revealFile(page, 'plan.md');
 }
 
-function goSection(page: Page) {
+function mainGoSection(page: Page) {
   return revealFile(page, 'main.go');
 }
 
@@ -57,36 +57,25 @@ test.describe('Multi-File Mode — Loading', () => {
     await loadPage(page);
   });
 
-  test('shows all files including directory contents in file tree', async ({ page }) => {
-    // Should have 6 files: plan.md, main.go, handler.ex, flow.mmd, lib/utils.ex, lib/config.ex
-    const treeFiles = page.locator('.tree-file');
-    await expect(treeFiles).toHaveCount(6);
-  });
-
-  test('file tree shows directory path for nested files', async ({ page }) => {
-    // lib/utils.ex and lib/config.ex should appear with their paths
+  test('file tree lists all files including directory contents, with nested names and count', async ({ page, request }) => {
+    // 6 files: plan.md, main.go, handler.ex, flow.mmd, lib/utils.ex, lib/config.ex
+    await expect(page.locator('.tree-file')).toHaveCount(6);
+    // lib/utils.ex and lib/config.ex appear by name
     await expect(page.locator('.tree-file-name', { hasText: 'utils.ex' })).toBeVisible();
     await expect(page.locator('.tree-file-name', { hasText: 'config.ex' })).toBeVisible();
+    await expect(page.locator('#fileTreeStats')).toContainText('6');
+    // The session is a files-mode session.
+    const session = await (await request.get('/api/session')).json();
+    expect(session.mode).toBe('files');
   });
 
   test('displays all file sections', async ({ page }) => {
     await expect((await planSection(page)).locator('.document-wrapper')).toBeVisible();
-    await expect(diffLine(await goSection(page), 1)).toBeVisible();
+    await expect(diffLine(await mainGoSection(page), 1)).toBeVisible();
     await expect(diffLine(await exSection(page), 1)).toBeVisible();
     // Nested files too
     await expect(diffLine(await revealFile(page, 'lib/utils.ex'), 1)).toBeVisible();
     await expect(diffLine(await revealFile(page, 'lib/config.ex'), 1)).toBeVisible();
-  });
-
-  test('session mode is "files"', async ({ request }) => {
-    const res = await request.get('/api/session');
-    const session = await res.json();
-    expect(session.mode).toBe('files');
-  });
-
-  test('stats show correct file count', async ({ page }) => {
-    const stats = page.locator('#fileTreeStats');
-    await expect(stats).toContainText('6');
   });
 
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
@@ -111,7 +100,7 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
   });
 
   test('Go file renders with syntax-highlighted code', async ({ page }) => {
-    const section = await goSection(page);
+    const section = await mainGoSection(page);
     // Code files in file mode render the whole file (no diff sides)
     await expect(diffLine(section, 1)).toContainText('package');
     await expect(section.locator('code[data-additions], code[data-deletions], code[data-unified]')).toHaveCount(0);
@@ -135,13 +124,13 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
 });
 
 test.describe('Multi-File Mode — Comments on Code Files', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
   });
 
   test('can add a comment on a Go file line', async ({ page, request }) => {
-    const section = await goSection(page);
+    await loadPage(page);
+    const section = await mainGoSection(page);
     const form = await openLineComment(page, section, 1);
 
     const textarea = form.locator('textarea');
@@ -155,6 +144,7 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
   });
 
   test('can add a comment on an Elixir file line', async ({ page, request }) => {
+    await loadPage(page);
     const section = await exSection(page);
     const form = await openLineComment(page, section, 1);
 
@@ -169,6 +159,7 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
   });
 
   test('can add a comment on a nested directory file', async ({ page, request }) => {
+    await loadPage(page);
     const section = await revealFile(page, 'lib/utils.ex');
     const form = await openLineComment(page, section, 1);
 
@@ -184,18 +175,10 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
 
   test('comment count reflects comments across all files', async ({ page, request }) => {
     // Add comments via API on different files
-    await request.post('/api/file/comments?path=main.go', {
-      data: { start_line: 1, end_line: 1, body: 'Go comment' },
-    });
-    await request.post('/api/file/comments?path=handler.ex', {
-      data: { start_line: 1, end_line: 1, body: 'Elixir comment' },
-    });
-    await request.post('/api/file/comments?path=lib/utils.ex', {
-      data: { start_line: 1, end_line: 1, body: 'Nested comment' },
-    });
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await addComment(request, 'main.go', 1, 'Go comment');
+    await addComment(request, 'handler.ex', 1, 'Elixir comment');
+    await addComment(request, 'lib/utils.ex', 1, 'Nested comment');
+    await loadPage(page);
 
     const countEl = page.locator('#commentCount');
     await expect(countEl).toBeVisible();
@@ -204,12 +187,12 @@ test.describe('Multi-File Mode — Comments on Code Files', () => {
 });
 
 test.describe('Multi-File Mode — File Tree Interaction', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
   });
 
   test('clicking a file in the tree scrolls to that section', async ({ page }) => {
+    await loadPage(page);
     const treeFile = page.locator('.tree-file-name', { hasText: 'config.ex' });
     await treeFile.click();
 
@@ -219,12 +202,8 @@ test.describe('Multi-File Mode — File Tree Interaction', () => {
   });
 
   test('file tree shows comment badges for files with comments', async ({ page, request }) => {
-    await request.post('/api/file/comments?path=main.go', {
-      data: { start_line: 1, end_line: 1, body: 'Badge test' },
-    });
-
-    await page.reload();
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await addComment(request, 'main.go', 1, 'Badge test');
+    await loadPage(page);
 
     // The tree file for main.go should have a comment badge
     const goTreeFile = page.locator('.tree-file').filter({ hasText: 'main.go' });

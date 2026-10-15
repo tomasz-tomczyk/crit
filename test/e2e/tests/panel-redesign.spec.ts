@@ -1,6 +1,8 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, switchToDocumentView, addComment, getMdPath, getReviewFilePath } from './helpers';
+import {
+  clearAllComments, loadPage, switchToDocumentView, addComment, getMdPath, getReviewFilePath, roundComplete,
+} from './helpers';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -10,12 +12,8 @@ function panelCards(page: Page) {
   return page.locator('.panel-comment-block .comment-card');
 }
 
-function filterPill(page: Page) {
-  return page.locator('#commentsFilterPill');
-}
-
 function filterBtn(page: Page, filter: 'all' | 'open' | 'resolved') {
-  return filterPill(page).locator(`.toggle-btn[data-filter="${filter}"]`);
+  return page.locator(`#commentsFilterPill .toggle-btn[data-filter="${filter}"]`);
 }
 
 function filterCount(page: Page, filter: 'all' | 'open' | 'resolved') {
@@ -35,20 +33,11 @@ async function openPanel(page: Page) {
   await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
 }
 
-async function waitForRound(request: APIRequestContext, previousRound: number) {
-  await expect(async () => {
-    const session = await request.get('/api/session').then(r => r.json());
-    expect(session.review_round).toBeGreaterThan(previousRound);
-  }).toPass({ timeout: 5000 });
-}
-
+// Finish the round and let the "agent" resolve every comment in review.json,
+// then wait for round-complete to carry them forward.
 async function finishAndResolve(request: APIRequestContext) {
-  const session = await request.get('/api/session').then(r => r.json());
-  const currentRound = session.review_round;
-
-  await request.post('/api/finish');
+  await expect(await request.post('/api/finish')).toBeOK();
   const critJsonPath = await getReviewFilePath(request);
-
   const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
   for (const fileKey of Object.keys(critJson.files)) {
     for (const comment of critJson.files[fileKey].comments) {
@@ -57,9 +46,7 @@ async function finishAndResolve(request: APIRequestContext) {
     }
   }
   fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-  await request.post('/api/round-complete');
-  await waitForRound(request, currentRound);
+  await roundComplete(request);
 }
 
 // ============================================================
@@ -70,59 +57,63 @@ test.describe('Panel Redesign', () => {
     await clearAllComments(request);
   });
 
-  // ----------------------------------------------------------
-  // 1. Panel header shows count badge
-  // ----------------------------------------------------------
-  test('count badge shows correct total', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'First comment');
-    await addComment(request, mdPath, 3, 'Second comment');
-    await addComment(request, mdPath, 5, 'Third comment');
-    await loadPage(page);
-
-    await openPanel(page);
-    await expect(countBadge(page)).toHaveText('3');
-  });
-
-  test('count badge shows 0 when no comments', async ({ page }) => {
+  test('empty review: count badge shows 0', async ({ page }) => {
     await loadPage(page);
     await openPanel(page);
     await expect(countBadge(page)).toHaveText('0');
   });
 
-  // ----------------------------------------------------------
-  // 2. Segmented filter — All / Open / Resolved
-  // ----------------------------------------------------------
-  test('All filter is active by default', async ({ page, request }) => {
+  test('count badge, segmented filter counts and filtering, and per-file groups', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'A comment');
+    const session = await (await request.get('/api/session')).json();
+    const goPath: string = session.files.find((f: { path: string }) => f.path.endsWith('.go'))?.path;
+    expect(goPath).toBeTruthy();
+
+    // 1 resolved + 2 open on plan.md, 1 open on a Go file = 4 total.
+    await addComment(request, mdPath, 1, 'Will be resolved');
+    await finishAndResolve(request);
+    await addComment(request, mdPath, 2, 'Open one');
+    await addComment(request, mdPath, 3, 'Open two');
+    await addComment(request, goPath, 1, 'Go comment');
     await loadPage(page);
     await openPanel(page);
 
+    await expect(countBadge(page)).toHaveText('4');
+
+    // All is active by default and shows every card.
     await expect(filterBtn(page, 'all')).toHaveClass(/active/);
     await expect(filterBtn(page, 'open')).not.toHaveClass(/active/);
     await expect(filterBtn(page, 'resolved')).not.toHaveClass(/active/);
-  });
+    await expect(panelCards(page)).toHaveCount(4);
+    await expect(filterCount(page, 'all')).toHaveText('4');
+    await expect(filterCount(page, 'open')).toHaveText('3');
+    await expect(filterCount(page, 'resolved')).toHaveText('1');
 
-  test('Open and Resolved filters show their matching comments', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
+    // File groups: chevron and per-file count.
+    const fileGroups = page.locator('.comments-panel-file-group');
+    await expect(fileGroups).toHaveCount(2);
+    const mdHeader = fileGroups.filter({ hasText: mdPath }).locator('.comments-panel-file-name');
+    const goHeader = fileGroups.filter({ hasText: goPath }).locator('.comments-panel-file-name');
+    await expect(mdHeader.locator('.comments-panel-file-chevron')).toBeVisible();
+    await expect(goHeader.locator('.comments-panel-file-chevron')).toBeVisible();
+    await expect(mdHeader.locator('.comments-panel-file-count')).toHaveText('3');
+    await expect(goHeader.locator('.comments-panel-file-count')).toHaveText('1');
 
-    // Create a comment, resolve it, then add a new unresolved one
-    await addComment(request, mdPath, 1, 'Will be resolved');
-    await finishAndResolve(request);
-    await addComment(request, mdPath, 2, 'Still open');
+    // Clicking a group header collapses and expands just that group.
+    const firstGroup = fileGroups.first();
+    await firstGroup.locator('.comments-panel-file-name').click();
+    await expect(firstGroup).toHaveClass(/collapsed/);
+    await expect(firstGroup.locator('.comment-card').first()).toBeHidden();
+    await expect(fileGroups.nth(1).locator('.comment-card').first()).toBeVisible();
+    await firstGroup.locator('.comments-panel-file-name').click();
+    await expect(firstGroup).not.toHaveClass(/collapsed/);
+    await expect(firstGroup.locator('.comment-card').first()).toBeVisible();
 
-    await loadPage(page);
-    await openPanel(page);
-
-    // All shows both
-    await expect(panelCards(page)).toHaveCount(2);
-
-    // Open shows only unresolved
+    // Open shows only unresolved; Resolved only the resolved one.
     await filterBtn(page, 'open').click();
     await expect(filterBtn(page, 'open')).toHaveClass(/active/);
-    await expect(panelCards(page)).toHaveCount(1);
-    await expect(panelCards(page).first().locator('.comment-body')).toContainText('Still open');
+    await expect(panelCards(page)).toHaveCount(3);
+    await expect(panelCards(page).filter({ hasText: 'Will be resolved' })).toHaveCount(0);
 
     await filterBtn(page, 'resolved').click();
     await expect(filterBtn(page, 'resolved')).toHaveClass(/active/);
@@ -131,161 +122,40 @@ test.describe('Panel Redesign', () => {
     await expect(panelCards(page).first().locator('.comment-body')).toContainText('Will be resolved');
   });
 
-  // ----------------------------------------------------------
-  // 3. Filter counts are correct
-  // ----------------------------------------------------------
-  test('filter pill counts match actual comment counts', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-
-    // 1 resolved + 2 open = 3 total
-    await addComment(request, mdPath, 1, 'Will be resolved');
-    await finishAndResolve(request);
-    await addComment(request, mdPath, 2, 'Open one');
-    await addComment(request, mdPath, 3, 'Open two');
-
-    await loadPage(page);
-    await openPanel(page);
-
-    await expect(filterCount(page, 'all')).toHaveText('3');
-    await expect(filterCount(page, 'open')).toHaveText('2');
-    await expect(filterCount(page, 'resolved')).toHaveText('1');
-  });
-
-  test('filter counts update when a comment is added', async ({ page, request }) => {
+  test('filter counts update when a comment is added, and Collapse/Expand all toggle panel and inline cards', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'First');
     await loadPage(page);
-    const section = await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
     await openPanel(page);
 
     await expect(filterCount(page, 'all')).toHaveText('1');
     await expect(filterCount(page, 'open')).toHaveText('1');
 
     // Add a comment via UI
-    const lineBlock = section.locator('.line-block').nth(2);
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').nth(2).click();
+    await doc.locator('.line-block').nth(2).hover();
+    await doc.locator('.line-comment-gutter').nth(2).click();
     await page.locator('.comment-form textarea').fill('Second via UI');
     await page.locator('.comment-form .btn-primary').click();
-
     await expect(filterCount(page, 'all')).toHaveText('2');
     await expect(filterCount(page, 'open')).toHaveText('2');
-  });
 
-  // ----------------------------------------------------------
-  // 4. Collapsible file groups
-  // ----------------------------------------------------------
-  test('clicking file group header collapses and expands comments', async ({ page, request }) => {
-    const session = await (await request.get('/api/session')).json();
-    const mdPath = session.files.find((f: { path: string }) => f.path.endsWith('.md'))?.path;
-    const goPath = session.files.find((f: { path: string }) => f.path.endsWith('.go'))?.path;
-    expect(mdPath).toBeTruthy();
-    expect(goPath).toBeTruthy();
-
-    await addComment(request, mdPath!, 1, 'MD comment');
-    await addComment(request, goPath!, 1, 'Go comment');
-    await loadPage(page);
-    await openPanel(page);
-
-    // Both groups visible, 2 cards total
-    const fileGroups = page.locator('.comments-panel-file-group');
-    await expect(fileGroups).toHaveCount(2);
-    await expect(panelCards(page)).toHaveCount(2);
-
-    // Click first file group header to collapse
-    const firstGroupHeader = fileGroups.first().locator('.comments-panel-file-name');
-    await firstGroupHeader.click();
-    await expect(fileGroups.first()).toHaveClass(/collapsed/);
-
-    // Cards in collapsed group are hidden; other group still shows its card
-    const firstGroupCards = fileGroups.first().locator('.comment-card');
-    await expect(firstGroupCards.first()).toBeHidden();
-
-    // Click again to expand
-    await firstGroupHeader.click();
-    await expect(fileGroups.first()).not.toHaveClass(/collapsed/);
-    await expect(firstGroupCards.first()).toBeVisible();
-  });
-
-  test('file group header shows chevron and comment count', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Comment A');
-    await addComment(request, mdPath, 3, 'Comment B');
-
-    const session = await (await request.get('/api/session')).json();
-    const goPath = session.files.find((f: { path: string }) => f.path.endsWith('.go'))?.path;
-    expect(goPath).toBeTruthy();
-    await addComment(request, goPath!, 1, 'Go comment');
-
-    await loadPage(page);
-    await openPanel(page);
-
-    const fileGroups = page.locator('.comments-panel-file-group');
-    await expect(fileGroups).toHaveCount(2);
-
-    const mdHeader = fileGroups.filter({ hasText: mdPath }).locator('.comments-panel-file-name');
-    const goHeader = fileGroups.filter({ hasText: goPath! }).locator('.comments-panel-file-name');
-    await expect(mdHeader.locator('.comments-panel-file-chevron')).toBeVisible();
-    await expect(goHeader.locator('.comments-panel-file-chevron')).toBeVisible();
-    await expect(mdHeader.locator('.comments-panel-file-count')).toHaveText('2');
-    await expect(goHeader.locator('.comments-panel-file-count')).toHaveText('1');
-  });
-
-  // ----------------------------------------------------------
-  // 5. Expand all / Collapse all toggle
-  // ----------------------------------------------------------
-  test('Collapse all and Expand all toggle every panel card and label', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Comment to expand');
-    await loadPage(page);
-    await openPanel(page);
-
-    // Cards start expanded; button says "Collapse all"
-    await expect(expandAllBtn(page)).toHaveText('Collapse all');
-
-    // Click Collapse all
-    await expandAllBtn(page).click();
-    await expect(expandAllBtn(page)).toHaveText('Expand all');
-
-    // Cards should have collapsed class
-    const cards = panelCards(page);
-    await expect(cards).toHaveCount(1);
-    await expect(cards.first()).toHaveClass(/collapsed/);
-
-    // Expand all again
-    await expandAllBtn(page).click();
-    await expect(expandAllBtn(page)).toHaveText('Collapse all');
-
-    // Cards should not have collapsed class
-    await expect(panelCards(page).first()).not.toHaveClass(/collapsed/);
-  });
-
-  // ----------------------------------------------------------
-  // 6. Expand all affects inline comments in the document body
-  // ----------------------------------------------------------
-  test('Collapse all and Expand all also toggle inline comment cards', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Inline test comment');
-    await loadPage(page);
-    const doc = await switchToDocumentView(page);
-    await openPanel(page);
-
-    // Ensure inline comment card exists and is visible
+    // Cards start expanded; the button says "Collapse all". It collapses (and
+    // re-expands) both the panel cards and the inline cards in the document.
     const inlineCard = doc.locator('.comment-card[data-comment-id]').first();
     await expect(inlineCard).toBeVisible();
-
-    // Cards start expanded; button says "Collapse all"
     await expect(expandAllBtn(page)).toHaveText('Collapse all');
     await expect(inlineCard).not.toHaveClass(/collapsed/);
 
-    // Collapse all — should affect both panel and inline cards
     await expandAllBtn(page).click();
     await expect(expandAllBtn(page)).toHaveText('Expand all');
+    await expect(panelCards(page)).toHaveCount(2);
+    await expect(panelCards(page).first()).toHaveClass(/collapsed/);
     await expect(inlineCard).toHaveClass(/collapsed/);
 
-    // Expand all — inline card should be expanded again
     await expandAllBtn(page).click();
     await expect(expandAllBtn(page)).toHaveText('Collapse all');
+    await expect(panelCards(page).first()).not.toHaveClass(/collapsed/);
     await expect(inlineCard).not.toHaveClass(/collapsed/);
   });
 });

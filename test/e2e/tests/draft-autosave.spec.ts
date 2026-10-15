@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, openDocLineComment } from './helpers';
+
+// Every test gets a fresh browser context, so localStorage starts empty.
 
 // Number of crit-draft-* entries in localStorage.
 function draftCount(page: Page): Promise<number> {
@@ -7,191 +9,88 @@ function draftCount(page: Page): Promise<number> {
 }
 
 test.describe('Draft Autosave', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    // Navigate once to clear any existing drafts from localStorage
-    await page.goto('/');
-    await page.evaluate(() => {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'));
-      keys.forEach(k => localStorage.removeItem(k));
-    });
   });
 
-  test('typing in comment form saves draft to localStorage', async ({ page }) => {
+  test('typing saves a draft that is restored on reload with a toast', async ({ page }) => {
     await loadPage(page);
-    await switchToDocumentView(page);
-    const section = await mdSection(page);
-
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Draft comment text');
-
-    // Poll for debounced save to localStorage
-    await expect(async () => {
-      const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
-      );
-      expect(keys.length).toBeGreaterThan(0);
-    }).toPass({ timeout: 3000 });
-
-    // Check localStorage
-    const draft = await page.evaluate(() => {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'));
-      if (keys.length === 0) return null;
-      return JSON.parse(localStorage.getItem(keys[0])!);
-    });
-
-    expect(draft).not.toBeNull();
-    expect(draft.body).toBe('Draft comment text');
-    expect(draft.startLine).toBeGreaterThan(0);
-    expect(draft.savedAt).toBeGreaterThan(0);
-  });
-
-  test('draft is restored on page reload with toast notification', async ({ page }) => {
-    await loadPage(page);
-    await switchToDocumentView(page);
-    const section = await mdSection(page);
-
-    // Open comment form and type
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
     await textarea.fill('Saved draft for reload');
 
-    // Poll for debounced save to localStorage
-    await expect(async () => {
-      const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
-      );
-      expect(keys.length).toBeGreaterThan(0);
-    }).toPass({ timeout: 3000 });
+    // The debounced save lands in localStorage.
+    await expect.poll(() => draftCount(page)).toBe(1);
+    const draft = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find(k => k.startsWith('crit-draft-'));
+      return key ? JSON.parse(localStorage.getItem(key)!) : null;
+    });
+    expect(draft).not.toBeNull();
+    expect(draft.body).toBe('Saved draft for reload');
+    expect(draft.startLine).toBeGreaterThan(0);
+    expect(draft.savedAt).toBeGreaterThan(0);
 
-    // Reload the page
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 
-    // The comment form should be open on plan.md with the draft text.
+    // The comment form is open on plan.md with the draft text.
     // CodeView only mounts files near the viewport, so bring plan.md in.
     const restoredSection = await mdSection(page);
     const restoredTextarea = restoredSection.locator('.comment-form textarea');
-    await expect(restoredTextarea).toBeVisible({ timeout: 3000 });
+    await expect(restoredTextarea).toBeVisible();
     await expect(restoredTextarea).toHaveValue('Saved draft for reload');
-
-    // Mini-toast should appear
-    const toast = page.locator('.mini-toast');
-    await expect(toast).toBeAttached();
+    await expect(page.locator('.mini-toast')).toBeAttached();
   });
 
-  test('submitting comment clears the draft', async ({ page }) => {
+  test('cancel, Escape and submit each clear the draft', async ({ page }) => {
     await loadPage(page);
-    await switchToDocumentView(page);
-    const section = await mdSection(page);
+    const doc = await switchToDocumentView(page);
 
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Will be submitted');
-
-    // Poll for draft to save
-    await expect(async () => {
-      const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
-      );
-      expect(keys.length).toBeGreaterThan(0);
-    }).toPass({ timeout: 3000 });
-
-    // Verify draft exists
-    await expect.poll(() => draftCount(page)).toBe(1);
-
-    // Submit the comment
-    await page.locator('.comment-form .btn-primary').click();
-    await expect(section.locator('.comment-card')).toBeVisible();
-
-    // Draft should be cleared
-    await expect.poll(() => draftCount(page)).toBe(0);
-  });
-
-  test('cancelling comment clears the draft', async ({ page }) => {
-    await loadPage(page);
-    await switchToDocumentView(page);
-    const section = await mdSection(page);
-
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
+    // Cancel
+    let textarea = await openDocLineComment(page, doc);
     await textarea.fill('Will be cancelled');
-    // Poll for debounced save to localStorage
-    await expect(async () => {
-      const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
-      );
-      expect(keys.length).toBeGreaterThan(0);
-    }).toPass({ timeout: 3000 });
-
-    // Cancel the form
-    await page.locator('.comment-form .btn-sm:not(.btn-primary)').filter({ hasText: 'Cancel' }).click();
-
-    // Draft should be cleared
+    await expect.poll(() => draftCount(page)).toBe(1);
+    await doc.locator('.comment-form .btn-sm:not(.btn-primary)').filter({ hasText: 'Cancel' }).click();
+    await expect(doc.locator('.comment-form')).toHaveCount(0);
     await expect.poll(() => draftCount(page)).toBe(0);
-  });
 
-  test('pressing Escape clears the draft', async ({ page }) => {
-    await loadPage(page);
-    await switchToDocumentView(page);
-    const section = await mdSection(page);
-
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
+    // Escape (a non-empty draft prompts for confirmation)
+    textarea = await openDocLineComment(page, doc);
     await textarea.fill('Will be escaped');
-    // Poll for debounced save to localStorage
-    await expect(async () => {
-      const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
-      );
-      expect(keys.length).toBeGreaterThan(0);
-    }).toPass({ timeout: 3000 });
-
-    // Press Escape (non-empty draft prompts for confirmation)
+    await expect.poll(() => draftCount(page)).toBe(1);
     page.once('dialog', (dialog) => void dialog.accept());
     await textarea.press('Escape');
+    await expect(doc.locator('.comment-form')).toHaveCount(0);
+    await expect.poll(() => draftCount(page)).toBe(0);
 
-    // Draft should be cleared
+    // Submit
+    textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Will be submitted');
+    await expect.poll(() => draftCount(page)).toBe(1);
+    await doc.locator('.comment-form .btn-primary').click();
+    await expect(doc.locator('.comment-card')).toBeVisible();
     await expect.poll(() => draftCount(page)).toBe(0);
   });
 
-  test('stale drafts (>24h) are discarded on load', async ({ page }) => {
-    // Seed a stale draft before the page loads via addInitScript
+  test('stale drafts (>24h) are discarded on load while fresh ones are restored', async ({ page }) => {
+    // Seed both before the page loads. The fresh draft is the proof that the
+    // restore pass ran: once its form is open, a stale one would be too.
     await page.addInitScript(() => {
-      localStorage.setItem('crit-draft-plan.md', JSON.stringify({
-        filePath: 'plan.md',
-        startLine: 1,
-        endLine: 1,
-        afterBlockIndex: 0,
-        editingId: null,
-        side: '',
-        body: 'Old stale draft',
-        savedAt: Date.now() - (25 * 60 * 60 * 1000) // 25 hours ago
+      // Different lines, so a wrongly restored stale draft adds a second form.
+      const base = { filePath: 'plan.md', editingId: null, side: '' };
+      localStorage.setItem('crit-draft-stale', JSON.stringify({
+        ...base, startLine: 3, endLine: 3, afterBlockIndex: 1, body: 'Old stale draft',
+        savedAt: Date.now() - (25 * 60 * 60 * 1000), // 25 hours ago
+      }));
+      localStorage.setItem('crit-draft-fresh', JSON.stringify({
+        ...base, startLine: 1, endLine: 1, afterBlockIndex: 0, body: 'Fresh draft', savedAt: Date.now(),
       }));
     });
 
     await loadPage(page);
-
-    // Comment form should NOT be open (stale draft discarded)
-    await expect(page.locator('.comment-form')).toHaveCount(0);
-
-    // Draft should be removed from localStorage
-    await expect.poll(() => draftCount(page)).toBe(0);
+    const section = await mdSection(page);
+    await expect(section.locator('.comment-form textarea')).toHaveValue('Fresh draft');
+    await expect(page.locator('.comment-form')).toHaveCount(1);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('crit-draft-stale'))).toBeNull();
   });
 });

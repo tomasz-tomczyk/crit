@@ -5,9 +5,8 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   clearAllComments, loadPage, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile,
-  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC,
+  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC, readFixtureState, roundComplete,
 } from './helpers';
-import { stateFilePath } from './state-file';
 
 // Story mode fixtures live on top of the shared git-mode fixture repo (server.go,
 // routes.go, plan.md, handler.js, legacy.go, utils.go — see setup-fixtures.sh).
@@ -20,18 +19,6 @@ import { stateFilePath } from './state-file';
 // server story-less (via DELETE /api/story) so other spec files in this project
 // aren't affected — tests within a project share one server process.
 
-function readFixtureState(): { critBin: string; fixtureDir: string; fakeHome: string } {
-  const raw = fs.readFileSync(stateFilePath(process.env.CRIT_TEST_PORT || '3123'), 'utf8');
-  const env: Record<string, string> = {};
-  for (const line of raw.trim().split('\n')) {
-    const eq = line.indexOf('=');
-    if (eq >= 0) env[line.slice(0, eq)] = line.slice(eq + 1);
-  }
-  if (!env['CRIT_BIN'] || !env['CRIT_FIXTURE_DIR'] || !env['FAKE_HOME']) {
-    throw new Error('CRIT_BIN, CRIT_FIXTURE_DIR, or FAKE_HOME not set in state file');
-  }
-  return { critBin: env['CRIT_BIN'], fixtureDir: env['CRIT_FIXTURE_DIR'], fakeHome: env['FAKE_HOME'] };
-}
 
 // The shared git-mode fixture repo (setup-fixtures.sh) has 11 hunks across 8
 // changed files. These old_start values were confirmed empirically against a
@@ -179,7 +166,12 @@ async function dragStoryLineRange(page: Page, group: Locator, from: number, to: 
   return form;
 }
 
-async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string, opts: { refresh?: boolean; story?: Record<string, unknown> } = {}) {
+// Ingest through the CLI (`crit story --story-file`), which validates the
+// story and POSTs it to the running daemon. Only the CLI-path test uses this;
+// everything else posts straight to /api/story (postStory), which is the same
+// request the CLI makes (cmd/crit/cli_handlers_story.go postStoryToDaemon)
+// without spawning a process per test.
+async function ingestStoryCLI(critBin: string, fixtureDir: string, fakeHome: string, opts: { refresh?: boolean; story?: Record<string, unknown> } = {}) {
   const storyFile = writeStoryFixtureFile(opts.story || STORY);
   // --refresh forces a re-ingest (and a story-updated SSE to a running daemon)
   // even when a story is already present, where a bare `crit story` would
@@ -192,6 +184,11 @@ async function ingestStory(critBin: string, fixtureDir: string, fakeHome: string
   }
 }
 
+async function postStory(request: APIRequestContext, story: Record<string, unknown> = STORY) {
+  const resp = await request.post('/api/story', { data: { story } });
+  await expect(resp).toBeOK();
+}
+
 async function clearStory(request: APIRequestContext) {
   await request.delete('/api/story');
 }
@@ -202,7 +199,13 @@ test.describe('Story mode', () => {
   let fakeHome: string;
 
   test.beforeAll(() => {
-    ({ critBin, fixtureDir, fakeHome } = readFixtureState());
+    const state = readFixtureState();
+    critBin = state.CRIT_BIN;
+    fixtureDir = state.CRIT_FIXTURE_DIR;
+    fakeHome = state.FAKE_HOME;
+    if (!critBin || !fixtureDir || !fakeHome) {
+      throw new Error('CRIT_BIN, CRIT_FIXTURE_DIR, or FAKE_HOME not set in state file');
+    }
   });
 
   test.beforeEach(async ({ request }) => {
@@ -215,8 +218,8 @@ test.describe('Story mode', () => {
     await clearStory(request);
   });
 
-  test('selected words stay underlined in Slack Dark while commenting in a story', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome, { story: MERGED_HUNK_STORY });
+  test('selected words stay underlined in Slack Dark while commenting in a story', async ({ page, request }) => {
+    await postStory(request, MERGED_HUNK_STORY);
     await loadPage(page);
     await page.locator('#settingsToggle').click();
     await page.locator('[data-settings-theme="dark"]').click();
@@ -242,15 +245,15 @@ test.describe('Story mode', () => {
     await expectPaintedQuote(page);
   });
 
-  test('a review with no story renders the flat layout', async ({ page }) => {
+  test('a review with no story renders the flat layout', async ({ page, request }) => {
     await loadPage(page);
     await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
     await expect(page.locator('#storyRoot')).toBeHidden();
     await expect(await goSection(page)).toBeVisible();
   });
 
-  test('ingesting a story activates the overview with prologue and chapter TOC', async ({ page, request }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('ingesting a story activates the overview with prologue and chapter TOC, and a support page with reasons', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
@@ -267,14 +270,43 @@ test.describe('Story mode', () => {
     await expect(tocItem(page, 'ch2')).toContainText('Dashboard logging + docs');
     await expect(tocItem(page, 'support')).toBeVisible();
 
-    await clearStory(request);
+    // The support page renders each group with its reason.
+    await tocItem(page, 'support').scrollIntoViewIfNeeded();
+    await tocItem(page, 'support').click();
+
+    await expect(page).toHaveURL(/#story\/support$/);
+    const supportView = storyView(page, 'support');
+    await expect(supportView).toBeVisible();
+    await expect(supportView.locator('.crit-story-file-group[data-story-file="handler.js"]')).toContainText(
+      'New file / auth middleware plumbing — mechanical additions, not part of the routing story.'
+    );
   });
 
-  test('header sidebar toggle collapses the chapter rail (same control as file tree)', async ({ page, request }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('chapter rail: header toggle collapses it, it fills the viewport, and it resizes with the shared handle', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
 
+    // The rail fills the viewport and uses the shared resize handle.
+    const rail = page.locator('#storyRail');
+    const resizer = page.locator('#storyRailResizer');
+    await expect(rail).toBeVisible();
+    await expect(resizer).toBeVisible();
+
+    const railBox = await rail.boundingBox();
+    const viewport = page.viewportSize();
+    if (!railBox || !viewport) throw new Error('expected visible story rail and viewport');
+    expect(Math.abs((railBox.y + railBox.height) - viewport.height)).toBeLessThanOrEqual(2);
+
+    const widthBefore = railBox.width;
+    await resizer.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => {
+      const box = await rail.boundingBox();
+      return box ? Math.round(box.width) : 0;
+    }).toBe(Math.round(widthBefore + 16));
+
+    // The header sidebar toggle collapses the rail (same control as the file tree).
     const toggle = page.locator('#fileTreeToggle');
     await expect(toggle).toBeVisible();
     await expect(page.locator('#storyRailToggle')).toHaveCount(0);
@@ -289,12 +321,10 @@ test.describe('Story mode', () => {
     await expect(page.locator('body')).not.toHaveClass(/crit-story-rail-collapsed/);
     await expect(storyRail(page)).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-
-    await clearStory(request);
   });
 
-  test('navigating into a chapter shows only that chapter\'s file groups', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('navigating into a chapter shows only that chapter\'s file groups', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
@@ -322,8 +352,8 @@ test.describe('Story mode', () => {
     await expect(railRow(page, 'ch1')).toHaveClass(/active/);
   });
 
-  test('file-level comments in a chapter show above the diff, left-aligned, twice in a row', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('file-level comments in a chapter show above the diff, left-aligned, twice in a row', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
     await tocItem(page, 'ch1').click();
@@ -335,9 +365,9 @@ test.describe('Story mode', () => {
     await submitFileLevelComment(page, { ...opts, body: 'Second story file comment' });
   });
 
-  test('line comment forms in a unified chapter diff stay at reading width', async ({ page }) => {
+  test('line comment forms in a unified chapter diff stay at reading width', async ({ page, request }) => {
     await page.setViewportSize({ width: 1800, height: 900 });
-    await ingestStory(critBin, fixtureDir, fakeHome);
+    await postStory(request);
     await loadPage(page);
     await page.locator('#diffModeToggle .toggle-btn[data-mode="unified"]').click();
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
@@ -351,7 +381,7 @@ test.describe('Story mode', () => {
   });
 
   test('adding a comment on a diff line inside a chapter surfaces it in the comments panel and nav returns to the owning chapter', async ({ page, request }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+    await postStory(request);
 
     // ch2 owns routes.go's old_start=48 hunk (new-side lines 52-58) — comment
     // on a line in that range so the comment is scoped to ch2, not ch1.
@@ -379,8 +409,8 @@ test.describe('Story mode', () => {
     await expect(ch2Card).toContainText('Story E2E: dashboard logging comment');
   });
 
-  test('viewed state on a file group persists across reload and updates rail/TOC progress', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('viewed state on a file group persists across reload and updates rail/TOC progress', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
@@ -406,8 +436,8 @@ test.describe('Story mode', () => {
     await expect(storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]')).toHaveClass(/viewed/);
   });
 
-  test('marking every file in a chapter viewed updates the chapter mark button in place', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('marking every file in a chapter viewed updates the chapter mark button in place', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
@@ -433,8 +463,8 @@ test.describe('Story mode', () => {
     await expect(group).not.toHaveClass(/viewed/);
   });
 
-  test('chapter file headers reuse collapse and selected-text comment affordances', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('chapter file headers reuse collapse and selected-text comment affordances', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
@@ -472,8 +502,8 @@ test.describe('Story mode', () => {
     await expect(group).not.toHaveAttribute('open', '');
   });
 
-  test('chapter diff gap expand controls reveal more context', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('chapter diff gap expand controls reveal more context', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch1').click();
@@ -500,7 +530,7 @@ test.describe('Story mode', () => {
   });
 
   test('story chapter refs render the full small-gap hunk cluster', async ({ page, request }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome, { story: MERGED_HUNK_STORY });
+    await postStory(request, MERGED_HUNK_STORY);
     const comment = await addComment(request, 'server.go', 68, 'Story E2E: merged cluster support comment');
     await loadPage(page);
 
@@ -526,42 +556,20 @@ test.describe('Story mode', () => {
     await expect(storyView(page, 'support').locator(`.comment-card[data-comment-id="${comment.id}"]`)).toBeVisible();
   });
 
-  test('story chapter rail fills the viewport and uses the shared resize handle', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
-    await loadPage(page);
-
-    const rail = page.locator('#storyRail');
-    const resizer = page.locator('#storyRailResizer');
-    await expect(rail).toBeVisible();
-    await expect(resizer).toBeVisible();
-
-    const railBox = await rail.boundingBox();
-    const viewport = page.viewportSize();
-    if (!railBox || !viewport) throw new Error('expected visible story rail and viewport');
-    expect(Math.abs((railBox.y + railBox.height) - viewport.height)).toBeLessThanOrEqual(2);
-
-    const widthBefore = railBox.width;
-    await resizer.focus();
-    await page.keyboard.press('ArrowRight');
-    await expect.poll(async () => {
-      const box = await rail.boundingBox();
-      return box ? Math.round(box.width) : 0;
-    }).toBe(Math.round(widthBefore + 16));
-  });
-
-  test('chapter navigation resets scroll to the top of the story page', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('chapter navigation resets scroll to the top of the story page', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch2').scrollIntoViewIfNeeded();
     await tocItem(page, 'ch2').click();
     await expect(storyView(page, 'ch2')).toBeVisible();
 
-    await page.evaluate(() => {
-      window.scrollTo(0, 500);
+    // Scroll the chapter down first, or the reset below would pass trivially.
+    await expect.poll(() => page.evaluate(() => {
       const pane = document.getElementById('storyPane');
       if (pane) pane.scrollTop = 500;
-    });
+      return pane ? pane.scrollTop : 0;
+    })).toBeGreaterThan(0);
     await railRow(page, 'ch1').click();
     await expect(storyView(page, 'ch1')).toBeVisible();
     await expect(storyView(page, 'ch1').locator('.crit-story-next.prev')).toContainText('Prologue');
@@ -582,23 +590,8 @@ test.describe('Story mode', () => {
     await expect(storyOverview(page)).toBeVisible();
   });
 
-  test('support page renders with reasons', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
-    await loadPage(page);
-
-    await tocItem(page, 'support').scrollIntoViewIfNeeded();
-    await tocItem(page, 'support').click();
-
-    await expect(page).toHaveURL(/#story\/support$/);
-    const supportView = storyView(page, 'support');
-    await expect(supportView).toBeVisible();
-    await expect(supportView.locator('.crit-story-file-group[data-story-file="handler.js"]')).toContainText(
-      'New file / auth middleware plumbing — mechanical additions, not part of the routing story.'
-    );
-  });
-
-  test('Story/Diff toggle is non-destructive: diff layout + story restore without re-ingest', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('Story/Diff toggle is non-destructive: diff layout + story restore without re-ingest', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
     await expect(page.locator('body')).toHaveClass(/crit-story-active/);
 
@@ -653,13 +646,13 @@ test.describe('Story mode', () => {
         .replace('import "net/http"', 'import   "net/http"')
         .replace('func handleAnalytics(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(http.StatusOK)',
           'func handleAnalytics(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(http.StatusAccepted)'));
-      await request.post('/api/round-complete');
+      await roundComplete(request);
       const raw = await (await request.get('/api/file/diff?path=routes.go')).json();
       expect(raw.hunks).toHaveLength(2);
       const filtered = await (await request.get('/api/file/diff?path=routes.go&w=1')).json();
       expect(filtered.hunks).toHaveLength(1);
 
-      await ingestStory(critBin, fixtureDir, fakeHome, { story: {
+      await postStory(request, {
         ...STORY,
         chapters: [{
           id: 'ch1',
@@ -674,7 +667,7 @@ test.describe('Story mode', () => {
           ],
           reason: 'Whitespace-only import change and supporting documentation.',
         }],
-      } });
+      });
       await page.context().addCookies([{
         name: 'crit-settings',
         value: encodeURIComponent(JSON.stringify({ ignoreWhitespace: true })),
@@ -711,12 +704,12 @@ test.describe('Story mode', () => {
     } finally {
       fs.writeFileSync(routesPath, original);
       await clearStory(request);
-      await request.post('/api/round-complete');
+      await roundComplete(request);
     }
   });
 
-  test('Story/Diff toggle survives switching diff scope while in Diff view', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('Story/Diff toggle survives switching diff scope while in Diff view', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
     await expect(page.locator('#storyViewToggle')).toBeVisible();
 
@@ -741,8 +734,8 @@ test.describe('Story mode', () => {
     await expect(group).not.toContainText('File not loaded.');
   });
 
-  test('Story/Diff toggle survives initial load from a persisted scoped diff view', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('Story/Diff toggle survives initial load from a persisted scoped diff view', async ({ page, request }) => {
+    await postStory(request);
     await page.context().addCookies([{
       name: 'crit-settings',
       value: encodeURIComponent(JSON.stringify({ diffScope: 'unstaged' })),
@@ -781,8 +774,8 @@ test.describe('Story mode', () => {
     await expect(group).not.toContainText('File not loaded.');
   });
 
-  test('#story hash un-hides a hidden story', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('#story hash un-hides a hidden story', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
     await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
@@ -795,7 +788,7 @@ test.describe('Story mode', () => {
   });
 
   test('DELETE /api/story fully removes the story: no re-entry affordance remains', async ({ page, request }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+    await postStory(request);
     await loadPage(page);
     await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
@@ -811,8 +804,8 @@ test.describe('Story mode', () => {
     await expect(await goSection(page)).toBeVisible();
   });
 
-  test('a fresh story via SSE brings the story back live and un-hides after Hide', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('a fresh story via SSE brings the story back live and un-hides after Hide', async ({ page, request }) => {
+    await ingestStoryCLI(critBin, fixtureDir, fakeHome);
     await loadPage(page);
     await page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]').click();
     await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
@@ -820,14 +813,14 @@ test.describe('Story mode', () => {
     // Re-ingest (with --refresh, since a story is present) while the page stays
     // open — the story-updated SSE must resurface the story view, clearing the
     // hidden state without a reload.
-    await ingestStory(critBin, fixtureDir, fakeHome, { refresh: true });
+    await ingestStoryCLI(critBin, fixtureDir, fakeHome, { refresh: true });
     await expect(page.locator('body')).toHaveClass(/crit-story-active/, { timeout: 5000 });
     await expect(page.locator('body')).not.toHaveClass(/crit-story-hidden/);
     await expect(storyOverview(page)).toBeVisible();
   });
 
-  test('comments-changed SSE re-renders the story pane live while a chapter is open', async ({ page }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+  test('comments-changed SSE re-renders the story pane live while a chapter is open', async ({ page, request }) => {
+    await postStory(request);
     await loadPage(page);
 
     await tocItem(page, 'ch2').scrollIntoViewIfNeeded();
@@ -847,7 +840,7 @@ test.describe('Story mode', () => {
   });
 
   test('clicking a comment on a line outside any story hunk is a graceful no-op', async ({ page, request }) => {
-    await ingestStory(critBin, fixtureDir, fakeHome);
+    await postStory(request);
     // Auto-repair guarantees every indexed hunk lands somewhere (chapter or
     // synthesized support), so no *changed* file is left fully uncovered by
     // the story. deleted.txt is the one file in the fixture with zero diff

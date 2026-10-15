@@ -1,92 +1,45 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './helpers';
+import { addComment, clearAllComments, getMdPath, loadPage, switchToDocumentView } from './helpers';
 
 test.describe('Suggestion diff rendering', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
   });
 
-  test('renders suggestion block as inline diff', async ({ page, request }) => {
+  test('suggestion blocks render as inline diffs; regular code blocks do not', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    // Each comment on line 1 suggests a replacement for "# Authentication Plan".
+    await addComment(request, mdPath, 1, 'Here is my suggestion:\n\n```suggestion\nreplacement line\n```\n\nPlease consider this change.');
+    await addComment(request, mdPath, 1, '```suggestion\nnew content here\n```');
+    await addComment(request, mdPath, 1, '```suggestion\n```');
+    await addComment(request, mdPath, 1, '```javascript\nconsole.log("hello")\n```');
     await loadPage(page);
-    const section = await mdSection(page);
-    await switchToDocumentView(page);
+    const section = await switchToDocumentView(page);
+    const card = (text: string) => section.locator('.comment-card').filter({ hasText: text });
 
-    // Add a comment with a suggestion block on a known line range
-    await section.locator('.line-block').first().hover();
-    await section.locator('.line-comment-gutter').first().click();
+    // Replacement: a "Suggested change" with the original line removed and
+    // the suggestion added.
+    const replacement = card('Please consider this change.').locator('.suggestion-diff');
+    await expect(replacement).toBeVisible();
+    await expect(replacement.locator('.suggestion-header')).toHaveText('Suggested change');
+    await expect(replacement.locator('.suggestion-line-del')).toHaveCount(1);
+    await expect(replacement.locator('.suggestion-line-add')).toHaveCount(1);
+    await expect(replacement.locator('.suggestion-line-add .suggestion-line-content')).toHaveText('replacement line');
 
-    const textarea = section.locator('.comment-form textarea');
-    await textarea.fill('Here is my suggestion:\n\n```suggestion\nreplacement line\n```\n\nPlease consider this change.');
-    await section.locator('.btn-primary').click();
+    // A suggestion-only body still renders its addition.
+    await expect(card('new content here').locator('.suggestion-diff .suggestion-line-add')).toHaveCount(1);
 
-    // Verify the suggestion diff is rendered
-    const suggestionDiff = section.locator('.suggestion-diff');
-    await expect(suggestionDiff).toBeVisible();
+    // An empty suggestion is a deletion only.
+    const empty = section.locator('.comment-card').filter({ has: page.locator('.suggestion-diff') })
+      .filter({ hasNotText: 'replacement line' }).filter({ hasNotText: 'new content here' });
+    await expect(empty).toHaveCount(1);
+    await expect(empty.locator('.suggestion-line-del')).toHaveCount(1);
+    await expect(empty.locator('.suggestion-line-add')).toHaveCount(0);
 
-    // Should have a "Suggested change" header
-    await expect(suggestionDiff.locator('.suggestion-header')).toHaveText('Suggested change');
-
-    // Should have at least one deletion line (original) and one addition line (suggestion)
-    await expect(suggestionDiff.locator('.suggestion-line-del')).toHaveCount(1);
-    await expect(suggestionDiff.locator('.suggestion-line-add')).toHaveCount(1);
-
-    // The addition line should contain our replacement text
-    await expect(suggestionDiff.locator('.suggestion-line-add .suggestion-line-content')).toHaveText('replacement line');
-  });
-
-  test('renders suggestion without original lines as addition-only', async ({ page, request }) => {
-    await loadPage(page);
-    const section = await mdSection(page);
-    await switchToDocumentView(page);
-
-    await section.locator('.line-block').first().hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = section.locator('.comment-form textarea');
-    await textarea.fill('```suggestion\nnew content here\n```');
-    await section.locator('.btn-primary').click();
-
-    const suggestionDiff = section.locator('.suggestion-diff');
-    await expect(suggestionDiff).toBeVisible();
-    await expect(suggestionDiff.locator('.suggestion-line-add')).toHaveCount(1);
-  });
-
-  test('regular code blocks still render normally', async ({ page, request }) => {
-    await loadPage(page);
-    const section = await mdSection(page);
-    await switchToDocumentView(page);
-
-    await section.locator('.line-block').first().hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = section.locator('.comment-form textarea');
-    await textarea.fill('```javascript\nconsole.log("hello")\n```');
-    await section.locator('.btn-primary').click();
-
-    // Should NOT render as suggestion diff
-    await expect(section.locator('.suggestion-diff')).toHaveCount(0);
-
-    // Should render as a normal code block
-    const codeBlock = section.locator('.comment-body pre code');
-    await expect(codeBlock).toBeVisible();
-  });
-
-  test('empty suggestion renders as deletion-only', async ({ page, request }) => {
-    await loadPage(page);
-    const section = await mdSection(page);
-    await switchToDocumentView(page);
-
-    await section.locator('.line-block').first().hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = section.locator('.comment-form textarea');
-    await textarea.fill('```suggestion\n```');
-    await section.locator('.btn-primary').click();
-
-    // Should render as suggestion diff with deletion line(s) but no addition lines
-    const suggestionDiff = section.locator('.suggestion-diff');
-    await expect(suggestionDiff).toBeVisible();
-    await expect(suggestionDiff.locator('.suggestion-line-del')).toHaveCount(1);
-    await expect(suggestionDiff.locator('.suggestion-line-add')).toHaveCount(0);
+    // A regular code block renders as code, not as a suggestion.
+    const code = card('console.log');
+    await expect(code.locator('.suggestion-diff')).toHaveCount(0);
+    await expect(code.locator('.comment-body pre code')).toBeVisible();
+    await expect(section.locator('.suggestion-diff')).toHaveCount(3);
   });
 });

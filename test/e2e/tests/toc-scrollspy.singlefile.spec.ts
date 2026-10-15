@@ -1,104 +1,63 @@
-import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { loadPage, reviewScroller } from './helpers';
+
+function tocLink(page: Page, text: string) {
+  return page.locator('.toc-list a', { hasText: text });
+}
+
+// The document block a TOC link points at.
+async function blockFor(page: Page, text: string) {
+  const startLine = await tocLink(page, text).getAttribute('data-start-line');
+  expect(startLine, `${text} link has a start line`).toBeTruthy();
+  return page.locator(`.line-block[data-start-line="${startLine}"]`);
+}
+
+// Scroll the review pane so the heading's block sits at its top edge.
+async function scrollHeadingToTop(page: Page, text: string) {
+  const block = await blockFor(page, text);
+  await block.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+}
 
 test.describe('TOC Scrollspy — Single File Mode', () => {
-  test.beforeEach(async ({ page }) => {
+  test('active TOC link follows the scroll position, one at a time, and TOC clicks update it', async ({ page }) => {
     await loadPage(page);
-    // Open the TOC panel
     await page.locator('#tocToggle').click();
     await expect(page.locator('#toc')).not.toHaveClass(/toc-hidden/);
-  });
+    const active = page.locator('.toc-list a.toc-active');
 
-  test('scrolling down past a heading highlights the correct TOC link', async ({ page }) => {
-    const tocLinks = page.locator('.toc-list a');
-    await expect(tocLinks.first()).toBeVisible();
+    // At the top of the page no heading has been scrolled past.
+    await expect(active).toHaveCount(0);
 
-    // Scroll to the "Open Questions" heading
-    const questionsLink = tocLinks.filter({ hasText: 'Open Questions' });
-    const startLine = await questionsLink.getAttribute('data-start-line');
-    const targetBlock = page.locator(`.line-block[data-start-line="${startLine}"]`);
-    await targetBlock.scrollIntoViewIfNeeded();
-
-    // The "Open Questions" link (or the one before it) should become active
-    await expect(async () => {
-      const activeLinks = await page.locator('.toc-list a.toc-active').all();
-      expect(activeLinks.length).toBe(1);
-    }).toPass({ timeout: 3000 });
-  });
-
-  test('scrolling back up moves active highlight to previous heading', async ({ page }) => {
-    const tocLinks = page.locator('.toc-list a');
-
-    // First scroll down to "Timeline" heading
-    const timelineLink = tocLinks.filter({ hasText: 'Timeline' });
-    const timelineLine = await timelineLink.getAttribute('data-start-line');
-    const timelineBlock = page.locator(`.line-block[data-start-line="${timelineLine}"]`);
-    await timelineBlock.scrollIntoViewIfNeeded();
-
-    // Wait for scrollspy to settle
-    await expect(page.locator('.toc-list a.toc-active')).toHaveCount(1);
-
-    // Now scroll back up to "Overview"
-    const overviewLink = tocLinks.filter({ hasText: 'Overview' });
-    const overviewLine = await overviewLink.getAttribute('data-start-line');
-    const overviewBlock = page.locator(`.line-block[data-start-line="${overviewLine}"]`);
-    await overviewBlock.scrollIntoViewIfNeeded();
-
-    // The active link should now be "Overview" or earlier, not "Timeline"
-    await expect(async () => {
-      const isTimelineActive = await timelineLink.evaluate(el => el.classList.contains('toc-active'));
-      expect(isTimelineActive).toBe(false);
-    }).toPass({ timeout: 3000 });
-  });
-
-  test('only one TOC link is active at a time', async ({ page }) => {
-    const tocLinks = page.locator('.toc-list a');
-
-    // Scroll through several headings and check count at each
-    const headings = ['Overview', 'Design Decisions', 'Implementation Steps', 'Open Questions', 'Timeline'];
-
-    for (const heading of headings) {
-      const link = tocLinks.filter({ hasText: heading });
-      const startLine = await link.getAttribute('data-start-line');
-      const block = page.locator(`.line-block[data-start-line="${startLine}"]`);
-      await block.scrollIntoViewIfNeeded();
-
-      // Should never have more than one active link
-      await expect(async () => {
-        const activeCount = await page.locator('.toc-list a.toc-active').count();
-        expect(activeCount).toBeLessThanOrEqual(1);
-      }).toPass({ timeout: 3000 });
+    // Scrolling down past each heading makes exactly that link active. (Later
+    // headings sit too close to the end of the document to reach the top.)
+    for (const heading of ['Overview', 'Design Decisions', 'Implementation Steps']) {
+      await scrollHeadingToTop(page, heading);
+      await expect(tocLink(page, heading), heading).toHaveClass(/toc-active/);
+      await expect(active).toHaveCount(1);
     }
-  });
 
-  test('at the top of the page, no TOC link is active', async ({ page }) => {
-    // Scroll to very top
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // At the bottom one link stays active, and it is past Implementation Steps.
+    await reviewScroller(page).evaluate(el => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }));
+    await expect(active).toHaveCount(1);
+    await expect(active).not.toHaveText(/Overview|Design Decisions|Implementation Steps/);
 
-    // Wait a tick for the scroll handler to fire
-    await expect(async () => {
-      const activeCount = await page.locator('.toc-list a.toc-active').count();
-      expect(activeCount).toBe(0);
-    }).toPass({ timeout: 3000 });
-  });
+    // Scrolling back up moves the highlight back to the earlier heading.
+    await scrollHeadingToTop(page, 'Overview');
+    await expect(tocLink(page, 'Overview')).toHaveClass(/toc-active/);
+    await expect(tocLink(page, 'Timeline')).not.toHaveClass(/toc-active/);
+    await expect(active).toHaveCount(1);
 
-  test('clicking a TOC link scrolls to the heading and updates active state', async ({ page }) => {
-    const tocLinks = page.locator('.toc-list a');
+    // Back at the very top of the review pane nothing is active again.
+    await reviewScroller(page).evaluate(el => el.scrollTo({ top: 0, behavior: 'instant' }));
+    await expect(active).toHaveCount(0);
 
-    // Click "Implementation Steps" — a mid-page heading with enough content below
-    // to scroll it past the header threshold (avoid last heading which may not scroll far enough)
-    const targetLink = tocLinks.filter({ hasText: 'Implementation Steps' });
-    await targetLink.click();
-
-    // The heading should be scrolled into view
-    const startLine = await targetLink.getAttribute('data-start-line');
-    const targetBlock = page.locator(`.line-block[data-start-line="${startLine}"]`);
-    await expect(targetBlock).toBeInViewport({ timeout: 3000 });
-
-    // The clicked link should become active
-    await expect(targetLink).toHaveClass(/toc-active/, { timeout: 3000 });
-
-    // Only one link should be active
-    await expect(page.locator('.toc-list a.toc-active')).toHaveCount(1);
+    // Clicking a mid-page link scrolls to its heading and makes it the only
+    // active link (the last heading may not scroll far enough to activate).
+    const target = tocLink(page, 'Implementation Steps');
+    const block = await blockFor(page, 'Implementation Steps');
+    await target.click();
+    await expect(block).toBeInViewport();
+    await expect(target).toHaveClass(/toc-active/);
+    await expect(active).toHaveCount(1);
   });
 });

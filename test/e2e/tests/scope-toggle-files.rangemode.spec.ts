@@ -8,8 +8,8 @@ import { ensureRangeFocus, ensureStackedFocus, rangeFixture } from './range-help
 // boots with --range A..B so layer = {b.txt}. Synthesizing is_stacked=true +
 // default_sha=main means full-stack = main..B = {a.txt, b.txt}.
 //
-// scope-toggle.rangemode.spec.ts already covers visibility + the
-// default_sha gate. This spec covers what changes when the scope flips.
+// scope-toggle.rangemode.spec.ts covers the disabled full-stack option without
+// default_sha. This spec covers what changes when the scope flips.
 
 test.beforeEach(async ({ request }) => {
   await clearAllComments(request);
@@ -109,33 +109,4 @@ test('comment authored in layer scope is hidden in full-stack and reappears on f
   comments = await res.json();
   expect(comments.length).toBe(1);
   expect(comments[0].body).toBe('layer-only on b.txt');
-});
-
-test('picker stack entries carry default_sha so full-stack flip works server-side', async ({ request }) => {
-  // /api/picker stamps default_sha on every stack entry (resolved once per
-  // call). This is the field the frontend forwards into the Focus payload
-  // when the user clicks an entry — without it, /api/focus { diff_scope:
-  // full_stack } returns 400 for a picker-selected focus.
-  const picker = await (await request.get('/api/picker')).json();
-  const stack = picker.stack as Array<{ label: string; head_sha: string; default_sha?: string }>;
-  expect(stack.length).toBeGreaterThan(0);
-  for (const entry of stack) {
-    expect(entry.default_sha, `entry ${entry.label} missing default_sha`).toBeTruthy();
-  }
-  // And specifically: posting a Focus built from a picker entry + default_sha
-  // succeeds when flipped to full_stack.
-  const featB = stack.find((e) => e.label === 'feat-b');
-  expect(featB).toBeTruthy();
-  if (!featB || !featB.default_sha) return;
-  const post = await request.post('/api/focus', {
-    data: {
-      kind: 'range',
-      base_sha: rangeFixture().base,
-      head_sha: featB.head_sha,
-      default_sha: featB.default_sha,
-      diff_scope: 'full_stack',
-      is_stacked: true,
-    },
-  });
-  expect(post.ok()).toBeTruthy();
 });

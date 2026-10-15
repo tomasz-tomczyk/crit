@@ -14,12 +14,9 @@ test.beforeEach(async ({ request }) => {
   await request.post('/api/focus', { data: { kind: 'working_tree' } });
 });
 
-test('stack chip is hidden in working-tree focus', async ({ page }) => {
+test('stack chip and its ✕ exit are hidden in working-tree focus', async ({ page }) => {
   await loadPage(page);
+  await expect(page.locator('.tree-file').first()).toBeVisible();
   await expect(page.locator('#stackChip')).toBeHidden();
-});
-
-test('stack chip exit ✕ is hidden in working-tree focus', async ({ page }) => {
-  await loadPage(page);
   await expect(page.locator('#stackChipExit')).toBeHidden();
 });

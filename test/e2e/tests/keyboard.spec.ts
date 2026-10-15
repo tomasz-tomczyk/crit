@@ -1,7 +1,8 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import {
   clearAllComments, loadPage, goSection, clearFocus, switchToDocumentView,
-  openLineComment, treePaths, pressUntil, reviewScroller,
+  openLineComment, treePaths, pressUntil, reviewScroller, addComment,
+  recordClassAdditions, expectClassAddedTo, classAdditions,
 } from './helpers';
 
 // Keyboard focus is model-driven in git mode. On a diff it shows as the one
@@ -70,32 +71,43 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
     await clearFocus(page);
   });
 
-  test('j focuses the first line of the first file', async ({ page }) => {
-    const [first] = await treePaths(page);
+  test('j/k move line by line; k stays on the first line; Escape clears focus; k from nothing goes to the end', async ({ page, request }) => {
+    const paths = await treePaths(page);
+    const first = paths[0].replace('.', '\\.');
     await expect.poll(() => focusedDiff(page)).toEqual([]);
 
+    // j focuses the first line of the first file; j/k step one line.
     await page.keyboard.press('j');
-    await expect.poll(() => focusedDiff(page)).toEqual([expect.stringMatching(new RegExp(`^${first.replace('.', '\\.')}:1:`))]);
-  });
-
-  test('j navigates to next line, k navigates to previous', async ({ page }) => {
-    const [first] = await treePaths(page);
-    await step(page, 'j');
-    const second = await step(page, 'j');
-    expect(second).toMatch(new RegExp(`^${first.replace('.', '\\.')}:2:`));
+    await expect.poll(() => focusedDiff(page)).toEqual([expect.stringMatching(new RegExp(`^${first}:1:`))]);
+    expect(await step(page, 'j')).toMatch(new RegExp(`^${first}:2:`));
+    await expect.poll(() => focusedDiff(page)).toHaveLength(1);
+    const top = await step(page, 'k');
+    expect(top).toMatch(new RegExp(`^${first}:1:`));
     await expect.poll(() => focusedDiff(page)).toHaveLength(1);
 
-    const back = await step(page, 'k');
-    expect(back).toMatch(new RegExp(`^${first.replace('.', '\\.')}:1:`));
-    await expect.poll(() => focusedDiff(page)).toHaveLength(1);
-  });
+    // k on the first line stays there: the next j goes to line 2.
+    await page.keyboard.press('k');
+    expect(await step(page, 'j')).toMatch(new RegExp(`^${first}:2:`));
 
-  test('multiple j presses move forward sequentially', async ({ page }) => {
-    const [first] = await treePaths(page);
+    // Escape with no form open clears focus.
+    await page.keyboard.press('Escape');
+    await expect.poll(() => focusedDiff(page)).toEqual([]);
+
+    // k with no focus goes to the last line of the last file.
+    const last = paths[paths.length - 1];
+    const diff = await (await request.get(`/api/file/diff?path=${encodeURIComponent(last)}`)).json();
+    const hunks = diff.hunks as Array<{ Lines: Array<{ Type: string; NewNum: number }> }>;
+    const lastLine = hunks[hunks.length - 1].Lines.filter(l => l.Type !== 'del').pop()!;
+    await page.keyboard.press('k');
+    await expect.poll(() => focusedDiff(page)).toEqual([expect.stringMatching(new RegExp(`^${last.replace('.', '\\.')}:${lastLine.NewNum}:`))]);
+
+    // Multiple quick j presses from no focus move forward sequentially.
+    await page.keyboard.press('Escape');
+    await expect.poll(() => focusedDiff(page)).toEqual([]);
     await page.keyboard.press('j');
     await page.keyboard.press('j');
     await page.keyboard.press('j');
-    await expect.poll(() => focusedDiff(page)).toEqual([expect.stringMatching(new RegExp(`^${first.replace('.', '\\.')}:3:`))]);
+    await expect.poll(() => focusedDiff(page)).toEqual([expect.stringMatching(new RegExp(`^${first}:3:`))]);
   });
 
   test('j/k in split diff mode navigates rows, not individual sides', async ({ page }) => {
@@ -139,101 +151,42 @@ test.describe('Keyboard Navigation — Diff Split Mode', () => {
     }
   });
 
-  test('j/k resumes after canceling comment form with Escape', async ({ page }) => {
+  test('j/k resumes after canceling a comment form with Escape and after submitting one', async ({ page, request }) => {
     for (let i = 0; i < 17; i++) await step(page, 'j');
     await expect.poll(() => focusedDiff(page)).toHaveLength(1);
     const next = await focusKey(page);
     const target = await step(page, 'k');
-
-    await page.keyboard.press('c');
     const form = page.locator('#filesContainer .comment-form');
+
+    // Cancel with Escape: focus is still on the same line (not reset to top).
+    await page.keyboard.press('c');
     await expect(form.locator('textarea')).toBeFocused();
     await form.locator('textarea').press('Escape');
     await expect(form).toHaveCount(0);
-
-    // Focus is still on the same line after cancel (not reset to top).
     await expect.poll(() => focusKey(page)).toBe(target);
     expect(await step(page, 'j')).toBe(next);
-  });
+    expect(await step(page, 'k')).toBe(target);
 
-  test('j/k resumes after submitting a new comment', async ({ page, request }) => {
-    for (let i = 0; i < 17; i++) await step(page, 'j');
-    await expect.poll(() => focusedDiff(page)).toHaveLength(1);
-    const next = await focusKey(page);
-    const target = await step(page, 'k');
+    // Submit: the comment lands on the focused line, and focus stays there.
     const [path, line] = target.split(':');
-
     await page.keyboard.press('c');
-    const textarea = page.locator('#filesContainer .comment-form textarea');
+    const textarea = form.locator('textarea');
     await expect(textarea).toBeFocused();
     await textarea.fill('resume focus after submit');
-    await page.locator('#filesContainer .comment-form .btn-primary').click();
-    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
+    await form.locator('.btn-primary').click();
+    await expect(form).toHaveCount(0);
     await expect(page.locator('.comment-card').filter({ hasText: 'resume focus after submit' })).toBeVisible();
-
-    // The comment landed on the focused line.
-    const comments = await (await request.get(`/api/file/comments?path=${encodeURIComponent(path)}`)).json() as Array<{ body: string; end_line: number }>;
-    expect(comments.find(c => c.body === 'resume focus after submit')?.end_line).toBe(Number(line));
-
+    await expect.poll(async () => {
+      const comments = await (await request.get(`/api/file/comments?path=${encodeURIComponent(path)}`)).json() as Array<{ body: string; end_line: number }>;
+      return comments.find(c => c.body === 'resume focus after submit')?.end_line;
+    }).toBe(Number(line));
     await expect.poll(() => focusKey(page)).toBe(target);
     expect(await step(page, 'j')).toBe(next);
   });
-
-  test('k from first line stays at first line', async ({ page }) => {
-    const first = await step(page, 'j');
-    await page.keyboard.press('k');
-    // Wait for the k to be handled (a later j proves the key queue drained).
-    await page.keyboard.press('j');
-    await expect.poll(() => focusKey(page)).not.toBe(first);
-    expect(await step(page, 'k')).toBe(first);
-    await page.keyboard.press('k');
-    const second = await step(page, 'j');
-    expect(second).not.toBe(first);
-    await expect.poll(() => focusedDiff(page)).toHaveLength(1);
-  });
-
-  test('k with no focus goes to the last line of the last file', async ({ page, request }) => {
-    const paths = await treePaths(page);
-    const last = paths[paths.length - 1];
-    const diff = await (await request.get(`/api/file/diff?path=${encodeURIComponent(last)}`)).json();
-    const hunks = diff.hunks as Array<{ Lines: Array<{ Type: string; NewNum: number }> }>;
-    const lastLine = hunks[hunks.length - 1].Lines.filter(l => l.Type !== 'del').pop()!;
-
-    await page.keyboard.press('k');
-    await expect.poll(() => focusedDiff(page)).toEqual([expect.stringMatching(new RegExp(`^${last.replace('.', '\\.')}:${lastLine.NewNum}:`))]);
-  });
 });
 
 // ============================================================
-// j/k Navigation on Markdown Blocks (Document View)
-// ============================================================
-test.describe('Keyboard Navigation — Markdown Document View', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await switchToDocumentView(page);
-    await clearFocus(page);
-  });
-
-  test('j/k navigates markdown line-blocks', async ({ page }) => {
-    const first = await focusDocBlock(page, 1);
-    await expect(first).toHaveAttribute('data-block-index', '0');
-    // No diff line is focused while a document block is.
-    await expect.poll(() => focusedDiff(page)).toEqual([]);
-
-    await page.keyboard.press('j');
-    const second = page.locator('.line-block.kb-nav.focused');
-    await expect(second).toHaveCount(1);
-    await expect(second).toHaveAttribute('data-block-index', '1');
-
-    await page.keyboard.press('k');
-    await expect(page.locator('.line-block.kb-nav.focused')).toHaveAttribute('data-block-index', '0');
-    await expect(page.locator('.line-block.kb-nav.focused')).toHaveCount(1);
-  });
-});
-
-// ============================================================
-// Comment Shortcuts (c, e, d)
+// Comment shortcuts (c, e, d) and form Escape/Cancel — Diff
 // ============================================================
 test.describe('Keyboard Comment Shortcuts — Diff', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -242,269 +195,81 @@ test.describe('Keyboard Comment Shortcuts — Diff', () => {
     await clearFocus(page);
   });
 
-  test('c opens comment form on focused diff line', async ({ page }) => {
+  test('c opens a form; Escape and Cancel close it (confirming only a non-empty Escape); e edits and d deletes', async ({ page, request }) => {
     const [first] = await treePaths(page);
     const focused = await step(page, 'j');
     expect(focused.startsWith(`${first}:1:`)).toBe(true);
-
-    await page.keyboard.press('c');
-
     const form = page.locator('#filesContainer .comment-form');
+    const textarea = form.locator('textarea');
+    let dialogs = 0;
+    page.on('dialog', () => { dialogs++; });
+
+    // c opens a form on the focused line, in that line's file.
+    await page.keyboard.press('c');
     await expect(form).toBeVisible();
-    await expect(form.locator('textarea')).toBeFocused();
+    await expect(textarea).toBeFocused();
     await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 1');
     await expect(page.locator('diffs-container').filter({
       has: page.locator(`.pierre-file-header[data-file-path="${first}"]`),
     }).locator('.comment-form')).toHaveCount(1);
-  });
 
-  // Commenting through the gutter leaves keyboard focus on the commented
-  // line, so e / d act on that comment.
-  async function commentOnServerLine(page: Page, body: string) {
-    const item = await goSection(page);
-    const form = await openLineComment(page, item, 23);
-    await form.locator('textarea').fill(body);
-    await form.locator('.btn-primary').click();
-    const card = item.locator('.comment-card', { hasText: body });
-    await expect(card).toBeVisible();
-    return card;
-  }
-
-  test('e edits comment on focused diff line', async ({ page }) => {
-    await commentOnServerLine(page, 'Edit me via shortcut');
-
-    await page.keyboard.press('e');
-
-    const editTextarea = page.locator('#filesContainer .comment-form textarea');
-    await expect(editTextarea).toBeVisible();
-    await expect(editTextarea).toHaveValue('Edit me via shortcut');
-  });
-
-  test('d deletes comment on focused diff line', async ({ page, request }) => {
-    const card = await commentOnServerLine(page, 'Delete me via shortcut');
-
-    await page.keyboard.press('d');
-
-    await expect(card).toHaveCount(0);
-    await expect.poll(async () => (await (await request.get('/api/file/comments?path=server.go')).json()).length).toBe(0);
-  });
-});
-
-test.describe('Keyboard Comment Shortcuts — Markdown', () => {
-  test.beforeEach(async ({ request }) => {
-    await clearAllComments(request);
-  });
-
-  test('c opens comment form on focused markdown block', async ({ page }) => {
-    await loadPage(page);
-    const doc = await switchToDocumentView(page);
-    await clearFocus(page);
-
-    await focusDocBlock(page, 1);
-    await page.keyboard.press('c');
-
-    const form = doc.locator('.comment-form');
-    await expect(form).toBeVisible();
-    await expect(form.locator('textarea')).toBeFocused();
-    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 1');
-  });
-
-  test('e edits comment on focused markdown block', async ({ page, request }) => {
-    await request.post(`/api/file/comments?path=plan.md`, {
-      data: { start_line: 1, end_line: 1, body: 'Edit this markdown comment' },
-    });
-
-    await loadPage(page);
-    await switchToDocumentView(page);
-    await clearFocus(page);
-
-    await focusDocBlock(page, 1);
-    await page.keyboard.press('e');
-
-    const textarea = page.locator('#filesContainer .comment-form textarea');
-    await expect(textarea).toBeVisible();
-    await expect(textarea).toHaveValue('Edit this markdown comment');
-  });
-
-  test('d deletes comment on focused markdown block', async ({ page, request }) => {
-    await request.post(`/api/file/comments?path=plan.md`, {
-      data: { start_line: 1, end_line: 1, body: 'Delete this markdown comment' },
-    });
-
-    await loadPage(page);
-    const doc = await switchToDocumentView(page);
-    await clearFocus(page);
-
-    await expect(doc.locator('.comment-card')).toBeVisible();
-    await focusDocBlock(page, 1);
-    await page.keyboard.press('d');
-
-    await expect(page.locator('#filesContainer .comment-card', { hasText: 'Delete this markdown comment' })).toHaveCount(0);
-  });
-});
-
-// ============================================================
-// UI Toggles
-// ============================================================
-test.describe('Keyboard UI Toggles', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await clearFocus(page);
-  });
-
-  test('? opens settings panel to Shortcuts tab', async ({ page }) => {
-    const overlay = page.locator('.settings-overlay');
-
-    // Initially not active
-    await expect(overlay).not.toHaveClass(/active/);
-
-    // Press ? to open
-    await page.keyboard.press('?');
-    await expect(overlay).toHaveClass(/active/);
-    await expect(page.locator('.settings-tab.active')).toHaveText('Shortcuts');
-
-    // Press ? again to close (toggle behavior when on shortcuts tab)
-    await page.keyboard.press('?');
-    await expect(overlay).not.toHaveClass(/active/);
-  });
-
-  test('Escape closes settings panel', async ({ page }) => {
-    const overlay = page.locator('.settings-overlay');
-
-    await page.keyboard.press('?');
-    await expect(overlay).toHaveClass(/active/);
-
-    await page.keyboard.press('Escape');
-    await expect(overlay).not.toHaveClass(/active/);
-  });
-
-  test('Shift+F triggers finish review (shows waiting overlay)', async ({ page }) => {
-    const waitingOverlay = page.locator('#waitingOverlay');
-    await expect(waitingOverlay).not.toHaveClass(/active/);
-
-    await page.keyboard.press('Shift+F');
-
-    // The waiting overlay should become active after the finish API call
-    await expect(waitingOverlay).toHaveClass(/active/);
-  });
-
-  test('t does nothing in git mode (TOC is disabled)', async ({ page }) => {
-    const toc = page.locator('#toc');
-
-    // Initially has toc-hidden
-    await expect(toc).toHaveClass(/toc-hidden/);
-
-    // Press t — should be a no-op since TOC is hidden in git mode
-    await page.keyboard.press('t');
-    await expect(toc).toHaveClass(/toc-hidden/);
-  });
-});
-
-// ============================================================
-// Escape Behavior
-// ============================================================
-test.describe('Keyboard Escape Behavior', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await clearFocus(page);
-  });
-
-  test('Escape closes open comment form', async ({ page }) => {
-    await step(page, 'j');
-    await page.keyboard.press('c');
-
-    const form = page.locator('#filesContainer .comment-form');
-    await expect(form).toBeVisible();
-
-    await form.locator('textarea').press('Escape');
+    // Escape on an empty form closes silently (no confirm).
+    await textarea.press('Escape');
     await expect(form).toHaveCount(0);
-  });
+    expect(dialogs).toBe(0);
 
-  test('Escape clears focus when no form is open', async ({ page }) => {
-    await step(page, 'j');
-    await expect.poll(() => focusedDiff(page)).toHaveLength(1);
-
-    await page.keyboard.press('Escape');
-    await expect.poll(() => focusedDiff(page)).toEqual([]);
-  });
-
-  test('Escape clears document block focus when no form is open', async ({ page }) => {
-    await switchToDocumentView(page);
-    await clearFocus(page);
-    await focusDocBlock(page, 1);
-
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
-    // A fresh j starts over from the top of the review.
-    const [first] = await treePaths(page);
-    expect((await step(page, 'j')).startsWith(`${first}:1:`)).toBe(true);
-  });
-
-  test('Escape on non-empty comment form prompts for confirmation', async ({ page }) => {
-    await step(page, 'j');
+    // Escape on a non-empty form asks first: dismiss keeps it, accept closes.
     await page.keyboard.press('c');
-
-    const textarea = page.locator('#filesContainer .comment-form textarea');
     await expect(textarea).toBeFocused();
     await textarea.fill('important draft I do not want to lose');
-
-    // Cancel the confirm — form must stay open with content intact.
     page.once('dialog', (dialog) => {
       expect(dialog.type()).toBe('confirm');
       void dialog.dismiss();
     });
     await textarea.press('Escape');
-    await expect(page.locator('#filesContainer .comment-form')).toBeVisible();
+    await expect.poll(() => dialogs).toBe(1);
+    await expect(form).toBeVisible();
     await expect(textarea).toHaveValue('important draft I do not want to lose');
-
-    // Accept the confirm — form should close.
     page.once('dialog', (dialog) => {
       expect(dialog.type()).toBe('confirm');
       void dialog.accept();
     });
     await textarea.press('Escape');
-    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
-  });
-
-  test('Cancel button on non-empty comment form discards immediately (no confirm)', async ({ page }) => {
-    await step(page, 'j');
-    await page.keyboard.press('c');
-
-    const textarea = page.locator('#filesContainer .comment-form textarea');
-    await textarea.fill('draft');
+    await expect(form).toHaveCount(0);
+    expect(dialogs).toBe(2);
 
     // Cancel is an explicit, labeled discard action — no prompt.
-    let dialogShown = false;
-    page.once('dialog', () => { dialogShown = true; });
-
-    await page.locator('#filesContainer .comment-form button', { hasText: 'Cancel' }).click();
-    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
-    expect(dialogShown).toBe(false);
-  });
-
-  test('Escape on empty comment form closes silently (no confirm)', async ({ page }) => {
-    await step(page, 'j');
     await page.keyboard.press('c');
+    await textarea.fill('draft');
+    await form.locator('button', { hasText: 'Cancel' }).click();
+    await expect(form).toHaveCount(0);
+    expect(dialogs).toBe(2);
 
-    const textarea = page.locator('#filesContainer .comment-form textarea');
-    await expect(textarea).toBeFocused();
+    // Commenting through the gutter leaves keyboard focus on the commented
+    // line, so e / d act on that comment.
+    const item = await goSection(page);
+    const lineForm = await openLineComment(page, item, 23);
+    await lineForm.locator('textarea').fill('Edit me via shortcut');
+    await lineForm.locator('.btn-primary').click();
+    const card = item.locator('.comment-card', { hasText: 'Edit me via shortcut' });
+    await expect(card).toBeVisible();
 
-    // If a dialog appears, the test fails (we never accept/dismiss).
-    let dialogShown = false;
-    page.once('dialog', () => { dialogShown = true; });
+    await page.keyboard.press('e');
+    await expect(textarea).toBeVisible();
+    await expect(textarea).toHaveValue('Edit me via shortcut');
+    await form.locator('button', { hasText: 'Cancel' }).click();
+    await expect(form).toHaveCount(0);
 
-    await textarea.press('Escape');
-    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
-    expect(dialogShown).toBe(false);
+    await page.keyboard.press('d');
+    await expect(card).toHaveCount(0);
+    await expect.poll(async () => (await (await request.get('/api/file/comments?path=server.go')).json()).length).toBe(0);
   });
 });
 
 // ============================================================
-// Visual Line Mode (V)
+// Markdown Document View: j/k, c/e/d, Escape, visual line mode (V)
 // ============================================================
-test.describe('Keyboard Visual Line Mode — Markdown', () => {
+test.describe('Keyboard — Markdown Document View', () => {
   let doc: Locator;
 
   test.beforeEach(async ({ page, request }) => {
@@ -512,6 +277,54 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
     await loadPage(page);
     doc = await switchToDocumentView(page);
     await clearFocus(page);
+  });
+
+  test('j/k navigate blocks; c, e and d act on the focused block; Escape clears block focus', async ({ page, request }) => {
+    const firstBlock = await focusDocBlock(page, 1);
+    await expect(firstBlock).toHaveAttribute('data-block-index', '0');
+    // No diff line is focused while a document block is.
+    await expect.poll(() => focusedDiff(page)).toEqual([]);
+    const focused = doc.locator('.line-block.kb-nav.focused');
+    await page.keyboard.press('j');
+    await expect(focused).toHaveCount(1);
+    await expect(focused).toHaveAttribute('data-block-index', '1');
+    await page.keyboard.press('k');
+    await expect(focused).toHaveAttribute('data-block-index', '0');
+    await expect(focused).toHaveCount(1);
+
+    // c opens a form on the focused block.
+    await page.keyboard.press('c');
+    const form = doc.locator('.comment-form');
+    await expect(form).toBeVisible();
+    await expect(form.locator('textarea')).toBeFocused();
+    await expect(form.locator('.comment-form-header')).toHaveText('Comment on Line 1');
+    await form.locator('textarea').fill('Edit this markdown comment');
+    await form.locator('.btn-primary').click();
+    const card = doc.locator('.comment-card', { hasText: 'Edit this markdown comment' });
+    await expect(card).toBeVisible();
+    await expect.poll(async () => (await (await request.get('/api/file/comments?path=plan.md')).json()).length).toBe(1);
+
+    // Focus stays on the commented block, so e edits its comment.
+    await expect(focused).toHaveAttribute('data-block-index', '0');
+    await page.keyboard.press('e');
+    const editTextarea = page.locator('#filesContainer .comment-form textarea');
+    await expect(editTextarea).toBeVisible();
+    await expect(editTextarea).toHaveValue('Edit this markdown comment');
+    await doc.locator('.comment-form button', { hasText: 'Cancel' }).click();
+    await expect(doc.locator('.comment-form')).toHaveCount(0);
+
+    // d deletes it.
+    await expect(focused).toHaveAttribute('data-block-index', '0');
+    await page.keyboard.press('d');
+    await expect(page.locator('#filesContainer .comment-card', { hasText: 'Edit this markdown comment' })).toHaveCount(0);
+
+    // Escape clears document block focus; a fresh j starts over from the top
+    // of the review.
+    await expect(focused).toHaveAttribute('data-block-index', '0');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.kb-nav.focused')).toHaveCount(0);
+    const [first] = await treePaths(page);
+    expect((await step(page, 'j')).startsWith(`${first}:1:`)).toBe(true);
   });
 
   test('V enters visual mode; j extends selection; c opens form spanning the range', async ({ page, request }) => {
@@ -552,81 +365,94 @@ test.describe('Keyboard Visual Line Mode — Markdown', () => {
     expect(created!.end_line).toBe(expansionEnd);
   });
 
-  test('Escape clears visual selection and keeps focus on current block', async ({ page }) => {
-    await focusDocBlock(page, 1);
-    await page.keyboard.press('Shift+V');
-    await page.keyboard.press('j');
-    await page.keyboard.press('j');
-
-    // Selection is active across multiple blocks
+  test('V again exits visual mode; Escape clears the selection and keeps focus', async ({ page }) => {
     const focused = doc.locator('.line-block.kb-nav.focused');
-    await expect(focused).toHaveAttribute('data-block-index', '2');
-    await expect(doc.locator('.line-block.selected')).toHaveCount(3);
-
-    await page.keyboard.press('Escape');
-
-    // Selection cleared; focus stays at the furthest expansion.
-    await expect(doc.locator('.line-block.selected')).toHaveCount(0);
-    await expect(focused).toHaveCount(1);
-    await expect(focused).toHaveAttribute('data-block-index', '2');
-    // And j continues from there.
-    await page.keyboard.press('j');
-    await expect(focused).toHaveAttribute('data-block-index', '3');
-  });
-
-  test('V again exits visual mode (toggle)', async ({ page }) => {
+    const selected = doc.locator('.line-block.selected');
     await focusDocBlock(page, 1);
-    await page.keyboard.press('Shift+V');
-    await page.keyboard.press('j');
-    await expect(doc.locator('.line-block.selected')).toHaveCount(2);
 
+    // V toggles: the selection goes, focus stays, and j moves without extending.
     await page.keyboard.press('Shift+V');
-    await expect(doc.locator('.line-block.selected')).toHaveCount(0);
-    // Focus stays on the block, and j moves without extending a selection.
-    await expect(doc.locator('.line-block.kb-nav.focused')).toHaveAttribute('data-block-index', '1');
     await page.keyboard.press('j');
-    await expect(doc.locator('.line-block.kb-nav.focused')).toHaveAttribute('data-block-index', '2');
-    await expect(doc.locator('.line-block.selected')).toHaveCount(0);
+    await expect(selected).toHaveCount(2);
+    await page.keyboard.press('Shift+V');
+    await expect(selected).toHaveCount(0);
+    await expect(focused).toHaveAttribute('data-block-index', '1');
+    await page.keyboard.press('j');
+    await expect(focused).toHaveAttribute('data-block-index', '2');
+    await expect(selected).toHaveCount(0);
+
+    // Escape clears an active selection; focus stays at the furthest
+    // expansion, and j continues from there.
+    await page.keyboard.press('Shift+V');
+    await page.keyboard.press('j');
+    await page.keyboard.press('j');
+    await expect(focused).toHaveAttribute('data-block-index', '4');
+    await expect(selected).toHaveCount(3);
+    await page.keyboard.press('Escape');
+    await expect(selected).toHaveCount(0);
+    await expect(focused).toHaveCount(1);
+    await expect(focused).toHaveAttribute('data-block-index', '4');
+    await page.keyboard.press('j');
+    await expect(focused).toHaveAttribute('data-block-index', '5');
   });
 });
 
 // ============================================================
-// Shortcuts Disabled When Typing
+// UI shortcuts. Opening/closing the settings panel with ? and Escape:
+// settings-panel.spec.ts ("? key opens panel to Shortcuts tab", "? key
+// toggles shortcuts tab when panel is open on shortcuts", "Escape closes
+// the panel").
 // ============================================================
-test.describe('Shortcuts Disabled When Typing', () => {
-  test.beforeEach(async ({ page, request }) => {
+test.describe('Keyboard UI shortcuts', () => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('shortcuts type into a focused textarea; t is a no-op in git mode', async ({ page, request }) => {
+    // A comment for ] / [ to land on if they were (wrongly) handled.
+    const existing = await addComment(request, 'plan.md', 1, 'Existing comment');
     await loadPage(page);
     await clearFocus(page);
-  });
+    await recordClassAdditions(page, 'comment-nav-highlight');
 
-  test('j types into textarea instead of navigating when textarea is focused', async ({ page }) => {
     const focused = await step(page, 'j');
     await page.keyboard.press('c');
-
     const textarea = page.locator('#filesContainer .comment-form textarea');
     await expect(textarea).toBeFocused();
 
-    // Type 'j' — should go into the textarea, NOT navigate
-    await textarea.pressSequentially('jjj');
-    await expect(textarea).toHaveValue('jjj');
-
-    // Keyboard focus did not move.
+    // Typed into the textarea: no navigation, no settings panel, no comment jump.
+    await textarea.pressSequentially('jjj?][');
+    await expect(textarea).toHaveValue('jjj?][');
     await expect.poll(() => focusKey(page)).toBe(focused);
+    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
+
+    // Close the form; the same keys now act (proving they were not just slow).
+    page.once('dialog', (dialog) => void dialog.accept());
+    await textarea.press('Escape');
+    await expect(page.locator('#filesContainer .comment-form')).toHaveCount(0);
+    expect(await classAdditions(page, 'comment-nav-highlight')).toEqual([]);
+    await expectClassAddedTo(page, 'comment-nav-highlight', () => page.keyboard.press(']'), existing.id);
+
+    // t is a no-op in git mode (the TOC is disabled). Keys are handled in
+    // order, so once ? has opened the settings panel, t has been handled.
+    const toc = page.locator('#toc');
+    await expect(toc).toHaveClass(/toc-hidden/);
+    await clearFocus(page);
+    await page.keyboard.press('t');
+    await page.keyboard.press('?');
+    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
+    await expect(toc).toHaveClass(/toc-hidden/);
   });
 
-  test('other shortcuts (?, t) do not fire when textarea is focused', async ({ page }) => {
-    await step(page, 'j');
-    await page.keyboard.press('c');
+  test('Shift+F triggers finish review (shows waiting overlay)', async ({ page }) => {
+    await loadPage(page);
+    await clearFocus(page);
+    const waitingOverlay = page.locator('#waitingOverlay');
+    await expect(waitingOverlay).not.toHaveClass(/active/);
 
-    const textarea = page.locator('#filesContainer .comment-form textarea');
-    await expect(textarea).toBeFocused();
+    await page.keyboard.press('Shift+F');
 
-    // Type '?' — should go into textarea, not open settings panel
-    await textarea.pressSequentially('?');
-    await expect(textarea).toHaveValue('?');
-
-    const overlay = page.locator('.settings-overlay');
-    await expect(overlay).not.toHaveClass(/active/);
+    // The waiting overlay should become active after the finish API call
+    await expect(waitingOverlay).toHaveClass(/active/);
   });
 });

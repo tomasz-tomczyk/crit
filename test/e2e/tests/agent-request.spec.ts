@@ -1,59 +1,36 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, getMdPath, mdSection, switchToDocumentView } from './helpers';
+import { clearAllComments, loadPage, getMdPath, switchToDocumentView, openDocLineComment } from './helpers';
 
 // ============================================================
 // Send to Agent — Git Mode
+// The endpoint's config flag, review-level and unknown-comment cases are
+// covered in Go (internal/server: TestHandleConfig_AgentCmdEnabled,
+// TestHandleAgentRequest_ReviewLevelComment, TestHandleAgentRequest_CommentNotFound).
 // ============================================================
 test.describe('Send to Agent', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
   });
 
-  test('config API reports agent_cmd_enabled', async ({ request }) => {
-    const res = await request.get('/api/config');
-    const config = await res.json();
-    expect(config.agent_cmd_enabled).toBe(true);
-  });
-
-  test('Send now button visible on comment form', async ({ page }) => {
+  test('Send now on a line comment submits it and sends it to the agent', async ({ page }) => {
     await loadPage(page);
-    await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
 
-    const section = await mdSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await gutterBtn.click();
-
+    const textarea = await openDocLineComment(page, doc);
     const sendBtn = page.locator('.btn-agent');
     await expect(sendBtn).toBeVisible();
     await expect(sendBtn).toHaveText('Send now');
-  });
 
-  test('Send now submits comment and sends to agent', async ({ page }) => {
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    const section = await mdSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    const gutterBtn = section.locator('.line-comment-gutter').first();
-    await gutterBtn.click();
-
-    const textarea = page.locator('.comment-form textarea');
     await textarea.fill('Please review this section');
 
     // Guard against scope inversion: line Send now must not post empty file_path.
     const agentReq = page.waitForRequest((req) =>
       req.url().includes('/api/agent/request') && req.method() === 'POST'
     );
-
-    const sendBtn = page.locator('.btn-agent');
     await sendBtn.click();
 
     const posted = await agentReq;
-    const postedBody = posted.postDataJSON();
-    expect(postedBody.file_path).toBeTruthy();
+    expect(posted.postDataJSON().file_path).toBeTruthy();
 
     // Verify toast and pending reply indicator appear
     await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
@@ -61,7 +38,7 @@ test.describe('Send to Agent', () => {
     await expect(page.locator('.agent-pending-author')).toHaveText('@echo');
   });
 
-  test('POST /api/agent/request returns 202', async ({ request }) => {
+  test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 
     const commentRes = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
@@ -96,27 +73,5 @@ test.describe('Send to Agent', () => {
     await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
     await expect(page.locator('#reviewConversation .agent-pending-reply')).toBeVisible();
     await expect(page.locator('#reviewConversation .agent-pending-author')).toHaveText('@echo');
-  });
-
-  test('POST /api/agent/request accepts a review-level comment', async ({ request }) => {
-    const commentRes = await request.post('/api/comments', {
-      data: { body: 'General note about this review' },
-    });
-    const comment = await commentRes.json();
-
-    const res = await request.post('/api/agent/request', {
-      data: { comment_id: comment.id, file_path: '' },
-    });
-    expect(res.status()).toBe(202);
-    const body = await res.json();
-    expect(body.status).toBe('accepted');
-    expect(body.file_path).toBe('');
-  });
-
-  test('POST /api/agent/request returns 404 for unknown comment', async ({ request }) => {
-    const res = await request.post('/api/agent/request', {
-      data: { comment_id: 'nonexistent', file_path: 'plan.md' },
-    });
-    expect(res.status()).toBe(404);
   });
 });

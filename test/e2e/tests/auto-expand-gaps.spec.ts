@@ -1,7 +1,7 @@
-import { test, expect, type Page, type Locator, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import {
-  clearAllComments, loadPage, goSection, jsSection, revealFile, diffLine,
-  diffLineNumber, openLineComment, showLine, setDiffStyle, reviewScroller,
+  clearAllComments, loadPage, goSection, jsSection, diffLine,
+  diffLineNumber, showLine, scanDiffRows, lineRange,
 } from './helpers';
 
 // server.go has three git hunks (new 2..11, 20..57, 64..71). The gaps between
@@ -9,8 +9,11 @@ import {
 // 33..38) — both ≤ 8, so Crit merges them into one hunk before handing the
 // diff to Pierre. Without that merge Pierre would collapse each gap behind a
 // separator.
+//
+// Also covered elsewhere: commenting on an auto-expanded line
+// (expanded-comments.spec.ts) and a >8-line gap keeping its separator
+// (incremental-expand.spec.ts, routes.go).
 const SERVER_LAST_LINE = 71;
-const GAP_LINES = [12, 13, 14, 15, 16, 17, 18, 19, 58, 59, 60, 61, 62, 63];
 
 async function fileLines(request: APIRequestContext, path: string): Promise<string[]> {
   const res = await request.get(`/api/file?path=${encodeURIComponent(path)}`);
@@ -18,56 +21,19 @@ async function fileLines(request: APIRequestContext, path: string): Promise<stri
   return ((await res.json()).content as string).split('\n');
 }
 
-// Scroll through a file and record, in visual order, every new-side line
-// number and every separator Pierre renders, until `last` has been seen.
-async function scanFile(page: Page, item: Locator, last: number): Promise<{ rows: string[] }> {
-  const seen = new Map<string, number>();
-  const rowsOf = () => item.locator('code[data-additions] [data-content], code[data-unified] [data-content]').evaluateAll(codes => {
-    const out: { key: string; top: number }[] = [];
-    const scroller = document.getElementById('filesContainer')!;
-    for (const content of codes) {
-      for (const el of Array.from(content.children)) {
-        const top = Math.round(el.getBoundingClientRect().top + scroller.scrollTop);
-        if (el.hasAttribute('data-separator')) out.push({ key: `sep@${top}`, top });
-        else if (el.hasAttribute('data-line') && el.getAttribute('data-line-type') !== 'change-deletion') {
-          out.push({ key: el.getAttribute('data-line')!, top });
-        }
-      }
-    }
-    return out;
-  });
-  // Start from the file's top (the header re-mounts while the file hydrates).
-  await expect(async () => {
-    await item.locator('.pierre-file-header').scrollIntoViewIfNeeded({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-  await expect.poll(async () => {
-    for (const r of await rowsOf()) seen.set(r.key, r.top);
-    if (seen.has(String(last))) return true;
-    await reviewScroller(page).evaluate(el => el.scrollBy(0, 200));
-    return false;
-  }, { timeout: 15_000 }).toBe(true);
-  return { rows: [...seen.entries()].sort((a, b) => a[1] - b[1]).map(e => e[0]) };
-}
-
-function range(from: number, to: number): string[] {
-  return Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
-}
-
 // ============================================================
 // Auto-expand small gaps (≤ 8 lines) between diff hunks
 // ============================================================
-test.describe('Auto-expand small gaps — Split Mode', () => {
+test.describe('Auto-expand small gaps', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
   });
 
-  test('small gaps between hunks are auto-expanded (no separator visible)', async ({ page }) => {
+  test('small gaps are expanded: every hunk merges into one contiguous block', async ({ page }) => {
     const item = await goSection(page);
-    const { rows } = await scanFile(page, item, SERVER_LAST_LINE);
-
-    expect(rows.filter(r => r.startsWith('sep'))).toEqual([]);
-    for (const n of GAP_LINES) expect(rows).toContain(String(n));
+    // Every new-side line from 1 to EOF, in order, with no separator.
+    expect(await scanDiffRows(page, item, SERVER_LAST_LINE)).toEqual(lineRange(1, SERVER_LAST_LINE));
     await expect(item.locator('[data-separator]')).toHaveCount(0);
   });
 
@@ -84,88 +50,18 @@ test.describe('Auto-expand small gaps — Split Mode', () => {
       const expected = content[newNum - 1];
       await expect(diffLine(item, newNum)).toHaveText(expected.length ? expected : /^\s*$/);
       await expect(diffLine(item, oldNum, 'old')).toHaveText(expected.length ? expected : /^\s*$/);
-      // Same visual row on both sides.
-      const a = await diffLine(item, newNum).boundingBox();
-      const b = await diffLine(item, oldNum, 'old').boundingBox();
-      expect(Math.abs(a!.y - b!.y)).toBeLessThan(2);
+      // Same visual row on both sides (re-measured until the rows settle).
+      await expect.poll(async () => {
+        const a = await diffLine(item, newNum).boundingBox();
+        const b = await diffLine(item, oldNum, 'old').boundingBox();
+        return !!a && !!b && Math.abs(a.y - b.y) < 2;
+      }).toBe(true);
     }
-  });
-
-  test('auto-expanded context lines are commentable (gutter + button works)', async ({ page, request }) => {
-    const item = await goSection(page);
-    await showLine(page, diffLine(item, 15));
-
-    const form = await openLineComment(page, item, 15);
-    await form.locator('textarea').fill('Comment on auto-expanded context line');
-    await form.locator('.btn-primary').click();
-
-    await expect(item.locator('.comment-card .comment-body')).toContainText('Comment on auto-expanded context line');
-    await expect.poll(async () => {
-      const comments = await (await request.get('/api/file/comments?path=server.go')).json();
-      return comments.map((c: { start_line: number; end_line: number; side?: string }) => `${c.start_line}-${c.end_line}:${c.side || ''}`);
-    }).toEqual(['15-15:']);
-  });
-
-  test('all hunks merge into one contiguous block', async ({ page }) => {
-    const item = await goSection(page);
-    const { rows } = await scanFile(page, item, SERVER_LAST_LINE);
-    // Every new-side line from 1 to EOF, in order, with nothing collapsed.
-    expect(rows).toEqual(range(1, SERVER_LAST_LINE));
-  });
-});
-
-test.describe('Auto-expand small gaps — Unified Mode', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    await expect((await goSection(page)).locator('code[data-unified]')).toBeVisible();
-  });
-
-  test('auto-expanded context lines are commentable in unified mode', async ({ page, request }) => {
-    const item = await goSection(page);
-    await showLine(page, diffLine(item, 15));
-
-    const form = await openLineComment(page, item, 15);
-    await form.locator('textarea').fill('Unified auto-expanded comment');
-    await form.locator('.btn-primary').click();
-
-    await expect(item.locator('.comment-card .comment-body')).toContainText('Unified auto-expanded comment');
-    await expect.poll(async () => {
-      const comments = await (await request.get('/api/file/comments?path=server.go')).json();
-      return comments.map((c: { start_line: number; end_line: number; side?: string }) => `${c.start_line}-${c.end_line}:${c.side || ''}`);
-    }).toEqual(['15-15:']);
-  });
-});
-
-test.describe('Large gaps still show separator', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-  });
-
-  test('large gaps (> 8 lines) still show separator with expand controls', async ({ page }) => {
-    // routes.go has 37 unchanged lines (new 15..51) between its two hunks.
-    const item = await revealFile(page, 'routes.go');
-    const label = item.locator('[data-separator] [data-unmodified-lines]').filter({ visible: true }).first();
-    await expect(label).toHaveText('37 unmodified lines');
-    await expect(item.locator('[data-separator] [data-expand-button][data-expand-up]').filter({ visible: true }).first()).toBeVisible();
-    await expect(item.locator('[data-separator] [data-expand-button][data-expand-down]').filter({ visible: true }).first()).toBeVisible();
-    await expect(diffLine(item, 14)).toBeVisible();
-    await expect(diffLine(item, 15)).toHaveCount(0);
-  });
-});
-
-test.describe('Auto-expand does not break other files', () => {
-  test.beforeEach(async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
   });
 
   test('handler.js (new file, single hunk) renders correctly', async ({ page }) => {
     const item = await jsSection(page);
-    const { rows } = await scanFile(page, item, 19);
-    expect(rows).toEqual(range(1, 19));
+    expect(await scanDiffRows(page, item, 19)).toEqual(lineRange(1, 19));
     await expect(diffLine(item, 1)).toHaveAttribute('data-line-type', 'change-addition');
     await expect(item.locator('[data-content] > [data-line-type^="context"]')).toHaveCount(0);
   });

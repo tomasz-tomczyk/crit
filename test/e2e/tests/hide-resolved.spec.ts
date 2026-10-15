@@ -1,178 +1,121 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
-import * as fs from 'fs';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import {
-  clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath,
-  mdSection, switchToDocumentView, mdDocument,
+  clearAllComments, loadPage, getMdPath, addComment, resolveComment, mdSection,
+  switchToDocumentView, mdDocument, clickWhenHittable, recordClassAdditions, expectClassAddedTo,
 } from './helpers';
 
-// Create a resolved comment by finishing a round, marking resolved, and round-completing.
-async function setupResolvedComment(request: APIRequestContext, line = 1) {
+// A resolved comment on plan.md, through the resolve API.
+async function seedResolvedComment(request: APIRequestContext, line = 1): Promise<string> {
   const mdPath = await getMdPath(request);
-  await addComment(request, mdPath, line, 'Resolved comment');
+  const comment = await addComment(request, mdPath, line, 'Resolved comment');
+  await resolveComment(request, mdPath, comment.id);
+  return comment.id;
+}
 
-  // Finish to write the review file
-  await request.post('/api/finish');
-  const critJsonPath = await getReviewFilePath(request);
-
-  // Mark comment as resolved in the review file
-  const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-  for (const fileKey of Object.keys(critJson.files)) {
-    for (const comment of critJson.files[fileKey].comments) {
-      comment.resolved = true;
-      comment.resolution_note = 'Done';
-    }
-  }
-  fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-  // Round-complete to carry forward
-  const round = (await request.get('/api/session').then(r => r.json())).review_round;
-  await request.post('/api/round-complete');
-  await expect(async () => {
-    const session = await request.get('/api/session').then(r => r.json());
-    expect(session.review_round).toBeGreaterThan(round);
-  }).toPass({ timeout: 5000 });
+// Inline (not panel) comment blocks that hold a resolved card.
+function resolvedBlocks(page: Page) {
+  return page.locator('.comment-block:not(.panel-comment-block)').filter({
+    has: page.locator('.resolved-card'),
+  });
 }
 
 test.describe('Hide Resolved', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    // Clear localStorage to start fresh
-    await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('crit-hide-resolved'));
   });
 
-  test('settings panel shows Hide resolved toggle', async ({ page }) => {
+  test('settings toggle exists; h hides and shows resolved comments and their document highlight', async ({ page, request }) => {
+    await seedResolvedComment(request, 1);
     await loadPage(page);
+
+    // The settings panel offers the toggle.
     await page.click('#settingsToggle');
     const pane = page.locator('.settings-pane[data-pane="settings"]');
     await expect(pane.locator('.settings-display-label').filter({ hasText: 'Hide resolved' })).toBeVisible();
     await expect(pane.locator('#hideResolvedToggle')).toBeAttached();
-  });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
 
-  test('toggle hides resolved inline comments', async ({ page, request }) => {
-    await setupResolvedComment(request);
-    await loadPage(page);
+    // Diff view: the resolved inline comment is visible by default; h toggles it.
     await mdSection(page);
-
-    // Wait for resolved card to render
-    await expect(page.locator('.comment-card.resolved-card').first()).toBeVisible();
-
-    // Resolved inline comment block should be visible by default
-    const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
-      has: page.locator('.resolved-card'),
-    });
-    await expect(resolvedBlock.first()).toBeVisible();
-
-    // Enable "Hide resolved" via keyboard shortcut
+    await expect(resolvedBlocks(page).first()).toBeVisible();
     await page.keyboard.press('h');
-
-    // Resolved inline comment block should now be hidden
-    await expect(resolvedBlock.first()).toBeHidden();
-  });
-
-  test('h keyboard shortcut toggles resolved inline comment visibility', async ({ page, request }) => {
-    await setupResolvedComment(request);
-    await loadPage(page);
-    await mdSection(page);
-
-    const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
-      has: page.locator('.resolved-card'),
-    });
-    await expect(resolvedBlock.first()).toBeVisible();
-
-    // Press h to hide
+    await expect(resolvedBlocks(page).first()).toBeHidden();
     await page.keyboard.press('h');
-    await expect(resolvedBlock.first()).toBeHidden();
+    await expect(resolvedBlocks(page).first()).toBeVisible();
 
-    // Press h again to show
-    await page.keyboard.press('h');
-    await expect(resolvedBlock.first()).toBeVisible();
-  });
-
-  // Hiding resolved must also drop the rendered document's comment
-  // highlight on the resolved range, and bring it back when shown again.
-  // (The classic renderer did this in place; under Pierre the document
-  // annotation is rebuilt on toggle, so node identity is not asserted.)
-  test('toggling hide-resolved drops has-comment on resolved ranges', async ({ page, request }) => {
-    await setupResolvedComment(request, 1);
-    await loadPage(page);
+    // Document view: hiding also drops the has-comment highlight on the
+    // resolved range, and showing brings it back. (Under Pierre the document
+    // annotation is rebuilt on toggle, so node identity is not asserted.)
     await switchToDocumentView(page);
-    const doc = () => mdDocument(page);
-
-    await expect(doc().locator('.line-block.has-comment').first()).toBeVisible();
-    await expect(doc().locator('.resolved-card').first()).toBeVisible();
+    const doc = mdDocument(page);
+    await expect(doc.locator('.line-block.has-comment').first()).toBeVisible();
+    await expect(doc.locator('.resolved-card').first()).toBeVisible();
 
     await page.keyboard.press('h');
-    await expect(doc().locator('.comment-block:not(.panel-comment-block)').filter({
+    await expect(doc.locator('.comment-block:not(.panel-comment-block)').filter({
       has: page.locator('.resolved-card'),
     }).first()).toBeHidden();
-    await expect(doc().locator('.document-wrapper')).toBeVisible();
-    await expect(doc().locator('.line-block.has-comment')).toHaveCount(0);
+    await expect(doc.locator('.document-wrapper')).toBeVisible();
+    await expect(doc.locator('.line-block.has-comment')).toHaveCount(0);
 
     await page.keyboard.press('h');
-    await expect(doc().locator('.line-block.has-comment').first()).toBeVisible();
-    await expect(doc().locator('.resolved-card').first()).toBeVisible();
+    await expect(doc.locator('.line-block.has-comment').first()).toBeVisible();
+    await expect(doc.locator('.resolved-card').first()).toBeVisible();
   });
 
   test('comment arrows skip hidden resolved comments in both directions', async ({ page, request }) => {
-    await setupResolvedComment(request, 3);
+    const resolved = await seedResolvedComment(request, 3);
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Open A');
-    await addComment(request, mdPath, 5, 'Open C');
+    const openA = (await addComment(request, mdPath, 1, 'Open A')).id as string;
+    const openC = (await addComment(request, mdPath, 5, 'Open C')).id as string;
     await loadPage(page);
+    await mdSection(page);
+    await expect(page.locator('.comment-card.resolved-card')).toBeVisible();
+    await recordClassAdditions(page, 'comment-nav-highlight');
 
-    const openA = page.locator('.comment-card:not(.resolved-card)').filter({ hasText: 'Open A' });
-    const resolvedCard = page.locator('.comment-card.resolved-card').first();
-    const openC = page.locator('.comment-card:not(.resolved-card)').filter({ hasText: 'Open C' });
+    const next = () => clickWhenHittable(page, page.locator('#commentNavNext'));
+    const prev = () => clickWhenHittable(page, page.locator('#commentNavPrev'));
 
-    await page.locator('#commentNavNext').click();
-    await expect(openA).toHaveClass(/comment-nav-highlight/);
-    await page.locator('#commentNavNext').click();
-    await expect(resolvedCard).toHaveClass(/comment-nav-highlight/);
+    await expectClassAddedTo(page, 'comment-nav-highlight', next, openA);
+    await expectClassAddedTo(page, 'comment-nav-highlight', next, resolved);
 
+    // Hidden: from the (now hidden) resolved comment, prev skips to A.
     await page.keyboard.press('h');
-    await expect(resolvedCard).toBeHidden();
+    await expect(page.locator('.comment-card.resolved-card')).toBeHidden();
+    await expectClassAddedTo(page, 'comment-nav-highlight', prev, openA);
 
-    await page.locator('#commentNavPrev').click();
-    await expect(openA).toHaveClass(/comment-nav-highlight/);
-    await expect(openC).not.toHaveClass(/comment-nav-highlight/);
-    // Hidden resolved cards may be unmounted entirely; either way none is highlighted.
-    await expect(page.locator('.comment-card.resolved-card.comment-nav-highlight')).toHaveCount(0);
-
+    // Shown again: next lands on the resolved comment.
     await page.keyboard.press('h');
-    await page.locator('#commentNavNext').click();
-    await expect(resolvedCard).toHaveClass(/comment-nav-highlight/);
+    await expect(page.locator('.comment-card.resolved-card')).toBeVisible();
+    await expectClassAddedTo(page, 'comment-nav-highlight', next, resolved);
 
+    // Hidden: next from it skips straight to C.
     await page.keyboard.press('h');
-    await page.locator('#commentNavNext').click();
-    await expect(openC).toHaveClass(/comment-nav-highlight/);
-    await expect(page.locator('.comment-card.resolved-card.comment-nav-highlight')).toHaveCount(0);
+    await expect(page.locator('.comment-card.resolved-card')).toBeHidden();
+    await expectClassAddedTo(page, 'comment-nav-highlight', next, openC);
   });
 
-  test('hide resolved persists via localStorage across reload', async ({ page, request }) => {
-    await setupResolvedComment(request);
+  test('hide resolved persists in the settings cookie across reload', async ({ page, request }) => {
+    await seedResolvedComment(request, 1);
+    const mdPath = await getMdPath(request);
+    await addComment(request, mdPath, 3, 'Open comment');
     await loadPage(page);
     await mdSection(page);
+    await expect(resolvedBlocks(page).first()).toBeVisible();
 
-    const resolvedBlock = page.locator('.comment-block:not(.panel-comment-block)').filter({
-      has: page.locator('.resolved-card'),
-    });
-
-    // Enable hide resolved
     await page.keyboard.press('h');
-    await expect(resolvedBlock.first()).toBeHidden();
+    await expect(resolvedBlocks(page).first()).toBeHidden();
 
-    // Reload
     await loadPage(page);
     await mdSection(page);
+    // The open comment rendered, so the resolved one would have too: it is
+    // hidden because the setting survived the reload.
+    await expect(page.locator('.comment-card', { hasText: 'Open comment' })).toBeVisible();
+    await expect(resolvedBlocks(page)).toBeHidden();
+    await expect(page.locator('.comment-card.resolved-card')).toBeHidden();
 
-    // Should still be hidden after reload
-    const resolvedBlockAfter = page.locator('.comment-block:not(.panel-comment-block)').filter({
-      has: page.locator('.resolved-card'),
-    });
-    await expect(resolvedBlockAfter.first()).toBeHidden();
-
-    // Verify setting persisted in the consolidated crit-settings cookie
+    // Persisted in the consolidated crit-settings cookie
     const stored = await page.evaluate(() => {
       const match = document.cookie.match(/(?:^|;\s*)crit-settings=([^;]+)/);
       if (!match) return null;

@@ -1,81 +1,59 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, switchToDocumentView, reviewScroller, setDiffStyle } from './helpers';
+import { test, expect, type Locator, type APIRequestContext } from '@playwright/test';
+import { addComment, clearAllComments, loadPage, goSection, switchToDocumentView, reviewScroller, setDiffStyle } from './helpers';
 
-async function expectDocumentHighlightRange(
-  section: Locator,
-  startLine: number,
-  endLine: number,
-) {
-  const states = await section.locator('.line-block[data-start-line][data-end-line]').evaluateAll(elements =>
-    elements.map((element) => {
-      const block = element as HTMLElement;
-      return {
-        range: `${block.dataset.startLine}-${block.dataset.endLine}`,
-        start: Number(block.dataset.startLine),
-        end: Number(block.dataset.endLine),
-        highlighted: block.classList.contains('has-comment'),
-      };
-    }),
-  );
-  const expected = states
-    .filter(block => block.end >= startLine && block.start <= endLine)
-    .map(block => block.range);
-  const actual = states.filter(block => block.highlighted).map(block => block.range);
-  expect(actual).toEqual(expected);
-  expect(expected.length).toBeGreaterThan(0);
+// Every block that overlaps one of `ranges` carries has-comment, and no other
+// block does. Re-read until the document settles (comments render async).
+async function expectDocumentHighlightRanges(section: Locator, ranges: Array<[number, number]>) {
+  await expect(async () => {
+    const states = await section.locator('.line-block[data-start-line][data-end-line]').evaluateAll(elements =>
+      elements.map((element) => {
+        const block = element as HTMLElement;
+        return {
+          range: `${block.dataset.startLine}-${block.dataset.endLine}`,
+          start: Number(block.dataset.startLine),
+          end: Number(block.dataset.endLine),
+          highlighted: block.classList.contains('has-comment'),
+        };
+      }),
+    );
+    const expected = states
+      .filter(block => ranges.some(([from, to]) => block.end >= from && block.start <= to))
+      .map(block => block.range);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(states.filter(block => block.highlighted).map(block => block.range)).toEqual(expected);
+  }).toPass();
 }
 
 // ============================================================
 // Document View — Comment Range Highlighting
 // ============================================================
 test.describe('Comment Range Highlighting — Document View', () => {
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
-    await loadPage(page);
-    await switchToDocumentView(page);
   });
 
-  test('multi-line comment highlights all blocks in range', async ({ page, request }) => {
-    // Add a comment spanning lines 3-7 on plan.md via API
-    const res = await request.post('/api/file/comments?path=plan.md', {
+  test('multi-line and single-line comments highlight exactly their blocks; deleting clears it', async ({ page, request }) => {
+    const ranged = await request.post('/api/file/comments?path=plan.md', {
       data: { start_line: 3, end_line: 7, body: 'Range test' },
     });
-    expect(res.ok()).toBeTruthy();
+    expect(ranged.ok()).toBeTruthy();
+    await addComment(request, 'plan.md', 1, 'Single line');
+
     await loadPage(page);
     const section = await switchToDocumentView(page);
-    await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
-    await expectDocumentHighlightRange(section, 3, 7);
-  });
+    await expect(section.locator('.comment-card')).toHaveCount(2);
+    // A 3-7 comment highlights all blocks in its range, a single-line comment
+    // only its block — nothing else.
+    await expectDocumentHighlightRanges(section, [[3, 7], [1, 1]]);
 
-  test('single-line comment highlights only that block', async ({ page, request }) => {
-    // Add comment on a single line
-    const res = await request.post('/api/file/comments?path=plan.md', {
-      data: { start_line: 1, end_line: 1, body: 'Single line' },
-    });
-    expect(res.ok()).toBeTruthy();
-    await loadPage(page);
-    const section = await switchToDocumentView(page);
-    await expect(section.locator('.line-block.has-comment').first()).toBeVisible();
-    await expectDocumentHighlightRange(section, 1, 1);
-  });
-
-  test('deleting comment removes its highlight from all blocks', async ({ page, request }) => {
-    // Two comments; delete the ranged one. Only the surviving comment's block
-    // stays highlighted (proves highlighting runs and the deleted range clears).
-    const res = await request.post('/api/file/comments?path=plan.md', {
-      data: { start_line: 3, end_line: 7, body: 'Will be deleted' },
-    });
-    const comment = await res.json();
-    const keep = await request.post('/api/file/comments?path=plan.md', {
-      data: { start_line: 1, end_line: 1, body: 'Survivor' },
-    });
-    expect(keep.ok()).toBeTruthy();
-
-    await request.delete(`/api/comment/${comment.id}?path=plan.md`);
-    await loadPage(page);
-    const section = await switchToDocumentView(page);
-    await expect(section.locator('.comment-card', { hasText: 'Survivor' })).toBeVisible();
-    await expectDocumentHighlightRange(section, 1, 1);
+    // Deleting the ranged comment removes its highlight from all blocks; the
+    // survivor keeps its own.
+    const rangedCard = section.locator('.comment-card', { hasText: 'Range test' });
+    await rangedCard.hover();
+    await rangedCard.locator('.comment-actions .delete-btn').click();
+    await expect(section.locator('.comment-card')).toHaveCount(1);
+    await expect(section.locator('.comment-card', { hasText: 'Single line' })).toBeVisible();
+    await expectDocumentHighlightRanges(section, [[1, 1]]);
   });
 });
 
@@ -127,8 +105,8 @@ async function showCard(item: Locator, body: string) {
 type DiffLine = { Type: string; OldNum: number; NewNum: number };
 type Hunk = { Lines: DiffLine[] };
 
-async function serverHunks(page: Page): Promise<Hunk[]> {
-  const res = await page.request.get('/api/file/diff?path=server.go');
+async function serverHunks(request: APIRequestContext): Promise<Hunk[]> {
+  const res = await request.get('/api/file/diff?path=server.go');
   const data = await res.json();
   const hunks = (data.hunks || []) as Hunk[];
   expect(hunks.length).toBeGreaterThan(0);
@@ -160,11 +138,10 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
   });
 
   test('multi-line comment highlights all lines including deletions', async ({ page, request }) => {
-    await loadPage(page);
     // A whole change block (deletions + additions) bracketed by context:
     // start on the context line before the first deletion, end on the next
     // context line after it.
-    const { startLine, endLine } = bracketedChange(await serverHunks(page), 'first');
+    const { startLine, endLine } = bracketedChange(await serverHunks(request), 'first');
 
     const res = await request.post('/api/file/comments?path=server.go', {
       data: { start_line: startLine, end_line: endLine, body: 'Unified range test' },
@@ -191,8 +168,7 @@ test.describe('Comment Range Highlighting — Unified Diff', () => {
   });
 
   test('deletion lines within comment range get the comment tint', async ({ page, request }) => {
-    await loadPage(page);
-    const { startLine, endLine, delOld } = bracketedChange(await serverHunks(page), 'last');
+    const { startLine, endLine, delOld } = bracketedChange(await serverHunks(request), 'last');
 
     const res = await request.post('/api/file/comments?path=server.go', {
       data: { start_line: startLine, end_line: endLine, body: 'Spans deletion' },
@@ -214,10 +190,9 @@ test.describe('Comment Range Highlighting — Split Diff', () => {
   });
 
   test('multi-line comment highlights correct side in split view', async ({ page, request }) => {
-    await loadPage(page);
     let startLine = 0;
     let endLine = 0;
-    for (const hunk of await serverHunks(page)) {
+    for (const hunk of await serverHunks(request)) {
       const adds = hunk.Lines.filter(l => l.Type === 'add');
       if (adds.length >= 3) { startLine = adds[0].NewNum; endLine = adds[2].NewNum; break; }
     }

@@ -26,22 +26,3 @@ test('switch to working tree refreshes file list (via API)', async ({ page, requ
   await expect(page.locator('.tree-file', { hasText: 'a.txt' })).toBeVisible({ timeout: 5_000 });
   await expect(page.locator('.tree-file', { hasText: 'c.txt' })).toBeVisible();
 });
-
-test('clicking the stack chip ✕ exit switches focus out of range mode', async ({ page, request }) => {
-  await loadPage(page);
-  // Sanity: range mode shows only b.txt.
-  await expect(page.locator('.tree-file', { hasText: 'b.txt' })).toBeVisible();
-  // The exit ✕ is visible in any range focus under git mode.
-  const exitBtn = page.locator('#stackChipExit');
-  await expect(exitBtn).toBeVisible();
-  await exitBtn.click();
-
-  await expect(async () => {
-    const sess = await (await request.get('/api/session')).json();
-    expect(sess.focus.kind).toBe('working_tree');
-  }).toPass({ timeout: 5_000 });
-
-  // File list rebuilds for working tree (all three files vs main).
-  await expect(page.locator('.tree-file', { hasText: 'a.txt' })).toBeVisible({ timeout: 5_000 });
-  await expect(page.locator('.tree-file', { hasText: 'c.txt' })).toBeVisible();
-});

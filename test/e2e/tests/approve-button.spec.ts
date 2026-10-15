@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath } from './helpers';
+import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, resolveComment } from './helpers';
 
 // ============================================================
 // Approve Button — Finish/Approve text reacts to resolve state
@@ -11,37 +11,10 @@ test.describe('Approve Button Text', () => {
     await clearAllComments(request);
   });
 
-  test('shows Finish Review when there is an unresolved comment', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Needs work');
-
-    await loadPage(page);
-    await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
-  });
-
-  test('shows Approve when all comments are resolved', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    const comment = await addComment(request, mdPath, 1, 'Needs work');
-
-    // Resolve via API
-    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
-      method: 'PUT',
-      data: { resolved: true },
-    });
-
-    await loadPage(page);
-    await expect(page.locator('#finishBtn')).toHaveText('Approve');
-  });
-
-  test('switches from Approve back to Finish Review when comment is unresolved', async ({ page, request }) => {
+  test('shows Approve on load when all comments are resolved, and Finish Review after unresolving', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     const comment = await addComment(request, mdPath, 1, 'Fix this bug');
-
-    // Resolve via API so we start with "Approve"
-    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
-      method: 'PUT',
-      data: { resolved: true },
-    });
+    await resolveComment(request, mdPath, comment.id);
 
     await loadPage(page);
     await expect(page.locator('#finishBtn')).toHaveText('Approve');
@@ -50,28 +23,24 @@ test.describe('Approve Button Text', () => {
     await switchToDocumentView(page);
     const section = await mdSection(page);
 
-    // Expand the resolved (collapsed) card
+    // Expand the resolved (collapsed) card, then unresolve it
     await section.locator('.comment-collapse-btn').click();
-
-    // Hover to reveal unresolve button, click it
     await section.locator('.comment-card').hover();
     await section.locator('.comment-actions button[title="Unresolve"]').click();
 
-    // Button should switch back to "Finish Review"
     await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
   });
 
-  test('handles multiple comments: Approve only when all resolved', async ({ page, request }) => {
+  test('Approve only when every comment is resolved', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     await addComment(request, mdPath, 1, 'First comment');
     await addComment(request, mdPath, 3, 'Second comment');
 
     await loadPage(page);
 
-    // Two unresolved comments — should say "Finish Review"
+    // Unresolved comments — should say "Finish Review"
     await expect(page.locator('#finishBtn')).toHaveText('Finish Review');
 
-    // Switch to document view to interact with comment cards
     await switchToDocumentView(page);
     const section = await mdSection(page);
     const cards = section.locator('.comment-card');
@@ -128,27 +97,17 @@ test.describe('Approve Button after server shutdown', () => {
     );
   });
 
-  test('shows a disabled Session complete button', async ({ page }) => {
-    await loadPage(page);
+  test('shows a disabled Session complete button that stays locked when a comment changes', async ({ page, request }) => {
+    const mdPath = await getMdPath(request);
+    const comment = await addComment(request, mdPath, 1, 'Fix this bug');
+    await resolveComment(request, mdPath, comment.id);
 
+    await loadPage(page);
     await expect(page.locator('.disconnected-banner')).toBeVisible();
     const finishBtn = page.locator('#finishBtn');
     await expect(finishBtn).toHaveText('Session complete');
     await expect(finishBtn).toBeDisabled();
     await expect(finishBtn).not.toHaveClass(/btn-primary/);
-  });
-
-  test('stays locked when a comment changes afterwards', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    const comment = await addComment(request, mdPath, 1, 'Fix this bug');
-    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
-      method: 'PUT',
-      data: { resolved: true },
-    });
-
-    await loadPage(page);
-    const finishBtn = page.locator('#finishBtn');
-    await expect(finishBtn).toHaveText('Session complete');
 
     // Unresolving recounts the comments, which relabels the finish button.
     await switchToDocumentView(page);

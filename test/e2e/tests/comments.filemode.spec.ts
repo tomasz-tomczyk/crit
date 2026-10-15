@@ -9,14 +9,23 @@ test.describe('Comments — File Mode', () => {
     await expect(section.locator('.document-wrapper')).toBeVisible();
   });
 
-  test('can add and delete a markdown comment in file mode', async ({ page }) => {
+  test('can add and delete a markdown comment in file mode; @ opens the file picker', async ({ page }) => {
     const section = await mdSection(page);
     const lineBlock = section.locator('.line-block').first();
     await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
+    const gutterBtn = section.locator('.line-comment-gutter').first();
+    await expect(gutterBtn).toBeVisible();
+    await gutterBtn.click();
 
     const textarea = page.locator('.comment-form textarea');
     await expect(textarea).toBeFocused();
+
+    // Typing @ opens the file picker autocomplete with the session's files.
+    await textarea.pressSequentially('@');
+    const dropdown = page.locator('.file-picker-dropdown');
+    await expect(dropdown).toBeVisible();
+    await expect(dropdown.locator('.file-picker-item').first()).toBeVisible();
+
     await textarea.fill('File mode comment');
     await page.locator('.comment-form .btn-primary').click();
 

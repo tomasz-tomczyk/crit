@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page, Locator } from '@playwright/test';
 import {
   clearAllComments, getMdPath, loadPage, goSection, mdSection,
-  switchToDocumentView, diffLine, setDiffStyle, expectPaintedQuote, selectInLineAndPressC,
+  switchToDocumentView, diffLine, setDiffStyle, expectPaintedQuote, selectInLineAndPressC, waitHighlighted,
 } from './helpers';
 
 // Helper: drag-select between two coordinates, then press `c` to comment.
@@ -21,6 +21,15 @@ async function selectAndPressC(
   await page.mouse.move(x2, y2, { steps });
   await page.mouse.up();
   await page.keyboard.press('c');
+}
+
+// A locator's bounding box, failing the test (never skipping it) when the
+// element has no box.
+async function boxOf(locator: Locator) {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, 'element has a bounding box').not.toBeNull();
+  return box!;
 }
 
 // Quote highlights in Pierre diffs are CSS custom highlights (the "crit-quote"
@@ -59,50 +68,33 @@ test.describe('Select-to-comment (git mode)', () => {
       section = await switchToDocumentView(page);
     });
 
-    test('selecting text alone does not open form; selection preserved for copying', async ({ page }) => {
+    test('a single click or a selection alone opens no form; c opens one and Escape cancels it', async ({ page }) => {
       const firstBlock = section.locator('.line-block').first();
       await expect(firstBlock).toBeVisible();
+      const blockBox = await boxOf(firstBlock);
 
-      const blockBox = await firstBlock.boundingBox();
-      expect(blockBox).toBeTruthy();
-      if (!blockBox) return;
+      // A single click (no drag) opens nothing.
+      await page.mouse.click(blockBox.x + 10, blockBox.y + blockBox.height / 2);
+      await expect(section.locator('.comment-form')).not.toBeVisible();
 
+      // A drag selection alone is for copying: no form, selection preserved.
       await page.mouse.move(blockBox.x + 60, blockBox.y + blockBox.height / 2);
       await page.mouse.down();
       await page.mouse.move(blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2, { steps: 5 });
       await page.mouse.up();
-
-      // Form not visible — selection alone is for copying
       await expect(section.locator('.comment-form')).not.toBeVisible();
+      expect(await page.evaluate(() => window.getSelection()?.toString().trim())).toBeTruthy();
 
-      // Selection still present
-      const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim());
-      expect(selectedText).toBeTruthy();
-    });
-
-    test('Escape cancels the comment form once opened', async ({ page }) => {
-      const firstBlock = section.locator('.line-block').first();
-      const blockBox = await firstBlock.boundingBox();
-      expect(blockBox).toBeTruthy();
-      if (!blockBox) return;
-
-      await selectAndPressC(
-        page,
-        blockBox.x + 60, blockBox.y + blockBox.height / 2,
-        blockBox.x + blockBox.width - 10, blockBox.y + blockBox.height / 2,
-      );
-
+      // c turns the selection into a form; Escape cancels it.
+      await page.keyboard.press('c');
       await expect(section.locator('.comment-form textarea')).toBeVisible();
-
       await page.keyboard.press('Escape');
       await expect(section.locator('.comment-form')).not.toBeVisible();
     });
 
     test('full comment lifecycle via text selection', async ({ page }) => {
       const firstBlock = section.locator('.line-block').first();
-      const blockBox = await firstBlock.boundingBox();
-      expect(blockBox).toBeTruthy();
-      if (!blockBox) return;
+      const blockBox = await boxOf(firstBlock);
 
       await selectAndPressC(
         page,
@@ -134,8 +126,7 @@ test.describe('Select-to-comment (git mode)', () => {
       // Select text in a different block without pressing c — should NOT open a second form
       const thirdBlock = section.locator('.line-block').nth(2);
       await thirdBlock.scrollIntoViewIfNeeded();
-      const blockBox = await thirdBlock.boundingBox();
-      if (!blockBox) return;
+      const blockBox = await boxOf(thirdBlock);
 
       await page.mouse.move(blockBox.x + 60, blockBox.y + blockBox.height / 2);
       await page.mouse.down();
@@ -151,8 +142,7 @@ test.describe('Select-to-comment (git mode)', () => {
 
       // First form: select-and-c on first block
       const firstBlock = blocks.first();
-      const firstBox = await firstBlock.boundingBox();
-      if (!firstBox) return;
+      const firstBox = await boxOf(firstBlock);
       await selectAndPressC(
         page,
         firstBox.x + 60, firstBox.y + firstBox.height / 2,
@@ -194,12 +184,9 @@ test.describe('Select-to-comment (git mode)', () => {
       const thirdBlock = blocks.nth(2);
 
       await firstBlock.scrollIntoViewIfNeeded();
-      const startBox = await firstBlock.boundingBox();
+      const startBox = await boxOf(firstBlock);
       await thirdBlock.scrollIntoViewIfNeeded();
-      const endBox = await thirdBlock.boundingBox();
-      expect(startBox).toBeTruthy();
-      expect(endBox).toBeTruthy();
-      if (!startBox || !endBox) return;
+      const endBox = await boxOf(thirdBlock);
 
       await selectAndPressC(
         page,
@@ -273,19 +260,6 @@ test.describe('Select-to-comment (git mode)', () => {
       expect(c.end_line).toBe(5);
     });
 
-test('single click (no drag) does not open a form', async ({ page }) => {
-      const firstBlock = section.locator('.line-block').first();
-      await expect(firstBlock).toBeVisible();
-
-      const blockBox = await firstBlock.boundingBox();
-      expect(blockBox).toBeTruthy();
-      if (!blockBox) return;
-
-      await page.mouse.click(blockBox.x + 10, blockBox.y + blockBox.height / 2);
-
-      await expect(section.locator('.comment-form')).not.toBeVisible();
-    });
-
   });
 
   test.describe('quote highlight', () => {
@@ -295,13 +269,11 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       section = await switchToDocumentView(page);
     });
 
-    test('partial selection highlights while open and persists its quote', async ({ page, request }) => {
+    test('partial selection highlights in the text colour while open and persists its quote', async ({ page, request }) => {
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
-      const box = await content.boundingBox();
-      expect(box).toBeTruthy();
-      if (!box) return;
+      const box = await boxOf(content);
 
       await selectAndPressC(
         page,
@@ -312,6 +284,8 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       const textarea = section.locator('.comment-form textarea');
       await expect(textarea).toBeVisible();
       await expect(section.locator('mark.quote-highlight')).toBeVisible();
+      // The highlight inherits the text colour (not black).
+      expect(await section.locator('mark.quote-highlight').evaluate(el => getComputedStyle(el).color)).not.toBe('rgb(0, 0, 0)');
       await textarea.fill('Persisted quote');
       await textarea.press('Control+Enter');
 
@@ -334,11 +308,8 @@ test('single click (no drag) does not open a form', async ({ page }) => {
 
       const startContent = overviewBlock.locator('.line-content');
       const endContent = authBlock.locator('.line-content');
-      const startBox = await startContent.boundingBox();
-      const endBox = await endContent.boundingBox();
-      expect(startBox).toBeTruthy();
-      expect(endBox).toBeTruthy();
-      if (!startBox || !endBox) return;
+      const startBox = await boxOf(startContent);
+      const endBox = await boxOf(endContent);
 
       await selectAndPressC(
         page,
@@ -359,45 +330,19 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       });
       const res = await request.get(`/api/file/comments?path=${mdPath}`);
       const comments = await res.json();
-      const crossLine = comments.find((c: any) => c.body === 'Cross-line comment');
+      const crossLine = (comments as Array<{ body: string; quote?: string }>).find(c => c.body === 'Cross-line comment')!;
       expect(crossLine).toBeTruthy();
       expect(crossLine.quote).toBeTruthy();
-      expect(crossLine.quote.length).toBeGreaterThan(0);
+      expect(crossLine.quote!.length).toBeGreaterThan(0);
 
       await expect(section.locator('mark.quote-highlight').first()).toBeVisible();
-    });
-
-    test('quote highlight inherits text color (not black)', async ({ page }) => {
-      const block = section.locator('.line-block', { hasText: 'API key authentication' });
-      await expect(block).toBeVisible();
-      const content = block.locator('.line-content');
-      const box = await content.boundingBox();
-      if (!box) return;
-
-      await selectAndPressC(
-        page,
-        box.x + 80, box.y + box.height / 2,
-        box.x + 250, box.y + box.height / 2,
-      );
-
-      const textarea = section.locator('.comment-form textarea');
-      await expect(textarea).toBeVisible();
-      await textarea.fill('Color check');
-      await textarea.press('Control+Enter');
-
-      const mark = section.locator('mark.quote-highlight');
-      await expect(mark).toBeVisible();
-
-      const color = await mark.evaluate(el => getComputedStyle(el).color);
-      expect(color).not.toBe('rgb(0, 0, 0)');
     });
 
     test('full-line selection does NOT produce a quote highlight', async ({ page }) => {
       const block = section.locator('.line-block', { hasText: 'API key authentication' });
       await expect(block).toBeVisible();
       const content = block.locator('.line-content');
-      const box = await content.boundingBox();
-      if (!box) return;
+      const box = await boxOf(content);
 
       // Programmatically select the entire .line-content text, then press `c`.
       await page.evaluate(() => {
@@ -427,6 +372,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
     test('quote highlight appears in split diff view while form is open', async ({ page, request }) => {
       // server.go new 24: `func authMiddleware(next http.HandlerFunc) ...`
       const item = await goSection(page);
+      await waitHighlighted(item, 24);
       const selected = await selectInLineAndPressC(page, item, 24);
 
       const form = item.locator('.comment-form');
@@ -465,6 +411,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       const item = await goSection(page);
       const addition = diffLine(item, 24);
       await expect(addition).toHaveAttribute('data-line-type', 'change-addition');
+      await waitHighlighted(item, 24);
 
       const selected = await selectInLineAndPressC(page, item, 24);
 
@@ -481,6 +428,7 @@ test('single click (no drag) does not open a form', async ({ page }) => {
       // "We're adding API key authentication..." paragraph.
       const item = await mdSection(page);
       await expect(diffLine(item, 5)).toContainText('API key authentication');
+      await waitHighlighted(item, 5);
       const selected = await selectInLineAndPressC(page, item, 5);
 
       const textarea = item.locator('.comment-form textarea');

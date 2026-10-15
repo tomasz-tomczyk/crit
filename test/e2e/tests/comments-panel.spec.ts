@@ -1,6 +1,14 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
-import { clearAllComments, loadPage, mdSection, switchToDocumentView, addComment, getMdPath, getReviewFilePath, waitForScrollStable } from './helpers';
+import {
+  clearAllComments, loadPage, switchToDocumentView, addComment, getMdPath, getReviewFilePath,
+  openDocLineComment, resolveComment, roundComplete, waitForScrollStable, reviewScroller,
+  recordClassAdditions, expectClassAddedTo, classAdditions,
+} from './helpers';
+
+// Comment links and highlighted code in panel cards: comment-markdown.spec.ts.
+
+const HIGHLIGHT = 'comment-card-highlight';
 
 function commentsPanel(page: Page) {
   return page.locator('#commentsPanel');
@@ -10,11 +18,14 @@ function panelCards(page: Page) {
   return page.locator('.panel-comment-block .comment-card');
 }
 
-async function waitForRound(request: APIRequestContext, previousRound: number) {
-  await expect(async () => {
-    const session = await request.get('/api/session').then(r => r.json());
-    expect(session.review_round).toBeGreaterThan(previousRound);
-  }).toPass({ timeout: 5000 });
+function panelCard(page: Page, id: string) {
+  return page.locator(`.panel-comment-block .comment-card[data-comment-id="${id}"]`);
+}
+
+// The inline (not panel) card for a comment. Not revealed through the tree:
+// mdSection() would scroll the file header back into view and undo a jump.
+function inlineCard(page: Page, id: string) {
+  return page.locator(`.comment-block:not(.panel-comment-block) .comment-card[data-comment-id="${id}"]`);
 }
 
 // ============================================================
@@ -25,389 +36,202 @@ test.describe('Comments Panel — Git Mode', () => {
     await clearAllComments(request);
   });
 
-  test('panel is hidden by default', async ({ page }) => {
+  test('panel is hidden by default, toggles with Shift+C and the close button, and is not kept across reloads', async ({ page }) => {
     await loadPage(page);
     await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
-  });
-
-  test('Shift+C toggles panel open and closed', async ({ page }) => {
-    await loadPage(page);
 
     await page.keyboard.press('Shift+C');
     await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
-
-    await page.keyboard.press('Shift+C');
-    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
-  });
-
-  test('clicking comment count opens panel', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Panel toggle test');
-    await loadPage(page);
-
-    const countEl = page.locator('#commentCount');
-    await expect(countEl).toBeVisible();
-    await countEl.click();
-
-    await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
-  });
-
-  test('close button hides panel', async ({ page }) => {
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-    await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
-
-    await page.locator('.comments-panel-close').click();
-    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
-  });
-
-  test('empty state when no comments', async ({ page }) => {
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
+    // Empty state when there are no comments.
     await expect(page.locator('.comments-panel-empty')).toBeVisible();
     await expect(page.locator('.comments-panel-empty')).toContainText('No comments yet');
+
+    await page.keyboard.press('Shift+C');
+    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
+
+    await page.keyboard.press('Shift+C');
+    await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
+    await page.locator('.comments-panel-close').click();
+    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
+
+    // The shortcuts pane documents the toggle.
+    await page.keyboard.press('?');
+    await expect(page.locator('.settings-overlay')).toHaveClass(/active/);
+    await expect(page.locator('.settings-pane[data-pane="shortcuts"]')).toContainText('Toggle comments panel');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
+
+    // Open state is not persisted across reloads.
+    await page.keyboard.press('Shift+C');
+    await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
+    await loadPage(page);
+    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
   });
 
-  test('panel shows comment cards', async ({ page, request }) => {
+  test('panel lists comments with line references, file groups and actions', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
+    const session = await (await request.get('/api/session')).json();
+    const goPath = session.files.find((f: { path: string }) => f.path.endsWith('.go'))?.path;
+    expect(goPath).toBeTruthy();
+
     await addComment(request, mdPath, 1, 'First git comment');
     await addComment(request, mdPath, 3, 'Second git comment');
-    await loadPage(page);
-
-    await page.keyboard.press('Shift+C');
-    await expect(panelCards(page)).toHaveCount(2);
-    await expect(panelCards(page).first().locator('.comment-body')).toContainText('First git comment');
-    await expect(panelCards(page).nth(1).locator('.comment-body')).toContainText('Second git comment');
-  });
-
-  test('panel shows line references', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 5, 'Line ref test');
-    await loadPage(page);
-
-    await page.keyboard.press('Shift+C');
-    await expect(panelCards(page).first().locator('.comment-line-ref')).toContainText('Line 5');
-  });
-
-  test('panel shows line range for multi-line comments', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    const resp = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
+    const lineRef = await addComment(request, mdPath, 5, 'Line ref test');
+    const rangeResp = await request.post(`/api/file/comments?path=${encodeURIComponent(mdPath)}`, {
       data: { start_line: 2, end_line: 4, body: 'Range comment' },
     });
-    expect(resp.ok()).toBeTruthy();
+    expect(rangeResp.ok()).toBeTruthy();
+    const range = await rangeResp.json();
+    await addComment(request, goPath, 1, 'Go comment');
     await loadPage(page);
 
-    await page.keyboard.press('Shift+C');
-    await expect(panelCards(page).first().locator('.comment-line-ref')).toContainText('Lines 2-4');
+    // Clicking the count badge number opens the panel (and closes it again below).
+    const badgeEl = page.locator('#commentCountNumber');
+    await expect(badgeEl).toBeVisible();
+    await badgeEl.click();
+    await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
+
+    await expect(panelCards(page)).toHaveCount(5);
+    const bodies = await panelCards(page).locator('.comment-body').allTextContents();
+    const firstIdx = bodies.findIndex(b => b.includes('First git comment'));
+    const secondIdx = bodies.findIndex(b => b.includes('Second git comment'));
+    expect(firstIdx).toBeGreaterThanOrEqual(0);
+    expect(secondIdx).toBeGreaterThan(firstIdx);
+
+    // Line references: single line and multi-line range.
+    await expect(panelCard(page, lineRef.id).locator('.comment-line-ref')).toContainText('Line 5');
+    await expect(panelCard(page, range.id).locator('.comment-line-ref')).toContainText('Lines 2-4');
+
+    // One file name header per file with comments.
+    await expect(page.locator('.comments-panel-file-name')).toHaveCount(2);
+
+    // Fresh comments: no carried-forward badges, a Resolve action, and no
+    // resolved filter while nothing is resolved.
+    const card = panelCard(page, lineRef.id);
+    await expect(card.locator('.carried-forward-label')).toHaveCount(0);
+    await expect(card.locator('.resolve-btn--active')).toHaveCount(0);
+    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+    await expect(page.locator('#commentsPanelFilter')).toBeHidden();
+
+    await badgeEl.click();
+    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
   });
 
-  test('panel updates when comment is added via UI', async ({ page }) => {
+  test('panel follows comments added and deleted inline', async ({ page }) => {
     await loadPage(page);
-    await switchToDocumentView(page);
+    const doc = await switchToDocumentView(page);
 
-    // Open panel first
     await page.keyboard.press('Shift+C');
     await expect(page.locator('.comments-panel-empty')).toBeVisible();
 
-    // Add a comment through the UI
-    const section = await mdSection(page);
-    const lineBlock = section.locator('.line-block').first();
-    await lineBlock.hover();
-    await section.locator('.line-comment-gutter').first().click();
-
-    const textarea = page.locator('.comment-form textarea');
-    await textarea.fill('Added via UI');
-    await page.locator('.comment-form .btn-primary').click();
-
-    // Panel should now show the comment
+    await (await openDocLineComment(page, doc)).fill('Added via UI');
+    await doc.locator('.comment-form .btn-primary').click();
     await expect(panelCards(page)).toHaveCount(1);
     await expect(panelCards(page).first().locator('.comment-body')).toContainText('Added via UI');
-  });
 
-  test('panel updates when comment is deleted', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Will be deleted');
-    await loadPage(page);
-    await switchToDocumentView(page);
-
-    await page.keyboard.press('Shift+C');
-    await expect(panelCards(page)).toHaveCount(1);
-
-    // Delete through UI
-    const section = await mdSection(page);
-    const deleteBtn = section.locator('.comment-card .delete-btn');
-    await deleteBtn.click();
-
-    // Panel should update to empty state
+    await doc.locator('.comment-card .delete-btn').click();
     await expect(page.locator('.comments-panel-empty')).toBeVisible();
   });
 
-  test('clicking panel card scrolls to inline comment', async ({ page, request }) => {
+  test('clicking a panel card scrolls to and flashes the inline comment', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
     const file = await request.get(`/api/file?path=${encodeURIComponent(mdPath)}`).then(r => r.json());
     const targetLine = (file.content as string).split('\n').reduce((last, line, index) => line.trim() ? index + 1 : last, 0);
-    await addComment(request, mdPath, targetLine, 'Scroll target');
+    const target = await addComment(request, mdPath, targetLine, 'Scroll target');
     await loadPage(page);
     await switchToDocumentView(page);
+    await recordClassAdditions(page, HIGHLIGHT);
 
-    await page.locator('#filesContainer').evaluate(el => { el.scrollTop = 0; });
-    await page.keyboard.press('Shift+C');
-    await panelCards(page).first().click();
+    // Start away from the comment (the last line of plan.md).
+    await reviewScroller(page).evaluate(el => { el.scrollTop = 0; });
     await waitForScrollStable(page);
+    await expect(inlineCard(page, target.id)).not.toBeInViewport();
 
-    // The inline comment card should get the highlight animation class
-    const inlineCard = (await mdSection(page)).locator('.comment-card[data-comment-id]').first();
-    await expect(inlineCard).toBeVisible();
-    await expect(inlineCard).toBeInViewport();
-    await expect(inlineCard).toHaveClass(/comment-card-highlight/);
-  });
-
-  test('panel does not persist open state across reloads', async ({ page }) => {
-    await loadPage(page);
     await page.keyboard.press('Shift+C');
-    await expect(commentsPanel(page)).not.toHaveClass(/comments-panel-hidden/);
-
-    await loadPage(page);
-    await expect(commentsPanel(page)).toHaveClass(/comments-panel-hidden/);
+    await expectClassAddedTo(page, HIGHLIGHT, () => panelCard(page, target.id).click(), target.id);
+    await waitForScrollStable(page);
+    await expect(inlineCard(page, target.id)).toBeVisible();
+    await expect(inlineCard(page, target.id)).toBeInViewport();
   });
 
-  test('resolved filter is hidden when no resolved comments exist', async ({ page, request }) => {
+  test('resolve and unresolve from the panel, for file and review-level comments', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Active comment');
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
+    const fileComment = await addComment(request, mdPath, 1, 'Panel resolve test');
+    const reviewResp = await request.post('/api/comments', { data: { body: 'Review-level resolve test' } });
+    expect(reviewResp.ok()).toBeTruthy();
+    const reviewComment = await reviewResp.json();
 
-    await expect(page.locator('#commentsPanelFilter')).toBeHidden();
-  });
-
-  test('panel shows file name headers in multi-file mode', async ({ page, request }) => {
-    const session = await (await request.get('/api/session')).json();
-    const mdPath = session.files.find((f: { path: string }) => f.path.endsWith('.md'))?.path;
-    const goPath = session.files.find((f: { path: string }) => f.path.endsWith('.go'))?.path;
-    expect(mdPath).toBeTruthy();
-    expect(goPath).toBeTruthy();
-
-    await addComment(request, mdPath!, 1, 'MD comment');
-    await addComment(request, goPath!, 1, 'Go comment');
-    await loadPage(page);
-
-    await page.keyboard.press('Shift+C');
-    await expect(panelCards(page)).toHaveCount(2);
-
-    const fileNames = page.locator('.comments-panel-file-name');
-    await expect(fileNames).toHaveCount(2);
-  });
-
-  test('keyboard shortcut in shortcuts panel', async ({ page }) => {
-    await loadPage(page);
-    await page.keyboard.press('?');
-    const overlay = page.locator('.settings-overlay');
-    await expect(overlay).toHaveClass(/active/);
-    const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
-    await expect(pane).toContainText('Toggle comments panel');
-  });
-
-  // --- Resolved / carried-forward comment tests ---
-
-  test('resolved carried-forward comment shows resolved card state', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Will be resolved');
-
-    // Finish to write the review file
-    await request.post('/api/finish');
-    const critJsonPath = await getReviewFilePath(request);
-
-    // Mark comment as resolved in the review file
-    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-    for (const fileKey of Object.keys(critJson.files)) {
-      for (const comment of critJson.files[fileKey].comments) {
-        comment.resolved = true;
-        comment.resolution_note = 'Fixed';
-      }
-    }
-    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-    // Round-complete to carry forward
-    const round = (await request.get('/api/session').then(r => r.json())).review_round;
-    await request.post('/api/round-complete');
-    await waitForRound(request, round);
-
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
-    // Switch to Resolved filter
-    await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
-
-    const card = panelCards(page).first();
-    await expect(card).toBeVisible();
-    await expect(card).toHaveClass(/resolved-card/);
-  });
-
-  test('clicking resolved comment in panel scrolls to inline resolved comment', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Resolve and scroll');
-
-    await request.post('/api/finish');
-    const critJsonPath = await getReviewFilePath(request);
-
-    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
-    for (const fileKey of Object.keys(critJson.files)) {
-      for (const comment of critJson.files[fileKey].comments) {
-        comment.resolved = true;
-      }
-    }
-    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
-
-    const round = (await request.get('/api/session').then(r => r.json())).review_round;
-    await request.post('/api/round-complete');
-    await waitForRound(request, round);
-
-    await loadPage(page);
-
-    const mdDoc = await switchToDocumentView(page);
-
-    await page.keyboard.press('Shift+C');
-
-    // Switch to Resolved filter
-    await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
-    await expect(panelCards(page)).toHaveCount(1);
-
-    // Click the resolved card
-    await panelCards(page).first().click();
-
-    // The resolved inline comment should be visible and highlighted
-    const inlineResolved = mdDoc.locator('.comment-card.resolved-card[data-comment-id]').first();
-    await expect(inlineResolved).toBeVisible();
-    await expect(inlineResolved).toBeInViewport();
-    await expect(inlineResolved).toHaveClass(/comment-card-highlight/);
-  });
-
-  test('sidebar panel renders links with accent styling', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Check https://example.com for details');
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
-    const card = panelCards(page).first();
-    await expect(card).toBeVisible();
-    const link = card.locator('.comment-body a');
-    await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('href', 'https://example.com');
-    // Link should have accent color, not default browser blue
-    const color = await link.evaluate(el => getComputedStyle(el).color);
-    expect(color).not.toBe('rgb(0, 0, 238)');
-  });
-
-  test('sidebar panel renders syntax-highlighted code blocks', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, '```go\nfunc main() {}\n```');
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
-    const card = panelCards(page).first();
-    await expect(card).toBeVisible();
-    const codeBlock = card.locator('.comment-body pre code');
-    await expect(codeBlock).toBeVisible();
-    // Shiki upgrades the block asynchronously; tokens carry theme colors.
-    await expect(codeBlock).toHaveAttribute('data-crit-code', 'highlighted');
-    await expect(codeBlock.locator('span[style*="--diffs-token"]').first()).toBeVisible();
-  });
-
-  test('new comments do not show carried-forward badges', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Fresh comment');
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
-    const card = panelCards(page).first();
-    await expect(card).toBeVisible();
-    await expect(card.locator('.carried-forward-label')).toHaveCount(0);
-    await expect(card.locator('.resolve-btn--active')).toHaveCount(0);
-  });
-
-  test('panel comment card shows Resolve button', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Resolve from panel');
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
-
-    const card = panelCards(page).first();
-    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
-  });
-
-  test('clicking Resolve in panel resolves the comment', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'Panel resolve test');
     await loadPage(page);
     await switchToDocumentView(page);
+    await expect(inlineCard(page, fileComment.id)).toBeVisible();
+    await recordClassAdditions(page, HIGHLIGHT);
     await page.keyboard.press('Shift+C');
 
-    const card = page.locator('.panel-comment-block .comment-card[data-comment-id]').first();
+    // Resolve: card turns resolved and offers Unresolve.
+    const card = panelCard(page, fileComment.id);
     await card.locator('.comment-actions button[title="Resolve"]').click();
-
-    // Card gets resolved-card class and button changes to Unresolve
     await expect(card).toHaveClass(/resolved-card/);
     await expect(card.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
-  });
 
-  test('clicking Unresolve in panel unresolves the comment', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    const comment = await addComment(request, mdPath, 1, 'Panel unresolve test');
-    await request.fetch(`/api/comment/${comment.id}/resolve?path=${encodeURIComponent(mdPath)}`, {
-      method: 'PUT',
-      data: { resolved: true },
-    });
-    await loadPage(page);
-    await page.keyboard.press('Shift+C');
+    // Resolving did not navigate to the inline card: the only highlight is the
+    // one a deliberate click on the (now collapsed) card produces afterwards.
+    await expectClassAddedTo(page, HIGHLIGHT, () => card.locator('.comment-header-left').click(), fileComment.id);
+    expect(await classAdditions(page, HIGHLIGHT)).toEqual([fileComment.id]);
 
-    // Switch to resolved filter to see the resolved comment
+    // Unresolve from the Resolved filter; it shows under Open again.
     await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
     await expect(panelCards(page)).toHaveCount(1);
-
-    const card = page.locator(`.panel-comment-block .comment-card[data-comment-id="${comment.id}"]`);
     await card.locator('.comment-actions button[title="Unresolve"]').click();
-
-    // Switch to "open" filter — comment is now unresolved so it appears there
     await page.locator('#commentsFilterPill .toggle-btn[data-filter="open"]').click();
-    await expect(panelCards(page)).toHaveCount(1);
+    await expect(card).toBeVisible();
     await expect(card).not.toHaveClass(/resolved-card/);
     await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+
+    // Review-level comments resolve from the panel too (All filter keeps
+    // the card listed once it is resolved).
+    await page.locator('#commentsFilterPill .toggle-btn[data-filter="all"]').click();
+    const reviewCard = panelCard(page, reviewComment.id);
+    await expect(reviewCard.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
+    await reviewCard.locator('.comment-actions button[title="Resolve"]').click();
+    await expect(reviewCard).toHaveClass(/resolved-card/);
+    await expect(reviewCard.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
   });
 
-  test('clicking Resolve button does not trigger scroll-to-inline navigation', async ({ page, request }) => {
+  // Resolution written by the agent into the review file and carried into the
+  // next round (not the resolve API).
+  test('a resolved carried-forward comment shows as resolved and its card scrolls to the inline comment', async ({ page, request }) => {
     const mdPath = await getMdPath(request);
-    await addComment(request, mdPath, 1, 'No scroll on resolve');
-    await loadPage(page);
-    await switchToDocumentView(page);
-    await page.keyboard.press('Shift+C');
+    const comment = await addComment(request, mdPath, 1, 'Resolve and scroll');
 
-    const card = page.locator('.panel-comment-block .comment-card[data-comment-id]').first();
-    await card.locator('.comment-actions button[title="Resolve"]').click();
-
-    // Wait for resolve to complete before checking negative
-    await expect(card).toHaveClass(/resolved-card/);
-
-    // The inline comment card should NOT receive the highlight animation
-    const inlineCard = page.locator('.comment-block:not(.panel-comment-block) .comment-card[data-comment-id]').first();
-    await expect(inlineCard).not.toHaveClass(/comment-card-highlight/);
-  });
-
-  test('panel resolve works for review-level comments', async ({ page, request }) => {
-    const resp = await request.post('/api/comments', {
-      data: { body: 'Review-level resolve test' },
-    });
-    expect(resp.ok()).toBeTruthy();
-    const comment = await resp.json();
+    // Finish to write the review file, mark the comment resolved in it, then
+    // complete the round so it is carried forward.
+    await request.post('/api/finish');
+    const critJsonPath = await getReviewFilePath(request);
+    const critJson = JSON.parse(fs.readFileSync(critJsonPath, 'utf-8'));
+    for (const fileKey of Object.keys(critJson.files)) {
+      for (const c of critJson.files[fileKey].comments) {
+        c.resolved = true;
+        c.resolution_note = 'Fixed';
+      }
+    }
+    fs.writeFileSync(critJsonPath, JSON.stringify(critJson, null, 2));
+    await roundComplete(request);
 
     await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    await recordClassAdditions(page, HIGHLIGHT);
     await page.keyboard.press('Shift+C');
 
-    const card = page.locator(`.panel-comment-block .comment-card[data-comment-id="${comment.id}"]`);
-    await expect(card.locator('.comment-actions button[title="Resolve"]')).toBeVisible();
-
-    await card.locator('.comment-actions button[title="Resolve"]').click();
+    await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
+    await expect(panelCards(page)).toHaveCount(1);
+    const card = panelCards(page).first();
     await expect(card).toHaveClass(/resolved-card/);
-    await expect(card.locator('.comment-actions button[title="Unresolve"]')).toBeVisible();
+    const id = await card.getAttribute('data-comment-id');
+    expect(id).toBe(comment.id);
+
+    await expectClassAddedTo(page, HIGHLIGHT, () => card.click(), comment.id);
+    const inlineResolved = doc.locator(`.comment-card.resolved-card[data-comment-id="${comment.id}"]`);
+    await expect(inlineResolved).toBeVisible();
+    await expect(inlineResolved).toBeInViewport();
   });
 });

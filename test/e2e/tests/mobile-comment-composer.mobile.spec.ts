@@ -1,21 +1,42 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { clearAllComments, goSection, loadPage, tapCenter } from './helpers';
+import { clearAllComments, goSection, loadPage, tapCenter, waitUntilHittable } from './helpers';
 
-// Open a line comment on the first added line of server.go with a single
-// tap on its line number (mobile-tap-to-comment covers the tap itself) and
-// return that line's number. Pierre can re-render the row while the page
-// settles, so the row is re-resolved until the tap lands.
-async function touchOpenFirstAddition(page: Page): Promise<number> {
-  const item = await goSection(page);
-  const gutter: Locator = item.locator(
+// F4 + composer: on touch, a single tap on a commentable diff line number
+// opens the comment form (no hover step, no second tap on a hover "+"), and
+// the composer fits the phone viewport.
+//
+// IMPORTANT LIMITATION: Playwright's page.touchscreen.tap() synthesizes
+// pointerdown → pointerup deterministically. It does NOT produce the
+// pointercancel that real touch hardware emits when the browser's
+// scroll/zoom gesture recognizer wins the touch sequence. These tests
+// verify the JS event routing path; the real-hardware fix is
+// touch-action:none on the gutter tap target, asserted as CSS below.
+
+// Line-number cell of the first added line (mobile renders unified diffs).
+function additionGutter(item: Locator): Locator {
+  return item.locator(
     'code[data-unified] [data-gutter] > [data-column-number][data-line-type="change-addition"]',
   ).first();
-  const textarea = page.locator('#filesContainer .comment-form textarea');
-  await expect(async () => {
-    await tapCenter(page, gutter);
-    await expect(textarea).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+}
+
+// One tap on the first added line's number must open its form. tapCenter
+// re-centres the row until it holds still and takes hits, then taps once.
+async function touchOpenFirstAddition(page: Page): Promise<number> {
+  const gutter = additionGutter(await goSection(page));
+  await expect(gutter).toBeVisible();
+  await tapCenter(page, gutter);
+  await expect(page.locator('#filesContainer .comment-form textarea')).toBeVisible();
   return Number(await gutter.getAttribute('data-column-number'));
+}
+
+// Tap a button the way a finger would: only once it is the hit target at its
+// centre (the sticky picker bar or a re-mounting row can cover it).
+async function tapButton(page: Page, button: Locator) {
+  await button.scrollIntoViewIfNeeded();
+  await waitUntilHittable(button);
+  const box = await button.boundingBox();
+  expect(box).not.toBeNull();
+  await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 
 test.describe('Mobile comment composer', () => {
@@ -24,7 +45,10 @@ test.describe('Mobile comment composer', () => {
     await loadPage(page);
   });
 
-  test('composer uses the mobile viewport instead of the desktop gutter indent', async ({ page }) => {
+  test('a single tap opens a composer that fits the mobile viewport; the gutter is touch-action:none', async ({ page }) => {
+    // The real-hardware reliability fix: if this regresses, hardware drops taps.
+    await expect(additionGutter(await goSection(page))).toHaveCSS('touch-action', 'none');
+
     await touchOpenFirstAddition(page);
 
     const wrapper = page.locator('.comment-form-wrapper');
@@ -54,11 +78,11 @@ test.describe('Mobile comment composer', () => {
     const line = await touchOpenFirstAddition(page);
     expect(line).toBeGreaterThan(0);
 
-    const form = page.locator('.comment-form');
+    const form = page.locator('#filesContainer .comment-form');
     await form.locator('textarea').fill('Submitted from mobile');
-    await form.locator('.btn-primary').click();
+    await tapButton(page, form.locator('.btn-primary'));
 
-    await expect(form).toBeHidden();
+    await expect(form).toHaveCount(0);
     await expect(
       (await goSection(page)).locator('.comment-card .comment-body', { hasText: 'Submitted from mobile' }),
     ).toBeVisible();
@@ -75,14 +99,7 @@ test.describe('Mobile comment composer', () => {
   test('tapping Cancel closes a touch-opened form', async ({ page }) => {
     await touchOpenFirstAddition(page);
     const form = page.locator('#filesContainer .comment-form');
-    const cancel = form.locator('button', { hasText: 'Cancel' }).first();
-    // Tap where the button is once Pierre accepts pointer input again.
-    await expect.poll(() => page.evaluate(() =>
-      !document.querySelector('#filesContainer [style*="pointer-events"]'),
-    )).toBe(true);
-    const box = await cancel.boundingBox();
-    expect(box).not.toBeNull();
-    await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await tapButton(page, form.locator('button', { hasText: 'Cancel' }).first());
     await expect(form).toHaveCount(0);
   });
 });

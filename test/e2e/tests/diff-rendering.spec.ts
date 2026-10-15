@@ -1,39 +1,23 @@
-import { test, expect, type Locator } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   loadPage, goSection, revealFile, fileHeader, diffLine, diffLineNumber,
-  hoverLine, selectedLines, clearAllComments, showLine, clickWhenHittable,
-  setDiffStyle,
+  hoverLine, selectedLines, clearAllComments, showLine, setDiffStyle, waitForScrollStable,
 } from './helpers';
 
 // Git-mode files render through Pierre (see helpers.ts). server.go has
-// adjacent del/add pairs; routes.go has a 37-line gap (new 15..51) between
-// its two hunks, collapsed behind a separator.
-
-// Hidden-line labels of the file's separators (one per collapsed gap).
-function separators(item: Locator): Locator {
-  return item.locator('[data-separator] [data-unmodified-lines]').filter({ visible: true });
-}
-
-// The visible expand control of the first separator. Pierre's "up" control
-// grows the hunk above the gap downward; "down" grows the hunk below upward.
-function expandButton(item: Locator, which: 'below-previous-hunk' | 'above-next-hunk'): Locator {
-  const dir = which === 'below-previous-hunk' ? 'up' : 'down';
-  return item.locator(`[data-separator] [data-expand-button][data-expand-${dir}]`).filter({ visible: true }).first();
-}
+// adjacent del/add pairs. Separators and context expansion (routes.go's
+// 37-line gap) are covered by incremental-expand.spec.ts.
 
 test.describe('Diff Rendering — Split Mode (default)', () => {
-  test('shows split diff by default', async ({ page }) => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
+  test('split diff by default: old left, new right, additions and deletions on their own side', async ({ page }) => {
     await loadPage(page);
     const item = await goSection(page);
     await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
-    await expect(item.locator('code[data-deletions]')).toBeVisible();
-    await expect(item.locator('code[data-additions]')).toBeVisible();
     await expect(item.locator('code[data-unified]')).toHaveCount(0);
-  });
-
-  test('split diff has left and right sides', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
 
     // Old code on the left, new code on the right, side by side.
     const left = item.locator('code[data-deletions]');
@@ -44,31 +28,24 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     const r = await right.boundingBox();
     expect(l!.x + l!.width).toBeLessThanOrEqual(r!.x + 1);
 
-    // server.go old line 42 was replaced by new line 67.
-    await showLine(page, diffLine(item, 67));
-    await expect(diffLine(item, 42, 'old')).toContainText('fmt.Println("Server starting on :8080")');
-    await expect(diffLine(item, 67)).toContainText('log.Printf("Server starting on :%s", port)');
-  });
-
-  test('addition lines are marked as additions on the new side', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
-    // server.go new line 5 (`"log"` import) is added.
+    // server.go new line 5 (`"log"` import) is added, on the new side only.
     const added = diffLine(item, 5);
     await expect(added).toBeVisible();
     await expect(added).toHaveAttribute('data-line-type', 'change-addition');
     await expect(added).toContainText('"log"');
     await expect(item.locator('code[data-deletions] [data-line-type="change-addition"]')).toHaveCount(0);
-  });
 
-  test('deletion lines are marked as deletions on the old side', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
+    // Old line 23 is deleted, on the old side only.
     const deleted = diffLine(item, 23, 'old');
     await showLine(page, deleted);
     await expect(deleted).toHaveAttribute('data-line-type', 'change-deletion');
     await expect(deleted).toContainText('r.URL.Path[1:]');
     await expect(item.locator('code[data-additions] [data-line-type="change-deletion"]')).toHaveCount(0);
+
+    // Old line 42 was replaced by new line 67.
+    await showLine(page, diffLine(item, 67));
+    await expect(diffLine(item, 42, 'old')).toContainText('fmt.Println("Server starting on :8080")');
+    await expect(diffLine(item, 67)).toContainText('log.Printf("Server starting on :%s", port)');
   });
 
   test('deleted file shows "This file was deleted."', async ({ page }) => {
@@ -83,91 +60,25 @@ test.describe('Diff Rendering — Split Mode (default)', () => {
     // The expanded body must explain itself rather than render empty.
     await expect(item.getByText('This file was deleted.')).toBeVisible();
   });
-
-  test('separator between hunks shows the hidden line count', async ({ page }) => {
-    await loadPage(page);
-    const item = await revealFile(page, 'routes.go');
-
-    // routes.go: hunk 1 ends at new line 14, hunk 2 starts at 52.
-    const sep = separators(item).first();
-    await expect(sep).toBeVisible();
-    await expect(sep).toContainText('37 unmodified lines');
-    await expect(diffLine(item, 14)).toBeVisible();
-    await expect(diffLine(item, 15)).toHaveCount(0);
-    await expect(diffLine(item, 51)).toHaveCount(0);
-  });
-
-  test('clicking separator expands context lines', async ({ page }) => {
-    await loadPage(page);
-    const item = await revealFile(page, 'routes.go');
-
-    const sep = separators(item).first();
-    await expect(sep).toContainText('37 unmodified lines');
-    await clickWhenHittable(page, expandButton(item, 'below-previous-hunk'));
-
-    // expansionLineCount is 20: lines 15..34 appear below hunk 1.
-    await expect(diffLine(item, 15)).toBeAttached();
-    await expect(diffLine(item, 34)).toBeAttached();
-    await expect(diffLine(item, 35)).toHaveCount(0);
-    await expect(separators(item).first()).toContainText('17 unmodified lines');
-  });
-
-  test('expanded lines have comment gutter (+ button) on hover', async ({ page, request }) => {
-    await clearAllComments(request);
-    await loadPage(page);
-    const item = await revealFile(page, 'routes.go');
-
-    const sep = separators(item).first();
-    await expect(sep).toBeVisible();
-    await clickWhenHittable(page, expandButton(item, 'below-previous-hunk'));
-    await expect(diffLine(item, 20)).toBeAttached();
-
-    const plus = await hoverLine(page, item, 20);
-    await expect(plus).toBeVisible();
-  });
 });
 
 test.describe('Diff Mode Toggle', () => {
-  test.afterEach(async ({ context }) => {
-    await context.clearCookies();
-  });
-
-  test('can switch to unified mode', async ({ page }) => {
-    await loadPage(page);
-    const item = await goSection(page);
-    await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
-
-    await setDiffStyle(page, 'unified');
-
-    await expect(item.locator('code[data-unified]')).toBeVisible();
-    await expect(item.locator('code[data-additions], code[data-deletions]')).toHaveCount(0);
-  });
-
-  test('diff mode persists across reload', async ({ page, context }) => {
-    await context.clearCookies();
+  test('switches to unified, persists across reload, and switches back to split', async ({ page }) => {
     await loadPage(page);
     let item = await goSection(page);
     await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
 
     await setDiffStyle(page, 'unified');
     await expect(item.locator('code[data-unified]')).toBeVisible();
+    await expect(item.locator('code[data-additions], code[data-deletions]')).toHaveCount(0);
 
     await page.reload();
     await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
-
     item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
     await expect(item.locator('pre[data-diff-type="split"]')).toHaveCount(0);
-  });
-
-  test('can switch back to split', async ({ page }) => {
-    await loadPage(page);
-    await setDiffStyle(page, 'unified');
-    const item = await goSection(page);
-    await expect(item.locator('code[data-unified]')).toBeVisible();
 
     await setDiffStyle(page, 'split');
-
     await expect(item.locator('pre[data-diff-type="split"]')).toBeVisible();
     await expect(item.locator('code[data-unified]')).toHaveCount(0);
   });
@@ -177,13 +88,26 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
   });
-  test.afterEach(async ({ context }) => {
-    await context.clearCookies();
-  });
 
   // server.go unified order around here: 40+ | 21- | 41+ | 42 | 43+
   function unifiedSelected(item: Locator): Locator {
     return item.locator('code[data-unified] [data-content] > [data-selected-line]');
+  }
+
+  // Press the "+" of `from` and move (button held) to the row of `to`. Both
+  // rows are mounted first, and `to` is measured only after the list has
+  // stopped scrolling — Pierre re-mounts rows while it settles.
+  async function dragHeld(page: Page, item: Locator, from: Locator, to: Locator, fromLine: number, fromSide: 'new' | 'old') {
+    await showLine(page, from);
+    await showLine(page, to);
+    const plus = await hoverLine(page, item, fromLine, fromSide);
+    await waitForScrollStable(page);
+    const start = await plus.boundingBox();
+    const end = await to.boundingBox();
+    expect(start && end).toBeTruthy();
+    await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(start!.x + start!.width / 2, end!.y + end!.height / 2, { steps: 8 });
   }
 
   test('drag indicator shows on deletion lines when dragging from addition line', async ({ page }) => {
@@ -191,14 +115,8 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
     await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
-    await showLine(page, diffLine(item, 41));
 
-    const plus = await hoverLine(page, item, 41);
-    const start = await plus.boundingBox();
-    const end = await diffLineNumber(item, 21, 'old').boundingBox();
-    await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(start!.x + start!.width / 2, end!.y + end!.height / 2, { steps: 8 });
+    await dragHeld(page, item, diffLine(item, 41), diffLineNumber(item, 21, 'old'), 41, 'new');
 
     // The deletion line the pointer is on is part of the drag range.
     await expect(unifiedSelected(item).and(item.locator('[data-line-type="change-deletion"]'))).toHaveCount(1);
@@ -214,16 +132,10 @@ test.describe('Unified Mode — Drag Indicator Across Line Types', () => {
     await setDiffStyle(page, 'unified');
     const item = await goSection(page);
     await expect(item.locator('code[data-unified]')).toBeVisible();
-    await showLine(page, diffLine(item, 43));
 
     // Drag from the deletion (old 21) down to the addition (new 43):
     // four visual rows of mixed type.
-    const plus = await hoverLine(page, item, 21, 'old');
-    const start = await plus.boundingBox();
-    const end = await diffLineNumber(item, 43).boundingBox();
-    await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(start!.x + start!.width / 2, end!.y + end!.height / 2, { steps: 8 });
+    await dragHeld(page, item, diffLine(item, 21, 'old'), diffLineNumber(item, 43), 21, 'old');
 
     await expect(unifiedSelected(item)).toHaveCount(4);
     for (const line of [diffLine(item, 21, 'old'), diffLine(item, 41), diffLine(item, 42), diffLine(item, 43)]) {
