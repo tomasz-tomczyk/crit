@@ -9,6 +9,15 @@ case "${OSTYPE:-$(uname -s)}" in
 esac
 export E2E_IS_WINDOWS
 
+# No automatic git maintenance in fixture repos. Newer git (2.5x) runs
+# `git maintenance run --auto --detach` after a commit that leaves many loose
+# objects, so the next `git add` in a fixture script races a background
+# repack that deletes .git/objects/XX dirs ("unable to create temporary
+# file"). Applies to every git the fixture scripts and crit run.
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
+export GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0
+
 # Directory where setup scripts write per-port state files that are read back
 # by Playwright tests (Node side). MUST be a path that resolves identically
 # for both Git Bash and Node on Windows — so we keep it inside the test/e2e/ dir.
@@ -70,26 +79,74 @@ e2e_bin_name() {
   fi
 }
 
-# Kill anything listening on the given TCP port. Uses lsof on POSIX and
-# powershell + taskkill on Windows (lsof isn't on Git Bash by default).
-e2e_kill_port() {
-  local port="$1"
+# Kill anything listening on the given TCP port(s). Uses lsof on POSIX and a
+# single powershell + taskkill pass on Windows (lsof isn't on Git Bash by
+# default). PowerShell cold start costs ~1s on CI, so callers should pass every
+# port in one call rather than looping.
+e2e_kill_ports() {
+  [ "$#" -gt 0 ] || return 0
   if [ "$E2E_IS_WINDOWS" -eq 1 ]; then
     # NOTE: we intentionally do not redirect stderr to /dev/null on the
     # taskkill line so that real errors (other than "process not found")
     # surface in CI logs.
-    local pids
+    local port_list pids pid
+    port_list=$(IFS=,; printf '%s' "$*")
     pids=$(powershell.exe -NoProfile -Command \
-      "Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess" \
+      "Get-NetTCPConnection -LocalPort $port_list -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess" \
       2>/dev/null | tr -d '\r' | sort -u | grep -E '^[0-9]+$' || true)
-    if [ -n "$pids" ]; then
-      for pid in $pids; do
-        taskkill.exe /F /PID "$pid" /T >/dev/null 2>&1 || true
-      done
-    fi
+    for pid in $pids; do
+      taskkill.exe /F /PID "$pid" /T >/dev/null 2>&1 || true
+    done
   else
-    lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    local port
+    for port in "$@"; do
+      lsof -ti tcp:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    done
   fi
+}
+
+e2e_kill_port() {
+  e2e_kill_ports "$1"
+}
+
+# True when a Chromium headless shell is in Playwright's browser cache
+# (PLAYWRIGHT_BROWSERS_PATH, else the per-OS default). Version-agnostic: CI
+# keys that cache on package-lock.json, so a hit is the pinned build.
+e2e_playwright_browser_present() {
+  local dir="${PLAYWRIGHT_BROWSERS_PATH:-}" d
+  if [ -z "$dir" ]; then
+    if [ "$E2E_IS_WINDOWS" -eq 1 ]; then
+      dir="$(e2e_native_path "${LOCALAPPDATA:-$HOME/AppData/Local}")/ms-playwright"
+    elif [ "$(uname -s)" = Darwin ]; then
+      dir="$HOME/Library/Caches/ms-playwright"
+    else
+      dir="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
+    fi
+  fi
+  for d in "$dir"/chromium_headless_shell-*; do
+    [ -d "$d" ] && return 0
+  done
+  return 1
+}
+
+# Block until the fixture on $port answers /api/session.
+#   e2e_wait_port <port> <fixture-pid> [deadline-seconds]
+# Fails (returns 1, with a message on stderr) if the fixture process exits
+# first or the deadline passes, instead of polling forever.
+e2e_wait_port() {
+  local port="$1" pid="$2" deadline="${3:-${E2E_READY_TIMEOUT:-300}}"
+  local start=$SECONDS
+  while ! curl -sf "http://127.0.0.1:$port/api/session" >/dev/null 2>&1; do
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      echo "e2e: fixture for port $port (pid $pid) exited before becoming ready" >&2
+      return 1
+    fi
+    if [ $((SECONDS - start)) -ge "$deadline" ]; then
+      echo "e2e: fixture for port $port not ready after ${deadline}s" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
 }
 
 # Set HOME (and USERPROFILE on Windows) so crit picks up our isolated config.
@@ -105,14 +162,74 @@ e2e_export_fake_home() {
   if [ "$E2E_IS_WINDOWS" -eq 1 ]; then
     export USERPROFILE="$fake_home"
   fi
+  # Skip the daemon's agent-CLI `--version` probes: on machines with agent
+  # CLIs on PATH they block session setup for several seconds, and no e2e
+  # test exercises the integration check.
+  export CRIT_NO_INTEGRATION_CHECK=1
+  export CRIT_NO_UPDATE_CHECK=1
 }
 
-# Kill all stray crit processes — used by run.sh cleanup on Windows where
-# `kill $PID` only kills the bash subshell, not the spawned crit.exe.
+# Kill all stray fixture processes — used by run.sh cleanup on Windows where
+# `kill $PID` only kills the bash subshell, not the spawned native children:
+# crit.exe, plus the live-mode upstream and share-transport stub binaries
+# (the upstream binds port 0, so a later e2e_kill_ports never finds it).
 e2e_kill_stray_crit() {
   if [ "$E2E_IS_WINDOWS" -eq 1 ]; then
     taskkill.exe /F /IM crit.exe /T >/dev/null 2>&1 || true
+    taskkill.exe /F /IM upstream.exe /T >/dev/null 2>&1 || true
+    taskkill.exe /F /IM stub-crit-web.exe /T >/dev/null 2>&1 || true
   fi
+}
+
+# ---- Fixture lifecycle -------------------------------------------------------
+# Fixture scripts register temp paths with e2e_cleanup_add and start their
+# long-running children through e2e_spawn / e2e_serve. e2e_cleanup_install
+# arms one trap for EXIT, INT and TERM: run.sh and Playwright stop fixtures
+# with a signal while the script is `wait`ing, and a bare EXIT trap (or an
+# `exec crit`) never ran on that path, leaking every temp dir. The trap kills
+# and reaps the children before rm -rf so the delete doesn't race a process
+# still holding files open (Windows: "Device or resource busy").
+E2E_CLEANUP_PATHS=()
+E2E_CHILD_PIDS=()
+
+e2e_cleanup_add() {
+  E2E_CLEANUP_PATHS+=("$@")
+}
+
+e2e_cleanup() {
+  local pid
+  trap - EXIT INT TERM
+  for pid in "${E2E_CHILD_PIDS[@]+"${E2E_CHILD_PIDS[@]}"}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+  for pid in "${E2E_CHILD_PIDS[@]+"${E2E_CHILD_PIDS[@]}"}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+  # Leave the fixture dir first: Windows refuses to delete a process's cwd.
+  cd / 2>/dev/null || true
+  if [ "${#E2E_CLEANUP_PATHS[@]}" -gt 0 ]; then
+    rm -rf "${E2E_CLEANUP_PATHS[@]}" 2>/dev/null || true
+  fi
+}
+
+e2e_cleanup_install() {
+  trap e2e_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
+# Start a background child the cleanup trap must stop. Sets E2E_LAST_PID.
+e2e_spawn() {
+  "$@" &
+  E2E_LAST_PID=$!
+  E2E_CHILD_PIDS+=("$E2E_LAST_PID")
+}
+
+# Run the fixture's crit server in the background and wait on it, so the
+# script stays alive to clean up when it is signalled. Replaces `exec crit`.
+e2e_serve() {
+  e2e_spawn "$@"
+  wait "$E2E_LAST_PID"
 }
 
 # Ensure the state dir exists before any fixture writes to it.

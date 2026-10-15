@@ -10,7 +10,8 @@ source "$SCRIPT_DIR/lib.sh"
 # filepath.Abs and git rev-parse --show-toplevel agree on the root.
 DIR=$(e2e_native_tempdir)
 BIN_DIR=$(mktemp -d)
-trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR"
 
 cd "$DIR"
 
@@ -176,4 +177,4 @@ fi
 e2e_export_fake_home "$DIR"
 
 # Run crit in file mode (explicit file args, inside a git repo)
-exec "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md server.go handler.js
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md server.go handler.js

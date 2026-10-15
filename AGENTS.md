@@ -168,15 +168,14 @@ make e2e-report                                       # View HTML report with sc
 
 ### Projects
 
-Eleven Playwright projects. Test naming convention determines which project runs which file:
+Ten Playwright projects. Test naming convention determines which project runs which file:
 
 | Project | Port | Fixture | Test glob |
 | --- | --- | --- | --- |
 | `git-mode` | 3123 | `setup-fixtures.sh` (git repo + feature branch) | `*.spec.ts` (excludes other suffixes) |
-| `mobile` | 3123 | `setup-fixtures.sh` (reuses git-mode fixture) at 375x812, `hasTouch: true` | `*.mobile.spec.ts` |
+| `mobile` | 3123 (3131 under `run.sh`) | `setup-fixtures.sh` (reuses a git-mode fixture) at 375x812, `hasTouch: true` | `*.mobile.spec.ts` |
 | `file-mode` | 3124 | `setup-fixtures-filemode.sh` (plain files, no git) | `*.filemode.spec.ts` |
 | `single-file-mode` | 3125 | `setup-fixtures-singlefile.sh` (one markdown file) | `*.singlefile.spec.ts` |
-| `no-git-mode` | 3126 | `setup-fixtures-nogit.sh` (file mode without git) | `*.nogit.spec.ts` |
 | `multi-file-mode` | 3127 | `setup-fixtures-multifile.sh` (code + markdown files) | `*.multifile.spec.ts` |
 | `range-mode` | 3128 | `setup-fixtures-range-mode.sh` (`--range A..B` stacked git) | `*.rangemode.spec.ts` |
 | `live-mode` | 3129 | `setup-fixtures-livemode.sh` (Go upstream + crit live) | `*.livemode.spec.ts` |
@@ -184,7 +183,9 @@ Eleven Playwright projects. Test naming convention determines which project runs
 | `perf` | 3134 | `setup-fixtures-perf.sh` (300 files + large markdown) | `*.perf.spec.ts` |
 | `huge` | 3136 | `setup-fixtures-huge.sh` (~2,500 files; document taller than 2^22px) | `*.huge.spec.ts` |
 
-The `mobile` project shares the git-mode fixture port. In `run.sh` it runs strictly after `git-mode` finishes so the two don't race on shared comment state (both projects `DELETE /api/comments` in `beforeEach`).
+The `mobile` project shares a git-mode fixture. `run.sh` runs git-mode as two shards on two fixtures (3123, 3131) and starts mobile on the 3131 fixture only after git shard 2/2 finishes, so the two never race on shared comment state (both `DELETE /api/comments` in `beforeEach`).
+
+`run.sh` starts each project as soon as its own fixture answers `/api/session` (it fails fast if a fixture exits or isn't ready within `E2E_READY_TIMEOUT`, default 300s). Fixture scripts must use the `lib.sh` lifecycle helpers — `e2e_cleanup_install`, `e2e_cleanup_add <tmp dirs>`, `e2e_spawn` for helper servers, `e2e_serve "$CRIT_BIN" _serve …` instead of `exec` — so a SIGTERM from `run.sh`/Playwright stops crit and deletes the temp dirs. `e2e_export_fake_home` also sets `CRIT_NO_INTEGRATION_CHECK=1` and `CRIT_NO_UPDATE_CHECK=1`. Generate fixture files with shell builtins or one `awk`, never a process per file (Git Bash on Windows makes each spawn ~20-50x slower).
 
 CI runs E2E on PRs via `.github/workflows/test.yml`; a separate `coverage.yml` uploads unit coverage on push to `main`. Failed test artifacts are uploaded.
 

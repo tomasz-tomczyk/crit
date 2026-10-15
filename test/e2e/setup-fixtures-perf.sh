@@ -14,7 +14,8 @@ CRIT_SRC="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 DIR=$(e2e_native_tempdir)
 BIN_DIR=$(e2e_native_tempdir)
-trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR"
 
 cd "$DIR"
 git init -q
@@ -24,26 +25,18 @@ git config core.autocrlf false
 git config core.eol lf
 
 # === Initial commit: 300 small code files + one markdown file ===
-for i in $(seq 1 300); do
-  cat > "file$i.go" << GOFILE
-package perf$i
-
-// Doc comment for file $i.
-func Hello$i() string {
-	return "hello $i"
-}
-
-func Add$i(a, b int) int {
-	return a + b
-}
-GOFILE
+# printf is a builtin: a `cat` heredoc per file is 600 process spawns, which
+# Git Bash on Windows turns into ~20s of fixture boot.
+for ((i = 1; i <= 300; i++)); do
+  printf 'package perf%d\n\n// Doc comment for file %d.\nfunc Hello%d() string {\n\treturn "hello %d"\n}\n\nfunc Add%d(a, b int) int {\n\treturn a + b\n}\n' \
+    "$i" "$i" "$i" "$i" "$i" > "file$i.go"
 done
 
 # Large markdown, initial version (~1200 lines).
 {
   echo "# Perf Plan"
   echo ""
-  for i in $(seq 1 200); do
+  for ((i = 1; i <= 200; i++)); do
     echo "## Section $i"
     echo ""
     echo "This section describes part $i of the plan with some detail."
@@ -60,21 +53,16 @@ git commit -q -m "initial commit"
 # === Feature branch: touch every file ===
 git checkout -q -b perf/large-review
 
-for i in $(seq 1 300); do
-  cat >> "file$i.go" << GOFILE
-
-// Goodbye$i is new on the branch.
-func Goodbye$i() string {
-	return "goodbye $i"
-}
-GOFILE
+for ((i = 1; i <= 300; i++)); do
+  printf '\n// Goodbye%d is new on the branch.\nfunc Goodbye%d() string {\n\treturn "goodbye %d"\n}\n' \
+    "$i" "$i" "$i" >> "file$i.go"
 done
 
 # Grow the markdown to ~3000 lines with mixed block types.
 {
   echo "# Perf Plan"
   echo ""
-  for i in $(seq 1 400); do
+  for ((i = 1; i <= 400; i++)); do
     echo "## Section $i"
     echo ""
     echo "This section describes part $i of the plan with some detail."
@@ -100,6 +88,7 @@ if [ -z "${CRIT_BIN:-}" ]; then
 fi
 
 FAKE_HOME=$(e2e_native_tempdir)
+e2e_cleanup_add "$FAKE_HOME"
 e2e_export_fake_home "$FAKE_HOME"
 
 STATE_FILE="$(e2e_state_file "$PORT")"
@@ -112,4 +101,4 @@ STATE_FILE="$(e2e_state_file "$PORT")"
 echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"
 
 # Run crit in the fixture repo (git mode: branch diff vs default branch)
-exec "$CRIT_BIN" _serve --no-open --port "$PORT"
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT"

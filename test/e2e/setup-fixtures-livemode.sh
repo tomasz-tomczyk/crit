@@ -17,15 +17,8 @@ else
   UPSTREAM_BIN="$E2E_TMP/upstream"
 fi
 UPSTREAM_LOG="$E2E_TMP/upstream.log"
-UPSTREAM_PID=""
-CRIT_PID=""
-
-cleanup() {
-  if [ -n "$CRIT_PID" ]; then kill "$CRIT_PID" 2>/dev/null || true; fi
-  if [ -n "$UPSTREAM_PID" ]; then kill "$UPSTREAM_PID" 2>/dev/null || true; fi
-  rm -rf "$E2E_TMP" "$BIN_DIR" "$FAKE_HOME"
-}
-trap cleanup EXIT INT TERM
+e2e_cleanup_install
+e2e_cleanup_add "$E2E_TMP" "$BIN_DIR" "$FAKE_HOME"
 
 # 1. Build upstream fixture binary.
 (cd "$SCRIPT_DIR/fixtures/livemode-upstream" && go build -o "$UPSTREAM_BIN" .)
@@ -39,8 +32,7 @@ else
 fi
 
 # 3. Launch upstream on a free port; capture origin from its stdout.
-"$UPSTREAM_BIN" --port 0 >"$UPSTREAM_LOG" 2>&1 &
-UPSTREAM_PID=$!
+e2e_spawn "$UPSTREAM_BIN" --port 0 >"$UPSTREAM_LOG" 2>&1
 
 UPSTREAM_ORIGIN=""
 for _ in $(seq 1 50); do
@@ -57,22 +49,11 @@ if [ -z "$UPSTREAM_ORIGIN" ]; then
 fi
 echo "upstream listening at $UPSTREAM_ORIGIN" >&2
 
-# 4. Isolate HOME so config files don't leak.
-export HOME="$FAKE_HOME"
+# 4. Isolate HOME (and USERPROFILE on Windows) so config files don't leak.
+e2e_export_fake_home "$FAKE_HOME"
 
 # 5. Launch crit _serve in live mode on a fixed port.
 #    (Bypassing `crit live` daemon-spawn keeps the process foreground and
 #    on a deterministic port — Playwright wants a single child to wait on.)
-"$CRIT_BIN" _serve --no-open --port "$PORT" --live-origin "$UPSTREAM_ORIGIN" &
-CRIT_PID=$!
-
-# 6. Block until /api/session answers.
-for _ in $(seq 1 100); do
-  if curl -sf "http://127.0.0.1:$PORT/api/session" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.2
-done
-
-# Foreground wait — Playwright treats this as the long-running webServer.
-wait "$CRIT_PID"
+#    Foreground wait: Playwright / run.sh poll /api/session themselves.
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --live-origin "$UPSTREAM_ORIGIN"

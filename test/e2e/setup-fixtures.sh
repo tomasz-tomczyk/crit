@@ -14,7 +14,8 @@ source "$SCRIPT_DIR/lib.sh"
 # so both runtimes interpret the path consistently.
 DIR=$(e2e_native_tempdir)
 BIN_DIR=$(e2e_native_tempdir)
-trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR"
 
 cd "$DIR"
 git init -q
@@ -612,6 +613,7 @@ fi
 # files don't appear as untracked in the git fixture. On Windows this also
 # overrides USERPROFILE (Go's os.UserHomeDir source on Windows).
 FAKE_HOME=$(e2e_native_tempdir)
+e2e_cleanup_add "$FAKE_HOME"
 e2e_export_fake_home "$FAKE_HOME"
 
 # Write fixture state for E2E tests that need to run CLI commands.
@@ -626,4 +628,4 @@ STATE_FILE="$(e2e_state_file "$PORT")"
 echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"
 
 # Run crit in the fixture repo
-exec "$CRIT_BIN" _serve --no-open --port "$PORT"
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT"

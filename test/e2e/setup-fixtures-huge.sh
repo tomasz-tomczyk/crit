@@ -14,7 +14,8 @@ CRIT_SRC="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 DIR=$(e2e_native_tempdir)
 BIN_DIR=$(e2e_native_tempdir)
-trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR"
 
 FILES=2500
 LINES_PER_FILE=90
@@ -33,12 +34,14 @@ git commit -q -m "initial commit"
 git checkout -q -b huge/review
 
 # One awk process writes every file (a shell loop of 2.5k heredocs is slow on
-# Git Bash). Nested dirs keep the file tree realistic.
-awk -v files="$FILES" -v lines="$LINES_PER_FILE" 'BEGIN {
+# Git Bash). Nested dirs keep the file tree realistic. Create the 40 dirs up
+# front: an awk system("mkdir") per file is 5,000 process spawns (~7s on
+# Linux, minutes on Git Bash).
+DIRS=40
+for ((d = 0; d < DIRS; d++)); do printf -v dir 'pkg%02d' "$d"; mkdir -p "$dir"; done
+awk -v files="$FILES" -v lines="$LINES_PER_FILE" -v dirs="$DIRS" 'BEGIN {
   for (i = 1; i <= files; i++) {
-    dir = sprintf("pkg%02d", i % 40)
-    system("mkdir -p " dir)
-    path = sprintf("%s/file%04d.go", dir, i)
+    path = sprintf("pkg%02d/file%04d.go", i % dirs, i)
     printf("package pkg%d\n\n", i) > path
     for (l = 1; l <= lines; l++) {
       printf("func F%d_%d() int { return %d }\n", i, l, l) > path
@@ -57,6 +60,7 @@ if [ -z "${CRIT_BIN:-}" ]; then
 fi
 
 FAKE_HOME=$(e2e_native_tempdir)
+e2e_cleanup_add "$FAKE_HOME"
 e2e_export_fake_home "$FAKE_HOME"
 
 STATE_FILE="$(e2e_state_file "$PORT")"
@@ -68,4 +72,4 @@ STATE_FILE="$(e2e_state_file "$PORT")"
 
 echo '{"agent_cmd": "echo"}' > "$FAKE_HOME/.crit.config.json"
 
-exec "$CRIT_BIN" _serve --no-open --port "$PORT"
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT"

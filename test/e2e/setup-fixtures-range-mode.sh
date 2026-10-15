@@ -9,7 +9,8 @@ source "$SCRIPT_DIR/lib.sh"
 # Resolve symlinks / convert MSYS-style paths to native Windows paths.
 DIR=$(e2e_native_tempdir)
 BIN_DIR=$(e2e_native_tempdir)
-trap 'rm -rf "$DIR" "$BIN_DIR" "${FAKE_HOME:-}"' EXIT
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR"
 
 cd "$DIR"
 git init -q -b main
@@ -75,6 +76,7 @@ fi
 
 # Isolate from the user's ~/.crit.config.json (and USERPROFILE on Windows).
 FAKE_HOME=$(e2e_native_tempdir)
+e2e_cleanup_add "$FAKE_HOME"
 e2e_export_fake_home "$FAKE_HOME"
 
 # Write fixture state for E2E tests.
@@ -90,4 +92,4 @@ STATE_FILE="$(e2e_state_file "$PORT")"
 } > "$STATE_FILE"
 
 # Boot crit in range mode A..B.
-exec "$CRIT_BIN" _serve --no-open --port "$PORT" --range "$A_SHA..$B_SHA"
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --range "$A_SHA..$B_SHA"

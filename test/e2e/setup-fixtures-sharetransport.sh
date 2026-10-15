@@ -25,17 +25,8 @@ else
 fi
 STUB_LOG="$BIN_DIR/stub-crit-web.log"
 STUB2_LOG="$BIN_DIR/stub-crit-web-2.log"
-STUB_PID=""
-STUB2_PID=""
-CRIT_PID=""
-
-cleanup() {
-  if [ -n "$CRIT_PID" ]; then kill "$CRIT_PID" 2>/dev/null || true; fi
-  if [ -n "$STUB_PID" ]; then kill "$STUB_PID" 2>/dev/null || true; fi
-  if [ -n "$STUB2_PID" ]; then kill "$STUB2_PID" 2>/dev/null || true; fi
-  rm -rf "$DIR" "$BIN_DIR" "$FAKE_HOME"
-}
-trap cleanup EXIT INT TERM
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR" "$FAKE_HOME"
 
 cd "$DIR"
 
@@ -94,12 +85,10 @@ wait_for_stub() {
 
 # 1. Build the stub crit-web and launch two instances on distinct origins.
 (cd "$SCRIPT_DIR/fixtures/sharetransport-crit-web" && go build -o "$STUB_BIN" .)
-"$STUB_BIN" --port "$STUB_PORT" >"$STUB_LOG" 2>&1 &
-STUB_PID=$!
+e2e_spawn "$STUB_BIN" --port "$STUB_PORT" >"$STUB_LOG" 2>&1
 STUB_ORIGIN=$(wait_for_stub "$STUB_LOG")
 echo "stub crit-web A listening at $STUB_ORIGIN" >&2
-"$STUB_BIN" --port "$STUB2_PORT" >"$STUB2_LOG" 2>&1 &
-STUB2_PID=$!
+e2e_spawn "$STUB_BIN" --port "$STUB2_PORT" >"$STUB2_LOG" 2>&1
 STUB2_ORIGIN=$(wait_for_stub "$STUB2_LOG")
 echo "stub crit-web B listening at $STUB2_ORIGIN" >&2
 
@@ -135,15 +124,5 @@ CRIT_HOME=$FAKE_HOME
 EOF
 
 # No --share-url: process override would collapse share_targets to one target.
-"$CRIT_BIN" _serve --no-open --port "$PORT" plan.md main.go &
-CRIT_PID=$!
-
-for _ in $(seq 1 100); do
-  if curl -sf "http://localhost:$PORT/api/session" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.2
-done
-
-# Foreground wait — Playwright treats this as the long-running webServer.
-wait "$CRIT_PID"
+# Foreground wait — Playwright / run.sh treat this as the long-running server.
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md main.go

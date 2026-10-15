@@ -5,7 +5,6 @@ const isWindows = os.platform() === 'win32';
 const GIT_PORT = process.env.CRIT_TEST_PORT || '3123';
 const FILE_PORT = process.env.CRIT_TEST_FILE_PORT || '3124';
 const SINGLE_PORT = process.env.CRIT_TEST_SINGLE_PORT || '3125';
-const NOGIT_PORT = process.env.CRIT_TEST_NOGIT_PORT || '3126';
 const MULTI_PORT = process.env.CRIT_TEST_MULTI_PORT || '3127';
 const RANGE_PORT = process.env.CRIT_TEST_RANGE_PORT || '3128';
 const LIVE_PORT = process.env.CRIT_TEST_LIVE_PORT || '3129';
@@ -41,6 +40,10 @@ interface FixtureServer {
   stdout: 'pipe';
 }
 
+// SIGTERM (not Playwright's default SIGKILL) lets the fixture script's trap
+// stop its crit child and delete its temp dirs (lib.sh e2e_cleanup).
+const gracefulShutdown = { signal: 'SIGTERM' as const, timeout: 5_000 };
+
 const allFixtureServers: FixtureServer[] = [
   {
     key: 'git',
@@ -62,14 +65,6 @@ const allFixtureServers: FixtureServer[] = [
     key: 'single',
     command: `bash setup-fixtures-singlefile.sh ${SINGLE_PORT}`,
     url: `http://localhost:${SINGLE_PORT}/api/session`,
-    reuseExistingServer: true,
-    timeout: 30_000,
-    stdout: 'pipe',
-  },
-  {
-    key: 'nogit',
-    command: `bash setup-fixtures-nogit.sh ${NOGIT_PORT}`,
-    url: `http://localhost:${NOGIT_PORT}/api/session`,
     reuseExistingServer: true,
     timeout: 30_000,
     stdout: 'pipe',
@@ -155,7 +150,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|nogit|rangemode|mobile|livemode|sharetransport|perf|huge)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|rangemode|mobile|livemode|sharetransport|perf|huge)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -188,16 +183,6 @@ export default defineConfig({
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${SINGLE_PORT}`,
-      },
-    },
-    {
-      // Runs targeted no-git tests against a fixture with NO git repo.
-      // Verifies that file-mode works identically outside any git repository.
-      name: 'no-git-mode',
-      testMatch: /\.nogit\.spec\.ts$/,
-      use: {
-        browserName: 'chromium',
-        baseURL: `http://localhost:${NOGIT_PORT}`,
       },
     },
     {
@@ -266,5 +251,5 @@ export default defineConfig({
 
   webServer: allFixtureServers
     .filter((s) => ONLY_SERVER === 'all' || s.key === ONLY_SERVER)
-    .map(({ key: _key, ...rest }) => rest),
+    .map(({ key: _key, ...rest }) => ({ ...rest, gracefulShutdown })),
 });

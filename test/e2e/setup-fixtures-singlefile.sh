@@ -9,14 +9,16 @@ source "$SCRIPT_DIR/lib.sh"
 # Resolve symlinks / convert MSYS-style paths to native Windows paths.
 DIR=$(e2e_native_tempdir)
 BIN_DIR=$(e2e_native_tempdir)
-trap 'rm -rf "$DIR" "$BIN_DIR"' EXIT
+e2e_cleanup_install
+e2e_cleanup_add "$DIR" "$BIN_DIR"
 
 cd "$DIR"
 
-# Init a git repo (people almost always run crit inside one)
-git init -q
-git config user.email "test@test.com"
-git config user.name "Test"
+# === No git init: this fixture is also the no-VCS fixture ===
+# Single-file reviews outside any repository cover both the single-file layout
+# (TOC, filename in the header, no file tree) and crit's VCS-absent files-mode
+# path (no branch, review root = the file's directory). Files mode inside git
+# is covered by setup-fixtures-filemode.sh.
 
 cat > plan.md << 'MDFILE'
 # Authentication Plan
@@ -75,8 +77,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 - **Week 3**: Dashboard UI for key management
 MDFILE
 
-git add -A && git commit -q -m "initial commit"
-
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
 if [ -z "${CRIT_BIN:-}" ]; then
   CRIT_BIN="$BIN_DIR/$(e2e_bin_name)"
@@ -86,5 +86,5 @@ fi
 # Isolate from user's ~/.crit.config.json (and USERPROFILE on Windows).
 e2e_export_fake_home "$DIR"
 
-# Run crit in single-file mode
-exec "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md
+# Run crit in single-file mode, outside any git repository
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md
