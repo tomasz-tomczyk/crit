@@ -71,6 +71,11 @@ func TestDaemonLifecycle(t *testing.T) {
 	// Use temp HOME so session files don't pollute real HOME
 	homeDir := t.TempDir()
 	homeDir, _ = filepath.EvalSymlinks(homeDir)
+	// A git child the daemon spawned (watcher `git status`) can outlive the
+	// daemon by a moment and still be writing .git/index.lock, which makes
+	// t.TempDir's RemoveAll fail with "directory not empty". Cleanups run in
+	// reverse order, so this one runs first and retries until the dirs go.
+	t.Cleanup(func() { removeAllEventually(t, repoDir, homeDir) })
 
 	// Compute expected session key (cwd=repoDir, branch=main, args=[])
 	key := SessionKey(repoDir, "main", nil)
@@ -228,5 +233,25 @@ waitFinish:
 	// Session file should be cleaned up
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
 		t.Error("session file not cleaned up after daemon shutdown")
+	}
+}
+
+// removeAllEventually removes dirs, retrying for a few seconds while a
+// process that outlived the test finishes writing into them.
+func removeAllEventually(t *testing.T, dirs ...string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for _, dir := range dirs {
+		for {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("remove %s: %v", dir, err)
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 }
