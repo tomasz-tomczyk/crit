@@ -38,13 +38,24 @@ func SetHome(t *testing.T, dir string) {
 func InitTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	Git(t, dir, "init")
-	Git(t, dir, "config", "user.email", "test@test.com")
-	Git(t, dir, "config", "user.name", "Test")
+	// `init -b` and writing the identity straight into .git/config replace
+	// three extra git spawns per fixture (config x2, branch -M); process
+	// startup dominates test time on Windows.
+	Git(t, dir, "init", "-b", "main")
+	cfg, err := os.OpenFile(filepath.Join(dir, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cfg.WriteString("[user]\n\temail = test@test.com\n\tname = Test\n")
+	if cerr := cfg.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	WriteFile(t, filepath.Join(dir, "README.md"), "# Test")
 	Git(t, dir, "add", "README.md")
 	Git(t, dir, "commit", "-m", "initial")
-	Git(t, dir, "branch", "-M", "main")
 	return dir
 }
 
@@ -100,7 +111,17 @@ func MustMkdirAll(path string) string {
 // TestMain. Review sessions, config and auth live under ~/.crit; a crit daemon
 // running in the same checkout (or the developer's own config) must not change
 // test results. Helper subprocesses inherit it.
+//
+// Go's own cache, module cache and env file default to locations under HOME,
+// so they are pinned to their original paths first; otherwise a test that runs
+// `go build` (e.g. to spawn the crit binary) rebuilds from scratch and
+// re-downloads every module. The startup integration and update checks are
+// disabled because they probe agent CLIs on the developer's PATH (seconds per
+// spawned daemon) and call the network.
 func RunWithTempHome(m *testing.M) int {
+	PinGoEnvBeforeHomeChange()
+	os.Setenv("CRIT_NO_INTEGRATION_CHECK", "1")
+	os.Setenv("CRIT_NO_UPDATE_CHECK", "1")
 	home, err := os.MkdirTemp("", "crit-test-home-")
 	if err != nil {
 		panic(err)
@@ -110,4 +131,63 @@ func RunWithTempHome(m *testing.M) int {
 	os.Setenv("USERPROFILE", home)
 	os.Setenv("CODEX_HOME", "")
 	return m.Run()
+}
+
+// PinGoEnvBeforeHomeChange sets GOENV, GOCACHE and GOMODCACHE to the paths the
+// go command would derive from the current HOME, unless the environment or the
+// user's go env file (`go env -w`) already sets them. Call it before
+// redirecting HOME so `go` subprocesses keep the warm caches.
+func PinGoEnvBeforeHomeChange() {
+	if os.Getenv("GOENV") == "" {
+		if dir, err := os.UserConfigDir(); err == nil {
+			os.Setenv("GOENV", filepath.Join(dir, "go", "env"))
+		}
+	}
+	fileSet := map[string]bool{}
+	// GOENV=off means the go command reads no env file.
+	if goenv := os.Getenv("GOENV"); goenv != "off" {
+		data, _ := os.ReadFile(goenv)
+		for _, line := range strings.Split(string(data), "\n") {
+			if k, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+				fileSet[k] = true
+			}
+		}
+	}
+	unset := func(k string) bool { return os.Getenv(k) == "" && !fileSet[k] }
+	if unset("GOCACHE") {
+		if dir, err := os.UserCacheDir(); err == nil {
+			os.Setenv("GOCACHE", filepath.Join(dir, "go-build"))
+		}
+	}
+	if unset("GOMODCACHE") && unset("GOPATH") {
+		if home, err := os.UserHomeDir(); err == nil {
+			os.Setenv("GOMODCACHE", filepath.Join(home, "go", "pkg", "mod"))
+		}
+	}
+}
+
+// PrependFailingForgeCLIs puts `gh` and `glab` stubs that always fail first on
+// PATH and returns a cleanup func. Code under test that shells out to them
+// (auth status, pr view/list) then fails fast and deterministically instead of
+// depending on whether the developer is logged in, and without spawning the
+// real CLIs or reaching the network. For use from TestMain; tests that need a
+// specific gh behaviour still install their own stub via t.Setenv("PATH").
+func PrependFailingForgeCLIs() func() {
+	dir, err := os.MkdirTemp("", "crit-test-forge-stubs-")
+	if err != nil {
+		panic(err)
+	}
+	for _, name := range []string{"gh", "glab"} {
+		path := filepath.Join(dir, name)
+		content := "#!/bin/sh\necho \"" + name + ": stubbed out in tests\" >&2\nexit 1\n"
+		if runtime.GOOS == "windows" {
+			path += ".bat"
+			content = "@echo " + name + ": stubbed out in tests 1>&2\r\n@exit /b 1\r\n"
+		}
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			panic(err)
+		}
+	}
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() { os.RemoveAll(dir) }
 }

@@ -193,7 +193,9 @@ func clientFinishEnv(homeDir string) []string {
 		}
 		out = append(out, kv)
 	}
-	out = append(out, "HOME="+homeDir)
+	// Skip the startup agent-CLI probes (seconds on a dev box, delaying
+	// readiness) and the network update check in the spawned client/daemon.
+	out = append(out, "HOME="+homeDir, "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1")
 	if runtime.GOOS == "windows" {
 		out = append(out, "USERPROFILE="+homeDir)
 	}

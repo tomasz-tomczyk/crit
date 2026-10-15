@@ -314,6 +314,14 @@ func (s *Session) Watch(stop <-chan struct{}) {
 	}
 }
 
+// watchPollInterval is how often the file/VCS watchers poll.
+func (s *Session) watchPollInterval() time.Duration {
+	if s.pollInterval > 0 {
+		return s.pollInterval
+	}
+	return time.Second
+}
+
 // watchGit polls `git status --porcelain` for working tree changes.
 // Used in git mode (no-args invocation).
 //
@@ -321,7 +329,7 @@ func (s *Session) Watch(stop <-chan struct{}) {
 // POST /api/finish and POST /api/round-complete). mergeExternalCritJSON runs
 // on every tick since it only uses os.Stat.
 func (s *Session) watchGit(stop <-chan struct{}) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(s.watchPollInterval())
 	defer ticker.Stop()
 
 	// Read vcs.VCS once under lock — it doesn't change after session init.
@@ -377,7 +385,7 @@ func (s *Session) watchGit(stop <-chan struct{}) {
 // watchFileMtimes polls individual file mtimes for changes.
 // Used in files mode (explicit file args).
 func (s *Session) watchFileMtimes(stop <-chan struct{}) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(s.watchPollInterval())
 	defer ticker.Stop()
 
 	// Track last mod times per file

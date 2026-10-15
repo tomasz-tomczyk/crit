@@ -19,14 +19,7 @@ import (
 func isolatedReviewOutput(t *testing.T) string {
 	t.Helper()
 	testutil.SetHome(t, t.TempDir())
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(oldDir) })
+	t.Chdir(t.TempDir())
 	return t.TempDir()
 }
 

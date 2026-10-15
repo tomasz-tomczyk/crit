@@ -17,7 +17,8 @@ func TestInstallIntegration_OMO(t *testing.T) {
 			name = "global"
 		}
 		t.Run(name, func(t *testing.T) {
-			// Given an isolated home and project.
+			// Given an isolated home, project and PATH (no real opencode probe).
+			isolateAgentPATH(t)
 			home := t.TempDir()
 			project := t.TempDir()
 			testutil.SetHome(t, home)

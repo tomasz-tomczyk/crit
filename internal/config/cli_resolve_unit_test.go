@@ -86,15 +86,8 @@ func TestResolveShareURLPrecedence(t *testing.T) {
 
 func unsetEnvForTest(t *testing.T, key string) {
 	t.Helper()
-	old, existed := os.LookupEnv(key)
+	t.Setenv(key, "") // registers restore of the original value
 	if err := os.Unsetenv(key); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if existed {
-			_ = os.Setenv(key, old)
-		} else {
-			_ = os.Unsetenv(key)
-		}
-	})
 }

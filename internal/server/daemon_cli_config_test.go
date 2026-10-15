@@ -418,6 +418,7 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		testutil.SetHome(t, homeDir)
 		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"public_url": "https://config.example.com"}`), 0644)
 		dir := t.TempDir()
+		t.Setenv("CRIT_PUBLIC_URL", "") // restored after the test
 		os.Unsetenv("CRIT_PUBLIC_URL")
 		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "1")
 
@@ -441,6 +442,7 @@ func TestResolveServerConfig_PublicURLPrecedence(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, ".crit.config.json"), []byte(`{"public_url": "https://evil.example.com"}`), 0644)
 		homeDir := t.TempDir()
 		testutil.SetHome(t, homeDir)
+		t.Setenv("CRIT_PUBLIC_URL", "") // restored after the test
 		os.Unsetenv("CRIT_PUBLIC_URL")
 		t.Setenv(config.AllowUnauthenticatedNetworkEnv, "")
 
@@ -533,6 +535,7 @@ func TestResolveServerConfig_ShareURLPrecedence(t *testing.T) {
 		// share_url is global-only; project config cannot set it
 		os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(`{"share_url": "https://config.example.com"}`), 0644)
 		dir := t.TempDir()
+		t.Setenv("CRIT_SHARE_URL", "") // restored after the test
 		os.Unsetenv("CRIT_SHARE_URL")
 
 		origDir, _ := os.Getwd()

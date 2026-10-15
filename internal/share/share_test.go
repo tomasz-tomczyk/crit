@@ -91,11 +91,7 @@ func TestRunShare_BlockedByProxyAuth(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	wd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(wd) })
+	t.Chdir(dir)
 
 	err := RunShare([]string{"plan.md"})
 	if err == nil || !strings.Contains(err.Error(), "proxy_auth") {
@@ -1671,15 +1667,8 @@ func TestResolveOperationTargetConfirmsAmbiguousLegacyReview(t *testing.T) {
 }
 
 func TestResolveOperationTargetNewShareAndBoundConflicts(t *testing.T) {
-	orig, had := os.LookupEnv("CRIT_SHARE_URL")
+	t.Setenv("CRIT_SHARE_URL", "") // restores the original value
 	os.Unsetenv("CRIT_SHARE_URL")
-	t.Cleanup(func() {
-		if had {
-			_ = os.Setenv("CRIT_SHARE_URL", orig)
-		} else {
-			_ = os.Unsetenv("CRIT_SHARE_URL")
-		}
-	})
 
 	if _, err := resolveOperationTarget(config.Config{ShareTargets: []config.ShareTarget{}}, "", false, session.CritJSON{}, false); err == nil {
 		t.Fatal("expected disabled sharing to fail for new shares")

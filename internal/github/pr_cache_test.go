@@ -325,12 +325,21 @@ func TestPRMetadataCache_EvictsOldestWhenFull(t *testing.T) {
 		if _, err := c.get(numID(i)); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(2 * time.Millisecond)
 	}
+	// Backdate the inserts to distinct, strictly ordered instants (1 < 2 < 3)
+	// instead of sleeping between calls: wall-clock ticks can be coarse on
+	// Windows, so back-to-back time.Now() stamps may tie.
+	base := time.Now().Add(-time.Hour)
+	c.mu.Lock()
+	for i := 1; i <= 3; i++ {
+		c.entries[strconv.Itoa(i)].access = base.Add(time.Duration(i) * time.Second)
+	}
+	c.mu.Unlock()
+
+	// A cache hit must refresh recency: PR 1 becomes the newest entry.
 	if _, err := c.get(numID(1)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(2 * time.Millisecond)
 
 	if _, err := c.get(numID(4)); err != nil {
 		t.Fatal(err)

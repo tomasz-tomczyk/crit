@@ -916,6 +916,9 @@ func deleteStoryFromDaemon(entry daemon.SessionEntry) error {
 	return nil
 }
 
+// daemonReadyPollInterval is the delay between readiness polls; tests shorten it.
+var daemonReadyPollInterval = 200 * time.Millisecond
+
 // waitDaemonReady polls GET base+"/api/session" until it stops returning 503
 // (session init done) or a bounded deadline elapses. Mirrors the canonical
 // readiness loop in daemon.RunReviewClient. base is a ConnURL (scheme+host+port).
@@ -937,7 +940,7 @@ func waitDaemonReady(base string) error {
 		if time.Now().After(deadline) {
 			return errors.New("daemon did not become ready within 30s")
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(daemonReadyPollInterval)
 	}
 }
 

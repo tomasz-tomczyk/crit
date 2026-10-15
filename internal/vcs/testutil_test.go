@@ -7,19 +7,13 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func initTestRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	gitT(t, dir, "init")
-	gitT(t, dir, "config", "user.email", "test@test.com")
-	gitT(t, dir, "config", "user.name", "Test")
-	writeFile(t, filepath.Join(dir, "README.md"), "# Test")
-	gitT(t, dir, "add", "README.md")
-	gitT(t, dir, "commit", "-m", "initial")
-	gitT(t, dir, "branch", "-M", "main")
-	return dir
+	return testutil.InitTestRepo(t)
 }
 
 func gitT(t *testing.T, dir string, args ...string) string {

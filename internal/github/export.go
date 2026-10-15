@@ -126,3 +126,12 @@ func SwapFetchPRByNumberForTest(fn func(int) (*PRInfo, error)) func() {
 
 // DefaultStripBodyRewriter removes local attachment refs before GitHub push.
 var DefaultStripBodyRewriter BodyRewriter = session.StripBodyRewriter
+
+// SetFetchGHUserNameForTest replaces the `gh api users/<login>` display-name
+// lookup so tests in other packages never shell out to gh (a real network
+// call). It returns a func that restores the previous lookup.
+func SetFetchGHUserNameForTest(fn func(login string) (string, error)) (restore func()) {
+	prev := fetchGHUserName
+	fetchGHUserName = fn
+	return func() { fetchGHUserName = prev }
+}

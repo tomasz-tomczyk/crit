@@ -131,15 +131,8 @@ func TestCanonicalShareURLDevelopmentHTTP(t *testing.T) {
 }
 
 func TestSelectShareTargetDefaultsAndEphemeral(t *testing.T) {
-	orig, had := os.LookupEnv("CRIT_SHARE_URL")
+	t.Setenv("CRIT_SHARE_URL", "") // restores the original value
 	os.Unsetenv("CRIT_SHARE_URL")
-	t.Cleanup(func() {
-		if had {
-			_ = os.Setenv("CRIT_SHARE_URL", orig)
-		} else {
-			_ = os.Unsetenv("CRIT_SHARE_URL")
-		}
-	})
 	cfg := Config{ShareTargets: []ShareTarget{
 		{URL: "https://a.example"},
 		{URL: "https://b.example", Default: true, Auth: TargetAuth{Token: "b"}},

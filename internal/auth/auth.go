@@ -190,6 +190,10 @@ type tokenResponse struct {
 	UserEmail   string `json:"user_email"`
 }
 
+// pollIntervalUnit scales the server's poll interval (seconds per RFC 8628);
+// tests shorten it.
+var pollIntervalUnit = time.Second
+
 // pollForToken polls the device token endpoint until success, expiry, or cancellation.
 func pollForToken(serverURL string, code deviceCodeResponse) (tokenResponse, error) {
 	var result tokenResponse
@@ -207,7 +211,7 @@ func pollForToken(serverURL string, code deviceCodeResponse) (tokenResponse, err
 		case <-ctx.Done():
 			clearSpinner(dots)
 			return result, fmt.Errorf("interrupted")
-		case <-time.After(time.Duration(interval) * time.Second):
+		case <-time.After(time.Duration(interval) * pollIntervalUnit):
 		}
 
 		dots = printSpinner(dots)

@@ -453,7 +453,7 @@ func TestParseServerFlags_LiveCookie(t *testing.T) {
 }
 
 func TestCreateLiveSession_EmptyOriginIsFatal(t *testing.T) {
-	_, err := createLiveSession(&serverConfig{liveOrigin: ""})
+	_, err := createLiveSession(t, &serverConfig{liveOrigin: ""})
 	if err == nil {
 		t.Fatal("createLiveSession with empty origin must error")
 	}
@@ -1042,7 +1042,7 @@ func TestCreateLiveSession_FreshStartsOnRoundOne(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	s, err := createLiveSession(sc)
+	s, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
@@ -1079,7 +1079,7 @@ func TestCreateLiveSession_HonorsRoundWhenCommentsPresent(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	s, err := createLiveSession(sc)
+	s, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
@@ -1264,7 +1264,7 @@ func TestCreateLiveSession_FreshAwaitsFirstReview(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	s, err := createLiveSession(sc)
+	s, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
@@ -1289,7 +1289,7 @@ func TestLiveSession_FirstPinAfterBootShipsRound1(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	sess, err := createLiveSession(sc)
+	sess, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}

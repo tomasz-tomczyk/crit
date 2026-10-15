@@ -1,5 +1,3 @@
-//go:build integration
-
 package review
 
 import (
@@ -78,7 +76,7 @@ func TestWalkReviewIdentities_SkipsOrphanFolderSilently(t *testing.T) {
 	}
 
 	var visited []string
-	err := WalkReviewIdentities(func(identity string, _ []byte) error {
+	err := walkReviewIdentities(func(identity string, _ []byte) error {
 		visited = append(visited, filepath.Base(identity))
 		return nil
 	})
@@ -116,7 +114,7 @@ func TestFindReviewFileByBranch_MalformedJSONSkipped(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bad, "review.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	want := WriteFolderReviewFixture(t, "good", "feature-x")
+	want := writeFolderReviewFixture(t, "good", "feature-x")
 
 	got, err := FindReviewFileByBranch("feature-x", "")
 	if err != nil {

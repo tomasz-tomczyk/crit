@@ -537,9 +537,7 @@ func TestLoadConfigAuthorFallsBackToGit(t *testing.T) {
 	testutil.Git(t, repoDir, "config", "user.name", "Ada Lovelace")
 
 	// LoadConfig calls git without -C, so we must be inside the repo
-	origDir, _ := os.Getwd()
-	os.Chdir(repoDir)
-	defer os.Chdir(origDir)
+	t.Chdir(repoDir)
 
 	cfg := LoadConfig(repoDir)
 	if cfg.Author != "Ada Lovelace" {

@@ -64,16 +64,15 @@ func TestHasJJDirFrom_DetectsDotJJ(t *testing.T) {
 }
 
 func TestDetectVCS_JJOverride(t *testing.T) {
-	v := DetectVCS("jj")
-	if _, hasJJ := exec.LookPath("jj"); hasJJ == nil {
-		if _, ok := v.(*JJVCS); !ok {
-			t.Errorf("DetectVCS(jj) returned %T, want *JJVCS", v)
-		}
-		return
+	// The not-installed fallback is covered by
+	// TestDetectVCS_JJOverrideFallsBackToGitWhenNotInstalled.
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj not installed")
 	}
-	// Without jj in PATH, DetectVCS may fall back to git when the test itself
-	// runs inside a git checkout. That fallback is intentional and covered by
-	// the production warning path, so there is nothing stable to assert here.
+	v := DetectVCS("jj")
+	if _, ok := v.(*JJVCS); !ok {
+		t.Errorf("DetectVCS(jj) returned %T, want *JJVCS", v)
+	}
 }
 
 func TestJJVCS_DefaultBaseRefUsesTrunk(t *testing.T) {

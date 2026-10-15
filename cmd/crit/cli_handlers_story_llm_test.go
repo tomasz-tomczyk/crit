@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
@@ -538,6 +539,9 @@ func TestPostStoryToDaemon_BodyShape(t *testing.T) {
 // the daemon 503s on /api/session N times (session init not done), and
 // postStoryToDaemon must NOT POST the story until /api/session stops 503ing.
 func TestPostStoryToDaemon_PollsReadinessThenPosts(t *testing.T) {
+	oldInterval := daemonReadyPollInterval
+	daemonReadyPollInterval = time.Millisecond
+	t.Cleanup(func() { daemonReadyPollInterval = oldInterval })
 	const notReadyTimes = 3
 	var sessionHits int
 	var posted bool

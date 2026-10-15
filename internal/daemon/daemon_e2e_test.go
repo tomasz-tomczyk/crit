@@ -95,7 +95,10 @@ func TestDaemonLifecycle(t *testing.T) {
 		}
 		env = append(env, e)
 	}
-	env = append(env, "HOME="+homeDir)
+	// The startup integration check runs `<agent> --version` for every AI CLI
+	// on the developer's PATH (seconds), delaying readiness past the waits
+	// below; the update check calls the network.
+	env = append(env, "HOME="+homeDir, "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1")
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+homeDir)
 	}
@@ -180,37 +183,47 @@ func TestDaemonLifecycle(t *testing.T) {
 		done <- string(body)
 	}()
 
-	// Simulate user finishing review
-	time.Sleep(200 * time.Millisecond)
-	finishResp, err := http.Post(
-		fmt.Sprintf("http://127.0.0.1:%d/api/finish", entry.Port),
-		"application/json", nil,
-	)
-	if err != nil {
-		t.Fatalf("finish failed: %v", err)
+	// Simulate the user finishing the review. The finish event only reaches
+	// review-cycle requests already subscribed, so re-post until the
+	// review-cycle call returns instead of guessing how long subscribing takes.
+	finishURL := fmt.Sprintf("http://127.0.0.1:%d/api/finish", entry.Port)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	timeout := time.After(10 * time.Second)
+	var result string
+waitFinish:
+	for {
+		select {
+		case result = <-done:
+			break waitFinish
+		case <-tick.C:
+			if finishResp, err := http.Post(finishURL, "application/json", nil); err == nil {
+				finishResp.Body.Close()
+			}
+		case <-timeout:
+			t.Fatalf("review-cycle did not complete\nstderr: %s", stderrBuf.String())
+		}
 	}
-	finishResp.Body.Close()
-
-	// review-cycle should complete with finish response
-	select {
-	case result := <-done:
-		var resp map[string]any
-		if err := json.Unmarshal([]byte(result), &resp); err != nil {
-			t.Fatalf("unmarshal result: %v (raw: %s)", err, result)
-		}
-		if resp["status"] != "finished" {
-			t.Errorf("got status %q, want 'finished'", resp["status"])
-		}
-		if resp["approved"] != true {
-			t.Errorf("expected approved=true (no comments), got %v", resp["approved"])
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("review-cycle did not complete")
+	var cycle map[string]any
+	if err := json.Unmarshal([]byte(result), &cycle); err != nil {
+		t.Fatalf("unmarshal result: %v (raw: %s)", err, result)
+	}
+	if cycle["status"] != "finished" {
+		t.Errorf("got status %q, want 'finished'", cycle["status"])
+	}
+	if cycle["approved"] != true {
+		t.Errorf("expected approved=true (no comments), got %v", cycle["approved"])
 	}
 
 	// Kill daemon
 	cmd.Process.Signal(os.Interrupt)
-	cmd.Wait()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case <-exited:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("daemon did not exit within 10s of SIGINT\nstderr: %s", stderrBuf.String())
+	}
 
 	// Session file should be cleaned up
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {

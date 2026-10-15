@@ -505,6 +505,7 @@ type Session struct {
 	shareVisibility     string
 	status              *Status
 	roundComplete       chan struct{}
+	pollInterval        time.Duration // watcher tick; 0 means 1s (tests shorten it)
 	pendingEdits        int
 	lastRoundEdits      int
 	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes

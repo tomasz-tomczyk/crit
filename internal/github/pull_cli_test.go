@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
@@ -145,17 +146,31 @@ func TestRunPull_GHMissing(t *testing.T) {
 	}
 }
 
-func TestRunPull_FlagParseError(t *testing.T) {
-	// gh present is irrelevant: the bad flag value surfaces a usage exit before
-	// any network call. We still need gh to pass the RequireGH gate, so this
-	// asserts the parse-error exit code only when gh happens to be installed;
-	// otherwise it folds into the gh-missing error. Either way it must error.
-	err := RunPull([]string{"--output"})
-	if err == nil {
-		t.Fatal("RunPull with dangling --output = nil, want error")
+// withAuthedFakeGH puts a fake `gh` on PATH whose every invocation (including
+// `gh auth status`) succeeds, so RequireGH passes without a real gh or network.
+func withAuthedFakeGH(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	name, body := "gh", "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		name, body = "gh.cmd", "@echo off\r\nexit /b 0\r\n"
 	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestRunPull_FlagParseError(t *testing.T) {
+	// With the gh gate satisfied, a dangling --output must surface as a usage
+	// error (exit code 1) rather than reaching any gh/network call.
+	withAuthedFakeGH(t)
+	err := RunPull([]string{"--output"})
 	var exitErr clicmd.ExitError
-	if errors.As(err, &exitErr) && exitErr.Code != 1 {
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("RunPull with dangling --output = %v (%T), want clicmd.ExitError", err, err)
+	}
+	if exitErr.Code != 1 {
 		t.Errorf("exit code = %d, want 1", exitErr.Code)
 	}
 }

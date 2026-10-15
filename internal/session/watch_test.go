@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 func TestWatchFileMtimes_ClearAllCommentsPreservesNextRoundDiff(t *testing.T) {
 	s := newTestSession(t)
 	s.Mode = "files"
+	s.pollInterval = testPollInterval
 	s.lastRoundEdits = 2
 	for _, f := range s.Files {
 		f.FileHash = fileHash([]byte(f.Content))
@@ -46,14 +48,14 @@ func TestWatchFileMtimes_ClearAllCommentsPreservesNextRoundDiff(t *testing.T) {
 
 	// A fixture restoration can be detected between tests, before cleanup.
 	previous := "# Plan\n\nRestored baseline\n"
-	writeFile(t, s.Files[0].AbsPath, previous)
+	writeFileNewMtime(t, s.Files[0].AbsPath, previous)
 	waitForEvent("edit-detected")
 	s.ClearAllComments()
 	if edits := s.GetLastRoundEdits(); edits != 0 {
 		t.Fatalf("last round edits after cleanup = %d; want 0", edits)
 	}
 	current := "# Plan\n\nNext round edit\n"
-	writeFile(t, s.Files[0].AbsPath, current)
+	writeFileNewMtime(t, s.Files[0].AbsPath, current)
 	waitForEvent("edit-detected")
 	s.SignalRoundComplete()
 	waitForEvent("file-changed")
@@ -83,11 +85,14 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 	mdPath := filepath.Join(dir, "plan.md")
 	content := "# Plan\n\nStep 1\n"
 	writeFile(t, mdPath, content)
+	otherPath := filepath.Join(dir, "other.md")
+	writeFile(t, otherPath, "# Other\n")
 
 	s := &Session{
-		Mode:        "files",
-		RepoRoot:    dir,
-		ReviewRound: 1,
+		Mode:         "files",
+		RepoRoot:     dir,
+		ReviewRound:  1,
+		pollInterval: testPollInterval,
 
 		Files: []*FileEntry{
 			{
@@ -99,16 +104,24 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 				FileHash: fileHash([]byte(content)),
 				Comments: []Comment{},
 			},
+			{
+				Path:     "other.md",
+				AbsPath:  otherPath,
+				Status:   "modified",
+				FileType: "markdown",
+				Content:  "# Other\n",
+				FileHash: fileHash([]byte("# Other\n")),
+				Comments: []Comment{},
+			},
 		},
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
 	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
 
-	stop := make(chan struct{})
-	defer close(stop)
-
-	// Start the file watcher in the background.
-	go s.watchFileMtimes(stop)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
 
 	// Add a comment while the file hasn't changed — this should persist.
 	_, ok := s.AddComment("plan.md", 1, 1, "", "important feedback", "", "tester", "")
@@ -116,13 +129,14 @@ func TestWatchFileMtimes_CommentNotLostOnFileChange(t *testing.T) {
 		t.Fatal("AddComment failed")
 	}
 
-	// Give the watcher one tick to confirm it doesn't clear comments
-	// when the file hasn't changed.
-	time.Sleep(1500 * time.Millisecond)
+	// Change a different file and wait for the watcher to report it: that
+	// pass also visited plan.md, after the comment was added.
+	writeFileNewMtime(t, otherPath, "# Other\n\nEdited\n")
+	waitForSSE(t, events, "edit-detected")
 
 	comments := s.GetComments("plan.md")
 	if len(comments) != 1 {
-		t.Fatalf("expected 1 comment before file change, got %d", len(comments))
+		t.Fatalf("expected 1 comment on the unchanged file, got %d", len(comments))
 	}
 	if comments[0].Body != "important feedback" {
 		t.Errorf("comment body = %q", comments[0].Body)
@@ -139,9 +153,10 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 	writeFile(t, mdPath, content)
 
 	s := &Session{
-		Mode:        "files",
-		RepoRoot:    dir,
-		ReviewRound: 1,
+		Mode:         "files",
+		RepoRoot:     dir,
+		ReviewRound:  1,
+		pollInterval: testPollInterval,
 
 		Files: []*FileEntry{
 			{
@@ -158,22 +173,25 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 		roundComplete: make(chan struct{}, 1),
 	}
 
-	stop := make(chan struct{})
-
-	// Start the file watcher.
-	go s.watchFileMtimes(stop)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
 
 	// Concurrently: add comments in a tight loop while modifying the file on disk.
 	var wg sync.WaitGroup
 
 	// Writer goroutine: keep modifying the file to trigger the watcher's change path.
+	start := time.Now()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 10; i++ {
 			newContent := []byte("# Plan\n\n## Revision " + string(rune('A'+i)) + "\n\nUpdated\n")
+			// Distinct mtimes keep coarse-timestamp filesystems detecting each
+			// write. No t.Fatal here: this is not the test goroutine.
 			os.WriteFile(mdPath, newContent, 0644)
-			time.Sleep(200 * time.Millisecond)
+			mtime := start.Add(time.Duration(i+1) * time.Second)
+			os.Chtimes(mdPath, mtime, mtime)
+			time.Sleep(2 * testPollInterval)
 		}
 	}()
 
@@ -184,15 +202,18 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
 				s.AddComment("plan.md", 1, 1, "", "concurrent comment", "", "tester", "")
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(testPollInterval / 2)
 			}
 		}()
 	}
 
 	wg.Wait()
-	close(stop)
 
-	// The primary assertion is that the race detector does not fire.
+	// The primary assertion is that the race detector does not fire. The
+	// watcher must also have seen the edits, or the change path never ran.
+	waitUntil(t, "watcher to detect the file edits", func() bool { return s.GetPendingEdits() > 0 })
+	stopWatcher()
+
 	// As a secondary check, verify the session is in a consistent state.
 	s.mu.RLock()
 	f := s.fileByPathLocked("plan.md")
@@ -526,6 +547,19 @@ func TestCarryForwardComment_PreservesLastPushedBodyHash(t *testing.T) {
 	}
 }
 
+// countingVCS counts completed working-tree fingerprints so a test can tell
+// whether, and when, watchGit polled the VCS.
+type countingVCS struct {
+	vcs.VCS
+	calls atomic.Int32
+}
+
+func (c *countingVCS) WorkingTreeFingerprint() string {
+	fp := c.VCS.WorkingTreeFingerprint()
+	c.calls.Add(1)
+	return fp
+}
+
 // TestWatchGit_SkipsGitStatusWhenNotWaiting verifies that watchGit does not
 // detect edits when waitingForAgent is false, and does detect them once
 // waitingForAgent is set to true.
@@ -538,12 +572,18 @@ func TestWatchGit_SkipsGitStatusWhenNotWaiting(t *testing.T) {
 	gitT(t, dir, "add", "file.go")
 	gitT(t, dir, "commit", "-m", "add file")
 
+	// GitVCS.WorkingTreeFingerprint runs `git status` in the cwd. t.Chdir is
+	// registered before the watcher's cleanup, so the watcher stops first.
+	t.Chdir(dir)
+	vc := &countingVCS{VCS: &vcs.GitVCS{}}
 	s := &Session{
-		Mode:        "git",
-		RepoRoot:    dir,
-		Branch:      "feat",
-		BaseRef:     "main",
-		ReviewRound: 1,
+		VCS:          vc,
+		Mode:         "git",
+		RepoRoot:     dir,
+		Branch:       "feat",
+		BaseRef:      "main",
+		ReviewRound:  1,
+		pollInterval: testPollInterval,
 		Files: []*FileEntry{
 			{
 				Path:     "file.go",
@@ -557,37 +597,32 @@ func TestWatchGit_SkipsGitStatusWhenNotWaiting(t *testing.T) {
 		roundComplete: make(chan struct{}, 1),
 	}
 
-	stop := make(chan struct{})
-	defer close(stop)
+	// watchGit starts with waitingForAgent = false (default).
+	stopWatcher := startWatcher(t, s.watchGit)
+	defer stopWatcher()
 
-	// Start watchGit with waitingForAgent = false (default).
-	// WorkingTreeFingerprint uses cwd, so chdir before starting.
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-	go s.watchGit(stop)
-
-	// Create an untracked file — this changes git status --porcelain output.
-	time.Sleep(500 * time.Millisecond) // let watcher start
+	// An untracked file changes `git status --porcelain`, but while not
+	// waiting for the agent the watcher must not poll git at all. A negative
+	// can only be observed over time: give it many ticks.
 	writeFile(t, filepath.Join(dir, "untracked1.txt"), "hello\n")
-
-	// Wait for a couple of watcher ticks — should NOT detect edits.
-	time.Sleep(2500 * time.Millisecond)
+	time.Sleep(20 * testPollInterval)
+	if n := vc.calls.Load(); n != 0 {
+		t.Errorf("watcher polled git %d times while not waiting for agent", n)
+	}
 	if edits := s.GetPendingEdits(); edits != 0 {
 		t.Errorf("expected 0 edits while not waiting for agent, got %d", edits)
 	}
 
-	// Now set waitingForAgent = true and wait for the baseline tick.
+	// Once waiting, the first poll records a baseline; wait for it so the
+	// next write is guaranteed to differ from the baseline.
 	s.setWaitingForAgent(true)
-	time.Sleep(1500 * time.Millisecond) // baseline tick
-
-	// Create another new file to change the fingerprint from the baseline.
-	writeFile(t, filepath.Join(dir, "untracked2.txt"), "world\n")
-	time.Sleep(2500 * time.Millisecond)
-
-	if edits := s.GetPendingEdits(); edits == 0 {
-		t.Error("expected edits > 0 after setting waitingForAgent = true")
+	waitUntil(t, "baseline fingerprint", func() bool { return vc.calls.Load() >= 1 })
+	if edits := s.GetPendingEdits(); edits != 0 {
+		t.Errorf("baseline poll counted %d edits, want 0", edits)
 	}
+
+	writeFile(t, filepath.Join(dir, "untracked2.txt"), "world\n")
+	waitUntil(t, "edit detection", func() bool { return s.GetPendingEdits() > 0 })
 }
 
 func TestRestoreOrphanedComments(t *testing.T) {
@@ -1838,5 +1873,72 @@ func TestOnLiveRoundStart_OnlyForLiveAndPreviewReviews(t *testing.T) {
 	}
 	if s3.ReviewRound != 2 {
 		t.Fatalf("ReviewRound = %d, want 2", s3.ReviewRound)
+	}
+}
+
+// testPollInterval replaces the watchers' 1s production tick in tests.
+const testPollInterval = 10 * time.Millisecond
+
+// startWatcher runs a watcher loop and returns an idempotent stop function
+// that waits for it to exit; it is also registered as cleanup.
+func startWatcher(t *testing.T, watch func(stop <-chan struct{})) func() {
+	t.Helper()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watch(stop)
+	}()
+	var once sync.Once
+	stopFn := func() { once.Do(func() { close(stop); <-done }) }
+	t.Cleanup(stopFn)
+	return stopFn
+}
+
+// waitUntil polls cond until it holds, failing the test after 10s.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(testPollInterval)
+	}
+}
+
+// waitForSSE waits for an event of the given type, skipping others.
+func waitForSSE(t *testing.T, events chan SSEEvent, kind string) {
+	t.Helper()
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case event := <-events:
+			if event.Type == kind {
+				return
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %s", kind)
+		}
+	}
+}
+
+// writeFileNewMtime writes content and makes sure the file's mtime moves
+// forward, so mtime-based watchers notice the change even on filesystems with
+// coarse timestamp resolution.
+func writeFileNewMtime(t *testing.T, path, content string) {
+	t.Helper()
+	var prev time.Time
+	if info, err := os.Stat(path); err == nil {
+		prev = info.ModTime()
+	}
+	writeFile(t, path, content)
+	mtime := time.Now()
+	if !mtime.After(prev.Add(time.Second)) {
+		mtime = prev.Add(2 * time.Second)
+	}
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
 	}
 }

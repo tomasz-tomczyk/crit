@@ -181,17 +181,13 @@ func TestParseRemoteBookmarks(t *testing.T) {
 }
 
 func TestDetectVCS_SaplingOverride(t *testing.T) {
+	if _, err := exec.LookPath("sl"); err != nil {
+		t.Skip("sl not installed")
+	}
 	for _, override := range []string{"sl", "sapling"} {
 		v := DetectVCS(override)
-		if v == nil {
-			// Falls back to git if sl not in PATH — that's fine
-			t.Skipf("DetectVCS(%q) returned nil (sl likely not in PATH)", override)
-		}
-		// If sl is in PATH, should return SaplingVCS; otherwise GitVCS fallback
-		if _, hasSL := exec.LookPath("sl"); hasSL == nil {
-			if _, ok := v.(*SaplingVCS); !ok {
-				t.Errorf("DetectVCS(%q) returned %T, want *SaplingVCS", override, v)
-			}
+		if _, ok := v.(*SaplingVCS); !ok {
+			t.Errorf("DetectVCS(%q) returned %T, want *SaplingVCS", override, v)
 		}
 	}
 }

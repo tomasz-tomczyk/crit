@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
@@ -667,9 +668,13 @@ func TestPollForToken_Integration(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// Interval is in seconds; scale it to milliseconds for the test.
+	oldUnit := pollIntervalUnit
+	pollIntervalUnit = time.Millisecond
+	t.Cleanup(func() { pollIntervalUnit = oldUnit })
 	code := deviceCodeResponse{
 		DeviceCode: "dc_integration",
-		Interval:   1, // 1 second per poll to keep the test fast
+		Interval:   1,
 		ExpiresIn:  30,
 	}
 

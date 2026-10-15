@@ -101,19 +101,8 @@ func TestBuildPreviewStartArgs(t *testing.T) {
 
 func unsetEnvForTest(t *testing.T, key string) {
 	t.Helper()
-	old, existed := os.LookupEnv(key)
+	t.Setenv(key, "") // registers restore of the original value
 	if err := os.Unsetenv(key); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if existed {
-			if err := os.Setenv(key, old); err != nil {
-				t.Errorf("restore %s: %v", key, err)
-			}
-		} else {
-			if err := os.Unsetenv(key); err != nil {
-				t.Errorf("restore %s: %v", key, err)
-			}
-		}
-	})
 }
