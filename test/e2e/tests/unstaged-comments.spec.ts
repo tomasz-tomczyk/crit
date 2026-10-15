@@ -91,6 +91,11 @@ test.describe('Unstaged File Comments — runtime-created file', () => {
 
   test.afterAll(async ({ request }) => {
     fs.rmSync(path.join(fixtureDir, RUNTIME_UNSTAGED_FILE), { force: true });
+    // Round-complete restores a deleted file as a phantom entry while the
+    // review file still holds comments on it (the API test above leaves one,
+    // and its debounced save may or may not have landed yet). Clearing is
+    // synchronous and drops those, so the cleanup below is deterministic.
+    await clearAllComments(request);
     // Later specs count the session's files; don't leave this one behind.
     await waitForSessionFile(request, false);
     // The default ("all") list only drops a deleted file on round-complete.
