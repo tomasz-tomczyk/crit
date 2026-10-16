@@ -5407,19 +5407,19 @@ html[data-theme="light"] .toggle-btn.active {
   cursor: wait;
 }
 
-/* Live Thread — green ambient glow (the theme's green) */
+/* Live Thread — orange ambient glow, matching the live badge */
 .live-thread > .comment-card {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
-              0 0 12px color-mix(in srgb, var(--crit-green) 6%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 20%, transparent),
+              0 0 12px color-mix(in srgb, var(--crit-live-fg) 6%, transparent);
 }
 .live-thread.agent-pending > .comment-card {
   animation: agent-glow 2s ease-in-out infinite;
 }
 @keyframes agent-glow {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
-                          0 0 8px color-mix(in srgb, var(--crit-green) 5%, transparent); }
-  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 35%, transparent),
-                    0 0 16px color-mix(in srgb, var(--crit-green) 12%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 20%, transparent),
+                          0 0 8px color-mix(in srgb, var(--crit-live-fg) 5%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 35%, transparent),
+                    0 0 16px color-mix(in srgb, var(--crit-live-fg) 12%, transparent); }
 }
 
 /* Live thread badge */
