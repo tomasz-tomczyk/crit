@@ -249,25 +249,47 @@ export async function showLine(page: Page, line: Locator) {
 }
 
 /**
- * Wait until the review pane's scroll offset and height hold still for a few
- * frames (re-layout after an update, virtualized items mounting).
+ * Wait until the review pane has settled: fonts loaded, every mounted
+ * pluggable render target (`.crit-render`, e.g. a Mermaid diagram) has
+ * finished, and the pane's scroll offset, height and first item position hold
+ * still for a few frames (re-layout after an update, virtualized items
+ * mounting).
+ *
+ * A diagram that mounts as the pane scrolls renders asynchronously: its file
+ * keeps the source's height for ~150ms, then grows when the SVG lands, and
+ * the virtualizer shifts the items for a frame while it re-measures. Height
+ * alone looks stable during that wait, so pending targets count as unsettled.
  */
 export async function waitForScrollStable(page: Page) {
-  await reviewScroller(page).evaluate((el) => new Promise<void>((resolve) => {
-    let last = '';
-    let stable = 0;
-    const check = () => {
-      const now = `${el.scrollTop}:${el.scrollHeight}`;
-      if (now === last) {
-        if (++stable >= 5) return resolve();
-      } else {
-        stable = 0;
-        last = now;
-      }
+  await reviewScroller(page).evaluate(async (el) => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve, reject) => {
+      const deadline = performance.now() + 10_000;
+      let last = '';
+      let stable = 0;
+      const unsettled = () => [...el.querySelectorAll('.crit-render')].filter((t) => {
+        const state = t.getAttribute('data-crit-state');
+        return state !== 'rendered' && state !== 'error';
+      }).length;
+      const check = () => {
+        const first = el.querySelector('diffs-container');
+        const firstTop = first ? first.getBoundingClientRect().top : 0;
+        const pending = unsettled();
+        const now = `${el.scrollTop}:${el.scrollHeight}:${firstTop}:${pending}`;
+        if (now === last && pending === 0) {
+          if (++stable >= 5) return resolve();
+        } else {
+          stable = 0;
+          last = now;
+        }
+        if (performance.now() > deadline) {
+          return reject(new Error(`review pane did not settle in 10s (${now})`));
+        }
+        requestAnimationFrame(check);
+      };
       requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-  }));
+    });
+  });
 }
 
 /**
