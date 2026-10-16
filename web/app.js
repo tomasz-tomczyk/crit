@@ -873,6 +873,7 @@
     if (pierreView && pierreViewActive()) {
       // Header is rebuilt by the item update (checkbox state included).
       pierreView.setCollapsed(file, file.viewed ? true : file.collapsed);
+      critFind.filesChanged();
       return;
     }
     // Update the checkbox in the file header
@@ -1412,6 +1413,7 @@
         const anyExpanded = files.some(function(f) { return !f.collapsed; });
         if (pierreViewActive() && pierreView) {
           pierreView.setAllCollapsed(files, anyExpanded);
+          critFind.filesChanged();
         } else {
           for (let i = 0; i < files.length; i++) {
             files[i].collapsed = anyExpanded;
@@ -1993,6 +1995,7 @@
     function toggle() {
       const refocus = document.activeElement === chevron;
       pierreView.setCollapsed(file, !file.collapsed);
+      critFind.filesChanged();
       header.classList.toggle('collapsed', !!file.collapsed);
       chevron.setAttribute('aria-expanded', String(!file.collapsed));
       if (refocus) keepChevronFocus(filePath);
@@ -2442,10 +2445,10 @@
   // Pierre only mounts rows near the viewport, so the browser's find misses
   // the rest. crit-find.js searches the model and jumps with Pierre's scroll
   // API. Rows match what Pierre shows: the prepared hunks for diffs, the
-  // whole file in files mode. Rendered documents and placeholders have no
-  // code rows and are skipped.
+  // whole file in files mode. Collapsed (and viewed) files, rendered
+  // documents and placeholders show no code rows and are skipped.
   function pierreFindRows(file) {
-    if (!file || file.lazy || file.orphaned) return [];
+    if (!file || file.lazy || file.orphaned || file.collapsed) return [];
     if (pierreIsDocumentView(file) || pierrePlaceholderText(file)) return [];
     if (pierreIsFileView(file)) {
       const lines = (file.content || '').split('\n');
@@ -2465,10 +2468,17 @@
   }
 
   const critFind = window.crit.find.createFind({
+    // Story chapters are Pierre hosts too; only the review list is searched.
+    hostSelector: '#filesContainer diffs-container',
     files: function() { return files; },
     linesFor: pierreFindRows,
-    isActive: function() { return !!pierreView && pierreViewActive(); },
-    isPending: function(file) { return !!file.lazy; },
+    // With only rendered documents (a plan review) there is nothing to
+    // search; leave Cmd+F to the browser.
+    isActive: function() {
+      return !!pierreView && pierreViewActive() && !settingsPanelOpen &&
+        files.some(function(f) { return !f.orphaned && !pierreIsDocumentView(f) && !pierrePlaceholderText(f); });
+    },
+    isPending: function(file) { return !!file.lazy && !file.collapsed; },
     // Start from the file at the top of the list, like the browser's find
     // starts from the viewport.
     startIndex: function(matches) {
@@ -2486,15 +2496,10 @@
       return at < 0 ? 0 : at;
     },
     load: function(path) { return pierreView ? pierreView.ensureLoaded(path) : null; },
-    reveal: function(match) {
+    reveal: function(match, isCurrent) {
       if (!pierreView) return null;
       return pierreView.ensureLoaded(match.path).then(function() {
-        const file = getFileByPath(match.path);
-        if (!file || !pierreView) return null;
-        if (file.collapsed) {
-          pierreView.setCollapsed(file, false);
-          pierreView.viewer.render(true);
-        }
+        if (!pierreView || !isCurrent()) return null;
         ignoreTreeObserverUntil = Date.now() + 400;
         updateTreeActive(match.path);
         return pierreView.scrollToLine(match.path, match.line, match.side, 'center');

@@ -87,6 +87,10 @@
     return el.closest('code[data-deletions]') || el.dataset.lineType === 'change-deletion' ? 'old' : '';
   }
 
+  function rowKey(path, side, line) {
+    return path + '\u0000' + side + '\u0000' + line;
+  }
+
   function codeRows(root) {
     return root.querySelectorAll('code [data-content] > [data-line]');
   }
@@ -98,7 +102,9 @@
     let current = -1;
     let open = false;
     let revealSeq = 0;
-    let loading = 0;
+    let loadRun = null;
+    let matchedRows = new Set();
+    let returnFocus = null;
 
     const bar = document.createElement('div');
     bar.className = 'crit-find-bar';
@@ -118,9 +124,9 @@
 
     function renderCount() {
       if (!query) count.textContent = '';
-      else if (matches.length === 0) count.textContent = loading ? 'Searching…' : 'No results';
-      else count.textContent = (current + 1) + ' of ' + matches.length + (matches.length >= MAX_MATCHES ? '+' : '') + (loading ? '…' : '');
-      bar.classList.toggle('crit-find-empty', !!query && matches.length === 0 && !loading);
+      else if (matches.length === 0) count.textContent = loadRun ? 'Searching…' : 'No results';
+      else count.textContent = (current + 1) + ' of ' + matches.length + (matches.length >= MAX_MATCHES ? '+' : '') + (loadRun ? '…' : '');
+      bar.classList.toggle('crit-find-empty', !!query && matches.length === 0 && !loadRun);
     }
 
     // Highlights: every match in the mounted rows, plus the current one.
@@ -137,12 +143,15 @@
       }
       const cur = matches[current];
       const all = [];
+      // Only rows the match list counts, so the marks and the counter agree
+      // (Pierre can show expanded context that the list does not search).
       let currentRange = null;
       hosts().forEach(function(host) {
         const root = host.shadowRoot;
         const path = host.dataset.critPath;
         if (!root || !path) return;
         codeRows(root).forEach(function(el) {
+          if (!matchedRows.has(rowKey(path, rowSide(el), el.dataset.line))) return;
           const ranges = rangesInElement(el, query, caseSensitive);
           if (ranges.length === 0) return;
           if (cur && cur.path === path && String(cur.line) === el.dataset.line && cur.side === rowSide(el) && ranges[cur.nth]) {
@@ -176,6 +185,7 @@
     function search(keepPosition) {
       const prev = matches[current];
       matches = collectMatches(opts.files(), query, opts.linesFor, caseSensitive);
+      matchedRows = new Set(matches.map(function(m) { return rowKey(m.path, m.side, String(m.line)); }));
       current = -1;
       if (keepPosition && prev) current = matches.findIndex(function(m) { return sameMatch(m, prev); });
       renderCount();
@@ -183,47 +193,56 @@
     }
 
     // Lazy files have no rows until loaded. Load them in the background
-    // while a query is active and fold their matches in as they land.
+    // while the bar is open and fold their matches in as they land. One run
+    // at a time; each step takes the next lazy file from the current list,
+    // so a reload (new round, scope change) is picked up by the same run.
     function loadPending() {
-      const pending = opts.files().filter(opts.isPending);
-      if (pending.length === 0) return;
-      loading += pending.length;
-      renderCount();
-      let next = 0;
+      if (loadRun || !opts.files().some(opts.isPending)) return;
+      const tried = new Set();
       let researchQueued = false;
       const research = function() {
         if (researchQueued) return;
         researchQueued = true;
         setTimeout(function() {
           researchQueued = false;
+          if (!open || !query) return;
           const hadCurrent = current >= 0;
           search(true);
-          if (!hadCurrent && matches.length && open) go(opts.startIndex ? opts.startIndex(matches) : 0);
-        }, 100);
+          if (!hadCurrent && matches.length) go(opts.startIndex ? opts.startIndex(matches) : 0);
+        }, 300);
       };
       const worker = function() {
-        if (next >= pending.length) return Promise.resolve();
-        const file = pending[next++];
+        if (!open) return Promise.resolve();
+        const file = opts.files().find(function(f) { return opts.isPending(f) && !tried.has(f.path); });
+        if (!file) return Promise.resolve();
+        tried.add(file.path);
         return Promise.resolve(opts.load(file.path)).catch(function() {}).then(function() {
-          loading--;
-          if (query) research(); else renderCount();
+          if (query) research();
           return worker();
         });
       };
-      for (let i = 0; i < 4; i++) worker();
+      const workers = [];
+      for (let i = 0; i < 4; i++) workers.push(worker());
+      loadRun = Promise.all(workers).then(function() {
+        loadRun = null;
+        renderCount();
+      });
+      renderCount();
     }
 
     function go(index) {
-      if (matches.length === 0) return;
+      if (!open || matches.length === 0) return;
+      if (!opts.isActive()) { hide(); return; }
       current = (index + matches.length) % matches.length;
       renderCount();
       const m = matches[current];
       const seq = ++revealSeq;
-      Promise.resolve(opts.reveal(m)).then(function() {
+      const isCurrent = function() { return open && seq === revealSeq; };
+      Promise.resolve(opts.reveal(m, isCurrent)).then(function() {
         // The row renders on a later frame; poll until it is mounted.
         let frames = 0;
         (function poll() {
-          if (seq !== revealSeq) return;
+          if (!isCurrent()) return;
           const range = syncHighlights();
           if (range) { scrollRangeIntoView(range); return; }
           if (++frames < 60) requestAnimationFrame(poll);
@@ -251,6 +270,7 @@
     }
 
     function show() {
+      if (!open && document.activeElement !== input) returnFocus = document.activeElement;
       open = true;
       bar.hidden = false;
       const selected = window.getSelection && String(window.getSelection()).trim();
@@ -262,10 +282,15 @@
     }
 
     function hide() {
+      if (!open) return;
       open = false;
+      clearTimeout(inputTimer);
       revealSeq++;
       bar.hidden = true;
       syncHighlights();
+      const back = returnFocus;
+      returnFocus = null;
+      if (back && back !== document.body && back.isConnected) back.focus({ preventScroll: true });
       if (opts.onClose) opts.onClose();
     }
 
@@ -292,29 +317,43 @@
       caseSensitive = !caseSensitive;
       caseBtn.setAttribute('aria-pressed', String(caseSensitive));
       search(true);
-      if (current < 0 && matches.length) go(0);
+      if (current < 0 && matches.length) go(opts.startIndex ? opts.startIndex(matches) : 0);
     }
     caseBtn.addEventListener('click', function() { toggleCase(); input.focus(); });
     bar.querySelector('.crit-find-prev').addEventListener('click', function() { go(current - 1); input.focus(); });
     bar.querySelector('.crit-find-next').addEventListener('click', function() { go(current + 1); input.focus(); });
     bar.querySelector('.crit-find-close').addEventListener('click', hide);
 
-    // Cmd/Ctrl+F opens the bar while the review list is up. Pressing it
-    // again with the bar focused falls through to the browser's own find.
-    // Cmd/Ctrl+G and Shift+Cmd/Ctrl+G step through matches.
+    // Cmd+F (Ctrl+F off macOS) opens the bar while the review list is up.
+    // Pressing it again with the bar focused falls through to the browser's
+    // own find, as does any press while find has nothing to search.
+    // Cmd/Ctrl+G and Shift+Cmd/Ctrl+G step through matches. On macOS Ctrl+F
+    // is left alone: it moves the caret in text fields.
+    const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
     document.addEventListener('keydown', function(e) {
-      const mod = e.metaKey || e.ctrlKey;
+      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
       if (!mod || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key === 'f' && !e.shiftKey) {
-        if (!opts.isActive()) return;
+        if (!opts.isActive()) { hide(); return; }
         if (open && document.activeElement === input) return;
         e.preventDefault();
         show();
       } else if (key === 'g' && open) {
+        if (!opts.isActive()) { hide(); return; }
         e.preventDefault();
         go(current + (e.shiftKey ? -1 : 1));
       }
+    }, true);
+    // Esc closes the bar from anywhere but a text field (comment forms keep
+    // their own Esc).
+    document.addEventListener('keydown', function(e) {
+      if (!open || e.key !== 'Escape' || e.defaultPrevented) return;
+      const t = e.target;
+      if (t !== input && t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      hide();
     }, true);
 
     return {
@@ -322,7 +361,11 @@
       // Call when Pierre mounts or unmounts rows (onPostRender).
       rowsChanged: queueSync,
       // Call when the file list or a file's rows change.
-      filesChanged: function() { if (open && query) search(true); },
+      filesChanged: function() {
+        if (!open || !query) return;
+        search(true);
+        loadPending();
+      },
       isOpen: function() { return open; },
       open: show,
       close: hide,
