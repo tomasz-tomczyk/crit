@@ -5392,15 +5392,15 @@ html[data-theme="light"] .toggle-btn.active {
 /* Send now button */
 .btn-agent {
   background: transparent;
-  color: var(--crit-brand);
-  border: 1px solid var(--crit-brand);
+  color: var(--crit-live-fg);
+  border: 1px solid var(--crit-live-fg);
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 .btn-agent:hover {
-  background: var(--crit-brand);
-  color: var(--crit-fg-on-brand);
+  background: var(--crit-live-badge-bg);
+  color: var(--crit-live-fg);
 }
 .btn-agent:disabled {
   opacity: 0.5;
