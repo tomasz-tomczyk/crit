@@ -48,6 +48,31 @@ test('finds and reveals a match in a lazy, off-screen file', async ({ page }) =>
   await expect(page.locator('.tree-file[data-tree-path="file287.go"]')).toHaveClass(/active/);
 });
 
+test('keeps the found file active in the tree until it scrolls out of view', async ({ page }) => {
+  const treeRow = (path: string) => page.locator(`.tree-file[data-tree-path="${path}"]`);
+  const scrollList = (by: number) => page.locator('#filesContainer').evaluate(async (el, by) => {
+    el.scrollTop += by;
+    // The scroll event and the tree sync it queues each take a frame.
+    for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame);
+  }, by);
+
+  await loadPage(page);
+  await openFind(page);
+  await input(page).fill('Goodbye287()');
+  await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({ path: 'file287.go', visible: true });
+  await expect(treeRow('file287.go')).toHaveClass(/active/);
+
+  // The centered match leaves file286.go at the top of the list. A scroll
+  // after the tree's 400ms post-jump window (on a slow runner, the jump's
+  // own) must not hand the tree to it.
+  await page.waitForTimeout(500);
+  await scrollList(1);
+  await expect(treeRow('file287.go')).toHaveClass(/active/);
+
+  await scrollList(2000);
+  await expect(treeRow('file287.go')).not.toHaveClass(/active/);
+});
+
 test('Esc closes the bar, clears highlights and stays put', async ({ page }) => {
   await loadPage(page);
   await openFind(page);

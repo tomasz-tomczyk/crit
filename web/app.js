@@ -1335,6 +1335,10 @@
   // ===== File Tree Sidebar =====
   let activeTreePath = null;
   let ignoreTreeObserverUntil = 0;
+  // File a jump (tree click, find, comment link) made active. A centered
+  // jump leaves it below the line the scroll sync picks by, so the sync
+  // keeps it while it is on screen instead of switching to the file above.
+  let treeJumpPath = null;
   const treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
 
   function buildFileTree(fileList) {
@@ -1618,7 +1622,8 @@
     }
   }
 
-  function updateTreeActive(filePath) {
+  function updateTreeActive(filePath, fromJump) {
+    treeJumpPath = fromJump ? filePath : null;
     if (filePath === activeTreePath) return;
     activeTreePath = filePath;
     const allRows = document.querySelectorAll('.tree-file, .tree-conversation-row');
@@ -1704,7 +1709,7 @@
     const file = getFileByPath(filePath);
     if (file && file.collapsed) pierreView.setCollapsed(file, false);
     ignoreTreeObserverUntil = Date.now() + 400;
-    updateTreeActive(filePath);
+    updateTreeActive(filePath, true);
     return pierreView.scrollToFile(filePath);
   }
 
@@ -2370,7 +2375,7 @@
       const inDocument = pierreIsDocumentView(file) && comment && comment.scope !== 'file';
       const anchored = comment && comment.scope !== 'file' && !inDocument && pierreAnchorTest(file)(comment);
       ignoreTreeObserverUntil = Date.now() + 400;
-      updateTreeActive(filePath);
+      updateTreeActive(filePath, true);
       const scrolled = anchored
         ? pierreView.scrollToLine(filePath, comment.end_line, comment.side, 'center')
         : pierreView.scrollToFile(filePath);
@@ -2516,7 +2521,7 @@
       return pierreView.ensureLoaded(match.path).then(function() {
         if (!pierreView || !isCurrent()) return null;
         ignoreTreeObserverUntil = Date.now() + 400;
-        updateTreeActive(match.path);
+        updateTreeActive(match.path, true);
         return pierreView.scrollToLine(match.path, match.line, match.side, 'center');
       });
     },
@@ -2677,6 +2682,14 @@
     const viewer = pierreView && pierreView.viewer;
     if (!viewer || paths.length === 0) return;
     const top = viewer.getScrollTop();
+    // The jump's own scroll can land after the ignore window on a slow machine.
+    const jumped = treeJumpPath ? paths.indexOf(treeJumpPath) : -1;
+    if (jumped !== -1) {
+      const bottom = top + document.getElementById('filesContainer').clientHeight;
+      const jumpEnd = jumped + 1 < paths.length ? viewer.getTopForItem(paths[jumped + 1]) : Infinity;
+      if (viewer.getTopForItem(treeJumpPath) < bottom && jumpEnd > top) return;
+    }
+    treeJumpPath = null;
     // Above the first file sits the review conversation (the list header).
     const conversation = document.getElementById('reviewConversation');
     let best = conversation && !conversation.hidden && top + 60 < viewer.getTopForItem(paths[0])
