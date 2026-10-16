@@ -2447,15 +2447,33 @@
   // API. Rows match what Pierre shows: the prepared hunks for diffs, the
   // whole file in files mode. Collapsed (and viewed) files, rendered
   // documents and placeholders show no code rows and are skipped.
+  // Rows are cached per file while what they are built from is unchanged,
+  // so re-searching (as lazy files land) does not rebuild every file. Hunks
+  // are compared one by one: comment and small-gap expansion splice merged
+  // hunks into the same array.
+  const pierreFindRowCache = new WeakMap();
   function pierreFindRows(file) {
     if (!file || file.lazy || file.orphaned || file.collapsed) return [];
     if (pierreIsDocumentView(file) || pierrePlaceholderText(file)) return [];
-    if (pierreIsFileView(file)) {
-      const lines = (file.content || '').split('\n');
-      return lines.map(function(text, i) { return { side: '', line: i + 1, text: text }; });
+    const fileView = pierreIsFileView(file);
+    const hunks = fileView ? [] : pierrePreparedHunks(file);
+    const cached = pierreFindRowCache.get(file);
+    if (cached && cached.fileView === fileView && cached.content === file.content &&
+        cached.hunks.length === hunks.length && cached.hunks.every(function(h, i) { return h === hunks[i]; })) {
+      return cached.rows;
     }
+    const rows = fileView ? pierreFileFindRows(file) : pierreDiffFindRows(hunks);
+    pierreFindRowCache.set(file, { fileView: fileView, content: file.content, hunks: hunks.slice(), rows: rows });
+    return rows;
+  }
+
+  function pierreFileFindRows(file) {
+    const lines = (file.content || '').split('\n');
+    return lines.map(function(text, i) { return { side: '', line: i + 1, text: text }; });
+  }
+
+  function pierreDiffFindRows(hunks) {
     const rows = [];
-    const hunks = pierrePreparedHunks(file);
     for (let h = 0; h < hunks.length; h++) {
       const lines = hunks[h].Lines || [];
       for (let i = 0; i < lines.length; i++) {
@@ -2481,19 +2499,16 @@
     isPending: function(file) { return !!file.lazy && !file.collapsed; },
     // Start from the file at the top of the list, like the browser's find
     // starts from the viewport.
-    startIndex: function(matches) {
+    startFile: function() {
       const viewer = pierreView && pierreView.viewer;
       const paths = pierreView ? pierreView.renderedPaths() : [];
-      if (!viewer || paths.length === 0) return 0;
+      if (!viewer || paths.length === 0) return null;
       const top = viewer.getScrollTop();
       let topPath = paths[0];
       for (let i = 0; i < paths.length; i++) {
         if (viewer.getTopForItem(paths[i]) <= top + 60) topPath = paths[i];
       }
-      const order = new Map(files.map(function(f, i) { return [f.path, i]; }));
-      const from = order.get(topPath) || 0;
-      const at = matches.findIndex(function(m) { return order.get(m.path) >= from; });
-      return at < 0 ? 0 : at;
+      return topPath;
     },
     load: function(path) { return pierreView ? pierreView.ensureLoaded(path) : null; },
     reveal: function(match, isCurrent) {

@@ -20,21 +20,40 @@
     '::highlight(' + HIGHLIGHT_ALL + ') { background-color: var(--crit-find-bg); color: inherit; }' +
     '::highlight(' + HIGHLIGHT_CURRENT + ') { background-color: var(--crit-find-current-bg); color: var(--crit-find-current-fg); }';
 
-  // Every match of `query` across `files`, in list order. `linesFor(file)`
-  // returns the file's displayed rows as [{ side, line, text }] in display
-  // order. Matching is case-insensitive unless `caseSensitive`.
-  function collectMatches(files, query, linesFor, caseSensitive) {
+  // Lower-case `text` without changing its length, so offsets found in the
+  // folded text still point into the original. A character whose lower case
+  // is longer (U+0130 becomes two code units) keeps its own case.
+  function fold(text) {
+    const low = text.toLowerCase();
+    if (low.length === text.length) return low;
+    let out = '';
+    for (const ch of text) {
+      const l = ch.toLowerCase();
+      out += l.length === ch.length ? l : ch;
+    }
+    return out;
+  }
+
+  // Every match of `query` across `files`. `linesFor(file)` returns the
+  // file's displayed rows as [{ side, line, text }] in display order (a row
+  // may cache its folded text as `folded`). Files are walked from index
+  // `startAt`, wrapping around, so a capped list starts where the reader is.
+  // Matching is case-insensitive unless `caseSensitive`.
+  function collectMatches(files, query, linesFor, caseSensitive, startAt) {
     const out = [];
-    if (!query) return out;
-    const needle = caseSensitive ? query : query.toLowerCase();
-    for (let f = 0; f < files.length; f++) {
-      const rows = linesFor(files[f]) || [];
+    if (!query || files.length === 0) return out;
+    const needle = caseSensitive ? query : fold(query);
+    const first = startAt > 0 && startAt < files.length ? startAt : 0;
+    for (let k = 0; k < files.length; k++) {
+      const file = files[(first + k) % files.length];
+      const rows = linesFor(file) || [];
       for (let r = 0; r < rows.length; r++) {
-        const text = caseSensitive ? rows[r].text : rows[r].text.toLowerCase();
+        const row = rows[r];
+        const text = caseSensitive ? row.text : (row.folded !== undefined ? row.folded : (row.folded = fold(row.text)));
         let at = text.indexOf(needle);
         let nth = 0;
         while (at !== -1) {
-          out.push({ path: files[f].path, side: rows[r].side, line: rows[r].line, nth: nth++, col: at });
+          out.push({ path: file.path, side: row.side, line: row.line, nth: nth++, col: at });
           if (out.length >= MAX_MATCHES) return out;
           at = text.indexOf(needle, at + needle.length);
         }
@@ -57,8 +76,8 @@
       nodes.push({ node: tn, start: text.length });
       text += tn.textContent;
     }
-    const hay = caseSensitive ? text : text.toLowerCase();
-    const needle = caseSensitive ? query : query.toLowerCase();
+    const hay = caseSensitive ? text : fold(text);
+    const needle = caseSensitive ? query : fold(query);
     const locate = function(pos) {
       for (let i = nodes.length - 1; i >= 0; i--) {
         if (nodes[i].start <= pos) return { node: nodes[i].node, offset: Math.min(pos - nodes[i].start, nodes[i].node.textContent.length) };
@@ -95,7 +114,24 @@
     return root.querySelectorAll('code [data-content] > [data-line]');
   }
 
+  // Selected text, including a selection inside Pierre's shadow roots
+  // (Chromium reports those as collapsed on the Selection itself).
+  function selectedText(hostSelector) {
+    const sel = window.getSelection && window.getSelection();
+    if (!sel || sel.rangeCount === 0) return '';
+    const plain = String(sel);
+    if (plain.trim() || typeof sel.getComposedRanges !== 'function') return plain;
+    const roots = Array.from(document.querySelectorAll(hostSelector)).map(function(h) { return h.shadowRoot; }).filter(Boolean);
+    const r = sel.getComposedRanges({ shadowRoots: roots })[0];
+    if (!r || r.collapsed) return '';
+    const range = document.createRange();
+    range.setStart(r.startContainer, r.startOffset);
+    range.setEnd(r.endContainer, r.endOffset);
+    return range.toString();
+  }
+
   function createFind(opts) {
+    const hostSelector = opts.hostSelector || 'diffs-container';
     let query = '';
     let caseSensitive = false;
     let matches = [];
@@ -105,6 +141,7 @@
     let loadRun = null;
     let matchedRows = new Set();
     let returnFocus = null;
+    let startPath = null; // file the current query started from
 
     const bar = document.createElement('div');
     bar.className = 'crit-find-bar';
@@ -131,7 +168,7 @@
 
     // Highlights: every match in the mounted rows, plus the current one.
     function hosts() {
-      return Array.from(document.querySelectorAll(opts.hostSelector || 'diffs-container'));
+      return Array.from(document.querySelectorAll(hostSelector));
     }
 
     function syncHighlights() {
@@ -184,7 +221,9 @@
     // Recompute the match list, keeping the current match when it still exists.
     function search(keepPosition) {
       const prev = matches[current];
-      matches = collectMatches(opts.files(), query, opts.linesFor, caseSensitive);
+      const files = opts.files();
+      const startAt = startPath ? files.findIndex(function(f) { return f.path === startPath; }) : 0;
+      matches = collectMatches(files, query, opts.linesFor, caseSensitive, startAt);
       matchedRows = new Set(matches.map(function(m) { return rowKey(m.path, m.side, String(m.line)); }));
       current = -1;
       if (keepPosition && prev) current = matches.findIndex(function(m) { return sameMatch(m, prev); });
@@ -208,7 +247,7 @@
           if (!open || !query) return;
           const hadCurrent = current >= 0;
           search(true);
-          if (!hadCurrent && matches.length) go(opts.startIndex ? opts.startIndex(matches) : 0);
+          if (!hadCurrent && matches.length) go(0);
         }, 300);
       };
       const worker = function() {
@@ -264,8 +303,9 @@
 
     function setQuery(value) {
       query = value;
+      startPath = opts.startFile ? opts.startFile() : null;
       search(false);
-      if (matches.length) go(opts.startIndex ? opts.startIndex(matches) : 0);
+      if (matches.length) go(0);
       if (query) loadPending();
     }
 
@@ -273,7 +313,7 @@
       if (!open && document.activeElement !== input) returnFocus = document.activeElement;
       open = true;
       bar.hidden = false;
-      const selected = window.getSelection && String(window.getSelection()).trim();
+      const selected = selectedText(hostSelector).trim();
       if (selected && selected.indexOf('\n') === -1 && selected.length <= 200) input.value = selected;
       input.focus();
       input.select();
@@ -317,7 +357,7 @@
       caseSensitive = !caseSensitive;
       caseBtn.setAttribute('aria-pressed', String(caseSensitive));
       search(true);
-      if (current < 0 && matches.length) go(opts.startIndex ? opts.startIndex(matches) : 0);
+      if (current < 0 && matches.length) go(0);
     }
     caseBtn.addEventListener('click', function() { toggleCase(); input.focus(); });
     bar.querySelector('.crit-find-prev').addEventListener('click', function() { go(current - 1); input.focus(); });

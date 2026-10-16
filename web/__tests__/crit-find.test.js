@@ -33,6 +33,30 @@ describe('collectMatches', () => {
   });
 });
 
+describe('collectMatches start and folding', () => {
+  it('starts at the given file and wraps around', () => {
+    const m = collectMatches(files, 'foo', rowsOf, false, 1);
+    assert.deepEqual(m.map((x) => x.path), ['b.js', 'a.js', 'a.js', 'a.js']);
+  });
+
+  it('ignores an out-of-range start', () => {
+    assert.equal(collectMatches(files, 'foo', rowsOf, false, 9)[0].path, 'a.js');
+  });
+
+  it('keeps offsets aligned when lower-casing changes length', () => {
+    // U+0130 lower-cases to two code units; folding must not shift later columns.
+    const rows = [{ side: '', line: 1, text: '\u0130\u0130 foo' }];
+    const m = collectMatches([{ path: 'x', rows }], 'foo', rowsOf, false);
+    assert.equal(m[0].col, 3);
+  });
+
+  it('caches folded text on the row', () => {
+    const rows = [{ side: '', line: 1, text: 'FOO' }];
+    collectMatches([{ path: 'x', rows }], 'foo', rowsOf, false);
+    assert.equal(rows[0].folded, 'foo');
+  });
+});
+
 describe('sameMatch', () => {
   it('compares path, side, line and occurrence', () => {
     const a = { path: 'a', side: '', line: 1, nth: 0, col: 3 };

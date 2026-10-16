@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments } from './helpers';
+import { loadPage, clearAllComments, revealFile, diffLine } from './helpers';
 
 // Find in diff (#1050). The review list is virtualized and files past the
 // eager limit (25) load lazily, so the browser's own find misses most of the
@@ -78,4 +78,25 @@ test('collapsed files are not searched', async ({ page }) => {
   await page.locator('.pierre-file-header[data-file-path="file1.go"] .file-header-chevron').click();
   await openFind(page);
   await expect(count(page)).toHaveText('No results', { timeout: 30_000 });
+});
+
+test('prefills the bar from a selection inside the diff', async ({ page }) => {
+  await loadPage(page);
+  const item = await revealFile(page, 'file1.go');
+  // Select "Goodbye1" in `func Goodbye1() string {` (shadow DOM; Chromium
+  // reports such a selection as collapsed on window.getSelection()).
+  await diffLine(item, 13).evaluate((row) => {
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let text = '';
+    const nodes: { node: Text; start: number }[] = [];
+    let n: Node | null;
+    while ((n = walker.nextNode())) { nodes.push({ node: n as Text, start: text.length }); text += n.textContent; }
+    const at = text.indexOf('Goodbye1');
+    const find = (pos: number) => nodes.filter((x) => x.start <= pos).pop()!;
+    const a = find(at);
+    const b = find(at + 'Goodbye1'.length);
+    window.getSelection()!.setBaseAndExtent(a.node, at - a.start, b.node, at + 'Goodbye1'.length - b.start);
+  });
+  await page.keyboard.press(FIND);
+  await expect(input(page)).toHaveValue('Goodbye1');
 });

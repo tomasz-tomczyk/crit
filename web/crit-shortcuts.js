@@ -57,6 +57,8 @@
       { id: 'toggle_comments', binding: 'Shift+C', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_toc', binding: 't', action: 'Toggle table of contents', mode: 'file mode', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_resolved', binding: 'h', action: 'Toggle hide resolved', modes: CODE_REVIEW_ONLY },
+      { binding: 'Cmd/Ctrl+F', action: 'Find in diff (press again for the browser\'s find)', modes: CODE_REVIEW_ONLY, fixed: true },
+      { binding: 'Cmd/Ctrl+G', action: 'Next match (Shift for previous)', modes: CODE_REVIEW_ONLY, fixed: true },
       { binding: 'Esc', action: 'Cancel / clear focus', modes: BOTH, fixed: true },
       { binding: '?', action: 'Toggle this panel', modes: BOTH, fixed: true },
     ]},
