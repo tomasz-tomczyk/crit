@@ -1335,6 +1335,16 @@
   // ===== File Tree Sidebar =====
   let activeTreePath = null;
   let ignoreTreeObserverUntil = 0;
+  // A jump that centers a line (find, comment navigation) leaves another file
+  // at the top of the list, and the scroll can keep settling after the
+  // ignore window on a slow machine. Keep the target active while it is on
+  // screen; the pin holds for the first 2s while the list is still moving.
+  let treePin = null; // { path, until }
+  function pinTreeActive(path) {
+    treePin = { path: path, until: Date.now() + 2000 };
+    ignoreTreeObserverUntil = Date.now() + 400;
+    updateTreeActive(path);
+  }
   const treeFolderState = {}; // { 'src': true, 'src/components': false } — true = collapsed
 
   function buildFileTree(fileList) {
@@ -1619,6 +1629,8 @@
   }
 
   function updateTreeActive(filePath) {
+    // Anything else that moves the active file (j/k, a click) ends the pin.
+    if (treePin && treePin.path !== filePath) treePin = null;
     if (filePath === activeTreePath) return;
     activeTreePath = filePath;
     const allRows = document.querySelectorAll('.tree-file, .tree-conversation-row');
@@ -2369,8 +2381,11 @@
       const comment = (file.comments || []).find(function(c) { return c.id === commentId; });
       const inDocument = pierreIsDocumentView(file) && comment && comment.scope !== 'file';
       const anchored = comment && comment.scope !== 'file' && !inDocument && pierreAnchorTest(file)(comment);
-      ignoreTreeObserverUntil = Date.now() + 400;
-      updateTreeActive(filePath);
+      if (anchored) pinTreeActive(filePath);
+      else {
+        ignoreTreeObserverUntil = Date.now() + 400;
+        updateTreeActive(filePath);
+      }
       const scrolled = anchored
         ? pierreView.scrollToLine(filePath, comment.end_line, comment.side, 'center')
         : pierreView.scrollToFile(filePath);
@@ -2519,8 +2534,7 @@
       if (!pierreView) return null;
       return pierreView.ensureLoaded(match.path).then(function() {
         if (!pierreView || !isCurrent()) return null;
-        ignoreTreeObserverUntil = Date.now() + 400;
-        updateTreeActive(match.path);
+        pinTreeActive(match.path);
         return pierreView.scrollToLine(match.path, match.line, match.side, 'center');
       });
     },
@@ -2675,12 +2689,28 @@
     pierreSelectionShown = false;
   }
 
+  function pinnedOnScreen(paths, viewer, top) {
+    if (Date.now() < treePin.until) return true;
+    const i = paths.indexOf(treePin.path);
+    if (i < 0) return false;
+    const root = document.getElementById('filesContainer');
+    const bottom = top + (root ? root.clientHeight : 0);
+    const itemTop = viewer.getTopForItem(treePin.path);
+    const itemBottom = i + 1 < paths.length ? viewer.getTopForItem(paths[i + 1]) : Infinity;
+    return itemBottom > top && itemTop < bottom;
+  }
+
   function syncTreeActiveFromPierre() {
     if (Date.now() < ignoreTreeObserverUntil) return;
     const paths = pierreView ? pierreView.renderedPaths() : [];
     const viewer = pierreView && pierreView.viewer;
     if (!viewer || paths.length === 0) return;
     const top = viewer.getScrollTop();
+    if (treePin && pinnedOnScreen(paths, viewer, top)) {
+      updateTreeActive(treePin.path);
+      return;
+    }
+    treePin = null;
     // Above the first file sits the review conversation (the list header).
     const conversation = document.getElementById('reviewConversation');
     let best = conversation && !conversation.hidden && top + 60 < viewer.getTopForItem(paths[0])
