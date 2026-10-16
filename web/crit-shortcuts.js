@@ -33,6 +33,7 @@
       { id: 'delete_comment', binding: 'd', action: 'Delete comment on focused block', modes: CODE_REVIEW_ONLY },
       { id: 'general_comment', binding: 'Shift+G', action: 'General comment', modes: CODE_REVIEW_ONLY },
       { binding: 'Ctrl+Enter', action: 'Comment', modes: BOTH, fixed: true },
+      { binding: 'Ctrl+Shift+Enter', action: 'Comment and send to the agent (Send now)', modes: CODE_REVIEW_ONLY, fixed: true },
     ]},
     { label: 'Review', shortcuts: [
       { id: 'finish_review', binding: 'Shift+F', action: 'Finish review', modes: BOTH },

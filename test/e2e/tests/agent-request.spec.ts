@@ -38,6 +38,39 @@ test.describe('Send to Agent', () => {
     await expect(page.locator('.agent-pending-author')).toHaveText('@echo');
   });
 
+  test('Ctrl+Shift+Enter in a new comment acts as Send now', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Sent with the shortcut');
+
+    const agentReq = page.waitForRequest((req) =>
+      req.url().includes('/api/agent/request') && req.method() === 'POST'
+    );
+    await textarea.press('Control+Shift+Enter');
+
+    expect((await agentReq).postDataJSON().file_path).toBeTruthy();
+    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
+    await expect(page.locator('.agent-pending-reply')).toBeVisible();
+  });
+
+  test('Ctrl+Enter only saves the comment', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved, not sent');
+    let agentRequests = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/agent/request')) agentRequests++;
+    });
+
+    await textarea.press('Control+Enter');
+
+    await expect(doc.locator('.comment-card')).toContainText('Saved, not sent');
+    await page.waitForTimeout(300);
+    expect(agentRequests).toBe(0);
+  });
+
   test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 
