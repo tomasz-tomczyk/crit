@@ -477,6 +477,9 @@ type Session struct {
 	// yet written to disk. Keyed by file path -> set of comment IDs. buildCritJSON's
 	// applyDeletedCommentIDs drops them after merging with disk.
 	deletedCommentIDs map[string]map[string]struct{}
+	// deletedReplyIDs lists replies the reviewer deleted, so a daemon write
+	// does not take them back from a review file that still has them.
+	deletedReplyIDs map[string]struct{}
 
 	// pendingRemoteDeletes is the provider-neutral delete queue. A concurrent
 	// push may drain it on disk, so lastLoadedPendingDeletes prevents daemon
@@ -1597,6 +1600,7 @@ func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
 				if r.ID == replyID {
 					s.reviewComments[i].Replies = append(s.reviewComments[i].Replies[:j], s.reviewComments[i].Replies[j+1:]...)
 					s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					s.markReplyDeletedLocked(replyID)
 					s.scheduleWrite()
 					return true
 				}
@@ -1872,6 +1876,7 @@ func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 			}
 			f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
 			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.markReplyDeletedLocked(replyID)
 			s.scheduleWrite()
 			return true
 		}
