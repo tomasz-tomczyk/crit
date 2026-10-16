@@ -65,7 +65,7 @@ func TestHasJJDirFrom_DetectsDotJJ(t *testing.T) {
 
 func TestDetectVCS_JJOverride(t *testing.T) {
 	// The not-installed fallback is covered by
-	// TestDetectVCS_JJOverrideFallsBackToGitWhenNotInstalled.
+	// TestDetectVCS_OverrideFallsBackWhenToolMissing (sapling_test.go).
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj not installed")
 	}

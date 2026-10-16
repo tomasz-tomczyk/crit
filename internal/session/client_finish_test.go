@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 // TestClientExitsOnFinish verifies the agent-integration contract: an agent
@@ -75,7 +76,7 @@ func TestClientExitsOnFinish(t *testing.T) {
 
 	cmd := exec.Command(binary, "--no-open", "--port", "0")
 	cmd.Dir = resolvedRepo
-	cmd.Env = clientFinishEnv(resolvedHome)
+	cmd.Env = clientFinishEnv(t, resolvedHome)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -179,8 +180,10 @@ waitLoop:
 
 // clientFinishEnv builds an env that pins HOME (and the Windows equivalents)
 // to homeDir so the spawned daemon writes its session file under the test
-// tempdir instead of the runner's real profile.
-func clientFinishEnv(homeDir string) []string {
+// tempdir instead of the runner's real profile, and puts failing gh/glab
+// stubs first on PATH.
+func clientFinishEnv(t *testing.T, homeDir string) []string {
+	t.Helper()
 	src := os.Environ()
 	out := make([]string, 0, len(src)+4)
 	for _, kv := range src {
@@ -195,7 +198,10 @@ func clientFinishEnv(homeDir string) []string {
 	}
 	// Skip the startup agent-CLI probes (seconds on a dev box, delaying
 	// readiness) and the network update check in the spawned client/daemon.
-	out = append(out, "HOME="+homeDir, "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1")
+	// Git mode looks up the branch's PR (`gh auth status`, `gh pr view`);
+	// failing stubs keep that off the developer's real gh and the network.
+	out = append(out, "HOME="+homeDir, "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1",
+		testutil.FailingForgeCLIsPathEnv(t))
 	if runtime.GOOS == "windows" {
 		out = append(out, "USERPROFILE="+homeDir)
 	}

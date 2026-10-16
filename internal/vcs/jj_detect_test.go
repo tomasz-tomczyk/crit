@@ -32,29 +32,6 @@ func TestDetectVCS_JJWinsOverGitInColocatedRepo(t *testing.T) {
 	}
 }
 
-// TestDetectVCS_JJOverrideFallsBackToGitWhenNotInstalled confirms the
-// documented warning path: when --vcs jj is set but jj is not in PATH,
-// DetectVCS falls back to git in a real git repo.
-func TestDetectVCS_JJOverrideFallsBackToGitWhenNotInstalled(t *testing.T) {
-	if _, err := exec.LookPath("jj"); err == nil {
-		t.Skip("jj is installed; cannot test fallback")
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init", "-q", dir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	withCwd(t, dir)
-
-	v := DetectVCS("jj")
-	if _, ok := v.(*GitVCS); !ok {
-		t.Errorf("DetectVCS(jj) without jj in PATH = %T, want *GitVCS fallback", v)
-	}
-}
-
 func TestHasJJDirAt(t *testing.T) {
 	dir := t.TempDir()
 	if hasJJDirAt(dir) {

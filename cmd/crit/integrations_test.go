@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -872,41 +873,48 @@ func TestCheckMissingIntegrations_NoAgentsPresent(t *testing.T) {
 	}
 }
 
-func TestHintMissingIntegrationsFor_SkipsWhenInstalled(t *testing.T) {
-	isolateAgentPATH(t)
-	homeDir := t.TempDir()
-	projectDir := t.TempDir()
-
-	// Install an integration so installedAgents returns non-empty
-	sourceFiles := integrationMap["claude-code"]
-	sourceContent, _ := integrationsFS.ReadFile(sourceFiles[0].source)
-	dest := filepath.Join(projectDir, sourceFiles[0].dest)
-	os.MkdirAll(filepath.Dir(dest), 0o755)
-	os.WriteFile(dest, sourceContent, 0o644)
-
-	// Create a Gemini config file to simulate a detected-but-missing agent
-	os.MkdirAll(filepath.Join(homeDir, ".gemini"), 0o755)
-	os.WriteFile(filepath.Join(homeDir, ".gemini", "settings.json"), []byte(`{}`), 0o644)
-
-	// An installed agent exists, so no hint is printed.
-	if out := captureStderr(t, func() { hintMissingIntegrationsFor(projectDir, homeDir) }); out != "" {
-		t.Errorf("expected no hint when an integration is installed, got:\n%s", out)
+// TestHintMissingIntegrations_RealDetection runs session.HintMissingIntegrations
+// through the hooks wire.go installs, against real files, which the session
+// package's own tests stub out.
+func TestHintMissingIntegrations_RealDetection(t *testing.T) {
+	tests := []struct {
+		name      string
+		installed bool
+		want      []string
+	}{
+		{name: "prints when none installed", want: []string{"gemini detected", "crit install gemini"}},
+		{name: "silent when an integration is installed", installed: true},
 	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CRIT_NO_INTEGRATION_CHECK", "")
+			isolateAgentPATH(t)
+			homeDir := t.TempDir()
+			projectDir := t.TempDir()
+			testutil.SetHome(t, homeDir)
+			t.Chdir(projectDir)
 
-func TestHintMissingIntegrationsFor_PrintsWhenNoneInstalled(t *testing.T) {
-	isolateAgentPATH(t)
-	homeDir := t.TempDir()
-	projectDir := t.TempDir()
+			// A Gemini config file makes gemini a detected-but-missing agent.
+			testutil.WriteFile(t, filepath.Join(homeDir, ".gemini", "settings.json"), `{}`)
+			if tt.installed {
+				src := integrationMap["claude-code"][0]
+				content, err := integrationsFS.ReadFile(src.source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				testutil.WriteFile(t, filepath.Join(projectDir, src.dest), string(content))
+			}
 
-	// Create a Gemini config file to simulate detection
-	os.MkdirAll(filepath.Join(homeDir, ".gemini"), 0o755)
-	os.WriteFile(filepath.Join(homeDir, ".gemini", "settings.json"), []byte(`{}`), 0o644)
-
-	// No installed agents and gemini detected, so the hint names gemini.
-	out := captureStderr(t, func() { hintMissingIntegrationsFor(projectDir, homeDir) })
-	if !strings.Contains(out, "gemini detected") || !strings.Contains(out, "crit install gemini") {
-		t.Errorf("expected gemini install hint, got:\n%s", out)
+			out := captureStderr(t, session.HintMissingIntegrations)
+			if len(tt.want) == 0 && out != "" {
+				t.Errorf("expected no hint, got:\n%s", out)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("hint missing %q, got:\n%s", w, out)
+				}
+			}
+		})
 	}
 }
 
@@ -947,21 +955,6 @@ func TestDetectPresentAgents_JunkFileInAmbiguousConfigDirCountsAsPresent(t *test
 	}
 	if !found {
 		t.Fatal("ambiguous config dir with only .DS_Store currently counts as present")
-	}
-}
-
-func TestHintMissingIntegrations_EnvDisable(t *testing.T) {
-	t.Setenv("CRIT_NO_INTEGRATION_CHECK", "1")
-	// A detectable agent with nothing installed would normally print a hint.
-	home := t.TempDir()
-	testutil.SetHome(t, home)
-	t.Chdir(t.TempDir())
-	isolateAgentPATH(t)
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if out := captureStderr(t, hintMissingIntegrations); out != "" {
-		t.Errorf("expected no output with CRIT_NO_INTEGRATION_CHECK set, got:\n%s", out)
 	}
 }
 

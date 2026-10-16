@@ -183,6 +183,28 @@ func PrependFailingForgeCLIs() func() {
 	if err != nil {
 		panic(err)
 	}
+	if err := writeFailingForgeCLIs(dir); err != nil {
+		panic(err)
+	}
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() { os.RemoveAll(dir) }
+}
+
+// FailingForgeCLIsPathEnv returns a "PATH=..." entry with failing `gh` and
+// `glab` stubs first, for the env of one spawned child process. Unlike
+// PrependFailingForgeCLIs it leaves the test process's PATH alone, so tests
+// in the same package that need the real gh (e2e_github) keep it. exec.Cmd
+// uses the last value of a duplicated key, so append it after os.Environ().
+func FailingForgeCLIsPathEnv(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := writeFailingForgeCLIs(dir); err != nil {
+		t.Fatal(err)
+	}
+	return "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+func writeFailingForgeCLIs(dir string) error {
 	for _, name := range []string{"gh", "glab"} {
 		path := filepath.Join(dir, name)
 		content := "#!/bin/sh\necho \"" + name + ": stubbed out in tests\" >&2\nexit 1\n"
@@ -191,9 +213,8 @@ func PrependFailingForgeCLIs() func() {
 			content = "@echo " + name + ": stubbed out in tests 1>&2\r\n@exit /b 1\r\n"
 		}
 		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-			panic(err)
+			return err
 		}
 	}
-	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return func() { os.RemoveAll(dir) }
+	return nil
 }

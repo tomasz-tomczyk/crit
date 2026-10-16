@@ -19,6 +19,6 @@ func TestDetectVCS_AutoDetectInTempRepo(t *testing.T) {
 }
 
 // JJ/sapling fallback-without-binary paths are covered by
-// TestDetectVCS_JJOverrideFallsBackToGitWhenNotInstalled (jj_detect_test.go)
-// and TestDetectVCS_SaplingOverride (sapling_test.go), which skip when the
-// respective binary is on PATH (as in CI).
+// TestDetectVCS_OverrideFallsBackWhenToolMissing (sapling_test.go), which
+// hides jj and sl from PATH so it runs wherever they are not installed
+// next to git.

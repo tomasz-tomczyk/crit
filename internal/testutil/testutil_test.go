@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -107,6 +108,32 @@ func TestPrependFailingForgeCLIs(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(stubDir); !os.IsNotExist(err) {
 		t.Errorf("stub dir %s still exists after cleanup (err=%v)", stubDir, err)
+	}
+}
+
+func TestFailingForgeCLIsPathEnv(t *testing.T) {
+	before := os.Getenv("PATH")
+	entry := FailingForgeCLIsPathEnv(t)
+	if os.Getenv("PATH") != before {
+		t.Fatal("FailingForgeCLIsPathEnv changed the test process's PATH")
+	}
+	pathVal, ok := strings.CutPrefix(entry, "PATH=")
+	if !ok {
+		t.Fatalf("entry = %q, want a PATH= entry", entry)
+	}
+	for _, name := range []string{"gh", "glab"} {
+		cmd := exec.Command("sh", "-c", name+" auth status")
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("cmd", "/c", name, "auth", "status")
+		}
+		cmd.Env = append(os.Environ(), "PATH="+pathVal)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Errorf("%s auth status succeeded, want the stub to fail", name)
+		}
+		if want := name + ": stubbed out in tests"; !strings.Contains(string(out), want) {
+			t.Errorf("%s output = %q, want it to contain %q", name, out, want)
+		}
 	}
 }
 

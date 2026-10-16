@@ -3,12 +3,16 @@ package session
 import (
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -516,4 +520,80 @@ func captureHookDecision(t *testing.T, emit func()) []byte {
 		t.Fatal(err)
 	}
 	return output
+}
+
+// TestPlanReviewHooks_SendPlanHookName checks the plan_hook value each agent's
+// hook sends to the daemon, which picks the hook-specific finish prompt from
+// it. A fake daemon is registered under the plan's session key so the hook
+// connects to it instead of starting one.
+func TestPlanReviewHooks_SendPlanHookName(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(content []byte)
+		want string
+	}{
+		{
+			name: "claude",
+			run: func(content []byte) {
+				runClaudePlanReviewHook("hook-name-session", content, func(bool, string) {})
+			},
+			want: "plan_mode",
+		},
+		{
+			name: "codex",
+			run:  func(content []byte) { runCodexPlanReviewHook("hook-name-session", content) },
+			want: "codex",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testutil.SetHome(t, t.TempDir())
+			t.Chdir(t.TempDir())
+
+			gotPlanHook := make(chan string, 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/health", "/api/session":
+					_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+				case "/api/review-cycle":
+					select {
+					case gotPlanHook <- r.URL.Query().Get("plan_hook"):
+					default:
+					}
+					// Not approved, so the hook does not try to stop the daemon.
+					_ = json.NewEncoder(w).Encode(map[string]any{"approved": false, "prompt": "fix it"})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(ts.Close)
+			port, _ := strconv.Atoi(ts.URL[strings.LastIndex(ts.URL, ":")+1:])
+
+			content := []byte("# Hook Name\n\nbody\n")
+			cwd, err := daemon.ResolvedCWD()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Pin the slug (ResolveSlug adds today's date) so the key can't
+			// drift between here and the hook.
+			if err := SavePlanSlug("hook-name-session", "hook-name"); err != nil {
+				t.Fatal(err)
+			}
+			key := PlanSessionKey(cwd, "hook-name")
+			if err := daemon.WriteSessionFile(key, daemon.SessionEntry{PID: os.Getpid(), Port: port}); err != nil {
+				t.Fatalf("WriteSessionFile: %v", err)
+			}
+
+			captureHookDecision(t, func() { tt.run(content) })
+
+			select {
+			case got := <-gotPlanHook:
+				if got != tt.want {
+					t.Errorf("plan_hook = %q, want %q", got, tt.want)
+				}
+			default:
+				t.Fatal("hook never called /api/review-cycle")
+			}
+		})
+	}
 }

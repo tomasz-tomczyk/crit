@@ -34,7 +34,8 @@ func critWebURL(t *testing.T) string {
 // requireCritWeb skips the test when the crit-web instance at baseURL is not
 // accepting connections (these suites need a local crit-web + PostgreSQL; see
 // scripts/e2e-share.sh). When CRIT_WEB_URL is set explicitly, as the scripts
-// do, an unreachable instance is a hard failure instead of a silent skip.
+// do, or CRIT_SHARE_URL (which critWebURL also accepts), an unreachable
+// instance is a hard failure instead of a silent skip.
 func requireCritWeb(t *testing.T, baseURL string) {
 	t.Helper()
 	u, err := url.Parse(baseURL)
@@ -54,8 +55,10 @@ func requireCritWeb(t *testing.T, baseURL string) {
 		_ = conn.Close()
 		return
 	}
-	if os.Getenv("CRIT_WEB_URL") != "" {
-		t.Fatalf("crit-web at %s (CRIT_WEB_URL) is not reachable: %v", baseURL, err)
+	for _, k := range []string{"CRIT_WEB_URL", "CRIT_SHARE_URL"} {
+		if os.Getenv(k) != "" {
+			t.Fatalf("crit-web at %s (%s) is not reachable: %v", baseURL, k, err)
+		}
 	}
 	t.Skipf("crit-web not reachable at %s (%v); start it via scripts/e2e-share.sh or set CRIT_WEB_URL", baseURL, err)
 }

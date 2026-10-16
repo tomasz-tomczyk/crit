@@ -13,13 +13,24 @@ import (
 func InitTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	runGitForTest(t, dir, "init")
-	runGitForTest(t, dir, "config", "user.email", "test@test.com")
-	runGitForTest(t, dir, "config", "user.name", "Test")
+	// `init -b` and writing the identity straight into .git/config replace
+	// three extra git spawns per fixture (config x2, branch -M); process
+	// startup dominates test time on Windows.
+	runGitForTest(t, dir, "init", "-b", "main")
+	cfg, err := os.OpenFile(filepath.Join(dir, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cfg.WriteString("[user]\n\temail = test@test.com\n\tname = Test\n")
+	if cerr := cfg.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	writeFileForTest(t, filepath.Join(dir, "README.md"), "# Test")
 	runGitForTest(t, dir, "add", "README.md")
 	runGitForTest(t, dir, "commit", "-m", "initial")
-	runGitForTest(t, dir, "branch", "-M", "main")
 	return dir
 }
 
@@ -90,7 +101,15 @@ func runGitForTest(t *testing.T, dir string, args ...string) string {
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
+	// Auto-maintenance makes `git commit` start a detached `git maintenance`
+	// or `gc` that can keep writing into .git after the test ends, so
+	// t.TempDir's cleanup fails with "directory not empty". Kept in step with
+	// testutil.Git, which this file can't import: it has no _test suffix, so
+	// it ships in the vcs package, and testutil's init() edits the env.
+	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir,
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false",
+		"GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0")
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+dir)
 	}

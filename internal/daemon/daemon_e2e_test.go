@@ -103,7 +103,11 @@ func TestDaemonLifecycle(t *testing.T) {
 	// The startup integration check runs `<agent> --version` for every AI CLI
 	// on the developer's PATH (seconds), delaying readiness past the waits
 	// below; the update check calls the network.
-	env = append(env, "HOME="+homeDir, "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1")
+	//
+	// Git mode looks up the branch's PR (`gh auth status`, `gh pr view`);
+	// failing stubs keep that off the developer's real gh and the network.
+	env = append(env, "HOME="+homeDir, "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1",
+		testutil.FailingForgeCLIsPathEnv(t))
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+homeDir)
 	}
