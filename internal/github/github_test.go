@@ -3583,3 +3583,32 @@ func TestPRListCache_CacheHit(t *testing.T) {
 		t.Errorf("got %+v, want seeded summary", got)
 	}
 }
+
+func TestGHAPIErrorDetail(t *testing.T) {
+	tests := []struct {
+		name   string
+		stdout string
+		want   string
+	}{
+		{
+			name:   "string errors from a 422 review create",
+			stdout: `{"message":"Unprocessable Entity","errors":["Line could not be resolved"],"documentation_url":"https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request","status":"422"}`,
+			want:   "Line could not be resolved",
+		},
+		{
+			name:   "object errors with message and with field+code",
+			stdout: `{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","message":"commit_id is not part of the pull request"},{"resource":"PullRequestReviewComment","field":"path","code":"invalid"}]}`,
+			want:   "commit_id is not part of the pull request; path invalid",
+		},
+		{name: "no errors list", stdout: `{"message":"Not Found"}`, want: ""},
+		{name: "not json", stdout: "plain text", want: ""},
+		{name: "empty", stdout: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ghAPIErrorDetail([]byte(tt.stdout)); got != tt.want {
+				t.Errorf("ghAPIErrorDetail() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

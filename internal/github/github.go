@@ -1258,6 +1258,48 @@ func buildReviewPayload(comments []map[string]any, message string, event string)
 	return json.Marshal(review)
 }
 
+// ghAPIErrorDetail pulls the "errors" list out of the JSON error body that
+// `gh api` prints to stdout on an HTTP error. gh's stderr only carries the
+// status line (e.g. "gh: Unprocessable Entity (HTTP 422)"), so without this
+// the reason GitHub gave (e.g. "Line could not be resolved") is lost.
+// Entries can be plain strings or objects with a "message" field. Returns ""
+// when stdout is not a GitHub error body or lists no errors.
+func ghAPIErrorDetail(stdout []byte) string {
+	var body struct {
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(stdout), &body); err != nil {
+		return ""
+	}
+	details := make([]string, 0, len(body.Errors))
+	for _, raw := range body.Errors {
+		if d := ghAPIErrorEntry(raw); d != "" {
+			details = append(details, d)
+		}
+	}
+	return strings.Join(details, "; ")
+}
+
+// ghAPIErrorEntry renders one entry of a GitHub error body's "errors" list.
+func ghAPIErrorEntry(raw json.RawMessage) string {
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return str
+	}
+	var obj struct {
+		Message string `json:"message"`
+		Field   string `json:"field"`
+		Code    string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	if obj.Message != "" {
+		return obj.Message
+	}
+	return strings.TrimSpace(obj.Field + " " + obj.Code)
+}
+
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
 // Returns a map of "path:endLine" -> GitHubID for each created comment.
@@ -1281,8 +1323,12 @@ func createGHReview(id forge.ChangeID, comments []map[string]any, message string
 		if isGHAuthFailure(combined) {
 			return nil, fmt.Errorf("creating review: %s: %w", strings.TrimSpace(stderr.String()), errGHAuthFailed)
 		}
-		if stderr.Len() > 0 {
-			return nil, fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
+		msg := strings.TrimSpace(stderr.String())
+		if detail := ghAPIErrorDetail(stdout.Bytes()); detail != "" {
+			msg = strings.TrimSpace(msg + ": " + detail)
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("creating review: %s", msg)
 		}
 		return nil, fmt.Errorf("creating review: %w", err)
 	}

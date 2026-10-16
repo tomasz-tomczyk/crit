@@ -353,7 +353,7 @@ func TestRoundtrip_ForcePushedHead_NoDuplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustRun(t, e.workDir, "git", "commit", "-am", "tweak")
-	mustRun(t, e.workDir, "git", "push", "--force")
+	e.gitPush("--force")
 
 	// Pull — old comments still there, no duplicates.
 	e.runCrit("pull")
@@ -798,7 +798,7 @@ func TestRoundtrip_AnchorLineDeleted_Outdated(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustRun(t, e.workDir, "git", "commit", "-am", "add line we'll delete")
-	mustRun(t, e.workDir, "git", "push")
+	e.gitPush()
 
 	contents, err := os.ReadFile(filepath.Join(e.workDir, "sample.go"))
 	if err != nil {
@@ -828,14 +828,7 @@ func TestRoundtrip_AnchorLineDeleted_Outdated(t *testing.T) {
 
 	// Force-push without the TempLineToDelete commit.
 	mustRun(t, e.workDir, "git", "reset", "--hard", "HEAD~1")
-	mustRun(t, e.workDir, "git", "push", "--force")
-
-	// Wait for GitHub to recompute the PR head sha after the force-push
-	// before issuing more API calls (see issue #456): otherwise the next
-	// `crit push` can race and post against a stale commit_id, getting
-	// rejected with HTTP 422.
-	headSHA := strings.TrimSpace(mustOutput(t, e.workDir, "git", "rev-parse", "HEAD"))
-	e.waitForPRHeadSHA(headSHA)
+	e.gitPush("--force")
 
 	e.runCrit("pull")
 	locals := e.allLocalComments()

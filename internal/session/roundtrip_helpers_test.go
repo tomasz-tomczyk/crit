@@ -418,15 +418,29 @@ func (e *roundtripEnv) freshClone() *roundtripEnv {
 	}
 }
 
+// gitPush runs `git push` with args in the env workdir, then waits until
+// GitHub reports the pushed commit as the PR head. Use this for every push
+// to the PR branch after the PR exists.
+//
+// GitHub processes a push to a PR branch asynchronously. Until it does, the
+// PR head and diff still point at the old commit, and a review that comments
+// on a line only the new commit has is rejected with HTTP 422
+// {"errors":["Line could not be resolved"]} (issue #456). Waiting for
+// head.sha is enough: once it matches, reviews on the new lines post. Do not
+// wait on "mergeable" as well; GitHub computes it lazily and it can stay
+// null for over a minute.
+func (e *roundtripEnv) gitPush(args ...string) {
+	e.t.Helper()
+	mustRun(e.t, e.workDir, "git", append([]string{"push"}, args...)...)
+	e.waitForPRHeadSHA(mustOutput(e.t, e.workDir, "git", "rev-parse", "HEAD"))
+}
+
 // waitForPRHeadSHA polls the PR's head.sha until it matches expected, or
-// fails the test after a timeout. Use after a force-push to give GitHub
-// time to recompute the PR diff before the next push fires; otherwise the
-// next POST /pulls/{N}/comments may be rejected with HTTP 422 because the
-// commit_id no longer matches the PR's recomputed diff.
+// fails the test after a timeout. See gitPush for why.
 func (e *roundtripEnv) waitForPRHeadSHA(expected string) {
 	e.t.Helper()
 	expected = strings.TrimSpace(expected)
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	var lastSHA string
 	for time.Now().Before(deadline) {
 		out := mustOutput(e.t, e.workDir, "gh", "api",
