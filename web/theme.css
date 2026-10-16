@@ -135,6 +135,7 @@
   --crit-badge-removed-bg:   rgba(169, 177, 214, 0.12);
   --crit-badge-removed-color: var(--crit-editor-fg-secondary);
   --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 20%, transparent);
+  --crit-live-fg:            #ff9e64;
   --crit-live-badge-bg:      rgba(255, 158, 100, 0.14);
 
   /* ---- Yellow states ---- */
@@ -350,6 +351,7 @@
     --crit-badge-removed-bg:   rgba(100, 100, 100, 0.08);
     --crit-badge-removed-color: var(--crit-editor-fg-secondary);
     --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 15%, transparent);
+    --crit-live-fg:            #bc4c00;
     --crit-live-badge-bg:      rgba(188, 76, 0, 0.1);
 
     --crit-yellow-subtle: rgba(122, 88, 0, 0.06);
@@ -565,6 +567,7 @@
   --crit-badge-removed-bg:   rgba(169, 177, 214, 0.12);
   --crit-badge-removed-color: var(--crit-editor-fg-secondary);
   --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 20%, transparent);
+  --crit-live-fg:            #ff9e64;
   --crit-live-badge-bg:      rgba(255, 158, 100, 0.14);
 
   --crit-yellow-subtle: rgba(224, 175, 104, 0.08);
@@ -779,6 +782,7 @@
   --crit-badge-removed-bg:   rgba(100, 100, 100, 0.08);
   --crit-badge-removed-color: var(--crit-editor-fg-secondary);
   --crit-badge-removed-border: color-mix(in srgb, var(--crit-editor-fg-secondary) 15%, transparent);
+  --crit-live-fg:            #bc4c00;
   --crit-live-badge-bg:      rgba(188, 76, 0, 0.1);
 
   --crit-yellow-subtle: rgba(122, 88, 0, 0.06);
