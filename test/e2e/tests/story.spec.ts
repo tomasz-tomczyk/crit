@@ -463,6 +463,43 @@ test.describe('Story mode', () => {
     await expect(group).not.toHaveClass(/viewed/);
   });
 
+  test('a and o act on the story file group under the mouse, else the one filling the pane', async ({ page, request }) => {
+    await postStory(request);
+    await loadPage(page);
+
+    await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch1').click();
+    await expect(storyView(page, 'ch1')).toBeVisible();
+
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    const markBtn = storyView(page, 'ch1').locator('.crit-story-chapter__mark-row .crit-story-chapter__mark');
+    const header = group.locator('.crit-story-file-header');
+    await header.scrollIntoViewIfNeeded();
+    await expect(group.locator('.file-header-viewed')).toHaveAttribute('title', 'Viewed (a)');
+
+    // Under the mouse: same effects as clicking the checkbox.
+    await header.locator('.filename').hover();
+    await page.keyboard.press('a');
+    await expect(group).toHaveClass(/viewed/);
+    await expect(markBtn).toHaveText('Chapter viewed');
+
+    // Pointer off every file group: the first group on screen.
+    await markBtn.hover();
+    await page.keyboard.press('a');
+    await expect(group).not.toHaveClass(/viewed/);
+    await expect(markBtn).toHaveText('Mark chapter viewed');
+
+    // Marking it viewed collapsed the group; o expands and collapses it
+    // again without touching viewed.
+    await expect(group).not.toHaveAttribute('open', '');
+    await header.locator('.filename').hover();
+    await page.keyboard.press('o');
+    await expect(group).toHaveAttribute('open', '');
+    await page.keyboard.press('o');
+    await expect(group).not.toHaveAttribute('open', '');
+    await expect(group).not.toHaveClass(/viewed/);
+  });
+
   test('chapter file headers reuse collapse and selected-text comment affordances', async ({ page, request }) => {
     await postStory(request);
     await loadPage(page);

@@ -2,7 +2,8 @@ import { test, expect, type Page, type APIRequestContext } from '@playwright/tes
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import {
-  clearAllComments, loadPage, fileHeader, fileItem, revealFile, treePaths,
+  clearAllComments, loadPage, clearFocus, fileHeader, fileItem, focusedFile, focusedRows, hoverLine, pressUntil,
+  hoveredFile, reviewScroller, revealFile, treePaths, waitForScrollStable,
   readFixtureState, roundComplete,
 } from './helpers';
 
@@ -28,6 +29,19 @@ async function expectCollapsed(page: Page, filePath: string) {
 async function expectExpanded(page: Page, filePath: string) {
   await expect(fileHeader(page, filePath)).not.toHaveClass(/\bcollapsed\b/);
   await expect(fileItem(page, filePath).locator('[data-line]').first()).toBeVisible();
+}
+
+// Load the review with no persisted viewed state and no keyboard focus.
+async function loadFreshReview(page: Page) {
+  await page.goto('/');
+  await page.evaluate(() => {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('crit-viewed-')) localStorage.removeItem(key);
+    }
+  });
+  await loadPage(page);
+  await clearFocus(page);
 }
 
 // Collapse/expand through the header's chevron button.
@@ -161,6 +175,231 @@ test.describe('Viewed Checkbox — Git Mode', () => {
       await roundComplete(request);
     }
   });
+});
+
+// ============================================================
+// Viewed Shortcut (a) — Git Mode
+// ============================================================
+test.describe('Viewed Shortcut — Git Mode', () => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
+    await loadFreshReview(page);
+  });
+
+  test('a toggles viewed on the keyboard-focused file', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, first)).toBeChecked();
+    await expectCollapsed(page, first);
+
+    // Focus stays on the collapsed file, so a second press un-views it.
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, first)).not.toBeChecked();
+  });
+
+  test('a toggles viewed on the file under the mouse when nothing is focused', async ({ page }) => {
+    const item = await revealFile(page, 'server.go');
+    await hoverLine(page, item, 1);
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, 'server.go')).toBeChecked();
+    await expectCollapsed(page, 'server.go');
+  });
+
+  test('a follows the mouse once it moves after j', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+
+    const item = await revealFile(page, 'server.go');
+    await hoverLine(page, item, 1);
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, 'server.go')).toBeChecked();
+    await revealFile(page, first);
+    await expect(viewedBox(page, first)).not.toBeChecked();
+  });
+
+  test('keyboard focus wins while the mouse rests still over the list', async ({ page }) => {
+    // j scrolls the list under the pointer; that must not hand `a` to the mouse.
+    const box = await reviewScroller(page).boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height - 40);
+    await page.keyboard.press('j');
+    await expect.poll(async () => (await focusedRows(page)).length).toBeGreaterThan(0);
+    const current = focusedFile(await focusedRows(page));
+    // Only meaningful if the pointer rests on a different file.
+    await expect.poll(() => hoveredFile(page)).not.toBe(current);
+    expect(await hoveredFile(page)).toBeTruthy();
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, current)).toBeChecked();
+    await expect(page.locator('#viewedCount')).toContainText('1 /');
+  });
+
+  test('after Esc clears the keyboard focus, a falls back to the mouse', async ({ page }) => {
+    const item = await revealFile(page, 'server.go');
+    await hoverLine(page, item, 1);
+    await page.keyboard.press('j');
+    await expect.poll(async () => (await focusedRows(page)).length).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');
+    await expect.poll(async () => (await focusedRows(page)).length).toBe(0);
+
+    // The pointer has not moved; whichever file is under it now gets toggled.
+    const hovered = await hoveredFile(page);
+    expect(hovered).toBeTruthy();
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, hovered!)).toBeChecked();
+    await expect(page.locator('#viewedCount')).toContainText('1 /');
+  });
+
+  test('once the mouse leaves the list, a falls back to the keyboard focus', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+    // Cross the list, then rest outside it (the file tree).
+    const box = (await reviewScroller(page).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.move(box.x - 40, box.y + box.height / 2);
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, first)).toBeChecked();
+  });
+
+  test('holding a toggles viewed once', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+
+    // A second keydown without a keyup is an auto-repeat (repeat: true).
+    await page.keyboard.down('a');
+    await page.keyboard.down('a');
+    await page.keyboard.up('a');
+    await expect(viewedBox(page, first)).toBeChecked();
+  });
+
+  test('a in visual mode leaves visual mode', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+    await page.keyboard.press('Shift+V');
+    await expect(page.locator('body')).toHaveClass(/\bvisual-mode\b/);
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, first)).toBeChecked();
+    await expect(page.locator('body')).not.toHaveClass(/\bvisual-mode\b/);
+  });
+
+  test('a in visual mode keeps the focused line when the file stays open', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+    // Viewed and collapsed, then expanded again: un-viewing it leaves it open.
+    await page.keyboard.press('a');
+    await page.keyboard.press('o');
+    await expectExpanded(page, first);
+    await page.keyboard.press('Shift+V');
+    await expect(page.locator('body')).toHaveClass(/\bvisual-mode\b/);
+
+    await page.keyboard.press('a');
+    await expect(viewedBox(page, first)).not.toBeChecked();
+    await expect(page.locator('body')).not.toHaveClass(/\bvisual-mode\b/);
+    await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
+  });
+
+  test('a does nothing without keyboard focus or a hovered file', async ({ page }) => {
+    await page.keyboard.press('a');
+    await expect(page.locator('#viewedCount')).toContainText('0 /');
+  });
+
+  test('j after a continues past the viewed file, not from the top', async ({ page }) => {
+    const paths = await treePaths(page);
+    await page.keyboard.press('j');
+    await expect.poll(async () => (await focusedRows(page)).length).toBeGreaterThan(0);
+    const firstFile = focusedFile(await focusedRows(page));
+    // Walk into the next file so there is a focusable file on both sides.
+    await pressUntil(page, 'j', async () => focusedFile(await focusedRows(page)) !== firstFile, { state: () => focusedRows(page) });
+    const current = focusedFile(await focusedRows(page));
+
+    await page.keyboard.press('a');
+    await expectCollapsed(page, current);
+
+    await page.keyboard.press('j');
+    await expect.poll(async () => paths.indexOf(focusedFile(await focusedRows(page))))
+      .toBeGreaterThan(paths.indexOf(current));
+  });
+
+  test('viewed checkbox tooltip names the shortcut', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await revealFile(page, first);
+    await expect(fileHeader(page, first).locator('.file-header-viewed')).toHaveAttribute('title', 'Viewed (a)');
+  });
+});
+
+// ============================================================
+// Collapse Shortcut (o) — Git Mode
+// ============================================================
+test.describe('Collapse Shortcut — Git Mode', () => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
+    await loadFreshReview(page);
+  });
+
+  test('o collapses and expands the keyboard-focused file without marking it viewed', async ({ page }) => {
+    await page.keyboard.press('j');
+    await expect.poll(async () => (await focusedRows(page)).length).toBeGreaterThan(0);
+    const current = focusedFile(await focusedRows(page));
+
+    await page.keyboard.press('o');
+    await expectCollapsed(page, current);
+    await expect(viewedBox(page, current)).not.toBeChecked();
+
+    await page.keyboard.press('o');
+    await expectExpanded(page, current);
+  });
+
+  test('o collapses the file under the mouse when nothing is focused', async ({ page }) => {
+    const item = await revealFile(page, 'server.go');
+    await hoverLine(page, item, 1);
+
+    await page.keyboard.press('o');
+    await expectCollapsed(page, 'server.go');
+  });
+
+  test('chevron tooltip names the shortcut', async ({ page }) => {
+    const [first] = await treePaths(page);
+    await revealFile(page, first);
+    await expect(fileHeader(page, first).locator('.file-header-chevron')).toHaveAttribute('title', 'Collapse or expand (o)');
+  });
+
+  for (const how of ['o', 'viewed checkbox'] as const) {
+    test(`collapsing mid-file with ${how} brings its header back to the top`, async ({ page }) => {
+      const item = await revealFile(page, 'server.go');
+      // Scroll partway into the file so its header is stuck at the top.
+      const scroller = reviewScroller(page);
+      await scroller.evaluate((el, path) => {
+        const host = Array.from(el.querySelectorAll('diffs-container'))
+          .find(h => h.querySelector(`.pierre-file-header[data-file-path="${path}"]`))!;
+        el.scrollTop += host.getBoundingClientRect().top - el.getBoundingClientRect().top + 300;
+      }, 'server.go');
+      await waitForScrollStable(page);
+      const listTop = (await scroller.boundingBox())!.y;
+      expect((await item.boundingBox())!.y).toBeLessThan(listTop - 100);
+
+      if (how === 'o') {
+        await hoverLine(page, item, 30);
+        await page.keyboard.press('o');
+      } else {
+        await viewedBox(page, 'server.go').click();
+      }
+      await expectCollapsed(page, 'server.go');
+      await waitForScrollStable(page);
+      await expect.poll(async () => Math.abs((await item.boundingBox())!.y - listTop)).toBeLessThan(2);
+    });
+  }
 });
 
 // ============================================================

@@ -26,6 +26,9 @@ test('defaults resolve code-review actions from normalized key events', () => {
   assert.equal(shortcuts.actionForEvent({ key: '!', code: 'Digit1', shiftKey: true }, 'code-review'), 'scope_all');
   assert.equal(shortcuts.actionForEvent({ key: '!', code: 'Digit1' }, 'code-review'), 'scope_all');
   assert.equal(shortcuts.actionForEvent({ key: 'p', code: 'KeyP' }, 'code-review'), '');
+  assert.equal(shortcuts.actionForEvent({ key: 'a', code: 'KeyA' }, 'code-review'), 'toggle_viewed');
+  assert.equal(shortcuts.actionForEvent({ key: 'a', code: 'KeyA' }, 'live'), '');
+  assert.equal(shortcuts.actionForEvent({ key: 'o', code: 'KeyO' }, 'code-review'), 'toggle_collapse');
 });
 
 test('overrides persist, replace defaults, and can disable actions', () => {

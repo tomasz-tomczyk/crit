@@ -186,6 +186,33 @@ test('scroll and selection map Crit sides to Pierre sides', async function() {
   assert.deepEqual(sels[1], ['clearSelectedLines']);
 });
 
+test('hoveredPath names the mounted item under the mouse pointer', function() {
+  const fake = fakePierre();
+  let hovered = null;
+  fake.P.CodeView.prototype.getRenderedItems = function() {
+    return ['a.go', 'b.go', 'c.go'].map(id => ({ id, element: { matches: sel => sel === ':hover' && id === hovered } }));
+  };
+  const view = makeView(fake);
+  view.setFiles([file('a.go'), file('b.go'), file('c.go')]);
+  assert.equal(view.hoveredPath(), null);
+  hovered = 'b.go';
+  assert.equal(view.hoveredPath(), 'b.go');
+});
+
+test('isOnScreen ignores mounted items outside the scroller viewport', function() {
+  const fake = fakePierre();
+  const boxes = { 'a.go': { top: -500, bottom: -10 }, 'b.go': { top: -10, bottom: 300 }, 'c.go': { top: 600, bottom: 900 } };
+  fake.P.CodeView.prototype.getRenderedItems = function() {
+    return Object.keys(boxes).map(id => ({ id, element: { getBoundingClientRect: () => boxes[id] } }));
+  };
+  const view = makeView(fake, { root: { getBoundingClientRect: () => ({ top: 0, bottom: 500 }) } });
+  view.setFiles([file('a.go'), file('b.go'), file('c.go'), file('d.go')]);
+  assert.equal(view.isOnScreen('a.go'), false);
+  assert.equal(view.isOnScreen('b.go'), true);
+  assert.equal(view.isOnScreen('c.go'), false);
+  assert.equal(view.isOnScreen('d.go'), false);
+});
+
 test('scrolling to a lazy file hydrates it before jumping', async function() {
   const fake = fakePierre();
   const lazy = file('deep.go', { lazy: true, diffHunks: [], content: '' });

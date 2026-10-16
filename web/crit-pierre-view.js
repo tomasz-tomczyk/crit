@@ -179,8 +179,14 @@
 
     // On-screen top of a mounted item's element, or null when not rendered.
     function renderedTop(path) {
+      var el = renderedElement(path);
+      return el ? el.getBoundingClientRect().top : null;
+    }
+
+    // A mounted item's element, or null when the file is not rendered.
+    function renderedElement(path) {
       var r = viewer.getRenderedItems().find(function(x) { return x.id === path; });
-      return r && r.element ? r.element.getBoundingClientRect().top : null;
+      return r && r.element ? r.element : null;
     }
 
     // Pierre appends a changed annotation's wrapper at the end of the host,
@@ -394,9 +400,17 @@
       });
     }
 
+    // Collapsing a file read from its middle (header stuck at the top) would
+    // leave the reader partway into the files below; bring the collapsed
+    // header back to the top so the next file starts right under it.
     function setCollapsed(file, isCollapsed) {
+      var el = isCollapsed && !file.collapsed ? renderedElement(file.path) : null;
+      var box = el && el.getBoundingClientRect();
+      var viewTop = box ? root.getBoundingClientRect().top : 0;
+      var midFile = !!box && box.top < viewTop && box.bottom > viewTop;
       file.collapsed = !!isCollapsed;
       publish(file);
+      if (midFile) scrollToFile(file.path);
     }
 
     // Collapse or expand every file, then render once.
@@ -434,6 +448,24 @@
       return viewer.getRenderedItems().map(function(r) { return r.id; });
     }
 
+    // Whether any part of a file is inside the scroller's viewport (mounted
+    // items include an overscan margin beyond it).
+    function isOnScreen(path) {
+      var el = renderedElement(path);
+      if (!el) return false;
+      var box = el.getBoundingClientRect();
+      var view = root.getBoundingClientRect();
+      return box.bottom > view.top && box.top < view.bottom;
+    }
+
+    // Path of the mounted file under the mouse pointer, or null. :hover
+    // reaches the item through its shadow root and follows content that
+    // scrolls under a still pointer.
+    function hoveredPath() {
+      var hit = viewer.getRenderedItems().find(function(r) { return r.element && r.element.matches(':hover'); });
+      return hit ? hit.id : null;
+    }
+
     function destroy() {
       disposed = true;
       generation++;
@@ -459,6 +491,8 @@
       setRenderOptions: updateOptions,
       setSelectedLine: setSelectedLine,
       renderedPaths: renderedPaths,
+      isOnScreen: isOnScreen,
+      hoveredPath: hoveredPath,
       isStub: function(path) { return stubs.has(path); },
       destroy: destroy,
     };
