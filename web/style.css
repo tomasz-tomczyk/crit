@@ -5402,6 +5402,42 @@ html[data-theme="light"] .toggle-btn.active {
   background: var(--crit-live-badge-bg);
   color: var(--crit-live-fg);
 }
+/* Bolt-only pill floated beside the message's first line (22px line box);
+   its label shows as a bubble to its left after a short hover (the message
+   body clips anything above it). */
+.thread-send-now {
+  position: relative;
+  float: right;
+  justify-content: center;
+  width: 28px;
+  height: 20px;
+  margin: 1px 0 0 12px;
+  padding: 0;
+  border-radius: 10px;
+}
+.thread-send-now svg { width: 11px; height: 11px; }
+.thread-send-now::after {
+  content: attr(data-hint);
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--crit-editor-bg);
+  border: 1px solid color-mix(in srgb, var(--crit-live-fg) 40%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  color: var(--crit-editor-fg);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+.thread-send-now:hover::after { opacity: 1; transition-delay: 0.7s; }
+.thread-send-now:focus-visible::after { opacity: 1; }
 .btn-agent:disabled {
   opacity: 0.5;
   cursor: wait;

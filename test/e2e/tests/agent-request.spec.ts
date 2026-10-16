@@ -94,6 +94,27 @@ test.describe('Send to Agent', () => {
     await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
   });
 
+  test('the bolt icon sends a saved comment now', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved for the round');
+    await textarea.press('Control+Enter');
+    const card = doc.locator('.comment-card', { hasText: 'Saved for the round' });
+    await expect(card.locator('.live-thread-badge')).toHaveCount(0);
+
+    const agentReq = page.waitForRequest((req) =>
+      req.url().includes('/api/agent/request') && req.method() === 'POST'
+    );
+    await card.getByRole('button', { name: 'Send to agent now' }).click();
+
+    expect((await agentReq).postDataJSON().file_path).toBeTruthy();
+    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
+    const liveCard = doc.locator('.comment-card', { hasText: 'Saved for the round' });
+    await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
+    await expect(liveCard.getByRole('button', { name: 'Send to agent now' })).toHaveCount(0);
+  });
+
   test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 

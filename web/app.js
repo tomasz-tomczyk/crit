@@ -5616,6 +5616,44 @@
   }
 
   // ===== Agent Button =====
+  // appendThreadSendNow puts Send now on the last message of a thread that is
+  // not live yet (e.g. one waiting for Finish Review); the agent gets the
+  // whole thread and the thread turns live.
+  function appendThreadSendNow(card, comment, filePath, rerender) {
+    if (!agentEnabled || comment.live || comment.resolved || pendingAgentRequests.has(comment.id)) return;
+    const replyBodies = card.querySelectorAll('.comment-reply .reply-body');
+    const target = replyBodies.length ? replyBodies[replyBodies.length - 1] : card.querySelector('.comment-body');
+    if (!target) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-agent thread-send-now';
+    btn.setAttribute('aria-label', 'Send to agent now');
+    btn.dataset.hint = 'Send now: the agent gets this thread right away';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg>';
+    btn.addEventListener('click', async function(e) {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      btn.disabled = true;
+      pendingAgentRequests.add(comment.id);
+      rerender();
+      try {
+        const res = await fetch('/api/agent/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment_id: comment.id, file_path: filePath }),
+        });
+        if (!res.ok) throw new Error('Server returned ' + res.status);
+        showMiniToast('Sent to agent');
+      } catch (err) {
+        console.error('Error sending to agent:', err);
+        showMiniToast('Failed to send to agent');
+        pendingAgentRequests.delete(comment.id);
+        rerender();
+      }
+    });
+    target.prepend(btn);
+  }
+
   function isLiveThread(comment) {
     if (!agentEnabled) return false;
     return !!comment.live;
@@ -5718,6 +5756,7 @@
     parts.actions.appendChild(resolveBtn);
     parts.actions.appendChild(editBtn);
     parts.actions.appendChild(deleteBtn);
+    appendThreadSendNow(parts.card, comment, filePath, function() { renderFileByPath(filePath); });
 
     return parts.wrapper;
   }
@@ -6307,6 +6346,7 @@
     });
     parts.actions.appendChild(editBtn);
     parts.actions.appendChild(deleteBtn);
+    appendThreadSendNow(parts.card, comment, '', renderReviewConversation);
 
     return parts.wrapper;
   }
