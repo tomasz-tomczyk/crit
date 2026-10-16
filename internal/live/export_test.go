@@ -9,6 +9,8 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
+var writeFile = testutil.WriteFile
+
 type serverConfig struct {
 	liveOrigin string
 	reviewPath string

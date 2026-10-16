@@ -8,10 +8,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/server"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
-	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
-
-var writeFile = testutil.WriteFile
 
 type (
 	Config       = config.Config
