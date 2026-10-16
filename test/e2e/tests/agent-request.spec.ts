@@ -71,6 +71,29 @@ test.describe('Send to Agent', () => {
     expect(agentRequests).toBe(0);
   });
 
+  test('Send now in a reply sends it and makes the thread live', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved first, sent later');
+    await textarea.press('Control+Enter');
+    const card = doc.locator('.comment-card', { hasText: 'Saved first, sent later' });
+    await expect(card.locator('.live-thread-badge')).toHaveCount(0);
+
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Please look at this now');
+    const agentReq = page.waitForRequest((req) =>
+      req.url().includes('/api/agent/request') && req.method() === 'POST'
+    );
+    await card.locator('.reply-form .btn-agent').click();
+
+    expect((await agentReq).postDataJSON().file_path).toBeTruthy();
+    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
+    const liveCard = doc.locator('.comment-card', { hasText: 'Saved first, sent later' });
+    await expect(liveCard).toContainText('Please look at this now');
+    await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
+  });
+
   test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 
