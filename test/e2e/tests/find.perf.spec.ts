@@ -83,20 +83,26 @@ test('collapsed files are not searched', async ({ page }) => {
 test('prefills the bar from a selection inside the diff', async ({ page }) => {
   await loadPage(page);
   const item = await revealFile(page, 'file1.go');
+  const row = diffLine(item, 13);
   // Select "Goodbye1" in `func Goodbye1() string {` (shadow DOM; Chromium
-  // reports such a selection as collapsed on window.getSelection()).
-  await diffLine(item, 13).evaluate((row) => {
-    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-    let text = '';
-    const nodes: { node: Text; start: number }[] = [];
-    let n: Node | null;
-    while ((n = walker.nextNode())) { nodes.push({ node: n as Text, start: text.length }); text += n.textContent; }
-    const at = text.indexOf('Goodbye1');
-    const find = (pos: number) => nodes.filter((x) => x.start <= pos).pop()!;
-    const a = find(at);
-    const b = find(at + 'Goodbye1'.length);
-    window.getSelection()!.setBaseAndExtent(a.node, at - a.start, b.node, at + 'Goodbye1'.length - b.start);
-  });
-  await page.keyboard.press(FIND);
-  await expect(input(page)).toHaveValue('Goodbye1');
+  // reports such a selection as collapsed on window.getSelection()). Pierre
+  // swaps the row's text nodes when highlighting lands, which drops a
+  // selection made just before, so retry until it sticks.
+  await expect(async () => {
+    if (await bar(page).isVisible()) await page.keyboard.press('Escape');
+    await row.evaluate((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let text = '';
+      const nodes: { node: Text; start: number }[] = [];
+      let n: Node | null;
+      while ((n = walker.nextNode())) { nodes.push({ node: n as Text, start: text.length }); text += n.textContent; }
+      const at = text.indexOf('Goodbye1');
+      const find = (pos: number) => nodes.filter((x) => x.start <= pos).pop()!;
+      const a = find(at);
+      const b = find(at + 'Goodbye1'.length);
+      window.getSelection()!.setBaseAndExtent(a.node, at - a.start, b.node, at + 'Goodbye1'.length - b.start);
+    });
+    await page.keyboard.press(FIND);
+    await expect(input(page)).toHaveValue('Goodbye1', { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 });
