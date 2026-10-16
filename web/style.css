@@ -1406,6 +1406,8 @@ body.dragging { user-select: none; cursor: grabbing; }
   touch-action: none;
 }
 .diagram-overlay-viewport.panning { cursor: grabbing; }
+/* Focused from script on pointerdown (keeps focus in the modal); never by Tab. */
+.diagram-overlay-viewport:focus { outline: none; }
 .diagram-overlay-canvas {
   transform-origin: 0 0;
   will-change: transform;
@@ -6896,5 +6898,13 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
   cursor: pointer;
 }
 .crit-find-btn:hover { background: var(--crit-editor-bg-hover); color: var(--crit-fg-primary); }
+.crit-find-btn:focus-visible { outline: none; box-shadow: var(--crit-focus); }
 .crit-find-case { font-size: 12px; font-weight: 600; }
 .crit-find-case[aria-pressed="true"] { background: var(--crit-brand-bg); color: var(--crit-brand); }
+@media (max-width: 768px) {
+  .crit-find-bar { left: 16px; right: 16px; }
+  /* 16px stops iOS Safari zooming the page when the input takes focus. */
+  .crit-find-input { flex: 1 1 auto; width: auto; min-width: 0; font-size: 16px; }
+  .crit-find-count { min-width: 0; white-space: nowrap; }
+  .crit-find-count, .crit-find-btn { flex-shrink: 0; }
+}

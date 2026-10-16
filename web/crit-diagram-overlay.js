@@ -20,6 +20,11 @@
   };
   var ZOOM_MIN = 0.1;
   var ZOOM_MAX = 8;
+  var PAN_STEP = 50;
+  // The zoom label is aria-live; wheel and pinch zoom update it once they
+  // settle so a screen reader hears the result, not every tick.
+  var LABEL_DELAY = 300;
+  var labelTimer = null;
 
   function overlayNodes() {
     return {
@@ -34,14 +39,27 @@
     };
   }
 
-  function applyTransform() {
+  function updateLabel() {
+    clearTimeout(labelTimer);
+    labelTimer = null;
+    var label = overlayNodes().label;
+    var text = Math.round(state.scale * 100) + '%';
+    if (label && label.textContent !== text) label.textContent = text;
+  }
+
+  // gradual: a wheel or pinch tick, which defers the label update.
+  function applyTransform(gradual) {
     var nodes = overlayNodes();
     if (!nodes.canvas) return;
     nodes.canvas.style.transform = 'translate(' + state.x + 'px, ' + state.y + 'px) scale(' + state.scale + ')';
-    if (nodes.label) nodes.label.textContent = Math.round(state.scale * 100) + '%';
+    if (!gradual) updateLabel();
+    else {
+      clearTimeout(labelTimer);
+      labelTimer = setTimeout(updateLabel, LABEL_DELAY);
+    }
   }
 
-  function zoomAt(factor, clientX, clientY) {
+  function zoomAt(factor, clientX, clientY, gradual) {
     var nodes = overlayNodes();
     if (!nodes.viewport) return;
     var rect = nodes.viewport.getBoundingClientRect();
@@ -53,7 +71,7 @@
     state.x = px - (px - state.x) * ratio;
     state.y = py - (py - state.y) * ratio;
     state.scale = next;
-    applyTransform();
+    applyTransform(gradual);
   }
 
   function zoomCenter(factor) {
@@ -140,6 +158,8 @@
     var nodes = overlayNodes();
     if (!state.open) return;
     state.open = false;
+    clearTimeout(labelTimer);
+    labelTimer = null;
     if (nodes.overlay) nodes.overlay.classList.remove('active');
     if (nodes.canvas) nodes.canvas.innerHTML = '';
     document.body.style.overflow = '';
@@ -158,7 +178,12 @@
     if (!focusables || focusables.length === 0) return;
     var first = focusables[0];
     var last = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
+    // From the viewport (focused by a drag), Tab wraps like from the ends.
+    var inList = Array.prototype.indexOf.call(focusables, document.activeElement) !== -1;
+    if (!inList) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && document.activeElement === first) {
       e.preventDefault();
       last.focus();
     } else if (!e.shiftKey && document.activeElement === last) {
@@ -197,26 +222,53 @@
       if (e.target === nodes.overlay) closeOverlay();
     });
     nodes.overlay.addEventListener('keydown', trapTab);
+    // The overlay is modal: while it is open its keys run first (document,
+    // capture phase) and stop there, so the review keymap behind it never
+    // sees them. Listening on document keeps the keys working after a drag
+    // or click on the viewport leaves focus on body. Esc closes it; arrow
+    // keys pan, +/- zoom, 0 fits.
     document.addEventListener('keydown', function (e) {
-      // Note: no defaultPrevented check — app.js's keymap
-      // unconditionally preventDefaults Escape, so honoring it would break
-      // Esc-to-close entirely. Esc dismissing both the overlay and any
-      // background form matches the existing "cancel whatever" convention.
-      if (e.key !== 'Escape') return;
-      if (state.open) {
+      if (!state.open) return;
+      if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         closeOverlay();
+        return;
       }
-    });
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var dx = 0;
+      var dy = 0;
+      switch (e.key) {
+        case 'ArrowLeft': dx = PAN_STEP; break;
+        case 'ArrowRight': dx = -PAN_STEP; break;
+        case 'ArrowUp': dy = PAN_STEP; break;
+        case 'ArrowDown': dy = -PAN_STEP; break;
+        case '+': case '=': zoomCenter(1.25); break;
+        case '-': case '_': zoomCenter(1 / 1.25); break;
+        case '0': fit(); break;
+        default: return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      if (dx || dy) {
+        state.x += dx;
+        state.y += dy;
+        applyTransform();
+      }
+    }, true);
 
     nodes.viewport.addEventListener('wheel', function (e) {
       if (!state.open) return;
       e.preventDefault();
-      zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY);
+      zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY, true);
     }, { passive: false });
 
+    // Focusable from script only: a drag or click on the viewport keeps
+    // focus inside the modal instead of dropping it on body.
+    nodes.viewport.tabIndex = -1;
     nodes.viewport.addEventListener('pointerdown', function (e) {
       if (!state.open) return;
+      if (nodes.viewport.focus) nodes.viewport.focus({ preventScroll: true });
       try { nodes.viewport.setPointerCapture(e.pointerId); } catch { /* noop */ }
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (activePointers.size === 1) {
@@ -239,7 +291,7 @@
           // Zoom relative to the scale captured when the second pointer
           // landed, anchored at the gesture midpoint.
           var rel = (pinchScale * dist / pinchStart) / state.scale;
-          zoomAt(rel, midX, midY);
+          zoomAt(rel, midX, midY, true);
         }
         return;
       }

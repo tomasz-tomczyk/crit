@@ -357,3 +357,227 @@ test('needsRender: unrendered targets and targets rendered in another theme are 
     assert.equal(r.needsRender(fakeRoot([rendered('light/tokyo-night')])), false);
   });
 });
+
+// A small element stub for renderAll / rerenderAll: class selectors, with
+// an optional `:scope > ` prefix, and the few DOM methods renderTarget uses.
+class FakeEl {
+  constructor(className = '') {
+    this.className = className;
+    this.attrs = {};
+    this.children = [];
+    this.parentElement = null;
+    this.hidden = false;
+    this.textContent = '';
+    this._html = '';
+  }
+  get id() { return this.attrs.id || ''; }
+  get innerHTML() { return this._html; }
+  set innerHTML(v) { this._html = v; }
+  hasAttribute(n) { return n in this.attrs; }
+  getAttribute(n) { return n in this.attrs ? this.attrs[n] : null; }
+  setAttribute(n, v) { this.attrs[n] = String(v); }
+  appendChild(c) { c.parentElement = this; this.children.push(c); return c; }
+  insertBefore(c, ref) {
+    c.parentElement = this;
+    const i = this.children.indexOf(ref);
+    this.children.splice(i < 0 ? this.children.length : i, 0, c);
+    return c;
+  }
+  remove() {
+    if (!this.parentElement) return;
+    const sib = this.parentElement.children;
+    sib.splice(sib.indexOf(this), 1);
+    this.parentElement = null;
+  }
+  replaceWith(c) {
+    const p = this.parentElement;
+    p.children[p.children.indexOf(this)] = c;
+    c.parentElement = p;
+    this.parentElement = null;
+  }
+  cloneNode() {
+    const c = new FakeEl(this.className);
+    c.attrs = { ...this.attrs };
+    c._html = this._html;
+    c.textContent = this.textContent;
+    c.children = this.children.map((ch) => { const cc = ch.cloneNode(); cc.parentElement = c; return cc; });
+    return c;
+  }
+  addEventListener() {}
+  closest() { return null; }
+  matches(cls) { return this.className.split(/\s+/).includes(cls); }
+  querySelectorAll(sel) {
+    const direct = sel.startsWith(':scope > ');
+    const m = /^(?:\.([\w-]+))?(?:\[([\w-]+)\])?$/.exec(direct ? sel.slice(9) : sel);
+    if (!m || (!m[1] && !m[2])) return [];
+    const [, cls, attr] = m;
+    const out = [];
+    const walk = (el) => {
+      for (const ch of el.children) {
+        if ((!cls || ch.matches(cls)) && (!attr || ch.hasAttribute(attr))) out.push(ch);
+        if (!direct) walk(ch);
+      }
+    };
+    walk(this);
+    return out;
+  }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  contains(el) {
+    for (let n = el; n; n = n.parentElement) if (n === this) return true;
+    return false;
+  }
+}
+
+// A target holding `source` under a root, as targetHTML emits it.
+function stubTarget(source) {
+  const root = new FakeEl();
+  const target = root.appendChild(new FakeEl('crit-render'));
+  target.setAttribute('data-crit-renderer', 'slow');
+  target.setAttribute('data-crit-kind', 'fence');
+  const pre = target.appendChild(new FakeEl('crit-render-source'));
+  pre.textContent = source;
+  return { root, target, pre };
+}
+
+async function withFakeDom(fn) {
+  const had = Object.prototype.hasOwnProperty.call(global, 'document');
+  const prev = global.document;
+  const hadWindow = Object.prototype.hasOwnProperty.call(global, 'window');
+  const prevWindow = global.window;
+  global.document = {
+    documentElement: { getAttribute(n) { return n === 'data-theme' ? 'dark' : null; } },
+    createElement() { return new FakeEl(); },
+    addEventListener() {},
+    // Ids the test marks as already in the page.
+    ids: new Map(),
+    getElementById(id) { return this.ids.get(id) || null; },
+  };
+  global.window = global.window || {};
+  try { return await fn(); } finally {
+    if (had) global.document = prev; else delete global.document;
+    if (hadWindow) global.window = prevWindow; else delete global.window;
+  }
+}
+
+// A renderer whose renders resolve when the test says so.
+function deferredRenderer(r) {
+  const calls = [];
+  r.register({
+    kind: 'fence', name: 'slow', langs: ['slow'],
+    render(source) {
+      return new Promise((resolve) => { calls.push({ source, resolve }); });
+    },
+  });
+  return calls;
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('renderAll: of two renders in flight for one target, the newest wins', async () => {
+  const r = freshRegistry();
+  const calls = deferredRenderer(r);
+  await withFakeDom(async () => {
+    const { root, target, pre } = stubTarget('graph');
+    const first = r.renderAll(root);
+    const second = r.rerenderAll(root); // e.g. a theme change mid-render
+    await tick();
+    assert.equal(calls.length, 2);
+    calls[1].resolve('<svg>new</svg>');
+    await second;
+    calls[0].resolve('<svg>old</svg>');
+    await first;
+    const outputs = target.querySelectorAll(':scope > .crit-render-output');
+    assert.equal(outputs.length, 1);
+    assert.equal(outputs[0].innerHTML, '<svg>new</svg>');
+    assert.equal(target.getAttribute('data-crit-state'), 'rendered');
+    assert.equal(pre.hidden, true);
+    // The stale result is dropped, not cached for the next rebuild.
+    const rebuilt = stubTarget('graph');
+    r.renderAll(rebuilt.root);
+    assert.equal(rebuilt.target.querySelector(':scope > .crit-render-output').innerHTML, '<svg>new</svg>');
+  });
+});
+
+test('renderAll: a stale render that fails does not replace the newer output', async () => {
+  const r = freshRegistry();
+  const calls = deferredRenderer(r);
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await withFakeDom(async () => {
+      const { root, target, pre } = stubTarget('graph');
+      const first = r.renderAll(root);
+      const second = r.rerenderAll(root);
+      await tick();
+      calls[1].resolve('<svg>new</svg>');
+      await second;
+      calls[0].resolve(Promise.reject(new Error('late failure')));
+      await first;
+      assert.equal(target.getAttribute('data-crit-state'), 'rendered');
+      assert.equal(target.querySelector(':scope > .crit-render-error'), null);
+      assert.equal(target.querySelector(':scope > .crit-render-output').innerHTML, '<svg>new</svg>');
+      assert.equal(pre.hidden, true);
+    });
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test('renderAll: a rebuilt target with rendered source shows the cached output at once', async () => {
+  const r = freshRegistry();
+  const calls = deferredRenderer(r);
+  await withFakeDom(async () => {
+    const a = stubTarget('graph');
+    const done = r.renderAll(a.root);
+    await tick();
+    calls[0].resolve('<svg>graph</svg>');
+    await done;
+
+    // A document rebuild emits a fresh target with the same source.
+    const b = stubTarget('graph');
+    r.renderAll(b.root);
+    assert.equal(calls.length, 1, 'no second render');
+    assert.equal(b.target.getAttribute('data-crit-state'), 'rendered', 'rendered synchronously');
+    assert.equal(b.pre.hidden, true);
+    const out = b.target.querySelector(':scope > .crit-render-output');
+    assert.equal(out.innerHTML, '<svg>graph</svg>');
+    assert.notEqual(out, a.target.querySelector(':scope > .crit-render-output'), 'a clone, not the node itself');
+
+    // Other source misses; a theme re-render clears the cache.
+    r.renderAll(stubTarget('other').root);
+    await tick();
+    assert.equal(calls.length, 2);
+    r.rerenderAll(b.root);
+    await tick();
+    assert.equal(calls.length, 3);
+  });
+});
+
+test('renderAll: a cached output whose ids are already in the page renders afresh', async () => {
+  const r = freshRegistry();
+  const calls = [];
+  r.register({
+    kind: 'fence', name: 'slow', langs: ['slow'],
+    render(source, ctx) {
+      calls.push(source);
+      ctx.container.appendChild(new FakeEl('svg')).setAttribute('id', 'diagram-1');
+    },
+  });
+  await withFakeDom(async () => {
+    const a = stubTarget('graph');
+    await r.renderAll(a.root);
+    assert.equal(calls.length, 1);
+    // The first copy is still in the page: a second target with the same
+    // source must not get a clone with the same ids.
+    const shown = a.target.querySelector(':scope > .crit-render-output').querySelector('[id]');
+    global.document.ids.set('diagram-1', shown);
+    const b = stubTarget('graph');
+    await r.renderAll(b.root);
+    assert.equal(calls.length, 2, 'rendered again');
+    // Re-rendering the target that holds those ids may reuse the cache.
+    global.document.ids.set('diagram-1', b.target.querySelector(':scope > .crit-render-output').querySelector('[id]'));
+    b.target.attrs['data-crit-theme'] = 'stale';
+    await r.renderAll(b.root);
+    assert.equal(calls.length, 2, 'cache hit when replacing the only copy');
+  });
+});

@@ -2488,12 +2488,16 @@
   const critFind = window.crit.find.createFind({
     // Story chapters are Pierre hosts too; only the review list is searched.
     hostSelector: '#filesContainer diffs-container',
+    // Esc from here (or the page body) closes the bar.
+    scopeSelector: '#filesContainer',
     files: function() { return files; },
     linesFor: pierreFindRows,
     // With only rendered documents (a plan review) there is nothing to
     // search; leave Cmd+F to the browser.
     isActive: function() {
+      // The diagram overlay (z-index 500) covers the bar (300).
       return !!pierreView && pierreViewActive() && !settingsPanelOpen &&
+        !document.querySelector('.diagram-overlay.active') &&
         files.some(function(f) { return !f.orphaned && !pierreIsDocumentView(f) && !pierrePlaceholderText(f); });
     },
     isPending: function(file) { return !!file.lazy && !file.collapsed; },
@@ -9068,6 +9072,9 @@
       }
       case 'Escape': {
         e.preventDefault();
+        // The find bar is the top layer, unless the diagram overlay or the
+        // stack chip popover (their own Esc handlers run after this one) is.
+        if (!document.querySelector('.diagram-overlay.active') && !isStackChipOpen() && critFind.closeFromEscape(e)) break;
         if (reviewCommentFormActive) {
           if (confirmDiscardReviewCommentForm()) cancelReviewCommentForm();
         }

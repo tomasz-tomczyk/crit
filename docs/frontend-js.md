@@ -33,9 +33,10 @@ There is no second diff engine and no highlight.js.
 | `web/crit-pierre-runtime.js` | Lazy file loading, request invalidation and worker-pool lifecycle. |
 | `web/crit-palette.css`, `web/pierre/palettes.js` | Semantic token mapping and generated palette foundations for every bundled theme. |
 | `web/crit-code-highlight.js` | Shiki for fenced code outside Pierre surfaces (prime/lines/upgrade). |
-| `web/crit-renderers.js` | Pluggable renderer registry: fence and file registrations, render targets (source kept as a `<pre>` fallback), theme-stamped re-render, `anchorFor` clicks. See [renderers.md](renderers.md). |
+| `web/crit-renderers.js` | Pluggable renderer registry: fence and file registrations, render targets (source kept as a `<pre>` fallback), theme-stamped re-render, a small output cache (renderer + theme + source) so document rebuilds swap in the previous output at once, `anchorFor` clicks. See [renderers.md](renderers.md). |
 | `web/crit-renderer-mermaid.js` | Built-in Mermaid renderer (fences, `*.mermaid` / `*.mmd`). Loads `mermaid.min.js` on the first diagram, so reviews without one never fetch it. |
-| `web/crit-diagram-overlay.js` | Fullscreen pan/zoom view for `zoomable` renderers' SVG output (Expand). |
+| `web/crit-diagram-overlay.js` | Fullscreen pan/zoom view for `zoomable` renderers' SVG output (Expand). Drag, wheel or pinch; arrow keys pan, `+` / `-` zoom, `0` fits. |
+| `web/crit-find.js` | `window.crit.find.createFind(opts)`: the find bar (Cmd/Ctrl+F). Searches Crit's file model, since Pierre only mounts rows near the viewport; loads lazy files in the background, jumps through `opts.reveal`, and marks matches with the CSS Custom Highlight API. Esc closes it from the bar, or from the review list when no menu or overlay takes the key first. |
 | `web/app.js` (Pierre section) | Lifecycle (`ensurePierreView`, `renderPierreFiles`, `refreshPierreFile`, `disposePierreView`), annotation builders, keyboard, jumps, selection, quote highlights, line tints, touch. |
 | `scripts/build-pierre.mjs` | Builds `web/pierre/` (see Bundle). |
 | `scripts/crit-theme-palette.mjs` | Theme → Crit UI palette (surfaces, accent, border, status colours). Borders are derived from the editor background, not the theme's `panel.border`. `web/__tests__/crit-theme-palette.test.js` checks every bundled theme. |

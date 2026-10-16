@@ -134,6 +134,9 @@
   --crit-resolve-hover-bg: color-mix(in srgb, var(--crit-palette-green) 12%, transparent);
   --crit-quote-highlight-bg: color-mix(in srgb, var(--crit-palette-yellow) 14%, transparent);
   --crit-quote-highlight-border: color-mix(in srgb, var(--crit-palette-yellow) 44%, transparent);
+  --crit-find-bg: color-mix(in srgb, var(--crit-palette-yellow) 34%, transparent);
+  --crit-find-current-bg: var(--crit-palette-accent);
+  --crit-find-current-fg: var(--crit-palette-on-accent);
   --crit-comment-ref-color: var(--crit-palette-accent);
   --crit-comment-ref-color-hover: color-mix(in srgb, var(--crit-palette-accent) 84%, var(--crit-palette-fg));
   --crit-comment-ref-underline: color-mix(in srgb, var(--crit-palette-accent) 38%, transparent);

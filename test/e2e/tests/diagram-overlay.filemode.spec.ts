@@ -79,7 +79,7 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
   test('rendered fence exposes Expand and a node click opens no comment form', async ({ page }) => {
     await loadPage(page);
     const btn = await expandButton(page);
-    await expect(btn).toHaveAttribute('aria-label', 'Open diagram fullscreen');
+    await expect(btn).toHaveAttribute('aria-label', 'Expand diagram fullscreen');
     await expect(btn).toContainText('Expand');
 
     const section = await mdSection(page);
@@ -111,6 +111,36 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await expect(label).not.toHaveText(zoomedIn);
     await page.locator('#diagramZoomReset').click();
     await expect(label).toHaveText(fitText);
+
+    // Keyboard (focus is on Reset, inside the overlay): + zooms, 0 fits,
+    // arrows pan.
+    const canvas = page.locator('#diagramOverlayCanvas');
+    await page.keyboard.press('+');
+    await expect(label).not.toHaveText(fitText);
+    await page.keyboard.press('0');
+    await expect(label).toHaveText(fitText);
+    const before = await canvas.evaluate(el => el.style.transform);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => canvas.evaluate(el => el.style.transform)).not.toBe(before);
+
+    // A drag on the viewport keeps the keys working (focus stays in the
+    // overlay), and arrows do not reach the review list behind it.
+    const viewport = page.locator('#diagramOverlayViewport');
+    const box = (await viewport.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20, { steps: 4 });
+    await page.mouse.up();
+    const listTop = await page.locator('#filesContainer').evaluate(el => el.scrollTop);
+    const dragged = await canvas.evaluate(el => el.style.transform);
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => canvas.evaluate(el => el.style.transform)).not.toBe(dragged);
+    await page.keyboard.press('+');
+    await expect(label).not.toHaveText(fitText);
+    await page.keyboard.press('0');
+    await expect(label).toHaveText(fitText);
+    expect(await page.locator('#filesContainer').evaluate(el => el.scrollTop)).toBe(listTop);
+    await expect(overlay).toHaveClass(/active/);
 
     // Close button dismisses it.
     await page.locator('#diagramOverlayClose').click();

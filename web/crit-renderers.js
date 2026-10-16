@@ -50,6 +50,33 @@
   var registry = [];
   var clickInstalled = false;
 
+  // Rendered output by renderer + theme + source. Document re-renders
+  // (comment changes, hide-resolved, SSE) rebuild every target; a hit puts a
+  // clone of the earlier output in place synchronously, so the source <pre>
+  // never shows and the layout does not jump while the renderer runs again.
+  // A clone carries no event listeners, so renderers should not attach any
+  // to their output (anchor clicks are delegated on document).
+  var CACHE_MAX = 50;
+  var outputCache = new Map();
+
+  function cacheKey(renderer, source) {
+    return renderer.kind + '\u0000' + renderer.name + '\u0000' + themeKey() + '\u0000' + source;
+  }
+
+  function cacheGet(key) {
+    var hit = outputCache.get(key);
+    if (!hit) return null;
+    outputCache.delete(key);
+    outputCache.set(key, hit);
+    return hit;
+  }
+
+  function cachePut(key, output) {
+    outputCache.delete(key);
+    outputCache.set(key, output.cloneNode(true));
+    if (outputCache.size > CACHE_MAX) outputCache.delete(outputCache.keys().next().value);
+  }
+
   function register(def) {
     if (!def || typeof def.name !== 'string' || !def.name) throw new Error('renderer needs a name');
     if (def.kind !== 'fence' && def.kind !== 'file') throw new Error('renderer ' + def.name + ' needs kind \'fence\' or \'file\'');
@@ -230,7 +257,7 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'crit-render-expand';
-    btn.setAttribute('aria-label', 'Open diagram fullscreen');
+    btn.setAttribute('aria-label', 'Expand diagram fullscreen');
     btn.setAttribute('title', 'Open fullscreen');
     btn.textContent = '⛶ Expand';
     btn.addEventListener('click', function (e) {
@@ -245,17 +272,51 @@
     return byName(target.getAttribute('data-crit-kind') || 'fence', target.getAttribute('data-crit-renderer'));
   }
 
+  // Does the page already hold an element with one of the ids in `output`
+  // (other than inside `replacing`)? Two copies of one mermaid SVG share ids,
+  // and a marker reference can then resolve to a hidden copy and drop the
+  // arrowheads, so such a target renders afresh instead.
+  function idsInUse(output, replacing) {
+    var withId = output.querySelectorAll('[id]');
+    for (var i = 0; i < withId.length; i++) {
+      var el = document.getElementById(withId[i].id);
+      if (el && !(replacing && replacing.contains(el))) return true;
+    }
+    return false;
+  }
+
+  // Show a render result: drop any error, hide the source, wire anchors and
+  // the expand button.
+  function markRendered(target, renderer, ctx, output) {
+    var err = target.querySelector(':scope > .crit-render-error');
+    if (err) err.remove();
+    var pre = target.querySelector(':scope > .crit-render-source');
+    if (pre) pre.hidden = true;
+    target.setAttribute('data-crit-state', 'rendered');
+    if (renderer.anchorFor && ctx.endLine) target.setAttribute('data-crit-anchorable', '');
+    addExpandButton(target, renderer, output);
+  }
+
   // Render one target. Returns a Promise that settles when done; never rejects.
   function renderTarget(target) {
     var renderer = rendererOf(target);
     if (!renderer) return Promise.resolve();
     var gen = (target._critGen || 0) + 1;
     target._critGen = gen;
-    target.setAttribute('data-crit-state', 'pending');
     target.setAttribute('data-crit-theme', themeKey());
     var output = document.createElement('div');
     output.className = 'crit-render-output';
     var ctx = targetContext(target, renderer, output);
+    var key = cacheKey(renderer, ctx.source);
+    var prev = target.querySelector(':scope > .crit-render-output');
+    var cached = cacheGet(key);
+    if (cached && !idsInUse(cached, prev)) {
+      var copy = cached.cloneNode(true);
+      if (prev) prev.replaceWith(copy); else target.appendChild(copy);
+      markRendered(target, renderer, ctx, copy);
+      return Promise.resolve();
+    }
+    target.setAttribute('data-crit-state', 'pending');
     // First render: the output is in the page while rendering, so renderers
     // can measure it. Re-render: the previous output stays until replaced.
     var old = target.querySelector(':scope > .crit-render-output');
@@ -267,13 +328,8 @@
       if (typeof result === 'string') output.innerHTML = result;
       else if (result && result.nodeType) output.appendChild(result);
       if (old) old.replaceWith(output);
-      var err = target.querySelector(':scope > .crit-render-error');
-      if (err) err.remove();
-      var pre = target.querySelector(':scope > .crit-render-source');
-      if (pre) pre.hidden = true;
-      target.setAttribute('data-crit-state', 'rendered');
-      if (renderer.anchorFor && ctx.endLine) target.setAttribute('data-crit-anchorable', '');
-      addExpandButton(target, renderer, output);
+      markRendered(target, renderer, ctx, output);
+      cachePut(key, output);
     }).catch(function (err) {
       if (target._critGen !== gen) return;
       console.warn('[crit] renderer ' + renderer.name + ' failed:', err);
@@ -337,8 +393,10 @@
     return Promise.all(pending);
   }
 
-  // Re-render every target under root (theme change).
+  // Re-render every target under root (theme change). The cache is keyed
+  // by theme, but clear it so a re-applied palette renders afresh too.
   function rerenderAll(root) {
+    outputCache.clear();
     var targets = (root || document).querySelectorAll('.crit-render[data-crit-state]');
     var pending = [];
     for (var i = 0; i < targets.length; i++) pending.push(renderTarget(targets[i]));

@@ -330,7 +330,10 @@
       syncHighlights();
       const back = returnFocus;
       returnFocus = null;
-      if (back && back !== document.body && back.isConnected) back.focus({ preventScroll: true });
+      // Only hand focus back when it was in the bar: a close forced by
+      // something else (a modal opening) must not pull focus out of it.
+      const inBar = bar.contains(document.activeElement);
+      if (inBar && back && back !== document.body && back.isConnected) back.focus({ preventScroll: true });
       if (opts.onClose) opts.onClose();
     }
 
@@ -344,10 +347,6 @@
         e.preventDefault();
         if (input.value !== query) { clearTimeout(inputTimer); setQuery(input.value); return; }
         go(current + (e.shiftKey ? -1 : 1));
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        hide();
       } else if (e.altKey && e.code === 'KeyC') {
         e.preventDefault();
         toggleCase();
@@ -385,16 +384,27 @@
         go(current + (e.shiftKey ? -1 : 1));
       }
     }, true);
-    // Esc closes the bar from anywhere but a text field (comment forms keep
-    // their own Esc).
-    document.addEventListener('keydown', function(e) {
-      if (!open || e.key !== 'Escape' || e.defaultPrevented) return;
-      const t = e.target;
-      if (t !== input && t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+    // Esc inside the bar (input or buttons) closes it.
+    bar.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
       hide();
-    }, true);
+    });
+    // Esc from the page or the review list. The page's keymap calls this
+    // first in its Esc handling, so one Esc closes only the bar and the next
+    // one reaches the keymap. Text fields keep their own Esc; focus elsewhere
+    // (a dialog, the header) is left alone.
+    const scopeSelector = opts.scopeSelector || '#filesContainer';
+    function closeFromEscape(e) {
+      if (!open || e.key !== 'Escape') return false;
+      const t = e.target;
+      if (!t || t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable) return false;
+      const onPage = t === document.body || t === document.documentElement || t === document;
+      if (!onPage && !(t.closest && t.closest(scopeSelector))) return false;
+      hide();
+      return true;
+    }
 
     return {
       unsafeCSS: UNSAFE_CSS,
@@ -407,6 +417,8 @@
         loadPending();
       },
       isOpen: function() { return open; },
+      // Call from the page's Esc handling; true when it closed the bar.
+      closeFromEscape: closeFromEscape,
       open: show,
       close: hide,
     };

@@ -103,6 +103,15 @@ Crit calls `render` again with a new container when the theme changes (also
 for diagrams that were scrolled out of view at the time). If `render` throws
 or rejects, Crit shows the source with the error message.
 
+Output is cached by renderer, theme and source. When a document is rebuilt
+(a comment changes, resolved comments are hidden, the file reloads), Crit
+puts a copy of the earlier output in place without calling `render`. So the
+output must depend only on the renderer, the theme and `source`: not on
+`ctx.path`, `ctx.startLine` / `ctx.endLine` or anything else in the page.
+The copy has no event listeners, so do not attach any to the output; a theme
+change clears the cache. A copy whose element ids are already in the page
+(the same diagram shown twice) is rendered afresh instead.
+
 `renderAs` lets a file renderer convert its format and hand the result to
 another renderer, for example an Arazzo workflow drawn as Mermaid:
 
