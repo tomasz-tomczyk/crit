@@ -508,6 +508,8 @@
       var pv = document.createElement('script'); pv.src = 'crit-pierre-view.js'; pv.async = false; document.body.appendChild(pv);
       var pr = document.createElement('script'); pr.src = 'crit-pierre-runtime.js'; pr.async = false; document.body.appendChild(pr);
       var pd = document.createElement('script'); pd.src = 'crit-pierre-dom.js'; pd.async = false; document.body.appendChild(pd);
+      // Find in the review list (Cmd/Ctrl+F over Pierre's virtualized rows).
+      var fd = document.createElement('script'); fd.src = 'crit-find.js'; fd.async = false; document.body.appendChild(fd);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();

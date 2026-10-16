@@ -6845,3 +6845,56 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
   .theme-preview-list { border-right: 0; border-bottom: 1px solid var(--crit-border); }
   .theme-preview-main { padding: 16px; }
 }
+
+/* ===== Find in diff (crit-find.js) ===== */
+.crit-find-bar {
+  position: fixed;
+  top: calc(var(--header-height, 49px) + 8px);
+  right: 24px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 8px;
+  background: var(--crit-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.crit-find-bar[hidden] { display: none; }
+.crit-find-input {
+  width: 220px;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-family: var(--crit-font-mono);
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg);
+  border: 1px solid var(--crit-border);
+  border-radius: 4px;
+  outline: none;
+}
+.crit-find-input:focus { border-color: var(--crit-brand); }
+.crit-find-input::placeholder { color: var(--crit-editor-fg-muted); }
+.crit-find-empty .crit-find-input { border-color: var(--crit-red); }
+.crit-find-count {
+  min-width: 72px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--crit-fg-secondary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.crit-find-btn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--crit-fg-secondary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.crit-find-btn:hover { background: var(--crit-editor-bg-hover); color: var(--crit-fg-primary); }
+.crit-find-case { font-size: 12px; font-weight: 600; }
+.crit-find-case[aria-pressed="true"] { background: var(--crit-brand-bg); color: var(--crit-brand); }

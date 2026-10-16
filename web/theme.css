@@ -170,6 +170,9 @@
   --crit-change-flash-bg:      rgba(255, 158, 100, 0.15);
   --crit-resolve-hover-bg:     rgba(86, 211, 100, 0.1);
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.12);
+  --crit-find-bg:                rgba(250, 200, 60, 0.30);
+  --crit-find-current-bg:        #f0a020;
+  --crit-find-current-fg:        #1a1b26;
   --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
   --crit-qr-bg: #fff;
 
@@ -380,6 +383,9 @@
     --crit-change-flash-bg:      rgba(188, 76, 0, 0.12);
     --crit-resolve-hover-bg:     rgba(22, 111, 48, 0.08);
     --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
+    --crit-find-bg:                rgba(250, 190, 40, 0.40);
+    --crit-find-current-bg:        #f59e0b;
+    --crit-find-current-fg:        #1f2328;
     --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
     --crit-qr-bg: #fff;
 
@@ -592,6 +598,9 @@
   --crit-change-flash-bg:      rgba(255, 158, 100, 0.15);
   --crit-resolve-hover-bg:     rgba(86, 211, 100, 0.1);
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.12);
+  --crit-find-bg:                rgba(250, 200, 60, 0.30);
+  --crit-find-current-bg:        #f0a020;
+  --crit-find-current-fg:        #1a1b26;
   --crit-quote-highlight-border: rgba(250, 200, 60, 0.4);
   --crit-qr-bg: #fff;
 
@@ -802,6 +811,9 @@
   --crit-change-flash-bg:      rgba(188, 76, 0, 0.12);
   --crit-resolve-hover-bg:     rgba(22, 111, 48, 0.08);
   --crit-quote-highlight-bg:     rgba(250, 200, 60, 0.18);
+  --crit-find-bg:                rgba(250, 190, 40, 0.40);
+  --crit-find-current-bg:        #f59e0b;
+  --crit-find-current-fg:        #1f2328;
   --crit-quote-highlight-border: rgba(200, 160, 30, 0.45);
   --crit-qr-bg: #fff;
 
