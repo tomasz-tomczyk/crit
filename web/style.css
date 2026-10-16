@@ -5423,10 +5423,11 @@ html[data-theme="light"] .toggle-btn.active {
 }
 
 /* Live thread badge */
+/* Orange, not green: a live thread goes straight to the agent. */
 .live-thread-badge {
   font-size: 10px;
   font-weight: 600;
-  color: var(--crit-green);
+  color: var(--crit-orange);
   background: var(--crit-live-badge-bg);
   padding: 1px 6px;
   border-radius: 3px;

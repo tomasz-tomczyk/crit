@@ -50,7 +50,7 @@
   --crit-orange: var(--crit-palette-orange);
   --crit-yellow: var(--crit-palette-yellow);
   --crit-purple: var(--crit-palette-purple);
-  --crit-live-badge-bg: color-mix(in srgb, var(--crit-palette-green) 10%, transparent);
+  --crit-live-badge-bg: color-mix(in srgb, var(--crit-palette-orange) 14%, transparent);
   /* Live / preview mode chrome. Pin markers and focus/flash cues keep their
      fixed colours: they sit on top of an arbitrary web app. */
   --crit-live-iframe-frame: var(--crit-palette-border);
