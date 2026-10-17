@@ -158,3 +158,17 @@ test('loadAllComments stamps _createdInRound on every comment', async () => {
   assert.equal(state.comments[0]._createdInRound, 2, 'persisted review_round wins');
   assert.equal(state.comments[1]._createdInRound, 3, 'falls back to currentRound');
 });
+
+test('loadAllComments leaves sub-threads out of the live pins', async () => {
+  // A sub-thread (parent_id) hangs under a message, not on a page element.
+  const state = { session: { files: [{ path: '/' }] }, currentRound: 1 };
+  const shared = makeShared({
+    '/api/session': { files: [{ path: '/' }], review_round: 1 },
+    '/api/file/comments?path=%2F': [
+      { id: 'c_pin001', body: 'pin', dom_anchor: { pathname: '/' } },
+      { id: 'c_sub001', body: 'sub-thread', parent_id: 'c_pin001', quote: 'pin' },
+    ],
+  });
+  await create({ state, shared }).loadAllComments();
+  assert.deepEqual(state.comments.map(function (c) { return c.id; }), ['c_pin001']);
+});

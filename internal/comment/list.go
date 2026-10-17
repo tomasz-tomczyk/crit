@@ -47,14 +47,19 @@ func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment 
 	sort.Strings(paths)
 
 	for _, path := range paths {
-		var fileLevel, lineLevel []Comment
+		// Sub-threads have no lines: they follow the file's other comments,
+		// in the order they were written.
+		var fileLevel, lineLevel, subThreads []Comment
 		for _, c := range cj.Files[path].Comments {
 			if unresolvedOnly && !isUnresolved(c) {
 				continue
 			}
-			if commentScope(c) == "file" {
+			switch {
+			case c.ParentID != "":
+				subThreads = append(subThreads, c)
+			case commentScope(c) == "file":
 				fileLevel = append(fileLevel, c)
-			} else {
+			default:
 				lineLevel = append(lineLevel, c)
 			}
 		}
@@ -66,6 +71,9 @@ func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment 
 		}
 		for _, c := range lineLevel {
 			out = append(out, toListedComment("line", path, c))
+		}
+		for _, c := range subThreads {
+			out = append(out, toListedComment(commentScope(c), path, c))
 		}
 	}
 	return out
@@ -103,6 +111,10 @@ func formatCommentsText(entries []ListedComment, unresolvedOnly bool) string {
 			b.WriteByte('\n')
 			fmt.Fprintf(&b, "  pin:    #%d", e.PinNumber)
 		}
+		if e.ParentID != "" {
+			b.WriteByte('\n')
+			fmt.Fprintf(&b, "  parent: %s", e.ParentID)
+		}
 		if e.Quote != "" {
 			b.WriteByte('\n')
 			b.WriteString(indentLines(2, "quote:  "+e.Quote))
@@ -139,13 +151,18 @@ func formatCommentsText(entries []ListedComment, unresolvedOnly bool) string {
 }
 
 func formatCommentHeader(e ListedComment) string {
-	header := fmt.Sprintf("[%s] %s", e.ID, e.Scope)
+	// A sub-thread has no lines: its parent line locates it instead.
+	label := e.Scope
+	if e.ParentID != "" {
+		label = "sub-thread"
+	}
+	header := fmt.Sprintf("[%s] %s", e.ID, label)
 	if e.PinNumber > 0 {
-		header = fmt.Sprintf("[%s pin #%d] %s", e.ID, e.PinNumber, e.Scope)
+		header = fmt.Sprintf("[%s pin #%d] %s", e.ID, e.PinNumber, label)
 	}
 	if e.Path != nil {
 		header += " " + *e.Path
-		if e.Scope == "line" {
+		if label == "line" {
 			header += formatLineLoc(e.StartLine, e.EndLine)
 		}
 	}

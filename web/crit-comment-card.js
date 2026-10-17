@@ -17,6 +17,11 @@
 //   renderReplyList(comment, filePath, extraClass) — returns the replies <div>
 //   createReplyInput(commentId, filePath) — returns the reply <form>
 //   iconChevron        — inline SVG string for the collapse chevron
+//   renderSubThreads(comment, filePath) — optional; returns the sub-threads
+//                        nested under the comment body (or null)
+//
+// Optional opts.quote: a sub-thread's quoted passage, shown at the top of the
+// card (.subthread-quote).
 //
 // Optional callbacks (already inverted in steps 1–3):
 //   isPendingAgentRequest(id)    — defaults to () => false
@@ -169,6 +174,13 @@
 
     card.appendChild(header);
 
+    if (opts.quote) {
+      var quoteEl = document.createElement('div');
+      quoteEl.className = 'subthread-quote';
+      quoteEl.textContent = opts.quote;
+      card.appendChild(quoteEl);
+    }
+
     // Drifted anchor context — show original content that was commented on
     if (comment.drifted && comment.anchor && !opts.suppressDrift) {
       var driftedCtx = document.createElement('div');
@@ -239,6 +251,11 @@
     }
 
     card.appendChild(bodyEl);
+
+    if (typeof deps.renderSubThreads === 'function') {
+      var subThreads = deps.renderSubThreads(comment, filePath || '');
+      if (subThreads) card.appendChild(subThreads);
+    }
 
     if (comment.replies && comment.replies.length > 0) {
       card.appendChild(renderReplyList(comment, filePath || '', opts.repliesExtraClass));

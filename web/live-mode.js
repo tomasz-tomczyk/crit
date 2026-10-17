@@ -1992,7 +1992,9 @@
   async function refreshCommentsForRoute(pathname) {
     try {
       var list = await shared.fetchJSON('/api/file/comments?path=' + encodeURIComponent(pathname));
-      var out = (list || []).map(function (c) {
+      // Sub-threads (parent_id) have no page element to pin; same filter as
+      // live-mode.comments-loader.js.
+      var out = (list || []).filter(function (c) { return c && !c.parent_id; }).map(function (c) {
         c.file_path = pathname;
         c.path = (c.dom_anchor && c.dom_anchor.pathname) || pathname;
         // Same _createdInRound stamping as loadAllComments — see comment

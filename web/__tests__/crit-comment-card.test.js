@@ -233,3 +233,24 @@ test('GitLab badge renders when comment.gitlab_note_id is set', () => {
   assert.equal(badges[0].textContent, 'GitLab');
   assert.equal(badges[0].attrs['aria-label'], 'Synced from GitLab');
 });
+
+test('opts.quote shows the passage above the body, renderSubThreads nests under it', () => {
+  const nested = makeEl();
+  nested.className = 'subthreads';
+  const calls = [];
+  const deps = Object.assign(baseDeps(), {
+    renderSubThreads: (comment, filePath) => { calls.push([comment.id, filePath]); return nested; },
+  });
+  const out = card.buildCommentCard(
+    { id: 'c_sub001', parent_id: 'rp_a', body: 'hi', created_at: '2024-01-01T00:00:00Z' },
+    'plan.md',
+    { deps, quote: 'the passage' }
+  );
+  const kids = out.card.children.map((el) => el.className);
+  const quoteAt = kids.indexOf('subthread-quote');
+  const bodyAt = kids.indexOf('comment-body');
+  assert.ok(quoteAt > 0 && quoteAt < bodyAt, 'quote sits between the header and the body');
+  assert.equal(out.card.children[quoteAt].textContent, 'the passage');
+  assert.equal(out.card.children[bodyAt + 1], nested, 'sub-threads follow the body directly');
+  assert.deepEqual(calls, [['c_sub001', 'plan.md']]);
+});
