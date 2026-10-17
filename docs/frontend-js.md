@@ -33,6 +33,7 @@ There is no second diff engine and no highlight.js.
 | `web/crit-pierre-runtime.js` | Lazy file loading, request invalidation and worker-pool lifecycle. |
 | `web/crit-palette.css`, `web/pierre/palettes.js` | Semantic token mapping and generated palette foundations for every bundled theme. |
 | `web/crit-code-highlight.js` | Shiki for fenced code outside Pierre surfaces (prime/lines/upgrade). |
+| `web/crit-subthreads.js` | Sub-threads: a selection inside one comment or reply body → `{ parentId, quote, quoteOffset }`, passage search and highlight ranges, root/sub-thread split, parent index, descendants (see Sub-threads). |
 | `web/crit-renderers.js` | Pluggable renderer registry: fence and file registrations, render targets (source kept as a `<pre>` fallback), theme-stamped re-render, a small output cache (renderer + theme + source) so document rebuilds swap in the previous output at once, `anchorFor` clicks. See [renderers.md](renderers.md). |
 | `web/crit-renderer-mermaid.js` | Built-in Mermaid renderer (fences, `*.mermaid` / `*.mmd`). Loads `mermaid.min.js` on the first diagram, so reviews without one never fetch it. |
 | `web/crit-diagram-overlay.js` | Fullscreen pan/zoom view for `zoomable` renderers' SVG output (Expand). Drag, wheel or pinch; arrow keys pan, `+` / `-` zoom, `0` fits. |
@@ -125,6 +126,11 @@ and a "Loading diff…" annotation shows. Stubs hydrate when rendered
   (`pointerEventsOnScroll: true`; no measured scroll cost), so clicks right
   after a jump land. Story chapter `FileDiff`s are not virtualized and never
   paused.
+- Pierre keeps its own scroll anchor in place when something above it
+  changes height; in a rendered document or the review conversation that
+  anchor sits below the comments. A click on a card's chevron or
+  Resolve/Unresolve keeps that card at its viewport offset instead
+  (`holdCardInView` in app.js, the view's `elementPlacer()`).
 
 ## Keyboard
 
@@ -176,9 +182,37 @@ continue from it after the form closes.
   every Pierre shadow root; changing `unsafeCSS` instead re-renders every
   item. Rules key on the host's `data-crit-path` (set on every render).
 - **Quote highlights** use the CSS Custom Highlight API (`::highlight(crit-quote)`).
+  Sub-thread passages in comment cards (light DOM) have their own name,
+  `crit-message-quote`, because `crit-quote` is rebuilt wholesale from the
+  Pierre shadow roots.
 - **Select-to-comment** reads `Selection.getComposedRanges({ shadowRoots })`
   (Chromium reports a shadow selection as collapsed on the Selection itself).
 - **Tabs** are 8 columns (`--diffs-tab-size`), as before.
+
+## Sub-threads
+
+A sub-thread is a comment with a `parent_id`: it comments on a passage of
+another message (a comment or reply body) and shows nested under it. app.js
+splits every comment list at ingestion (`setFileComments`,
+`setReviewComments`): `file.comments` / `reviewComments` keep the threads
+placed on lines or files, and `file.subThreads` / `reviewSubThreads` hold the
+rest, indexed by parent message id. Counts, badges, panel filters,
+Finish/Approve and agent-reply checks add the sub-threads back.
+
+- **Rendering.** Card factories take `opts.thread`, their surface (`inline`,
+  `review` or `panel`); the shared card nests `.subthreads` under its body
+  and under each reply, every level with the same indent.
+- **Creating.** `c` first tries `crit.subthreads.resolveMessageSelection`
+  (text of one `.comment-body` or `.reply-body` only, else `c` comments on
+  the document). Composers live in `activeSubThreadForms`, keyed by parent
+  id, so every re-render rebuilds them.
+- **Resolution, deletion, collapse.** A resolved thread with an open
+  sub-thread under it gets `.has-open-subthreads`: expanded, and kept by
+  hide-resolved. Deleting a message with sub-threads asks first, with their
+  number. A chevron choice holds only in the card state it was made in.
+- **Selectors.** Cards nest, so rules meaning "this card's own part" use
+  child combinators (`.comment-card.collapsed > .comment-body`,
+  `> .reply-form .reply-textarea`).
 
 ## Integration boundaries and upgrade risks
 

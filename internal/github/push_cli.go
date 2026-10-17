@@ -230,6 +230,7 @@ func runPushDryRun(ctx pushContext, b PushBuckets) {
 	fmt.Println(SummarizeBuckets(ctx.prNumber, b))
 	fmt.Println()
 	fmt.Print(DetailedDryRun(b))
+	fmt.Print(session.SubThreadsStayNotice(ctx.cj))
 	fmt.Printf("Use `crit push --pr %d` to confirm.\n", ctx.prNumber)
 }
 
@@ -290,6 +291,7 @@ func RunPushLive(ctx pushContext, b PushBuckets) int { //nolint:gocyclo // CLI p
 	}
 
 	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
+	fmt.Print(session.SubThreadsStayNotice(ctx.cj))
 
 	if pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
 		return 1
