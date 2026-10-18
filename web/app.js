@@ -8505,14 +8505,13 @@
   // ===== Scope Toggle (All / Branch / Staged / Unstaged) =====
   document.getElementById('scopeToggle').addEventListener('click', async function(e) {
     const btn = e.target.closest('.toggle-btn');
-    if (!btn || btn.disabled || btn.classList.contains('active')) return;
+    if (!btn || btn.disabled) return;
     const scope = btn.dataset.scope;
+    if (btn.classList.contains('active') && !diffCommit) return;
     diffScope = scope;
     navCommentId = null;
     setSetting('diffScope', scope);
-    if (scope !== 'all' && scope !== 'branch') {
-      clearCommitPins();
-    }
+    clearCommitPins();
     document.querySelectorAll('#scopeToggle .toggle-btn').forEach(function(b) {
       b.classList.toggle('active', b.dataset.scope === scope);
     });
