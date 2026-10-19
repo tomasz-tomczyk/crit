@@ -49,3 +49,20 @@ test('clicking the already-active scope still releases a pinned commit', () => {
     'the active-scope early return must be skipped while a commit is pinned'
   );
 });
+
+test('a pinned commit marks the scope toggle so the dead state is visible', () => {
+  assert.match(appJs, /function updateScopePinIndicator\(\)/);
+  assert.match(
+    appJs,
+    /updateScopePinIndicator\(\);\s*\}\s*\n\n  function updateScopePinIndicator/,
+    'recomputeDiffCommit must refresh the indicator on every path'
+  );
+  assert.match(appJs, /classList\.toggle\('commit-pinned', pinned\)/);
+});
+
+test('the pinned marker reuses theme variables', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+  const rule = css.match(/\.scope-toggle\.commit-pinned\s*\{[^}]*\}/);
+  assert.ok(rule, '.scope-toggle.commit-pinned rule must exist');
+  assert.doesNotMatch(rule[0], /#[0-9a-f]{3,8}\b/i, 'use theme variables, not literals');
+});

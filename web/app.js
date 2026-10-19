@@ -8009,21 +8009,25 @@
     normalizeCommitPins();
     if (virtualCommitSelected && !commitFrom && !commitThrough) {
       diffCommit = VIRTUAL_WORKING_COMMIT;
-      return;
-    }
-    if (!commitFrom && !commitThrough) {
+    } else if (!commitFrom && !commitThrough) {
       diffCommit = '';
-      return;
-    }
-    if (commitFrom && !commitThrough) {
+    } else if (commitFrom && !commitThrough) {
       diffCommit = commitFrom;
-      return;
-    }
-    if (commitFrom && commitThrough) {
+    } else if (commitFrom && commitThrough) {
       diffCommit = commitFrom + '..' + commitThrough;
-      return;
+    } else {
+      diffCommit = '';
     }
-    diffCommit = '';
+    updateScopePinIndicator();
+  }
+
+  function updateScopePinIndicator() {
+    if (!wtScopeToggleEl) return;
+    const pinned = !!diffCommit;
+    wtScopeToggleEl.classList.toggle('commit-pinned', pinned);
+    wtScopeToggleEl.title = pinned
+      ? 'A commit is pinned — All / Branch / Staged / Unstaged are ignored until you click one'
+      : '';
   }
 
   function clearCommitPins() {
