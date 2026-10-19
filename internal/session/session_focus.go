@@ -897,6 +897,9 @@ func changesForScopeSelection(v vcs.VCS, repoRoot, baseRef, scope, commit string
 	if commit != "" {
 		return v.ChangedFilesForCommit(commit, repoRoot)
 	}
+	if scope == "all" && baseRef != "" {
+		return v.ChangedFilesFromBaseInDir(baseRef, repoRoot)
+	}
 	return v.ChangedFilesScoped(scope, baseRef)
 }
 
@@ -919,7 +922,7 @@ func countHunkStats(hunks []vcs.DiffHunk) (additions, deletions int) {
 // All other scopes (including "all") run fresh git queries to pick up files added after startup.
 // When commit is non-empty, files and diffs are scoped to that single commit.
 func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
-	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan") {
+	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
 		return s.GetSessionInfo()
 	}
 
@@ -1112,7 +1115,7 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWh
 	s.mu.RLock()
 	inRange := s.Focus.Kind == FocusRange
 	s.mu.RUnlock()
-	if commit == "" && (scope == "" || scope == "all" || s.Mode == "files" || s.Mode == "plan" || inRange) {
+	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan" || inRange) {
 		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
 	}
 
