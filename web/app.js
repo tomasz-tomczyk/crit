@@ -5616,11 +5616,21 @@
   }
 
   // ===== Agent Button =====
+  // Sending a thread the agent spoke last in gives it nothing new to answer.
+  // Agents sign with `crit comment --author`; the reviewer's messages carry
+  // the configured author (or none).
+  function reviewerHasLastWord(comment) {
+    const replies = comment.replies || [];
+    const last = replies.length ? replies[replies.length - 1] : comment;
+    return (last.author || '') === configAuthor;
+  }
+
   // appendThreadSendNow puts Send now on the last message of a thread that is
   // not live yet (e.g. one waiting for Finish Review); the agent gets the
   // whole thread and the thread turns live.
   function appendThreadSendNow(card, comment, filePath, rerender) {
     if (!agentEnabled || comment.live || comment.resolved || pendingAgentRequests.has(comment.id)) return;
+    if (!reviewerHasLastWord(comment)) return;
     const replyBodies = card.querySelectorAll('.comment-reply .reply-body');
     const target = replyBodies.length ? replyBodies[replyBodies.length - 1] : card.querySelector('.comment-body');
     if (!target) return;
