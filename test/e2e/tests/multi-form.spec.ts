@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine, selectedRows } from './helpers';
+import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine, selectedRows, recordClassAdditions, classAdditions } from './helpers';
 
 // server.go line 5 (the added "log" import) and handler.js line 1 are
 // additions. The two files are far enough apart that CodeView never mounts
@@ -53,6 +53,26 @@ test.describe('Multi-Form Comments', () => {
     const goSec = await goSection(page);
     await expect(goSec.locator('.pierre-file-header')).toBeVisible();
     await expect(goSec.locator('.comment-form')).toHaveCount(0);
+  });
+
+  test('a newly opened form flashes once; returning to an open form does not', async ({ page }) => {
+    await recordClassAdditions(page, 'comment-ref-flash');
+    const flashes = () => classAdditions(page, 'comment-ref-flash');
+
+    const goForm = await openGoForm(page);
+    await expect.poll(flashes).toHaveLength(1);
+
+    // The same line again focuses the open form without a second flash.
+    await goForm.locator('textarea').fill('keep me open');
+    await goForm.locator('textarea').blur();
+    await openGoForm(page);
+    await expect(goForm.locator('textarea')).toBeFocused();
+    await page.waitForTimeout(300);
+    expect(await flashes()).toHaveLength(1);
+
+    // A form on another line is new and flashes.
+    await openJsForm(page);
+    await expect.poll(flashes).toHaveLength(2);
   });
 
   test('clicking same gutter line twice does not duplicate form', async ({ page }) => {
