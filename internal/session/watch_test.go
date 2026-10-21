@@ -1960,6 +1960,7 @@ func TestQuoteOnLines(t *testing.T) {
 			[]string{`  P1["PreToolUse hooks<br/>deny_root_grep<br/>stdout_guard is OFF"]`},
 			"PreToolUse hooksdeny_root_grepstdout_guard is OFF", true},
 		{"quote across two lines", []string{"first line ends here", "and the second begins"}, "ends here and the second", true},
+		{"quote with no letters or digits", []string{"A line that changed."}, "— …", true},
 		{"word cut from the middle of the quote",
 			[]string{"Release notes are published every afternoon by the docs team."},
 			"published every Friday afternoon", false},
@@ -1973,6 +1974,10 @@ func TestQuoteOnLines(t *testing.T) {
 				t.Errorf("quoteOnLines(%q) = %v, want %v", tt.quote, got, tt.want)
 			}
 		})
+	}
+	// A range outside the file can't be checked; leave the comment as it is.
+	if !quoteOnLines([]string{"one line"}, 2, 3, "anything") {
+		t.Error("out-of-range lines should not mark the quote missing")
 	}
 }
 

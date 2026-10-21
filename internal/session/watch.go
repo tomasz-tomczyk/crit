@@ -1170,16 +1170,21 @@ var (
 // dropping markdown link targets and HTML tags. A quote is copied from the
 // rendered page (no `**`, link URLs or `<br/>` from the source), so both
 // sides are compared in this form.
-func normalizeQuoteText(s string) []rune {
-	s = quoteLinkTargetRe.ReplaceAllString(s, "]")
-	s = quoteHTMLTagRe.ReplaceAllString(s, " ")
-	out := make([]rune, 0, len(s))
+func normalizeQuoteText(s string) string {
+	if strings.Contains(s, "](") {
+		s = quoteLinkTargetRe.ReplaceAllString(s, "]")
+	}
+	if strings.Contains(s, "<") {
+		s = quoteHTMLTagRe.ReplaceAllString(s, " ")
+	}
+	var b strings.Builder
+	b.Grow(len(s))
 	for _, r := range s {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			out = append(out, unicode.ToLower(r))
+			b.WriteRune(unicode.ToLower(r))
 		}
 	}
-	return out
+	return b.String()
 }
 
 // quoteOnLines reports whether quote is still on lines start..end (1-based,
@@ -1187,12 +1192,17 @@ func normalizeQuoteText(s string) []rune {
 // quote highlight, which needs the exact words: a comment is Drifted exactly
 // when its highlight would find nothing.
 func quoteOnLines(lines []string, start, end int, quote string) bool {
-	q := normalizeQuoteText(quote)
-	if len(q) == 0 || start < 1 || end > len(lines) || start > end {
+	if start < 1 || end > len(lines) || start > end {
 		return true
 	}
-	t := normalizeQuoteText(strings.Join(lines[start-1:end], "\n"))
-	return strings.Contains(string(t), string(q))
+	span := lines[start-1 : end]
+	for _, line := range span {
+		if strings.Contains(line, quote) { // the usual case: quote unchanged
+			return true
+		}
+	}
+	q := normalizeQuoteText(quote)
+	return q == "" || strings.Contains(normalizeQuoteText(strings.Join(span, "\n")), q)
 }
 
 // carryForwardComments maps comments from the previous round to new document
