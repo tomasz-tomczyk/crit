@@ -59,7 +59,9 @@ const rows = readFileSync(manifestPath, "utf8")
 
 if (rows.length !== vendoredAssets.length) throw new Error("provenance row count does not match vendored asset definitions");
 for (let index = 0; index < rows.length; index++) {
+  // Versions are checked against the lockfile below; here only the package names.
   const { hash: _hash, ...actual } = rows[index];
+  actual.sources = actual.sources.map(source => parseSource(source).name);
   if (JSON.stringify(actual) !== JSON.stringify(vendoredAssets[index])) {
     throw new Error(`provenance metadata mismatch for row ${index + 1}`);
   }
@@ -145,6 +147,7 @@ for (const row of rows) {
 
 if (failed) {
   console.error("Vendored asset verification failed.");
+  console.error("After a dependency bump, regenerate with: npm ci --ignore-scripts && npm run update-deps && npm run record-assets");
   process.exit(1);
 }
 

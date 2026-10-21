@@ -16,34 +16,40 @@ export function hashAsset(path) {
   return createHash("sha256").update(listing).digest("hex");
 }
 
+// Versions come from package-lock.json, so `npm run record-assets` can write
+// them into ASSETS-PROVENANCE.txt after a dependency bump.
+export function sourcesFor(asset, lock) {
+  return asset.sources.map(name => `${name}@${lock.packages?.[`node_modules/${name}`]?.version ?? "missing"}`);
+}
+
 export const vendoredAssets = [
   {
     path: "web/dompurify.min.js",
-    sources: ["dompurify@3.4.17"],
+    sources: ["dompurify"],
     packagePath: "dist/purify.min.js",
     kind: "copy",
   },
   {
     path: "web/markdown-it.min.js",
-    sources: ["markdown-it@15.0.3"],
+    sources: ["markdown-it"],
     packagePath: "dist/browser/markdown-it.umd.min.js",
     kind: "copy",
   },
   {
     path: "web/mermaid.min.js",
-    sources: ["mermaid@12.2.0"],
+    sources: ["mermaid"],
     packagePath: "dist/mermaid.min.js",
     kind: "copy",
   },
   {
     path: "web/diff-match-patch.min.js",
-    sources: ["@sanity/diff-match-patch@3.2.1", "esbuild@0.28.2"],
+    sources: ["@sanity/diff-match-patch", "esbuild"],
     packagePath: "-",
     kind: "generated",
   },
   {
     path: "web/pierre",
-    sources: ["@pierre/diffs@1.5.2", "shiki@4.5.0", "@shikijs/themes@4.5.0", "esbuild@0.28.2"],
+    sources: ["@pierre/diffs", "shiki", "@shikijs/themes", "esbuild"],
     packagePath: "-",
     kind: "generated",
   },
