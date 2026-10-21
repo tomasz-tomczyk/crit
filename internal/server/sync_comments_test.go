@@ -37,9 +37,9 @@ func TestSyncCommentsFromDisk_ClearsPendingWrite(t *testing.T) {
 		t.Fatal("expected pendingWrite after SetSharedURLAndToken")
 	}
 
-	if err := share.MergeWebComments(critPath, []share.WebComment{{
+	if _, err := share.MergeWebComments(critPath, []share.WebComment{{
 		Body: "remote", FilePath: "plan.md", StartLine: 1, EndLine: 1,
-	}}, nil); err != nil {
+	}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,14 +81,14 @@ func TestSyncCommentsFromDisk_AfterMergeWebComments_WithNewServer(t *testing.T) 
 	}
 
 	critPath := sess.CritJSONPath()
-	if err := share.MergeWebComments(critPath, []share.WebComment{{
+	if _, err := share.MergeWebComments(critPath, []share.WebComment{{
 		Body:              "new web comment",
 		FilePath:          "plan.md",
 		StartLine:         1,
 		EndLine:           1,
 		ExternalID:        "ext-1",
 		AuthorDisplayName: "Web User",
-	}}, nil); err != nil {
+	}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,14 +128,14 @@ func TestSyncCommentsFromDisk_AfterMergeWebComments(t *testing.T) {
 		sess.SetLastCritJSONMtimeForTest(info.ModTime())
 	}
 
-	if err := share.MergeWebComments(critPath, []share.WebComment{{
+	if _, err := share.MergeWebComments(critPath, []share.WebComment{{
 		Body:              "new web comment",
 		FilePath:          "plan.md",
 		StartLine:         1,
 		EndLine:           1,
 		ExternalID:        "ext-1",
 		AuthorDisplayName: "Web User",
-	}}, nil); err != nil {
+	}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

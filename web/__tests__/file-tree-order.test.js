@@ -58,6 +58,7 @@ function renderTree(paths) {
     const activeTreePath = null;
     function escapeHtml(s) { return s; }
     function fileStatusIcon() { return ''; }
+    ${extractFunction('fileThreadComments')}
     ${extractFunction('fileSortComparator')}
     ${extractFunction('buildFileTree')}
     ${extractFunction('collapseCommonPrefixes')}

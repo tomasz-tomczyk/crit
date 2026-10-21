@@ -42,7 +42,7 @@ func FetchWebCommentsForReview(shareURL, shareBaseURL string, cj session.CritJSO
 	return fetchWebCommentsForReview(shareURL, shareBaseURL, cj, authToken)
 }
 
-func MergeFetchedComments(critPath string, fetched FetchWebCommentsResult) error {
+func MergeFetchedComments(critPath string, fetched FetchWebCommentsResult) (int, error) {
 	return mergeFetchedComments(critPath, fetched)
 }
 

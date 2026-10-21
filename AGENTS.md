@@ -39,7 +39,7 @@ crit/
 10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Non-loopback `--host` / `CRIT_HOST` / global `host`, or any `public_url`, require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1` (Crit has no network auth).
 11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd`, `auth_token`, `share_url`, and `plan_approve_mode` are global-only (prevents malicious repos from hijacking agent commands, redirecting share requests, or weakening Claude Code permissions)
 12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
-13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
+13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array. A sub-thread is a comment with a `parent_id`: it discusses a passage (`quote`) of another comment or reply of the same list, has no lines, resolves on its own, and is deleted with its parent message.
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
 16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`). New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
@@ -150,6 +150,7 @@ Requires `gh` CLI installed and authenticated.
 - `crit push -m 'message'` adds a review-level body message
 - PR number auto-detected from current branch, or pass explicitly: `crit pull 42`
 - Any code path that imports comments from an external source (GitHub PR, crit-web) into the local review file MUST dedup against local state first: `buildLocalIDSet` + `buildLocalFingerprintIndex` + `dropDuplicateWebComment`. This applies to direct HTTP paths AND browser relay paths. Calling `mergeWebComments` without pre-filtering causes duplicate comments on repeated pull.
+- Sub-threads come back from crit-web nested under the message they comment on (`sub_threads` on each comment and reply), never at the top level. They are deduplicated at merge time, against the review file being written, by `mergeWebSubThreadsInto` (external id, then parent + body + quote): every import path passes the fetched threads to it (`fetchWebCommentsResult.Threads`, or `ThreadsWithSubThreads` on the relay's `/api/comments/merge`).
 </important>
 
 <important if="you are writing, running, or modifying Playwright E2E tests in test/e2e/">
@@ -249,14 +250,14 @@ Session-scoped:
 - `GET  /api/commits` — list commits between base ref and HEAD (git mode only)
 - `GET  /api/files/list` — list session files (lighter than `/api/session`)
 - `GET  /api/files/comments` — every file's visible comments keyed by path (`?round=N` in files mode); one request instead of one per file
-- `GET|POST /api/comments` — list/add review-level comments
+- `GET|POST /api/comments` — list/add review-level comments; POST with `parent_id`, `quote`, `quote_offset` adds a sub-thread (404 when the parent is not a review-level message)
 - `PUT|DELETE /api/review-comment/{id}` (and `/replies[/{rid}]`, `/resolve`) — review-comment CRUD
 
 File-scoped (require `?path=X`):
 
 - `GET  /api/file?path=X` — file content + metadata
 - `GET  /api/file/diff?path=X` — diff hunks (git diff for code; inter-round diff for markdown)
-- `GET|POST /api/file/comments?path=X` — list/add comments (10MB body limit on POST)
+- `GET|POST /api/file/comments?path=X` — list/add comments (10MB body limit on POST); POST with `parent_id`, `quote`, `quote_offset` adds a sub-thread (404 when the parent is not a message of that file's comments)
 - `PUT|DELETE /api/comment/{id}?path=X` — update or delete (10MB body limit on PUT)
 - `POST|PUT|DELETE /api/comment/{id}/replies[/{rid}]?path=X` — reply CRUD
 - `PUT /api/comment/{id}/resolve?path=X` — set resolved state

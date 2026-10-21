@@ -64,7 +64,9 @@
         return shared.fetchJSON('/api/file/comments?path=' + encodeURIComponent(p))
           .then(function (list) {
             if (!Array.isArray(list)) return [];
-            return list.map(function (c) {
+            // Sub-threads (parent_id) hang under a message, not on a page
+            // element: live mode has no place to pin them, so they stay out.
+            return list.filter(function (c) { return c && !c.parent_id; }).map(function (c) {
               // file_path is the session file key used by mutation APIs
               // (?path=). path is the iframe route for panel grouping.
               c.file_path = p;

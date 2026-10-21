@@ -156,7 +156,7 @@ func TestRunAgentCmd_ReviewLevelReply(t *testing.T) {
 // With no file path the prompt must not claim the comment sits on a file.
 func TestBuildAgentPrompt_ReviewLevel(t *testing.T) {
 	c := Comment{ID: "r_1", Body: "tighten the summary", Author: "reviewer", Scope: "review"}
-	got := buildAgentPrompt(c, "")
+	got := buildAgentPrompt(c, "", nil)
 	if strings.Contains(got, "comment on :") || strings.Contains(got, "comment on \n") {
 		t.Errorf("prompt names an empty file path:\n%s", got)
 	}

@@ -73,6 +73,10 @@ type pushBuckets struct {
 // dry-run output explicitly lists them as "not pushable" rather than silently
 // dropping them. The GitHub inline-comment API has no representation for
 // review-level comments — they're displayed locally only.
+//
+// Sub-threads (ParentID set, file or review-level) go in no bucket: GitHub
+// threads take no reply to a reply, so they stay in crit, with their replies,
+// and the push output counts them (session.SubThreadsStayNotice).
 func bucketCommentsForPush(cj CritJSON, currentHeadSHA string, inRangeMode bool) pushBuckets {
 	var buckets pushBuckets
 
@@ -85,7 +89,7 @@ func bucketCommentsForPush(cj CritJSON, currentHeadSHA string, inRangeMode bool)
 	for _, path := range paths {
 		fe := cj.Files[path]
 		for _, c := range fe.Comments {
-			if c.Resolved {
+			if c.Resolved || c.ParentID != "" {
 				continue
 			}
 			if c.GitHubID != 0 {
@@ -108,7 +112,7 @@ func bucketCommentsForPush(cj CritJSON, currentHeadSHA string, inRangeMode bool)
 	}
 
 	for _, rc := range cj.ReviewComments {
-		if rc.Resolved {
+		if rc.Resolved || rc.ParentID != "" {
 			continue
 		}
 		buckets.ReviewLevel = append(buckets.ReviewLevel, scopedComment{

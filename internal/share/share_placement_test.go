@@ -25,7 +25,7 @@ func TestMergeFetchedComments_AppliesPlacement(t *testing.T) {
 	})
 
 	placed := Comment{StartLine: 5, EndLine: 5, Anchor: "Step 1", Drifted: true}
-	if err := mergeFetchedComments(critPath, fetchWebCommentsResult{Placements: map[string]session.Comment{"c1": placed}}); err != nil {
+	if _, err := mergeFetchedComments(critPath, fetchWebCommentsResult{Placements: map[string]session.Comment{"c1": placed}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestMergeFetchedComments_PlacesReviewComment(t *testing.T) {
 		},
 		ReviewComments: []Comment{{ID: "r1", Body: "scope", Scope: "review"}},
 	})
-	if err := MergeFetchedComments(critPath, FetchWebCommentsResult{Placements: map[string]session.Comment{
+	if _, err := MergeFetchedComments(critPath, FetchWebCommentsResult{Placements: map[string]session.Comment{
 		"c2": {StartLine: 7, EndLine: 7, Anchor: "Step 2"},
 		"r1": {StartLine: 0, EndLine: 0, Anchor: "whole", Drifted: true},
 	}}); err != nil {
@@ -129,17 +129,17 @@ func TestMergeFetchedComments_PlacesReviewComment(t *testing.T) {
 func TestMergeFetchedComments_EmptyAndUnreadable(t *testing.T) {
 	dir := t.TempDir()
 	critPath := filepath.Join(dir, ".crit")
-	if err := mergeFetchedComments(critPath, fetchWebCommentsResult{}); err != nil {
+	if _, err := mergeFetchedComments(critPath, fetchWebCommentsResult{}); err != nil {
 		t.Fatal(err)
 	}
 	placement := fetchWebCommentsResult{Placements: map[string]session.Comment{"c1": {}}}
-	if err := mergeFetchedComments(critPath, placement); err == nil {
+	if _, err := mergeFetchedComments(critPath, placement); err == nil {
 		t.Fatal("missing review file was accepted")
 	}
 	if err := os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeFetchedComments(critPath, placement); err == nil {
+	if _, err := mergeFetchedComments(critPath, placement); err == nil {
 		t.Fatal("broken review file was accepted")
 	}
 }
@@ -150,7 +150,7 @@ func TestMergeFetchedComments_AddsCommentAndAppliesPlacement(t *testing.T) {
 			"plan.md": {Comments: []Comment{{ID: "c1", Body: "Expand this", StartLine: 3, EndLine: 3}}},
 		},
 	})
-	err := mergeFetchedComments(critPath, fetchWebCommentsResult{
+	_, err := mergeFetchedComments(critPath, fetchWebCommentsResult{
 		NewComments: []WebComment{{Body: "from the web", FilePath: "plan.md", StartLine: 1, EndLine: 1, AuthorDisplayName: "Web"}},
 		Placements:  map[string]session.Comment{"c1": {StartLine: 5, EndLine: 5, Anchor: "Step 1"}},
 	})
@@ -219,7 +219,7 @@ func TestShareExistingPull_LocalEditKeepsLocalCarry(t *testing.T) {
 	if len(fetched.Placements) != 0 {
 		t.Fatalf("stale web placement was taken: %+v", fetched.Placements)
 	}
-	if err := mergeFetchedComments(critPath, fetched); err != nil {
+	if _, err := mergeFetchedComments(critPath, fetched); err != nil {
 		t.Fatal(err)
 	}
 	got := readPlacementReview(t, critPath).Files["plan.md"].Comments[0]
@@ -258,7 +258,7 @@ func TestPrintFetchResult_ReportsCommentsPlacementsAndReplies(t *testing.T) {
 		NewComments:  []WebComment{{Body: "hello", FilePath: "plan.md", StartLine: 2}},
 		Placements:   map[string]session.Comment{"c1": {}},
 		ReplyUpdates: map[string][]WebReply{"c1": {{Body: "thanks"}}},
-	})
+	}, 0)
 	w.Close()
 	os.Stdout = old
 	_, _ = io.Copy(&buf, r)
@@ -300,10 +300,10 @@ func readPlacementReview(t *testing.T, critPath string) CritJSON {
 func TestMergeWebComments_CopiesAnchorDriftedQuoteOffset(t *testing.T) {
 	critPath := writePlacementReview(t, CritJSON{Files: map[string]CritJSONFile{}})
 	offset := 4
-	if err := MergeWebComments(critPath, []WebComment{{
+	if _, err := MergeWebComments(critPath, []WebComment{{
 		Body: "web note", FilePath: "plan.md", StartLine: 2, EndLine: 2,
 		Quote: "Step", QuoteOffset: &offset, Anchor: "Step 1", Drifted: true,
-	}}, nil); err != nil {
+	}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	c := readPlacementReview(t, critPath).Files["plan.md"].Comments[0]
