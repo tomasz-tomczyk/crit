@@ -50,14 +50,44 @@ test('clicking the already-active scope still releases a pinned commit', () => {
   );
 });
 
+function functionBody(name) {
+  const start = appJs.indexOf('function ' + name + '(');
+  assert.notEqual(start, -1, name + ' must exist');
+  const bodyStart = appJs.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < appJs.length; i++) {
+    if (appJs[i] === '{') depth++;
+    if (appJs[i] === '}') {
+      depth--;
+      if (depth === 0) return appJs.slice(bodyStart, i + 1);
+    }
+  }
+  throw new Error('could not extract ' + name);
+}
+
 test('a pinned commit marks the scope toggle so the dead state is visible', () => {
-  assert.match(appJs, /function updateScopePinIndicator\(\)/);
+  assert.match(
+    functionBody('recomputeDiffCommit'),
+    /updateScopePinIndicator\(\);\s*\}$/,
+    'recomputeDiffCommit must refresh the indicator after every branch'
+  );
+  const indicator = functionBody('updateScopePinIndicator');
+  assert.match(indicator, /classList\.toggle\('commit-pinned', pinned\)/);
+  assert.match(indicator, /\.toggle-btn/, 'the hint goes on the buttons, whose own titles win');
+});
+
+test('the scope shortcut releases a pinned commit on the active scope too', () => {
   assert.match(
     appJs,
-    /updateScopePinIndicator\(\);\s*\}\s*\n\n  function updateScopePinIndicator/,
-    'recomputeDiffCommit must refresh the indicator on every path'
+    /btn && !btn\.disabled && \(!btn\.classList\.contains\('active'\) \|\| diffCommit\)/
   );
-  assert.match(appJs, /classList\.toggle\('commit-pinned', pinned\)/);
+});
+
+test('file diffs send scope=all so they match the live file list', () => {
+  const body = functionBody('loadSingleFile');
+  assert.doesNotMatch(body, /scope !== 'all'/, '"all" without a scope param is served from the round snapshot');
+  assert.match(body, /if \(scope\) \{\s*diffUrl \+= '&scope=' \+ enc\(scope\);/);
+  assert.match(body, /fileHash: diffRes\.file_hash \|\| fileRes\.file_hash/);
 });
 
 test('the pinned marker reuses theme variables', () => {

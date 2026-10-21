@@ -4816,8 +4816,6 @@ html[data-theme="light"] .toggle-btn.active {
 .scope-toggle .toggle-btn:disabled { opacity: 0.4; cursor: default; }
 .scope-toggle.commit-pinned {
   border-color: var(--crit-orange);
-  box-shadow: 0 0 0 2px var(--crit-focus-ring);
-  cursor: pointer;
 }
 
 /* Commit picker (sidebar dropdown) */
