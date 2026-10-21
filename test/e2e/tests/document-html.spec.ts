@@ -36,4 +36,19 @@ test.describe('Document HTML sanitizing', () => {
     // Inline code is escaped by markdown-it, not removed.
     expect(html).toContain('<code>&lt;img onerror=x&gt;</code>');
   });
+
+  test('drops style attributes from raw HTML and keeps them in rendered blocks', async ({ page }) => {
+    await loadPage(page);
+
+    const out = await page.evaluate(() => {
+      const { sanitize, sanitizeRendered } = (window as any).crit.documentHtml;
+      return {
+        raw: sanitize('<div style="position:fixed;inset:0">x</div>'),
+        rendered: sanitizeRendered('<span style="--diffs-token-light:#a00">x</span><img src=x onerror="window.__xss=1">'),
+      };
+    });
+
+    expect(out.raw).toBe('<div>x</div>');
+    expect(out.rendered).toBe('<span style="--diffs-token-light:#a00">x</span><img src="x">');
+  });
 });

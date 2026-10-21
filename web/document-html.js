@@ -12,12 +12,22 @@
 
   // Reviewed documents may carry raw HTML (<details>, <img width>, <kbd>...).
   // DOMPurify's default profile keeps that markup and drops scripts, event
-  // handlers and javascript: URLs. <style> and <form> would let a document
-  // restyle or post from the review page, so they go too.
-  var CONFIG = { FORBID_TAGS: ['style', 'form'] };
+  // handlers and javascript: URLs. <style>, <form> and style attributes would
+  // let a document restyle the review page, cover it, or post from it.
+  var RAW_CONFIG = { FORBID_TAGS: ['style', 'form'], FORBID_ATTR: ['style'] };
+  // Rendered blocks also hold crit's own inline styles (Shiki token colours,
+  // table column widths), so the second pass keeps style attributes.
+  var RENDERED_CONFIG = { FORBID_TAGS: ['style', 'form'] };
 
+  // Raw HTML from the document.
   function sanitize(html) {
-    return purify.sanitize(html, CONFIG);
+    return purify.sanitize(html, RAW_CONFIG);
+  }
+
+  // Block HTML that crit changed as a string after the first pass (word-diff
+  // spans), cleaned again before it reaches the page.
+  function sanitizeRendered(html) {
+    return purify.sanitize(html, RENDERED_CONFIG);
   }
 
   function hasHtmlInline(tokens) {
@@ -44,5 +54,5 @@
     return md;
   }
 
-  return { sanitize: sanitize, install: install };
+  return { sanitize: sanitize, sanitizeRendered: sanitizeRendered, install: install };
 });

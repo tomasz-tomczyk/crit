@@ -1318,7 +1318,9 @@
   function rewriteImageSrcs(html, filePath) {
     return html.replace(/(<img\s[^>]*src=")([^"]+)(")/gi, function(match, pre, src, post) {
       if (/^https?:\/\/|^data:|^\//.test(src)) return match;
-      return pre + '/files/' + resolveImagePath(filePath || '', src) + post;
+      // src comes from serialized HTML and is already escaped; the file path
+      // is raw, and a quote in a folder name would end the attribute.
+      return pre + '/files/' + resolveImagePath(escapeHtml(filePath || ''), src) + post;
     });
   }
 
@@ -3542,7 +3544,11 @@
 
     const contentEl = document.createElement('div');
     contentEl.className = buildContentClasses(block);
-    let html = block.wordDiffHtml || block.html;
+    // Word-diff spans are spliced into already-sanitized HTML as a string, so
+    // clean the result again before it reaches the page.
+    let html = block.wordDiffHtml
+      ? window.crit.documentHtml.sanitizeRendered(block.wordDiffHtml)
+      : block.html;
     html = processTaskLists(html);
     html = rewriteImageSrcs(html, file.path);
     contentEl.innerHTML = html;
