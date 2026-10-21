@@ -19,7 +19,7 @@ export function hashAsset(path) {
 export const vendoredAssets = [
   {
     path: "web/dompurify.min.js",
-    sources: ["dompurify@3.4.16"],
+    sources: ["dompurify@3.4.17"],
     packagePath: "dist/purify.min.js",
     kind: "copy",
   },
