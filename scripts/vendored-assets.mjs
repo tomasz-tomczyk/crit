@@ -25,13 +25,13 @@ export const vendoredAssets = [
   },
   {
     path: "web/markdown-it.min.js",
-    sources: ["markdown-it@15.0.2"],
+    sources: ["markdown-it@15.0.3"],
     packagePath: "dist/browser/markdown-it.umd.min.js",
     kind: "copy",
   },
   {
     path: "web/mermaid.min.js",
-    sources: ["mermaid@12.1.0"],
+    sources: ["mermaid@12.2.0"],
     packagePath: "dist/mermaid.min.js",
     kind: "copy",
   },
