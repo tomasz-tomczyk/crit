@@ -1116,13 +1116,13 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 		}
 		for path, cf := range cj.Files {
 			for i, c := range cf.Comments {
+				// Stamp only the hash: the body may have been edited again
+				// during the push, and then the next push sends it.
 				if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
-					cf.Comments[i].Body = body
 					cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(body)
 				}
 				for j, r := range c.Replies {
 					if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
-						cf.Comments[i].Replies[j].Body = body
 						cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(body)
 					}
 				}

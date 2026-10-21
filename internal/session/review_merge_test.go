@@ -242,8 +242,8 @@ func TestSaveCritJSONMergedRefusesRemovedReview(t *testing.T) {
 	if _, err := SaveCritJSONMerged(critPath, base, base); !errors.Is(err, ErrReviewRemoved) {
 		t.Fatalf("err = %v, want ErrReviewRemoved", err)
 	}
-	if _, err := os.Stat(ReviewPathsFor(critPath).Review); !os.IsNotExist(err) {
-		t.Fatalf("review file recreated: %v", err)
+	if _, err := os.Stat(critPath); !os.IsNotExist(err) {
+		t.Fatalf("review folder recreated: %v", err)
 	}
 }
 
@@ -277,5 +277,21 @@ func TestSaveCritJSONMergedTwiceKeepsTheirs(t *testing.T) {
 	}
 	if c := got.Files["a.go"].Comments[0]; !c.Resolved || c.GitLabNoteID != 7 || c.LastPushedBodyHash != "h" {
 		t.Errorf("comment = %+v", c)
+	}
+}
+
+// The user edits a reply while push stamps it: both changes survive.
+func TestMergeCritJSON3ReplyChangedOnBothSides(t *testing.T) {
+	base := CritJSON{ReviewComments: []Comment{{ID: "c1", Replies: []Reply{{ID: "r1", Body: "old"}}}}}
+	mine := CloneCritJSON(base)
+	mine.ReviewComments[0].Replies[0].GitLabNoteID = 7
+	theirs := CloneCritJSON(base)
+	theirs.ReviewComments[0].Replies[0].Body = "new"
+	got, err := mergeCritJSON3(base, mine, theirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := got.ReviewComments[0].Replies[0]; r.Body != "new" || r.GitLabNoteID != 7 {
+		t.Errorf("reply = %+v, want body new and note 7", r)
 	}
 }

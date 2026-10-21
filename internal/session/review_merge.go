@@ -20,6 +20,10 @@ var ErrReviewRemoved = errors.New("review file was removed; not saving")
 // only one side made wins; where both changed the same field, mine wins. It
 // returns what it saved, which the caller uses as its next copy and base.
 func SaveCritJSONMerged(critPath string, base, mine CritJSON) (CritJSON, error) {
+	// Check first, so a removed review does not get a new folder for the lock.
+	if _, err := os.Stat(ReviewPathsFor(critPath).Review); os.IsNotExist(err) {
+		return CritJSON{}, ErrReviewRemoved
+	}
 	var merged CritJSON
 	err := WithReviewWriteLock(critPath, func() error {
 		data, err := ReadFileShared(ReviewPathsFor(critPath).Review)
@@ -169,7 +173,14 @@ func mergeComments3(base, mine, theirs []Comment) ([]Comment, error) {
 				return m
 			}
 			c.Replies = merge3ByID(b.Replies, m.Replies, t.Replies, func(r Reply) string { return r.ID },
-				func(_, m, _ Reply) Reply { return m })
+				func(b, m, t Reply) Reply {
+					var r Reply
+					if err := mergeFields3(b, m, t, &r); err != nil {
+						mergeErr = err
+						return m
+					}
+					return r
+				})
 			return c
 		})
 	return out, mergeErr
@@ -178,7 +189,9 @@ func mergeComments3(base, mine, theirs []Comment) ([]Comment, error) {
 // merge3ByID merges two edits of base, matching items by ID. An item only
 // one side changed, added or deleted takes that side's version; an item both
 // sides changed goes through both. Order is mine's, then items only theirs
-// added. Items without an ID are kept from mine, plus theirs' new ones.
+// added. Items without an ID (only in old review files; crit assigns IDs)
+// cannot be matched: mine's are kept, plus theirs' that neither base nor
+// mine has, so an edit theirs made to one shows up as a second copy.
 func merge3ByID[T any](base, mine, theirs []T, id func(T) string, both func(b, m, t T) T) []T {
 	baseByID := indexByID(base, id)
 	theirsByID := indexByID(theirs, id)

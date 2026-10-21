@@ -150,3 +150,50 @@ func TestClearReviewFolderWaitsForLockHolder(t *testing.T) {
 		t.Fatalf("review folder survived: %v", err)
 	}
 }
+
+// A writer that waited while the folder was removed locks a fresh lock
+// file, so it still excludes a writer that arrives after the removal.
+func TestReviewLockExcludesAfterFolderRemoved(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot remove a lock file that is open")
+	}
+	dir := filepath.Join(t.TempDir(), "review")
+	secondIn := make(chan struct{})
+	secondRelease := make(chan struct{})
+	second := make(chan error, 1)
+	err := WithReviewWriteLock(dir, func() error {
+		go func() {
+			second <- WithReviewWriteLock(dir, func() error {
+				close(secondIn)
+				<-secondRelease
+				return nil
+			})
+		}()
+		time.Sleep(50 * time.Millisecond) // let the second writer wait on this lock file
+		return os.RemoveAll(dir)          // what ClearReviewFolder does on Unix
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-secondIn
+
+	thirdIn := make(chan struct{})
+	third := make(chan error, 1)
+	go func() {
+		third <- WithReviewWriteLock(dir, func() error {
+			close(thirdIn)
+			return nil
+		})
+	}()
+	select {
+	case <-thirdIn:
+		t.Fatal("third writer entered while the second held the review lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(secondRelease)
+	for _, ch := range []chan error{second, third} {
+		if err := <-ch; err != nil {
+			t.Fatal(err)
+		}
+	}
+}

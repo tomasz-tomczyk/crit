@@ -3620,3 +3620,30 @@ func TestGHAPIErrorDetail(t *testing.T) {
 		})
 	}
 }
+
+// A body edited again while the push ran is kept; only the pushed body's
+// hash is stamped, so the next push sends the newer body.
+func TestUpdateCritJSONWithEditedBodies_KeepsNewerBody(t *testing.T) {
+	critPath := filepath.Join(t.TempDir(), "review")
+	cj := CritJSON{Files: map[string]CritJSONFile{
+		"a.go": {Comments: []Comment{{ID: "c1", GitHubID: 500, Body: "edited again"}}},
+	}}
+	if err := session.SaveCritJSON(critPath, cj); err != nil {
+		t.Fatal(err)
+	}
+	if err := updateCritJSONWithEditedBodies(critPath, []ghEditForPush{{GitHubID: 500, Body: "edited", Path: "a.go"}}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got CritJSON
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	c := got.Files["a.go"].Comments[0]
+	if c.Body != "edited again" || c.LastPushedBodyHash != bodyHashAtPush("edited") {
+		t.Errorf("comment = %+v", c)
+	}
+}

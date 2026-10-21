@@ -74,11 +74,12 @@ func loadSnapshotsFromDisk(snapshotsPath string) (SnapshotsFile, error) {
 	return sf, nil
 }
 
-// ClearReviewFolder removes the entire review identity folder. It empties
-// the folder under the review write lock, so a writer that already read
-// review.json saves before the removal instead of restoring it after. The
-// empty folder and its lock file go once the lock is released. Idempotent:
-// a missing folder is fine.
+// ClearReviewFolder removes the entire review identity folder under the
+// review write lock, so a writer that already read review.json saves before
+// the removal instead of restoring it after. Writers waiting for the lock
+// notice their lock file was removed and lock a new one. Windows cannot
+// delete the open lock file, so there the empty folder and lock file go once
+// the lock is released. Idempotent: a missing folder is fine.
 func ClearReviewFolder(identity string) error {
 	info, err := os.Stat(identity)
 	switch {
@@ -89,27 +90,34 @@ func ClearReviewFolder(identity string) error {
 	case !info.IsDir():
 		return os.Remove(identity)
 	}
-	lockName := filepath.Base(ReviewPathsFor(identity).ReviewLock)
+	lockPath := ReviewPathsFor(identity).ReviewLock
+	removed := false
 	err = WithReviewWriteLock(identity, func() error {
 		entries, err := os.ReadDir(identity)
 		if err != nil {
 			return err
 		}
 		for _, e := range entries {
-			if e.Name() == lockName {
+			path := filepath.Join(identity, e.Name())
+			if path == lockPath {
 				continue
 			}
-			if err := os.RemoveAll(filepath.Join(identity, e.Name())); err != nil {
+			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
 		}
+		// Unix allows this while the lock is held; Windows does not.
+		removed = os.Remove(lockPath) == nil && os.Remove(identity) == nil
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(identity); err != nil && !os.IsNotExist(err) {
-		return err
+	if !removed {
+		// Not recursive: a writer that took the lock after us may already
+		// have saved a new review here, and that one stays.
+		_ = os.Remove(lockPath)
+		_ = os.Remove(identity)
 	}
 	return nil
 }
