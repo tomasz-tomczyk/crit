@@ -16,7 +16,7 @@ func TestRemappedCarriedCommentReplacesDiskCopy(t *testing.T) {
 		comments: []Comment{{
 			ID: "c_thread", StartLine: 4, EndLine: 4, Body: "same anchor",
 		}},
-	})
+	}, nil)
 
 	comments := cj.Files["plan.md"].Comments
 	if len(comments) != 1 {

@@ -113,7 +113,7 @@ func TestBuildCritJSONPreservesStory(t *testing.T) {
 		reviewRound: 2, // daemon advances the round; story must still survive
 		story:       seeded.Story,
 	}
-	cj := buildCritJSON(snap)
+	cj, _ := buildCritJSON(snap)
 
 	if cj.Story == nil {
 		t.Fatal("story dropped during buildCritJSON read-merge-modify")

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -71,5 +72,42 @@ func TestWriteAfterExternalDeleteKeepsFolderDeleted(t *testing.T) {
 	quiesceSession(t, s)
 	if _, err := os.Stat(critPath); !os.IsNotExist(err) {
 		t.Fatalf("review folder recreated after external delete: %v", err)
+	}
+}
+
+// Deleted replies and review comments stay deleted although disk still has
+// them when the next write merges disk-only content.
+func TestDeletedRepliesAndReviewCommentsNotReAddedFromDisk(t *testing.T) {
+	s := &Session{RepoRoot: t.TempDir(), Files: []*FileEntry{{Path: "plan.md"}}}
+	c, _ := s.AddComment("plan.md", 1, 1, "", "file comment", "", "", "")
+	fileReply, _ := s.AddReply("plan.md", c.ID, "file reply", "", "")
+	rc := s.AddReviewComment("review comment", "", "")
+	reviewReply, _ := s.AddReviewCommentReply(rc.ID, "review reply", "", "")
+	keep := s.AddReviewComment("kept", "", "")
+	if err := s.SyncWriteFiles(); err != nil {
+		t.Fatal(err)
+	}
+
+	s.DeleteReply("plan.md", c.ID, fileReply.ID)
+	s.DeleteReviewCommentReply(rc.ID, reviewReply.ID)
+	s.DeleteReviewComment(rc.ID)
+	if err := s.SyncWriteFiles(); err != nil {
+		t.Fatal(err)
+	}
+	quiesceSession(t, s)
+
+	data, err := os.ReadFile(ReviewPathsFor(s.critJSONPath()).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cj CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.ReviewComments) != 1 || cj.ReviewComments[0].ID != keep.ID {
+		t.Fatalf("review comments = %+v", cj.ReviewComments)
+	}
+	if replies := cj.Files["plan.md"].Comments[0].Replies; len(replies) != 0 {
+		t.Fatalf("file replies = %+v", replies)
 	}
 }

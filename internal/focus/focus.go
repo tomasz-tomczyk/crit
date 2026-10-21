@@ -488,7 +488,19 @@ func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 // remote comments. Forge + ChangeNumber preserve the provider-specific focus
 // key (pr:N or mr:N); BaseSHA + HeadSHA preserve range identity as a fallback.
 func ResolvePullScope(cj *CritJSON) InheritedScope {
-	if focus := probeDaemonFocus(); focus != nil && focus.Kind == FocusRange {
+	return PullScopeFor(probeDaemonFocus(), cj)
+}
+
+// ProbeDaemonFocus returns the running daemon's focus, or nil. It makes an
+// HTTP call, so a caller about to take a lock probes first and passes the
+// result to PullScopeFor inside the lock.
+func ProbeDaemonFocus() *Focus {
+	return probeDaemonFocus()
+}
+
+// PullScopeFor is ResolvePullScope with an already probed daemon focus.
+func PullScopeFor(focus *Focus, cj *CritJSON) InheritedScope {
+	if focus != nil && focus.Kind == FocusRange {
 		return InheritedScope{
 			HeadSHA:      focus.HeadSHA,
 			BaseSHA:      focus.BaseSHA,

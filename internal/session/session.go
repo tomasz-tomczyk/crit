@@ -511,25 +511,28 @@ type Session struct {
 	// been deleted. time.Timer.Stop() does not wait for callbacks already
 	// executing, so the writeGen check alone is not sufficient to prevent a
 	// snapshot-taken-before-clear from resurrecting the file.
-	writeMu             sync.Mutex
-	pendingWrite        bool
-	sharedURL           string
-	shareBaseURL        string
-	deleteToken         string
-	shareScope          string
-	shareOrg            string
-	shareOrgName        string
-	shareVisibility     string
-	status              *Status
-	roundComplete       chan struct{}
-	pollInterval        time.Duration // watcher tick; 0 means 1s (tests shorten it)
-	pendingEdits        int
-	lastRoundEdits      int
-	lastCritJSONMtime   time.Time // mtime after our last WriteFiles(); used to detect external changes
-	awaitingFirstReview bool      // true until first review-cycle completes
-	waitingForAgent     bool      // true between finish (with unresolved comments) and round-complete
-	planHook            string    // plan_mode | codex while a plan hook waits on review-cycle
-	browserClients      int32     // number of connected SSE browser clients (atomic)
+	writeMu           sync.Mutex
+	pendingWrite      bool
+	sharedURL         string
+	shareBaseURL      string
+	deleteToken       string
+	shareScope        string
+	shareOrg          string
+	shareOrgName      string
+	shareVisibility   string
+	status            *Status
+	roundComplete     chan struct{}
+	pollInterval      time.Duration // watcher tick; 0 means 1s (tests shorten it)
+	pendingEdits      int
+	lastRoundEdits    int
+	lastCritJSONMtime time.Time // mtime after our last WriteFiles(); used to detect external changes
+	// diskHasUnloadedComments is set when our last write kept comments or
+	// replies that only disk had, so the watcher reloads despite the mtime match.
+	diskHasUnloadedComments bool
+	awaitingFirstReview     bool   // true until first review-cycle completes
+	waitingForAgent         bool   // true between finish (with unresolved comments) and round-complete
+	planHook                string // plan_mode | codex while a plan hook waits on review-cycle
+	browserClients          int32  // number of connected SSE browser clients (atomic)
 
 	// Focus is the discriminator that selects what the session is showing.
 	// Defaults to FocusWorkingTree (today's behavior). Range-mode sessions
@@ -1493,14 +1496,16 @@ func (s *Session) UpdateReviewComment(id, body string) (Comment, bool) {
 }
 
 // DeleteReviewComment deletes a review-level comment by ID. Review-level
-// comments are local-only (not synced to GitHub PR review comments), so a
-// straight removal is safe — there is no upstream record to tombstone.
+// comments are local-only (not synced to GitHub PR review comments), so there
+// is no upstream record to delete. The local tombstone stops the next write
+// from re-adding the comment from disk.
 func (s *Session) DeleteReviewComment(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, c := range s.reviewComments {
 		if c.ID == id {
 			s.reviewComments = append(s.reviewComments[:i], s.reviewComments[i+1:]...)
+			s.trackDeletedComment(reviewCommentTombstones, id)
 			s.scheduleWrite()
 			return true
 		}
@@ -1791,8 +1796,13 @@ func (s *Session) appendPendingRemoteDelete(ref RemoteRef) {
 	s.pendingRemoteDeletes = append(s.pendingRemoteDeletes, ref)
 }
 
-// trackDeletedComment records a file comment ID as deleted so the merge logic
-// does not re-add it from disk. Caller must hold s.mu.
+// reviewCommentTombstones is the deletedCommentIDs key for review-level
+// comments. It contains NUL, so it never collides with a file path.
+const reviewCommentTombstones = "\x00review"
+
+// trackDeletedComment records a comment ID as deleted so the merge logic does
+// not re-add it from disk. filePath is the comment's file, or
+// reviewCommentTombstones for a review-level comment. Caller must hold s.mu.
 func (s *Session) trackDeletedComment(filePath, id string) {
 	if s.deletedCommentIDs == nil {
 		s.deletedCommentIDs = make(map[string]map[string]struct{})

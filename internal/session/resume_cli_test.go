@@ -360,7 +360,7 @@ func TestHumanizeAge(t *testing.T) {
 // the write path has to set it and must never blank it out.
 func TestBuildCritJSON_RecordsCWD(t *testing.T) {
 	dir := t.TempDir()
-	cj := buildCritJSON(writeFilesSnapshot{critPath: filepath.Join(dir, "review"), cwd: "/work/app"})
+	cj, _ := buildCritJSON(writeFilesSnapshot{critPath: filepath.Join(dir, "review"), cwd: "/work/app"})
 	if cj.CWD != "/work/app" {
 		t.Errorf("CWD = %q, want the daemon's directory", cj.CWD)
 	}
@@ -370,7 +370,7 @@ func TestBuildCritJSON_EmptyCWDKeepsRecordedDirectory(t *testing.T) {
 	testutil.SetHome(t, t.TempDir())
 	critPath := seedReview(t, "aaaaaaaaaaaa", CritJSON{CWD: "/work/app", Branch: "feature"})
 
-	cj := buildCritJSON(writeFilesSnapshot{critPath: critPath, branch: "feature"})
+	cj, _ := buildCritJSON(writeFilesSnapshot{critPath: critPath, branch: "feature"})
 	if cj.CWD != "/work/app" {
 		t.Errorf("CWD = %q, want the directory already on disk to survive a snapshot without one", cj.CWD)
 	}
