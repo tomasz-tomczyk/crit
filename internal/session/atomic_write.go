@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // atomicWriteFile writes data to the target path atomically using a
@@ -51,4 +52,23 @@ func AtomicWriteFile(target string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("rename temp file to target: %w", err)
 	}
 	return nil
+}
+
+// replaceInProgress reports whether a temp file from AtomicWriteFile (or
+// config.AtomicWriteFile, same naming) exists next to target, meaning a
+// rename onto target may be under way. With no temp file, a missing target
+// is really missing and readers need not wait for it.
+func replaceInProgress(target string) bool {
+	entries, err := os.ReadDir(filepath.Dir(target))
+	if err != nil {
+		return false
+	}
+	base := filepath.Base(target)
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, base) && strings.HasSuffix(name, ".tmp") {
+			return true
+		}
+	}
+	return false
 }
