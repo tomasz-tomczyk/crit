@@ -272,7 +272,7 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 - Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
 - HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)
 - Comment renderer uses `html: true` then DOMPurify with a pinned GitHub-compatible allowlist (`web/comment-html.js`) before `innerHTML` — never trust raw comment HTML
-- Document renderer uses `html: true` intentionally (reviewing local files)
+- Document renderer uses `html: true` so raw HTML in Markdown still renders, but `web/document-html.js` runs html_block tokens and inline runs with html_inline through DOMPurify (default profile, no `<style>`/`<form>`). A reviewed file is untrusted: it must not run script in the daemon origin
 </important>
 
 <important if="you are modifying web/ — app.js, style.css, theme.css, or index.html">
