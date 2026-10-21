@@ -146,6 +146,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	if err != nil {
 		return forge.PushResult{}, err
 	}
+	saved := &pushReview{path: critPath, base: session.CloneCritJSON(cj)}
 	if err := share.CheckGitHubSyncAllowed(cj, "crit push"); err != nil {
 		return forge.PushResult{}, err
 	}
@@ -179,7 +180,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	result.Edited = edited
 	if err != nil {
 		if edited > 0 {
-			err = savePartialGitLabPush(critPath, cj, err)
+			err = savePartialGitLabPush(saved, cj, err)
 		}
 		return result, err
 	}
@@ -187,12 +188,12 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	result.Deleted = deleted
 	if err != nil {
 		if result.Edited+deleted > 0 {
-			err = savePartialGitLabPush(critPath, cj, err)
+			err = savePartialGitLabPush(saved, cj, err)
 		}
 		return result, err
 	}
 	if result.Edited+result.Deleted > 0 {
-		if err := review.SaveCritJSON(critPath, cj); err != nil {
+		if err := saved.save(cj); err != nil {
 			return result, err
 		}
 	}
@@ -208,12 +209,12 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		result.Resolved = resolved
 		if resolveErr != nil {
 			if result.Edited+result.Deleted+resolved > 0 {
-				resolveErr = savePartialGitLabPush(critPath, cj, resolveErr)
+				resolveErr = savePartialGitLabPush(saved, cj, resolveErr)
 			}
 			return result, resolveErr
 		}
 		if resolved > 0 {
-			if err := review.SaveCritJSON(critPath, cj); err != nil {
+			if err := saved.save(cj); err != nil {
 				return result, err
 			}
 		}
@@ -236,19 +237,19 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		}
 		return result, fmt.Errorf("publishing GitLab draft review: %w", err)
 	}
-	if err := refreshGitLabIDs(ctx, repo, id, critPath, &cj); err != nil {
+	if err := refreshGitLabIDs(ctx, repo, id, saved, &cj); err != nil {
 		return result, err
 	}
 	resolved, err := syncGitLabResolution(ctx, repo, id, &cj)
 	result.Resolved = resolved
 	if err != nil {
 		if resolved > 0 {
-			err = savePartialGitLabPush(critPath, cj, err)
+			err = savePartialGitLabPush(saved, cj, err)
 		}
 		return result, err
 	}
 	if resolved > 0 {
-		if err := review.SaveCritJSON(critPath, cj); err != nil {
+		if err := saved.save(cj); err != nil {
 			return result, err
 		}
 	}
@@ -266,8 +267,8 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	return result, nil
 }
 
-func savePartialGitLabPush(path string, cj session.CritJSON, operationErr error) error {
-	if err := review.SaveCritJSON(path, cj); err != nil {
+func savePartialGitLabPush(saved *pushReview, cj session.CritJSON, operationErr error) error {
+	if err := saved.save(cj); err != nil {
 		return errors.Join(operationErr, fmt.Errorf("persisting successful GitLab operations: %w", err))
 	}
 	return operationErr
@@ -503,7 +504,7 @@ func reviewerState(event string) string {
 	return "reviewed"
 }
 
-func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, critPath string, cj *session.CritJSON) error {
+func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, saved *pushReview, cj *session.CritJSON) error {
 	discussions, err := fetchAllDiscussions(ctx, repo, id)
 	if err != nil {
 		return fmt.Errorf("review published but could not refresh GitLab discussion IDs: %w", err)
@@ -520,7 +521,23 @@ func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.Chan
 		scope = probed
 	}
 	mergeDiscussions(cj, discussions, scope)
-	return review.SaveCritJSON(critPath, *cj)
+	return saved.save(*cj)
+}
+
+// pushReview saves the review copy runPush loaded before its network calls.
+// Each save keeps what other writers (the daemon, crit comment) saved in the
+// meantime, see session.SaveCritJSONMerged.
+type pushReview struct {
+	path string
+	base session.CritJSON
+}
+
+func (r *pushReview) save(cj session.CritJSON) error {
+	if err := session.SaveCritJSONMerged(r.path, r.base, cj); err != nil {
+		return err
+	}
+	r.base = session.CloneCritJSON(cj)
+	return nil
 }
 
 func pushGitLabEdits(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, cj *session.CritJSON) (int, error) {

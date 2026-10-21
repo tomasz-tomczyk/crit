@@ -77,3 +77,39 @@ func TestWithReviewWriteLockReleasesAfterCallbackError(t *testing.T) {
 		t.Fatal("lock remained held after callback error")
 	}
 }
+
+func TestWithReviewWriteLockExcludesSecondHolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "review")
+	held := make(chan struct{})
+	release := make(chan struct{})
+	first := make(chan error, 1)
+	go func() {
+		first <- WithReviewWriteLock(dir, func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+
+	entered := make(chan struct{})
+	second := make(chan error, 1)
+	go func() {
+		second <- WithReviewWriteLock(dir, func() error {
+			close(entered)
+			return nil
+		})
+	}()
+	select {
+	case <-entered:
+		t.Fatal("second holder entered while the first held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+}

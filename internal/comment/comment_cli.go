@@ -2,6 +2,7 @@ package comment
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -250,13 +251,26 @@ func addCommentToCritJSONAtPath(filePath string, startLine, endLine int, body, a
 	// so paths are stored with forward slashes regardless of host OS.
 	cleaned = filepath.ToSlash(cleaned)
 
-	cj, err := review.LoadCritJSON(critPath)
-	if err != nil {
-		return err
-	}
+	return updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		appendCommentScoped(cj, cleaned, startLine, endLine, body, author, userID, scope)
+		return nil
+	})
+}
 
-	appendCommentScoped(&cj, cleaned, startLine, endLine, body, author, userID, scope)
-	return review.SaveCritJSON(critPath, cj)
+// updateCritJSON loads the review file, applies fn and saves the result,
+// holding the review write lock so a running daemon's save cannot interleave.
+// Nothing is saved when fn fails.
+func updateCritJSON(critPath string, fn func(*session.CritJSON) error) error {
+	return session.WithReviewWriteLock(critPath, func() error {
+		cj, err := review.LoadCritJSON(critPath)
+		if err != nil {
+			return err
+		}
+		if err := fn(&cj); err != nil {
+			return err
+		}
+		return review.SaveCritJSON(critPath, cj)
+	})
 }
 
 // addReplyToCritJSON adds a reply to an existing comment in the review file.
@@ -274,30 +288,39 @@ func addReplyToCritJSONAtPath(commentID, body, author, userID string, resolve bo
 }
 
 func addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID string, resolve bool, critPath string, filterPath string, allowRedirect bool) error {
-	cj, err := review.LoadCritJSON(critPath)
+	var replyErr error
+	err := updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		replyErr = appendReply(cj, commentID, body, author, userID, resolve, filterPath)
+		return replyErr
+	})
+	if replyErr == nil {
+		return err
+	}
+	// Only fall back to scanning when the comment genuinely wasn't found.
+	// Don't fall back for ambiguity errors ("found in multiple files").
+	if !allowRedirect || !strings.Contains(replyErr.Error(), "not found") {
+		return replyErr
+	}
+	altPath, err := review.FindReviewFileByCommentID(commentID, critPath)
+	if err != nil {
+		return replyErr
+	}
+	errNoRedirect := errors.New("reply not added to redirected review")
+	err = session.WithReviewWriteLock(altPath, func() error {
+		altCJ, err := review.LoadCritJSON(altPath)
+		if err != nil || appendReply(&altCJ, commentID, body, author, userID, resolve, filterPath) != nil {
+			return errNoRedirect
+		}
+		return review.SaveCritJSON(altPath, altCJ)
+	})
+	if errors.Is(err, errNoRedirect) {
+		return replyErr // return original error
+	}
 	if err != nil {
 		return err
 	}
-
-	if err := appendReply(&cj, commentID, body, author, userID, resolve, filterPath); err != nil {
-		// Only fall back to scanning when the comment genuinely wasn't found.
-		// Don't fall back for ambiguity errors ("found in multiple files").
-		if allowRedirect && strings.Contains(err.Error(), "not found") {
-			if altPath, err2 := review.FindReviewFileByCommentID(commentID, critPath); err2 == nil {
-				altCJ, loadErr := review.LoadCritJSON(altPath)
-				if loadErr != nil {
-					return err // return original error
-				}
-				if replyErr := appendReply(&altCJ, commentID, body, author, userID, resolve, filterPath); replyErr != nil {
-					return err // return original error
-				}
-				fmt.Fprintf(os.Stderr, "Note: comment %s found in %s (not the resolved review file)\n", commentID, filepath.Base(altPath))
-				return review.SaveCritJSON(altPath, altCJ)
-			}
-		}
-		return err
-	}
-	return review.SaveCritJSON(critPath, cj)
+	fmt.Fprintf(os.Stderr, "Note: comment %s found in %s (not the resolved review file)\n", commentID, filepath.Base(altPath))
+	return nil
 }
 
 // BulkCommentEntry represents one entry in a bulk comment JSON array.
@@ -548,29 +571,53 @@ func bulkAddCommentsToCritJSONAtPathWithRedirect(entries []BulkCommentEntry, glo
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
 	}
-	primary, err := review.LoadCritJSON(primaryPath)
-	if err != nil {
-		return err
-	}
-
-	targetPath, targetCJ, redirected, err := resolveBulkTargetWithRedirect(entries, primaryPath, primary, allowRedirect)
-	if err != nil {
-		return err
-	}
-
 	pages := livePageCache{}
-	for i, e := range entries {
-		if err := processBulkEntry(&targetCJ, i, e, globalAuthor, globalUserID, scope, pages); err != nil {
+	apply := func(cj *session.CritJSON) error {
+		for i, e := range entries {
+			if err := processBulkEntry(cj, i, e, globalAuthor, globalUserID, scope, pages); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	var targetPath string
+	var redirected bool
+	err := session.WithReviewWriteLock(primaryPath, func() error {
+		primary, err := review.LoadCritJSON(primaryPath)
+		if err != nil {
 			return err
 		}
-	}
-
-	if err := review.SaveCritJSON(targetPath, targetCJ); err != nil {
+		var targetCJ session.CritJSON
+		targetPath, targetCJ, redirected, err = resolveBulkTargetWithRedirect(entries, primaryPath, primary, allowRedirect)
+		if err != nil || redirected {
+			return err
+		}
+		if err := apply(&targetCJ); err != nil {
+			return err
+		}
+		return review.SaveCritJSON(primaryPath, targetCJ)
+	})
+	if err != nil || !redirected {
 		return err
 	}
-	if redirected {
-		fmt.Fprintf(os.Stderr, "Note: replies routed to %s (not the cwd-resolved review file)\n", filepath.Base(targetPath))
+
+	// The replies belong to another review. Release the primary lock and
+	// reload the target under its own lock before changing it.
+	err = session.WithReviewWriteLock(targetPath, func() error {
+		targetCJ, err := review.LoadCritJSON(targetPath)
+		if err != nil {
+			return fmt.Errorf("load %s: %w", filepath.Base(targetPath), err)
+		}
+		if err := apply(&targetCJ); err != nil {
+			return err
+		}
+		return review.SaveCritJSON(targetPath, targetCJ)
+	})
+	if err != nil {
+		return err
 	}
+	fmt.Fprintf(os.Stderr, "Note: replies routed to %s (not the cwd-resolved review file)\n", filepath.Base(targetPath))
 	return nil
 }
 
@@ -655,13 +702,10 @@ func addReviewCommentToCritJSONScoped(body, author, userID, outputDir string, sc
 }
 
 func addReviewCommentToCritJSONAtPath(body, author, userID, critPath string, scope session.InheritedScope) error {
-	cj, err := review.LoadCritJSON(critPath)
-	if err != nil {
-		return err
-	}
-
-	appendReviewCommentScoped(&cj, body, author, userID, scope)
-	return review.SaveCritJSON(critPath, cj)
+	return updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		appendReviewCommentScoped(cj, body, author, userID, scope)
+		return nil
+	})
 }
 
 // addFileCommentToCritJSONScoped adds a file-level comment to the review file
@@ -683,13 +727,10 @@ func addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath str
 	// so paths are stored with forward slashes regardless of host OS.
 	cleaned = filepath.ToSlash(cleaned)
 
-	cj, err := review.LoadCritJSON(critPath)
-	if err != nil {
-		return err
-	}
-
-	appendFileCommentScoped(&cj, cleaned, body, author, userID, scope)
-	return review.SaveCritJSON(critPath, cj)
+	return updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		appendFileCommentScoped(cj, cleaned, body, author, userID, scope)
+		return nil
+	})
 }
 
 // appendReviewCommentScoped adds a review-level comment to the session.CritJSON struct

@@ -94,7 +94,13 @@ func fetchSessionFocus(client *http.Client, host string, port int) *Focus {
 // remote comments. Forge + ChangeNumber preserve the provider-specific focus
 // key (pr:N or mr:N); BaseSHA + HeadSHA preserve range identity as a fallback.
 func ResolvePullScope(cj *CritJSON) InheritedScope {
-	if focus := ProbeDaemonFocus(); focus != nil && focus.Kind == FocusRange {
+	return PullScopeFor(ProbeDaemonFocus(), cj)
+}
+
+// PullScopeFor is ResolvePullScope with an already probed daemon focus, for
+// callers that must not make the HTTP call while holding the review lock.
+func PullScopeFor(focus *Focus, cj *CritJSON) InheritedScope {
+	if focus != nil && focus.Kind == FocusRange {
 		return InheritedScope{
 			HeadSHA:      focus.HeadSHA,
 			BaseSHA:      focus.BaseSHA,

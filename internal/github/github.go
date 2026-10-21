@@ -1377,42 +1377,44 @@ type replyKey struct {
 // commentIDs maps "path:endLine" -> GitHubID for root comments.
 // replyIDs maps replyKey -> GitHubID for replies.
 func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
-	data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
-	}
+	return session.WithReviewWriteLock(critPath, func() error {
+		data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
+		if err != nil {
+			return err
+		}
+		var cj session.CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			return err
+		}
 
-	for path, cf := range cj.Files {
-		for i, c := range cf.Comments {
-			if c.GitHubID == 0 {
-				key := fmt.Sprintf("%s:%d", path, c.EndLine)
-				if id, ok := commentIDs[key]; ok {
-					cf.Comments[i].GitHubID = id
-					cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Body)
+		for path, cf := range cj.Files {
+			for i, c := range cf.Comments {
+				if c.GitHubID == 0 {
+					key := fmt.Sprintf("%s:%d", path, c.EndLine)
+					if id, ok := commentIDs[key]; ok {
+						cf.Comments[i].GitHubID = id
+						cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Body)
+					}
 				}
-			}
-			for j, r := range c.Replies {
-				if r.GitHubID == 0 && cf.Comments[i].GitHubID != 0 {
-					rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
-					if id, ok := replyIDs[rk]; ok {
-						cf.Comments[i].Replies[j].GitHubID = id
-						cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Replies[j].Body)
+				for j, r := range c.Replies {
+					if r.GitHubID == 0 && cf.Comments[i].GitHubID != 0 {
+						rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
+						if id, ok := replyIDs[rk]; ok {
+							cf.Comments[i].Replies[j].GitHubID = id
+							cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Replies[j].Body)
+						}
 					}
 				}
 			}
+			cj.Files[path] = cf
 		}
-		cj.Files[path] = cf
-	}
 
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+		out, err := json.MarshalIndent(cj, "", "  ")
+		if err != nil {
+			return err
+		}
+		return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+	})
 }
 
 // collectDeletesForPush returns the snapshot of pending GitHub DELETE
@@ -1494,30 +1496,32 @@ func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 		drainedSet[id] = struct{}{}
 	}
 
-	data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
-	}
-
-	refs := session.RemoteDeletesFor(cj, forge.GitHub)
-	kept := make([]session.RemoteRef, 0, len(refs))
-	for _, ref := range refs {
-		if _, drained := drainedSet[ref.CommentID]; drained {
-			continue
+	return session.WithReviewWriteLock(critPath, func() error {
+		data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
+		if err != nil {
+			return err
 		}
-		kept = append(kept, ref)
-	}
-	session.ReplaceRemoteDeletes(&cj, forge.GitHub, kept)
+		var cj session.CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			return err
+		}
 
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+		refs := session.RemoteDeletesFor(cj, forge.GitHub)
+		kept := make([]session.RemoteRef, 0, len(refs))
+		for _, ref := range refs {
+			if _, drained := drainedSet[ref.CommentID]; drained {
+				continue
+			}
+			kept = append(kept, ref)
+		}
+		session.ReplaceRemoteDeletes(&cj, forge.GitHub, kept)
+
+		out, err := json.MarshalIndent(cj, "", "  ")
+		if err != nil {
+			return err
+		}
+		return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+	})
 }
 
 // truncateStr returns the first n runes of s, or all of s if shorter.

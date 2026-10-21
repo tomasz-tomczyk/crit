@@ -126,20 +126,25 @@ func runPull(ctx context.Context, request forge.PullRequest) (forge.PullResult, 
 	if err != nil {
 		return forge.PullResult{}, err
 	}
-	cj, err := loadOrInitializeReview(critPath)
+	// Probe before taking the review lock: it makes an HTTP call to the daemon.
+	daemonFocus := session.ProbeDaemonFocus()
+	var imported, updated int
+	err = session.WithReviewWriteLock(critPath, func() error {
+		cj, err := loadOrInitializeReview(critPath)
+		if err != nil {
+			return err
+		}
+		if err := share.CheckGitHubSyncAllowed(cj, "crit pull"); err != nil {
+			return err
+		}
+		imported, updated = mergeDiscussions(&cj, discussions, session.PullScopeFor(daemonFocus, &cj))
+		if imported+updated == 0 {
+			return nil
+		}
+		return review.SaveCritJSON(critPath, cj)
+	})
 	if err != nil {
 		return forge.PullResult{}, err
-	}
-	if err := share.CheckGitHubSyncAllowed(cj, "crit pull"); err != nil {
-		return forge.PullResult{}, err
-	}
-
-	scope := session.ResolvePullScope(&cj)
-	imported, updated := mergeDiscussions(&cj, discussions, scope)
-	if imported+updated > 0 {
-		if err := review.SaveCritJSON(critPath, cj); err != nil {
-			return forge.PullResult{}, err
-		}
 	}
 	if imported+updated == 0 {
 		fmt.Printf("No new inline comments found on MR !%d\n", id.Number)

@@ -426,13 +426,15 @@ func (s *Session) persistActiveDiffScope(scope string) error {
 	if critPath == "" {
 		return nil
 	}
-	cj, err := readCritJSONFromDisk(critPath)
-	if err != nil {
-		// File may not exist yet — fall through and create one with just the scope.
-		cj = CritJSON{Files: map[string]CritJSONFile{}}
-	}
-	cj.ActiveDiffScope = scope
-	return saveCritJSONToDisk(critPath, cj)
+	return WithReviewWriteLock(critPath, func() error {
+		cj, err := readCritJSONFromDisk(critPath)
+		if err != nil {
+			// File may not exist yet — fall through and create one with just the scope.
+			cj = CritJSON{Files: map[string]CritJSONFile{}}
+		}
+		cj.ActiveDiffScope = scope
+		return saveCritJSONToDisk(critPath, cj)
+	})
 }
 
 // readFileAtSHA returns file content at the given SHA. When RemoteFiles is

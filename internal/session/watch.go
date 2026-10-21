@@ -245,14 +245,33 @@ func rewriteReviewJSONRenames(critPath string, renames []pathRename) {
 		return
 	}
 	reviewPath := ReviewPathsFor(critPath).Review
-	data, err := os.ReadFile(reviewPath)
-	if err != nil {
+	// Check first: the lock would otherwise create a folder for no review.
+	if _, err := os.Stat(reviewPath); err != nil {
 		return
 	}
-	var cj CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil || cj.Files == nil {
-		return
-	}
+	_ = WithReviewWriteLock(critPath, func() error {
+		data, err := os.ReadFile(reviewPath)
+		if err != nil {
+			return err
+		}
+		var cj CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil || cj.Files == nil {
+			return err
+		}
+		if !applyReviewJSONRenames(&cj, renames) {
+			return nil
+		}
+		out, err := json.MarshalIndent(cj, "", "  ")
+		if err != nil {
+			return err
+		}
+		return AtomicWriteFile(reviewPath, out, 0o600)
+	})
+}
+
+// applyReviewJSONRenames moves cj.Files keys for each rename and reports
+// whether anything moved.
+func applyReviewJSONRenames(cj *CritJSON, renames []pathRename) bool {
 	changed := false
 	for _, r := range renames {
 		if r.from == "" || r.to == "" || r.from == r.to {
@@ -275,14 +294,7 @@ func rewriteReviewJSONRenames(critPath string, renames []pathRename) {
 		delete(cj.Files, r.from)
 		changed = true
 	}
-	if !changed {
-		return
-	}
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = AtomicWriteFile(reviewPath, out, 0o600)
+	return changed
 }
 
 // mergeCommentSlices appends comments from extra whose IDs are not already in base.

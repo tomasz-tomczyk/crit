@@ -321,7 +321,7 @@ func TestSavePartialGitLabPushJoinsPersistenceFailure(t *testing.T) {
 	if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := savePartialGitLabPush(filepath.Join(blocked, "review"), session.CritJSON{}, operationErr)
+	err := savePartialGitLabPush(&pushReview{path: filepath.Join(blocked, "review")}, session.CritJSON{}, operationErr)
 	if err == nil || !errors.Is(err, operationErr) || !strings.Contains(err.Error(), "persisting successful GitLab operations") {
 		t.Fatalf("joined error = %v", err)
 	}

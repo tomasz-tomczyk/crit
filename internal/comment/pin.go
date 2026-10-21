@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
@@ -27,15 +26,13 @@ func (e BulkCommentEntry) pinRoute() string {
 
 // addPinComment appends a DOM pin to a live or preview review and writes it.
 func addPinComment(critPath, selector, route, body, author, userID string) (session.Comment, error) {
-	cj, err := review.LoadCritJSON(critPath)
+	var c session.Comment
+	err := updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		var err error
+		c, err = appendPin(cj, selector, route, body, author, userID, nil)
+		return err
+	})
 	if err != nil {
-		return session.Comment{}, err
-	}
-	c, err := appendPin(&cj, selector, route, body, author, userID, nil)
-	if err != nil {
-		return session.Comment{}, err
-	}
-	if err := review.SaveCritJSON(critPath, cj); err != nil {
 		return session.Comment{}, err
 	}
 	return c, nil
