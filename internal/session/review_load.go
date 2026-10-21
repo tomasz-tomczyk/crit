@@ -91,7 +91,7 @@ func ClearReviewFolder(identity string) error {
 		return os.Remove(identity)
 	}
 	lockPath := ReviewPathsFor(identity).ReviewLock
-	removed := false
+	lockGone := false
 	err = WithReviewWriteLock(identity, func() error {
 		entries, err := os.ReadDir(identity)
 		if err != nil {
@@ -107,18 +107,21 @@ func ClearReviewFolder(identity string) error {
 			}
 		}
 		// Unix allows this while the lock is held; Windows does not.
-		removed = os.Remove(lockPath) == nil && os.Remove(identity) == nil
+		if lockGone = os.Remove(lockPath) == nil; lockGone {
+			_ = os.Remove(identity)
+		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if !removed {
-		// Not recursive: a writer that took the lock after us may already
-		// have saved a new review here, and that one stays.
+	if !lockGone {
+		// Windows: the open lock file could not go while we held it.
 		_ = os.Remove(lockPath)
-		_ = os.Remove(identity)
 	}
+	// Not recursive: a writer that locked a new lock file after us may
+	// already have saved a new review here, and that one stays.
+	_ = os.Remove(identity)
 	return nil
 }
 

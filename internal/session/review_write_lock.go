@@ -38,6 +38,9 @@ func lockReview(identity string) (*os.File, error) {
 			return nil, fmt.Errorf("creating review folder: %w", err)
 		}
 		f, err := os.OpenFile(paths.ReviewLock, os.O_CREATE|os.O_RDWR, 0o644)
+		if os.IsNotExist(err) {
+			continue // the folder was removed after MkdirAll; create it again
+		}
 		if err != nil {
 			return nil, fmt.Errorf("opening review lock: %w", err)
 		}
