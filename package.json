@@ -5,7 +5,7 @@
     "@pierre/diffs": "1.5.2",
     "@sanity/diff-match-patch": "3.2.1",
     "dompurify": "3.4.17",
-    "markdown-it": "15.0.2",
+    "markdown-it": "15.0.3",
     "mermaid": "12.1.0"
   },
   "scripts": {
