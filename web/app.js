@@ -1970,7 +1970,7 @@
   // changes height. Pierre's ResizeObserver was created first (each view
   // creates its own, and disposePierreView drops ours with it), so its own
   // scroll fix has already run in the same frame when ours puts the block back.
-  let pierreReaderAnchor = null; // { section, selector, top }
+  let pierreReaderAnchor = null; // { section, selector (null: the section itself), top }
   let pierreDocumentResizeObserver = null;
 
   function readerAnchorSelector(el) {
@@ -1979,9 +1979,12 @@
   }
 
   // The document block or thread the top edge of the review pane cuts
-  // through, or null when no document starts above the screen (Pierre then
-  // anchors on the document itself, which is right). Blocks are in vertical
-  // order, so a binary search keeps this cheap on long documents.
+  // through, or the document itself when the edge cuts the part of its item
+  // above it (the file header, file-level threads): Pierre keeps an item in
+  // place only while the item's top is on screen.
+  // Null when the whole item starts on screen (Pierre's anchor is right).
+  // Blocks are in vertical order, so a binary search keeps this cheap on
+  // long documents.
   function rememberPierreReaderAnchor() {
     pierreReaderAnchor = null;
     const scroller = document.getElementById('filesContainer');
@@ -1990,7 +1993,14 @@
     const sections = scroller.querySelectorAll('.pierre-document');
     for (const section of sections) {
       const rect = section.getBoundingClientRect();
-      if (rect.top >= edge || rect.bottom <= edge) continue;
+      if (rect.bottom <= edge) continue;
+      if (rect.top >= edge) {
+        const item = section.closest('diffs-container');
+        if (item && item.getBoundingClientRect().top < edge) {
+          pierreReaderAnchor = { section: section, selector: null, top: rect.top };
+        }
+        return;
+      }
       const blocks = section.querySelectorAll('.line-block[data-start-line], .comment-card[data-comment-id]');
       let low = 0;
       let high = blocks.length - 1;
@@ -2018,7 +2028,7 @@
         if (!anchor || !entries.some(function(entry) { return entry.target === anchor.section; })) return;
         // A removed section reports a zero rect; there is nothing to keep in place.
         if (!anchor.section.isConnected) return;
-        const el = anchor.section.querySelector(anchor.selector);
+        const el = anchor.selector ? anchor.section.querySelector(anchor.selector) : anchor.section;
         const scroller = document.getElementById('filesContainer');
         if (!el || !scroller) return;
         const shift = el.getBoundingClientRect().top - anchor.top;

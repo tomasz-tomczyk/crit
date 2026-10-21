@@ -59,7 +59,65 @@ test.describe('Document view keeps the reader in place — File Mode', () => {
     // under 1px, so up to 1px can remain (the bug moves it by the reply height).
     expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(2);
   });
+
+  // The file header sits above the document in the same Pierre item. Once the
+  // header's top leaves the screen, Pierre stops keeping the item in place,
+  // even while the document itself still starts on screen.
+  for (const [name, place] of [
+    ['the top of the file header just above the screen', placeItemTopAboveEdge],
+    ['the document starting just below the top of the screen', placeDocumentTopBelowEdge],
+  ] as const) {
+    test(`a reply leaves the thread in place with ${name}`, async ({ page, request }) => {
+      // GIVEN - the top edge of the review cuts through the file header
+      const mdPath = await getMdPath(request);
+      const comment = await addComment(request, mdPath, OPEN_QUESTION_LINE, 'Rate-limit by key or by IP?');
+      await loadPage(page);
+      const section = await mdSection(page);
+      const card = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
+      await card.waitFor();
+      const scroller = reviewScroller(page);
+      await place(scroller);
+      await waitForScrollStable(page);
+      await expectEdgeCutsFileHeader(scroller);
+      await startTrackingScreenTop(card);
+
+      // WHEN - the agent replies to the thread
+      await addReply(request, mdPath, comment.id, 'By key, per tenant.');
+      await expect(card.locator('.comment-reply')).toHaveCount(1);
+      await waitForScrollStable(page);
+
+      // THEN - the thread stayed where it was in every frame
+      expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(1);
+    });
+  }
 });
+
+async function placeItemTopAboveEdge(scroller: Locator) {
+  await scroller.evaluate((sc) => {
+    const item = sc.querySelector('.pierre-document')!.closest('diffs-container')!;
+    sc.scrollTop += item.getBoundingClientRect().top - sc.getBoundingClientRect().top + 5;
+  });
+}
+
+async function placeDocumentTopBelowEdge(scroller: Locator) {
+  await scroller.evaluate((sc) => {
+    const section = sc.querySelector('.pierre-document')!;
+    sc.scrollTop += section.getBoundingClientRect().top - sc.getBoundingClientRect().top - 4;
+  });
+}
+
+async function expectEdgeCutsFileHeader(scroller: Locator) {
+  const { itemTop, sectionTop, edge } = await scroller.evaluate((sc) => {
+    const section = sc.querySelector('.pierre-document')!;
+    return {
+      itemTop: section.closest('diffs-container')!.getBoundingClientRect().top,
+      sectionTop: section.getBoundingClientRect().top,
+      edge: sc.getBoundingClientRect().top,
+    };
+  });
+  expect(itemTop, 'file header must start above the visible part of the review').toBeLessThan(edge);
+  expect(sectionTop, 'document must start on screen').toBeGreaterThanOrEqual(edge);
+}
 
 async function addReply(request: APIRequestContext, path: string, commentId: string, body: string) {
   const resp = await request.post(`/api/comment/${commentId}/replies?path=${encodeURIComponent(path)}`, {
