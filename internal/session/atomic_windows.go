@@ -62,7 +62,13 @@ func ReadFileShared(path string) ([]byte, error) {
 			return data, err
 		}
 		if errors.Is(err, fs.ErrNotExist) && !replaceInProgress(path) {
-			return data, err
+			// A replace that finished between the read and the temp-file
+			// check leaves no temp file, so read once more before
+			// reporting the file missing. A new sharing error retries.
+			data, err = os.ReadFile(path)
+			if err == nil || !isWindowsTransientIOErr(err) || (errors.Is(err, fs.ErrNotExist) && !replaceInProgress(path)) {
+				return data, err
+			}
 		}
 		time.Sleep(delay)
 		if delay < 50*time.Millisecond {

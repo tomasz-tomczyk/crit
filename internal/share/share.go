@@ -965,7 +965,12 @@ func highestWebIndex(cj session.CritJSON) int {
 // with HeadSHA + DiffScope=layer so they pass visibleInFocus in range view.
 // See spec §E "Write path — `mergeWebComments`".
 func MergeWebComments(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply) error {
-	daemonFocus := focus.ProbeDaemonFocus()
+	return MergeWebCommentsFor(critPath, newComments, replyUpdates, focus.ProbeDaemonFocus())
+}
+
+// MergeWebCommentsFor is MergeWebComments with the daemon focus already
+// known. The daemon passes its own focus rather than probing itself over HTTP.
+func MergeWebCommentsFor(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply, daemonFocus *focus.Focus) error {
 	return updateReviewFile(critPath, func(cj *session.CritJSON) {
 		mergeWebCommentsInto(cj, newComments, replyUpdates, daemonFocus)
 	})
@@ -973,7 +978,7 @@ func MergeWebComments(critPath string, newComments []WebComment, replyUpdates ma
 
 // updateReviewFile loads the review file, applies mutate, stamps UpdatedAt,
 // and saves it, all under the review write lock. A missing review file is an
-// error, returned before the lock creates the review folder.
+// error. A missing review folder is returned before the lock would create it.
 func updateReviewFile(critPath string, mutate func(*session.CritJSON)) error {
 	return updateReviewFileIf(critPath, func(cj *session.CritJSON) bool {
 		mutate(cj)
@@ -983,7 +988,7 @@ func updateReviewFile(critPath string, mutate func(*session.CritJSON)) error {
 
 // updateReviewFileIf is updateReviewFile, but saves only when mutate returns true.
 func updateReviewFileIf(critPath string, mutate func(*session.CritJSON) bool) error {
-	if _, err := os.Stat(session.ReviewPathsFor(critPath).Review); err != nil {
+	if _, err := os.Stat(session.ReviewPathsFor(critPath).Folder); err != nil {
 		return err
 	}
 	return session.WithReviewWriteLock(critPath, func() error {
@@ -1108,10 +1113,13 @@ func applyWebCommentPlacements(cj *session.CritJSON, placements map[string]sessi
 // mergeFetchedComments writes new comments, reply updates and placements
 // from one fetch in a single load and save of the review file.
 func mergeFetchedComments(critPath string, fetched fetchWebCommentsResult) error {
+	return mergeFetchedCommentsFor(critPath, fetched, focus.ProbeDaemonFocus())
+}
+
+func mergeFetchedCommentsFor(critPath string, fetched fetchWebCommentsResult, daemonFocus *focus.Focus) error {
 	if !fetchHasUpdates(fetched) {
 		return nil
 	}
-	daemonFocus := focus.ProbeDaemonFocus()
 	return updateReviewFile(critPath, func(cj *session.CritJSON) {
 		mergeWebCommentsInto(cj, fetched.NewComments, fetched.ReplyUpdates, daemonFocus)
 		applyWebCommentPlacements(cj, fetched.Placements)

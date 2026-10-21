@@ -111,3 +111,45 @@ func TestDeletedRepliesAndReviewCommentsNotReAddedFromDisk(t *testing.T) {
 		t.Fatalf("file replies = %+v", replies)
 	}
 }
+
+// A change scheduled while a save runs is not on disk yet, so the save must
+// leave pendingWrite set for the watcher's guard.
+func TestSaveKeepsPendingWriteForLaterChange(t *testing.T) {
+	s := &Session{RepoRoot: t.TempDir()}
+	s.mu.Lock()
+	s.scheduleWrite()
+	snap := writeFilesSnapshot{writeSeq: s.writeSeq}
+	s.scheduleWrite() // a delete lands after the snapshot
+	s.clearPendingWrite(snap)
+	pending := s.pendingWrite
+	s.mu.Unlock()
+	quiesceSession(t, s)
+	if !pending {
+		t.Fatal("pendingWrite cleared although a later change was not saved")
+	}
+}
+
+// The watcher's round guard must clear the reload flag, or every tick
+// re-reads the file.
+func TestRoundGuardClearsUnloadedFlag(t *testing.T) {
+	s := &Session{RepoRoot: t.TempDir(), ReviewRound: 3}
+	critPath := s.critJSONPath()
+	if err := SaveCritJSON(critPath, CritJSON{ReviewRound: 2, ReviewComments: []Comment{{ID: "r1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(ReviewPathsFor(critPath).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.lastCritJSONMtime = info.ModTime()
+	s.diskHasUnloadedComments = true
+	s.mu.Unlock()
+	s.MergeExternalCritJSONForTest()
+	s.mu.RLock()
+	stuck := s.diskHasUnloadedComments
+	s.mu.RUnlock()
+	if stuck {
+		t.Fatal("reload flag still set after the round guard skipped the reload")
+	}
+}

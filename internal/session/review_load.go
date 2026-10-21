@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // readCritJSONFromDisk reads review.json for a review identity folder.
@@ -73,8 +74,40 @@ func loadSnapshotsFromDisk(snapshotsPath string) (SnapshotsFile, error) {
 	return sf, nil
 }
 
-// ClearReviewFolder removes the entire review identity folder.
+// ClearReviewFolder removes the entire review identity folder. It empties
+// the folder under the review write lock, so a writer that already read
+// review.json saves before the removal instead of restoring it after. The
+// empty folder and its lock file go once the lock is released. Idempotent:
+// a missing folder is fine.
 func ClearReviewFolder(identity string) error {
+	info, err := os.Stat(identity)
+	switch {
+	case os.IsNotExist(err):
+		return nil
+	case err != nil:
+		return err
+	case !info.IsDir():
+		return os.Remove(identity)
+	}
+	lockName := filepath.Base(ReviewPathsFor(identity).ReviewLock)
+	err = WithReviewWriteLock(identity, func() error {
+		entries, err := os.ReadDir(identity)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.Name() == lockName {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(identity, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(identity); err != nil && !os.IsNotExist(err) {
 		return err
 	}

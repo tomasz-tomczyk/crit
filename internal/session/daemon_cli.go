@@ -171,7 +171,7 @@ func removeStaleReviewPath(path string) bool {
 		return false
 	}
 	if info.IsDir() {
-		return os.RemoveAll(path) == nil
+		return ClearReviewFolder(path) == nil
 	}
 	if err := os.Remove(path); err != nil {
 		return false

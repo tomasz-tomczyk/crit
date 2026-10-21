@@ -12,6 +12,7 @@ import (
 // scheduleWrite must be called with s.mu held.
 func (s *Session) scheduleWrite() {
 	s.pendingWrite = true
+	s.writeSeq++
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
 	}
@@ -54,7 +55,10 @@ func (s *Session) critJSONPath() string {
 // writeFilesSnapshot holds all session state needed to write the review file,
 // captured under lock so that disk I/O can happen without holding the lock.
 type writeFilesSnapshot struct {
-	critPath        string
+	critPath string
+	// writeSeq is Session.writeSeq at snapshot time. A write clears
+	// pendingWrite only if no change was scheduled after its snapshot.
+	writeSeq        uint64
 	lastMtime       time.Time
 	branch          string
 	baseRef         string
@@ -398,7 +402,7 @@ func (s *Session) writeReviewFile(critPath string) error {
 		// The watcher skips a file whose mtime matches our own write, so
 		// flag comments another process added for it to load.
 		s.diskHasUnloadedComments = unloaded
-		s.pendingWrite = false
+		s.clearPendingWrite(snap)
 		s.clearWrittenDeletedCommentIDs(snap.deletedCommentIDs)
 		// Sync in-memory pending-delete state to what we just wrote, so the
 		// next snapshot does not re-include IDs that a concurrent
@@ -413,13 +417,22 @@ func (s *Session) writeReviewFile(critPath string) error {
 	return nil
 }
 
+// clearPendingWrite clears pendingWrite after snap was written, unless a
+// change was scheduled after the snapshot: that change is not on disk yet,
+// and the watcher must not reload over it. Caller must hold s.mu.
+func (s *Session) clearPendingWrite(snap writeFilesSnapshot) {
+	if s.writeSeq == snap.writeSeq {
+		s.pendingWrite = false
+	}
+}
+
 // markEmptyWritten records that an empty snapshot is on disk (no review.json),
 // so the watcher stops treating the session as having a pending write.
 func (s *Session) markEmptyWritten(snap writeFilesSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastCritJSONMtime = time.Time{}
-	s.pendingWrite = false
+	s.clearPendingWrite(snap)
 	s.clearWrittenDeletedCommentIDs(snap.deletedCommentIDs)
 	s.pendingRemoteDeletes = nil
 	s.lastLoadedPendingDeletes = nil
@@ -465,6 +478,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		}
 	}
 	snap := writeFilesSnapshot{
+		writeSeq:                s.writeSeq,
 		critPath:                critPath,
 		lastMtime:               s.lastCritJSONMtime,
 		branch:                  s.Branch,
@@ -818,6 +832,7 @@ func (s *Session) mergeExternalCritJSON() bool {
 	if cj.ReviewRound > 0 && memRound > cj.ReviewRound {
 		s.mu.Lock()
 		s.lastCritJSONMtime = info.ModTime()
+		s.diskHasUnloadedComments = false
 		s.mu.Unlock()
 		return false
 	}

@@ -529,10 +529,12 @@ type Session struct {
 	// diskHasUnloadedComments is set when our last write kept comments or
 	// replies that only disk had, so the watcher reloads despite the mtime match.
 	diskHasUnloadedComments bool
-	awaitingFirstReview     bool   // true until first review-cycle completes
-	waitingForAgent         bool   // true between finish (with unresolved comments) and round-complete
-	planHook                string // plan_mode | codex while a plan hook waits on review-cycle
-	browserClients          int32  // number of connected SSE browser clients (atomic)
+	// writeSeq counts scheduled writes; see writeFilesSnapshot.writeSeq.
+	writeSeq            uint64
+	awaitingFirstReview bool   // true until first review-cycle completes
+	waitingForAgent     bool   // true between finish (with unresolved comments) and round-complete
+	planHook            string // plan_mode | codex while a plan hook waits on review-cycle
+	browserClients      int32  // number of connected SSE browser clients (atomic)
 
 	// Focus is the discriminator that selects what the session is showing.
 	// Defaults to FocusWorkingTree (today's behavior). Range-mode sessions
@@ -2420,7 +2422,7 @@ func (s *Session) ClearAllComments() {
 	critPath := s.critJSONPath()
 	s.mu.Unlock()
 	// Full-folder cleanup; idempotent on missing folder.
-	if err := os.RemoveAll(critPath); err != nil && !os.IsNotExist(err) {
+	if err := ClearReviewFolder(critPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: removing review folder: %v\n", err)
 	}
 }

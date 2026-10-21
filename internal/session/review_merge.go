@@ -3,34 +3,42 @@ package session
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 )
 
+// ErrReviewRemoved is returned by SaveCritJSONMerged when the review file was
+// deleted (crit cleanup, an approval) while the caller held its copy.
+var ErrReviewRemoved = errors.New("review file was removed; not saving")
+
 // SaveCritJSONMerged saves mine, a review copy loaded as base before a long
 // operation (such as a forge push), without losing what other writers saved
-// in the meantime. Under the review write lock it reads the current file and
-// merges three ways: comments and replies by ID, other fields by JSON key.
-// A change only one side made wins; where both changed the same comment or
-// field, mine wins and keeps the other side's new replies.
-func SaveCritJSONMerged(critPath string, base, mine CritJSON) error {
-	return WithReviewWriteLock(critPath, func() error {
-		theirs := CritJSON{}
+// in the meantime. Under the review write lock it reads the current file
+// (theirs) and merges three ways: comments and replies by ID, comment and
+// top-level fields by JSON key, pending remote deletes as a set. A change
+// only one side made wins; where both changed the same field, mine wins. It
+// returns what it saved, which the caller uses as its next copy and base.
+func SaveCritJSONMerged(critPath string, base, mine CritJSON) (CritJSON, error) {
+	var merged CritJSON
+	err := WithReviewWriteLock(critPath, func() error {
 		data, err := ReadFileShared(ReviewPathsFor(critPath).Review)
-		switch {
-		case err == nil:
-			if err := json.Unmarshal(data, &theirs); err != nil {
-				return fmt.Errorf("invalid review file: %w", err)
-			}
-		case !os.IsNotExist(err):
+		if os.IsNotExist(err) {
+			return ErrReviewRemoved
+		}
+		if err != nil {
 			return err
 		}
-		merged, err := mergeCritJSON3(base, mine, theirs)
-		if err != nil {
+		var theirs CritJSON
+		if err := json.Unmarshal(data, &theirs); err != nil {
+			return fmt.Errorf("invalid review file: %w", err)
+		}
+		if merged, err = mergeCritJSON3(base, mine, theirs); err != nil {
 			return err
 		}
 		return saveCritJSONToDisk(critPath, merged)
 	})
+	return merged, err
 }
 
 // CloneCritJSON returns a deep copy of cj through its JSON form, as a base
@@ -45,39 +53,54 @@ func CloneCritJSON(cj CritJSON) CritJSON {
 
 // mergeCritJSON3 merges mine and theirs, two edits of base.
 func mergeCritJSON3(base, mine, theirs CritJSON) (CritJSON, error) {
-	fields := [3]map[string]json.RawMessage{}
-	for i, cj := range []CritJSON{base, mine, theirs} {
-		cj.Files, cj.ReviewComments = nil, nil
-		data, err := json.Marshal(cj)
+	strip := func(cj CritJSON) CritJSON {
+		cj.Files, cj.ReviewComments, cj.PendingRemoteDeletes = nil, nil, nil
+		return cj
+	}
+	var merged CritJSON
+	if err := mergeFields3(strip(base), strip(mine), strip(theirs), &merged); err != nil {
+		return CritJSON{}, err
+	}
+	var err error
+	if merged.ReviewComments, err = mergeComments3(base.ReviewComments, mine.ReviewComments, theirs.ReviewComments); err != nil {
+		return CritJSON{}, err
+	}
+	if merged.Files, err = mergeFiles3(base.Files, mine.Files, theirs.Files); err != nil {
+		return CritJSON{}, err
+	}
+	merged.PendingRemoteDeletes = mergeRefSet3(base.PendingRemoteDeletes, mine.PendingRemoteDeletes, theirs.PendingRemoteDeletes)
+	return merged, nil
+}
+
+// mergeFields3 merges three values of one struct type by JSON key into out:
+// theirs, with each key mine changed from base taken from mine.
+func mergeFields3[T any](base, mine, theirs T, out *T) error {
+	var fields [3]map[string]json.RawMessage
+	for i, v := range []T{base, mine, theirs} {
+		data, err := json.Marshal(v)
 		if err != nil {
-			return CritJSON{}, err
+			return err
 		}
 		if err := json.Unmarshal(data, &fields[i]); err != nil {
-			return CritJSON{}, err
+			return err
 		}
 	}
-	b, m, out := fields[0], fields[1], fields[2]
+	b, m, result := fields[0], fields[1], fields[2]
 	for key := range unionKeys(b, m) {
 		if bytes.Equal(m[key], b[key]) {
 			continue
 		}
 		if v, ok := m[key]; ok {
-			out[key] = v
+			result[key] = v
 		} else {
-			delete(out, key)
+			delete(result, key)
 		}
 	}
-	data, err := json.Marshal(out)
+	data, err := json.Marshal(result)
 	if err != nil {
-		return CritJSON{}, err
+		return err
 	}
-	var merged CritJSON
-	if err := json.Unmarshal(data, &merged); err != nil {
-		return CritJSON{}, err
-	}
-	merged.ReviewComments = mergeComments3(base.ReviewComments, mine.ReviewComments, theirs.ReviewComments)
-	merged.Files = mergeFiles3(base.Files, mine.Files, theirs.Files)
-	return merged, nil
+	return json.Unmarshal(data, out)
 }
 
 func unionKeys[V any](a, b map[string]V) map[string]struct{} {
@@ -99,93 +122,176 @@ func jsonEqual(a, b any) bool {
 	return errA == nil && errB == nil && bytes.Equal(ja, jb)
 }
 
-func mergeFiles3(base, mine, theirs map[string]CritJSONFile) map[string]CritJSONFile {
+func mergeFiles3(base, mine, theirs map[string]CritJSONFile) (map[string]CritJSONFile, error) {
 	out := make(map[string]CritJSONFile)
 	paths := unionKeys(base, mine)
 	for path := range theirs {
 		paths[path] = struct{}{}
 	}
 	for path := range paths {
-		b, inBase := base[path]
+		b := base[path]
 		m, inMine := mine[path]
 		t, inTheirs := theirs[path]
-		switch {
-		case inMine && inTheirs:
-			f := t
-			if f.Status == b.Status && f.FileHash == b.FileHash {
-				f.Status, f.FileHash = m.Status, m.FileHash
-			}
-			f.Comments = mergeComments3(b.Comments, m.Comments, t.Comments)
-			out[path] = f
-		case inMine && (!inBase || !jsonEqual(m, b)):
-			out[path] = m // added by mine, or deleted by theirs after mine changed it
-		case inTheirs && (!inBase || !jsonEqual(t, b)):
-			out[path] = t
+		comments, err := mergeComments3(b.Comments, m.Comments, t.Comments)
+		if err != nil {
+			return nil, err
 		}
-	}
-	return out
-}
-
-// mergeComments3 merges two edits of base by comment ID, in mine's order with
-// comments only theirs added appended.
-func mergeComments3(base, mine, theirs []Comment) []Comment {
-	baseByID := commentsByID(base)
-	theirsByID := commentsByID(theirs)
-	mineIDs := make(map[string]struct{}, len(mine))
-	var out []Comment
-	for _, m := range mine {
-		mineIDs[m.ID] = struct{}{}
-		b, inBase := baseByID[m.ID]
-		t, inTheirs := theirsByID[m.ID]
-		switch {
-		case !inTheirs:
-			// Kept unless theirs deleted a comment mine left unchanged.
-			if !inBase || !jsonEqual(m, b) {
-				out = append(out, m)
-			}
-		case inBase && jsonEqual(m, b):
-			out = append(out, t)
-		case inBase && jsonEqual(t, b):
-			out = append(out, m)
-		default:
-			m.Replies = appendNewReplies(m.Replies, t.Replies, b.Replies)
-			out = append(out, m)
-		}
-	}
-	for _, t := range theirs {
-		if _, inMine := mineIDs[t.ID]; inMine {
+		if len(comments) == 0 {
 			continue
 		}
-		// Added by theirs, or edited by theirs after mine deleted it.
-		if b, inBase := baseByID[t.ID]; !inBase || !jsonEqual(t, b) {
+		f := m
+		if !inMine {
+			f = t
+		} else if inTheirs {
+			f = t
+			if m.Status != b.Status {
+				f.Status = m.Status
+			}
+			if m.FileHash != b.FileHash {
+				f.FileHash = m.FileHash
+			}
+		}
+		f.Comments = comments
+		out[path] = f
+	}
+	return out, nil
+}
+
+// mergeComments3 merges comments by ID, and each comment present on all
+// sides field by field with its replies merged by ID.
+func mergeComments3(base, mine, theirs []Comment) ([]Comment, error) {
+	var mergeErr error
+	out := merge3ByID(base, mine, theirs, func(c Comment) string { return c.ID },
+		func(b, m, t Comment) Comment {
+			var c Comment
+			if err := mergeFields3(b, m, t, &c); err != nil {
+				mergeErr = err
+				return m
+			}
+			c.Replies = merge3ByID(b.Replies, m.Replies, t.Replies, func(r Reply) string { return r.ID },
+				func(_, m, _ Reply) Reply { return m })
+			return c
+		})
+	return out, mergeErr
+}
+
+// merge3ByID merges two edits of base, matching items by ID. An item only
+// one side changed, added or deleted takes that side's version; an item both
+// sides changed goes through both. Order is mine's, then items only theirs
+// added. Items without an ID are kept from mine, plus theirs' new ones.
+func merge3ByID[T any](base, mine, theirs []T, id func(T) string, both func(b, m, t T) T) []T {
+	baseByID := indexByID(base, id)
+	theirsByID := indexByID(theirs, id)
+	seen := make(map[string]struct{}, len(mine))
+	var out []T
+	for _, m := range mine {
+		key := id(m)
+		if _, dup := seen[key]; dup || key == "" {
+			out = append(out, m)
+			continue
+		}
+		seen[key] = struct{}{}
+		b, inBase := baseByID[key]
+		t, inTheirs := theirsByID[key]
+		if v, keep := mergeItem3(b, inBase, m, t, inTheirs, both); keep {
+			out = append(out, v)
+		}
+	}
+	return append(out, theirsOnly(base, mine, theirs, baseByID, seen, id)...)
+}
+
+// mergeItem3 merges one item mine has. keep is false when theirs deleted an
+// item mine left unchanged.
+func mergeItem3[T any](b T, inBase bool, m, t T, inTheirs bool, both func(b, m, t T) T) (v T, keep bool) {
+	switch {
+	case !inTheirs:
+		return m, !inBase || !jsonEqual(m, b)
+	case inBase && jsonEqual(m, b):
+		return t, true
+	case inBase && jsonEqual(t, b):
+		return m, true
+	default:
+		return both(b, m, t), true
+	}
+}
+
+// theirsOnly returns the items only theirs has that it added, or edited
+// after mine deleted them. seen holds the IDs mine already placed.
+func theirsOnly[T any](base, mine, theirs []T, baseByID map[string]T, seen map[string]struct{}, id func(T) string) []T {
+	var out []T
+	for _, t := range theirs {
+		key := id(t)
+		if key == "" {
+			if !containsJSON(mine, t) && !containsJSON(base, t) {
+				out = append(out, t)
+			}
+			continue
+		}
+		if _, placed := seen[key]; placed {
+			continue
+		}
+		seen[key] = struct{}{}
+		if b, inBase := baseByID[key]; !inBase || !jsonEqual(t, b) {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-func commentsByID(comments []Comment) map[string]Comment {
-	out := make(map[string]Comment, len(comments))
-	for _, c := range comments {
-		out[c.ID] = c
+// indexByID maps each ID to its first item; later duplicates are ignored.
+func indexByID[T any](items []T, id func(T) string) map[string]T {
+	out := make(map[string]T, len(items))
+	for _, item := range items {
+		if _, ok := out[id(item)]; !ok {
+			out[id(item)] = item
+		}
 	}
 	return out
 }
 
-// appendNewReplies adds replies theirs has that neither mine nor base has.
-func appendNewReplies(mine, theirs, base []Reply) []Reply {
-	known := make(map[string]struct{}, len(mine)+len(base))
-	for _, r := range mine {
-		known[r.ID] = struct{}{}
-	}
-	for _, r := range base {
-		known[r.ID] = struct{}{}
-	}
-	out := append([]Reply(nil), mine...)
-	for _, r := range theirs {
-		if _, ok := known[r.ID]; !ok && r.ID != "" {
-			out = append(out, r)
+func containsJSON[T any](items []T, v T) bool {
+	for _, item := range items {
+		if jsonEqual(item, v) {
+			return true
 		}
+	}
+	return false
+}
+
+// mergeRefSet3 merges pending remote deletes as a set: theirs, minus the refs
+// mine drained since base, plus the refs mine added.
+func mergeRefSet3(base, mine, theirs []RemoteRef) []RemoteRef {
+	inBase := refSet(base)
+	inMine := refSet(mine)
+	var out []RemoteRef
+	added := make(map[RemoteRef]struct{})
+	for _, ref := range theirs {
+		_, wasBase := inBase[ref]
+		_, stillMine := inMine[ref]
+		if wasBase && !stillMine {
+			continue
+		}
+		if _, dup := added[ref]; !dup {
+			out = append(out, ref)
+			added[ref] = struct{}{}
+		}
+	}
+	for _, ref := range mine {
+		if _, wasBase := inBase[ref]; wasBase {
+			continue
+		}
+		if _, dup := added[ref]; !dup {
+			out = append(out, ref)
+			added[ref] = struct{}{}
+		}
+	}
+	return out
+}
+
+func refSet(refs []RemoteRef) map[RemoteRef]struct{} {
+	out := make(map[RemoteRef]struct{}, len(refs))
+	for _, ref := range refs {
+		out[ref] = struct{}{}
 	}
 	return out
 }

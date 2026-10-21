@@ -2868,7 +2868,11 @@ func TestCollectEditedForPush_DetectsBodyDivergence(t *testing.T) {
 // stored in LastPushedBodyHash so the next push is a no-op.
 func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBodyHash(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "review.json")
+	path := filepath.Join(dir, "review")
+	reviewPath := session.ReviewPathsFor(path).Review
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{
@@ -2884,7 +2888,7 @@ func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBodyHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
 		t.Fatalf("write seed: %v", err)
 	}
 
@@ -2896,7 +2900,7 @@ func TestUpdateCritJSONWithEditedBodies_StampsLastPushedBodyHash(t *testing.T) {
 		t.Fatalf("update: %v", err)
 	}
 
-	out, err := os.ReadFile(path)
+	out, err := os.ReadFile(reviewPath)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -3527,7 +3531,11 @@ func TestBodyHashAtPush(t *testing.T) {
 
 func TestUpdateCritJSONWithEditedBodies_ExportedWrapper(t *testing.T) {
 	dir := t.TempDir()
-	critPath := filepath.Join(dir, "review.json")
+	critPath := filepath.Join(dir, "review")
+	reviewPath := session.ReviewPathsFor(critPath).Review
+	if err := os.MkdirAll(critPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cj := CritJSON{
 		Files: map[string]CritJSONFile{
@@ -3543,7 +3551,7 @@ func TestUpdateCritJSONWithEditedBodies_ExportedWrapper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := os.WriteFile(critPath, data, 0644); err != nil {
+	if err := os.WriteFile(reviewPath, data, 0644); err != nil {
 		t.Fatalf("write seed: %v", err)
 	}
 
@@ -3555,7 +3563,7 @@ func TestUpdateCritJSONWithEditedBodies_ExportedWrapper(t *testing.T) {
 		t.Fatalf("UpdateCritJSONWithEditedBodies: %v", err)
 	}
 
-	out, err := os.ReadFile(critPath)
+	out, err := os.ReadFile(reviewPath)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

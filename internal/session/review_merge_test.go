@@ -1,6 +1,8 @@
 package session
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -141,7 +143,7 @@ func TestSaveCritJSONMergedKeepsConcurrentSave(t *testing.T) {
 	}
 	mine := CloneCritJSON(base)
 	mine.Files["a.go"].Comments[0].GitLabNoteID = 42
-	if err := SaveCritJSONMerged(critPath, base, mine); err != nil {
+	if _, err := SaveCritJSONMerged(critPath, base, mine); err != nil {
 		t.Fatal(err)
 	}
 	got, err := readCritJSONFromDisk(critPath)
@@ -153,5 +155,127 @@ func TestSaveCritJSONMergedKeepsConcurrentSave(t *testing.T) {
 	}
 	if got.Files["a.go"].Comments[0].GitLabNoteID != 42 {
 		t.Errorf("push result lost: %+v", got.Files["a.go"].Comments[0])
+	}
+}
+
+// Push stamps IDs on a comment while the user resolves it and deletes a
+// reply: both sides' field changes survive and the reply stays deleted.
+func TestMergeCritJSON3CommentFieldsAndReplies(t *testing.T) {
+	c := Comment{ID: "c1", Body: "one", Replies: []Reply{{ID: "r1", Body: "a"}, {ID: "r2", Body: "b"}}}
+	base := CritJSON{Files: map[string]CritJSONFile{"a.go": {Comments: []Comment{c}}}}
+	mine := CloneCritJSON(base)
+	mine.Files["a.go"].Comments[0].GitLabNoteID = 99
+	theirs := CloneCritJSON(base)
+	theirs.Files["a.go"].Comments[0].Resolved = true
+	theirs.Files["a.go"].Comments[0].Replies = theirs.Files["a.go"].Comments[0].Replies[:1]
+
+	got, err := mergeCritJSON3(base, mine, theirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := got.Files["a.go"].Comments[0]
+	if merged.GitLabNoteID != 99 || !merged.Resolved {
+		t.Errorf("merged = %+v, want note ID 99 and resolved", merged)
+	}
+	if len(merged.Replies) != 1 || merged.Replies[0].ID != "r1" {
+		t.Errorf("replies = %+v, want only r1", merged.Replies)
+	}
+}
+
+func TestMergeCritJSON3PendingRemoteDeletes(t *testing.T) {
+	r1, r2, r3 := RemoteRef{CommentID: 1}, RemoteRef{CommentID: 2}, RemoteRef{CommentID: 3}
+	base := CritJSON{PendingRemoteDeletes: []RemoteRef{r1}}
+	mine := CritJSON{PendingRemoteDeletes: []RemoteRef{r3}}       // drained r1, queued r3
+	theirs := CritJSON{PendingRemoteDeletes: []RemoteRef{r1, r2}} // daemon queued r2
+	got, err := mergeCritJSON3(base, mine, theirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.PendingRemoteDeletes, []RemoteRef{r2, r3}) {
+		t.Errorf("pending deletes = %v, want [r2 r3]", got.PendingRemoteDeletes)
+	}
+}
+
+func TestMergeCritJSON3IDlessAndDuplicateComments(t *testing.T) {
+	base := CritJSON{ReviewComments: []Comment{{ID: "d", Body: "first"}}}
+	mine := CloneCritJSON(base)
+	mine.ReviewComments = append(mine.ReviewComments, Comment{Body: "mine, no id"})
+	theirs := CloneCritJSON(base)
+	theirs.ReviewComments = append(theirs.ReviewComments, Comment{Body: "theirs, no id"}, Comment{ID: "d", Body: "duplicate"})
+	got, err := mergeCritJSON3(base, mine, theirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	for _, c := range got.ReviewComments {
+		bodies = append(bodies, c.Body)
+	}
+	if !reflect.DeepEqual(bodies, []string{"first", "mine, no id", "theirs, no id"}) {
+		t.Errorf("bodies = %v", bodies)
+	}
+}
+
+// A file theirs deleted keeps only the comments mine changed.
+func TestMergeCritJSON3FileDeletedByTheirs(t *testing.T) {
+	base := CritJSON{Files: map[string]CritJSONFile{"a.go": {Status: "modified", Comments: []Comment{{ID: "c1"}, {ID: "c2"}}}}}
+	mine := CloneCritJSON(base)
+	mine.Files["a.go"].Comments[0].GitLabNoteID = 5
+	got, err := mergeCritJSON3(base, mine, CritJSON{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := got.Files["a.go"]
+	if len(f.Comments) != 1 || f.Comments[0].ID != "c1" || f.Status != "modified" {
+		t.Errorf("file = %+v, want only c1 with status kept", f)
+	}
+}
+
+func TestSaveCritJSONMergedRefusesRemovedReview(t *testing.T) {
+	critPath := filepath.Join(t.TempDir(), "review")
+	base := CritJSON{Branch: "feature", Files: map[string]CritJSONFile{"a.go": {Comments: []Comment{{ID: "c1"}}}}}
+	if err := SaveCritJSON(critPath, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClearReviewFolder(critPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveCritJSONMerged(critPath, base, base); !errors.Is(err, ErrReviewRemoved) {
+		t.Fatalf("err = %v, want ErrReviewRemoved", err)
+	}
+	if _, err := os.Stat(ReviewPathsFor(critPath).Review); !os.IsNotExist(err) {
+		t.Fatalf("review file recreated: %v", err)
+	}
+}
+
+// The second of two saves must not undo a change the first one kept.
+func TestSaveCritJSONMergedTwiceKeepsTheirs(t *testing.T) {
+	critPath := filepath.Join(t.TempDir(), "review")
+	base := CritJSON{Files: map[string]CritJSONFile{"a.go": {Comments: []Comment{{ID: "c1", Body: "one"}}}}}
+	if err := SaveCritJSON(critPath, base); err != nil {
+		t.Fatal(err)
+	}
+	theirs := CloneCritJSON(base)
+	theirs.Files["a.go"].Comments[0].Resolved = true
+	if err := SaveCritJSON(critPath, theirs); err != nil {
+		t.Fatal(err)
+	}
+
+	mine := CloneCritJSON(base)
+	mine.Files["a.go"].Comments[0].LastPushedBodyHash = "h"
+	merged, err := SaveCritJSONMerged(critPath, base, mine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := CloneCritJSON(merged)
+	next.Files["a.go"].Comments[0].GitLabNoteID = 7
+	if _, err := SaveCritJSONMerged(critPath, merged, next); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readCritJSONFromDisk(critPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := got.Files["a.go"].Comments[0]; !c.Resolved || c.GitLabNoteID != 7 || c.LastPushedBodyHash != "h" {
+		t.Errorf("comment = %+v", c)
 	}
 }

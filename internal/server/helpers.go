@@ -54,10 +54,6 @@ func dedupWebComments(cj CritJSON, incoming []webComment) ([]webComment, map[str
 	return share.DedupWebComments(cj, incoming)
 }
 
-func mergeWebComments(critPath string, newComments []webComment, replyUpdates map[string][]webReply) error {
-	return share.MergeWebComments(critPath, newComments, replyUpdates)
-}
-
 func saveAttachment(reviewPath string, data []byte) (string, error) {
 	return session.SaveAttachment(reviewPath, data)
 }

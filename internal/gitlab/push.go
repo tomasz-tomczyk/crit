@@ -193,7 +193,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		return result, err
 	}
 	if result.Edited+result.Deleted > 0 {
-		if err := saved.save(cj); err != nil {
+		if err := saved.save(&cj); err != nil {
 			return result, err
 		}
 	}
@@ -214,7 +214,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 			return result, resolveErr
 		}
 		if resolved > 0 {
-			if err := saved.save(cj); err != nil {
+			if err := saved.save(&cj); err != nil {
 				return result, err
 			}
 		}
@@ -249,7 +249,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		return result, err
 	}
 	if resolved > 0 {
-		if err := saved.save(cj); err != nil {
+		if err := saved.save(&cj); err != nil {
 			return result, err
 		}
 	}
@@ -268,7 +268,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 }
 
 func savePartialGitLabPush(saved *pushReview, cj session.CritJSON, operationErr error) error {
-	if err := saved.save(cj); err != nil {
+	if err := saved.save(&cj); err != nil {
 		return errors.Join(operationErr, fmt.Errorf("persisting successful GitLab operations: %w", err))
 	}
 	return operationErr
@@ -521,7 +521,7 @@ func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.Chan
 		scope = probed
 	}
 	mergeDiscussions(cj, discussions, scope)
-	return saved.save(*cj)
+	return saved.save(cj)
 }
 
 // pushReview saves the review copy runPush loaded before its network calls.
@@ -532,11 +532,15 @@ type pushReview struct {
 	base session.CritJSON
 }
 
-func (r *pushReview) save(cj session.CritJSON) error {
-	if err := session.SaveCritJSONMerged(r.path, r.base, cj); err != nil {
+// save merges cj into the review file and replaces cj with what was saved,
+// so later push steps build on other writers' changes too.
+func (r *pushReview) save(cj *session.CritJSON) error {
+	merged, err := session.SaveCritJSONMerged(r.path, r.base, *cj)
+	if err != nil {
 		return err
 	}
-	r.base = session.CloneCritJSON(cj)
+	*cj = merged
+	r.base = session.CloneCritJSON(merged)
 	return nil
 }
 

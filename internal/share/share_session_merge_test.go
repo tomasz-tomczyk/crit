@@ -88,6 +88,7 @@ func TestDaemonSaveKeepsMergedReviewCommentAndReply(t *testing.T) {
 func TestSyncCommentsFromDiskKeepsUnsavedComment(t *testing.T) {
 	sess, critPath := newMergeSession(t)
 	sess.AddComment("plan.md", 1, 1, "", "local", "", "", "")
+	sess.QuiesceForTest() // keep the comment unsaved: no debounced save
 	if err := MergeWebComments(critPath, []WebComment{{Body: "remote", FilePath: "plan.md", StartLine: 1, EndLine: 1}}, nil); err != nil {
 		t.Fatal(err)
 	}

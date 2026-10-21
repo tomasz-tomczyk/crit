@@ -1104,34 +1104,37 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 		successByID[e.GitHubID] = e.Body
 	}
 
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
-	}
-	for path, cf := range cj.Files {
-		for i, c := range cf.Comments {
-			if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
-				cf.Comments[i].Body = body
-				cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(body)
-			}
-			for j, r := range c.Replies {
-				if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
-					cf.Comments[i].Replies[j].Body = body
-					cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(body)
+	reviewPath := session.ReviewPathsFor(critPath).Review
+	return session.WithReviewWriteLock(critPath, func() error {
+		data, err := os.ReadFile(reviewPath)
+		if err != nil {
+			return err
+		}
+		var cj session.CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			return err
+		}
+		for path, cf := range cj.Files {
+			for i, c := range cf.Comments {
+				if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
+					cf.Comments[i].Body = body
+					cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(body)
+				}
+				for j, r := range c.Replies {
+					if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
+						cf.Comments[i].Replies[j].Body = body
+						cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(body)
+					}
 				}
 			}
+			cj.Files[path] = cf
 		}
-		cj.Files[path] = cf
-	}
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return config.AtomicWriteFile(critPath, append(out, '\n'), 0644)
+		out, err := json.MarshalIndent(cj, "", "  ")
+		if err != nil {
+			return err
+		}
+		return config.AtomicWriteFile(reviewPath, append(out, '\n'), 0644)
+	})
 }
 
 // postGHReply posts a reply to an existing GitHub PR review comment.

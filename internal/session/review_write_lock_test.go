@@ -113,3 +113,40 @@ func TestWithReviewWriteLockExcludesSecondHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Removing a review waits for a writer holding the lock, so the writer's
+// save cannot bring the removed review back.
+func TestClearReviewFolderWaitsForLockHolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "review")
+	if err := SaveCritJSON(dir, CritJSON{ReviewComments: []Comment{{ID: "r1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	held := make(chan struct{})
+	release := make(chan struct{})
+	writer := make(chan error, 1)
+	go func() {
+		writer <- WithReviewWriteLock(dir, func() error {
+			close(held)
+			<-release
+			return SaveCritJSON(dir, CritJSON{ReviewComments: []Comment{{ID: "r1"}, {ID: "r2"}}})
+		})
+	}()
+	<-held
+	cleared := make(chan error, 1)
+	go func() { cleared <- ClearReviewFolder(dir) }()
+	select {
+	case <-cleared:
+		t.Fatal("ClearReviewFolder ran while a writer held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-writer; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-cleared; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("review folder survived: %v", err)
+	}
+}

@@ -387,10 +387,7 @@ func clearCritJSON(outputDir string) error {
 // clearReviewFolder removes the entire review folder (review.json,
 // snapshots.json, attachments). Idempotent: a missing folder is fine.
 func clearReviewFolder(identity string) error {
-	if err := os.RemoveAll(identity); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+	return session.ClearReviewFolder(identity)
 }
 
 // walkReviewIdentities iterates over every review identity in

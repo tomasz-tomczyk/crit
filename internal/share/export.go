@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/focus"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
@@ -44,6 +45,12 @@ func FetchWebCommentsForReview(shareURL, shareBaseURL string, cj session.CritJSO
 
 func MergeFetchedComments(critPath string, fetched FetchWebCommentsResult) error {
 	return mergeFetchedComments(critPath, fetched)
+}
+
+// MergeFetchedCommentsFor is MergeFetchedComments with the daemon focus
+// already known, for the daemon itself.
+func MergeFetchedCommentsFor(critPath string, fetched FetchWebCommentsResult, daemonFocus *focus.Focus) error {
+	return mergeFetchedCommentsFor(critPath, fetched, daemonFocus)
 }
 
 func FetchHasUpdates(fetched FetchWebCommentsResult) bool { return fetchHasUpdates(fetched) }
