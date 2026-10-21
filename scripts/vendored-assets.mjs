@@ -31,7 +31,7 @@ export const vendoredAssets = [
   },
   {
     path: "web/mermaid.min.js",
-    sources: ["mermaid@12.1.0"],
+    sources: ["mermaid@12.2.0"],
     packagePath: "dist/mermaid.min.js",
     kind: "copy",
   },
