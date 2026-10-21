@@ -1942,3 +1942,78 @@ func writeFileNewMtime(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestQuoteOnLines(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		quote string
+		want  bool
+	}{
+		{"still there", []string{"The brown fox jumps over the lazy dog."}, "The brown fox", true},
+		{"quoted words changed", []string{"The red fox jumps over the lazy dog."}, "The brown fox", false},
+		{"typo fixed inside the quote", []string{"The brown fox jumps."}, "The brwn fox", false},
+		{"markdown formatting and link target in the source",
+			[]string{"**The brown** fox jumps over [the lazy dog](https://example.com)."},
+			"The brown fox jumps over the lazy dog", true},
+		{"diagram label lines joined by <br/>",
+			[]string{`  P1["PreToolUse hooks<br/>deny_root_grep<br/>stdout_guard is OFF"]`},
+			"PreToolUse hooksdeny_root_grepstdout_guard is OFF", true},
+		{"quote across two lines", []string{"first line ends here", "and the second begins"}, "ends here and the second", true},
+		{"word cut from the middle of the quote",
+			[]string{"Release notes are published every afternoon by the docs team."},
+			"published every Friday afternoon", false},
+		{"only punctuation or spacing changed",
+			[]string{"Release notes are published  every Friday afternoon, by the docs team."},
+			"published every Friday afternoon by", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := quoteOnLines(tt.lines, 1, len(tt.lines), tt.quote); got != tt.want {
+				t.Errorf("quoteOnLines(%q) = %v, want %v", tt.quote, got, tt.want)
+			}
+		})
+	}
+}
+
+// A comment on selected text is about its quote. A light edit leaves the line
+// similar enough to keep its anchor, but if the quoted words themselves are
+// gone the comment is Drifted. A whole-line comment on the same line is not.
+func TestCarryForward_QuoteChangedMarksDrifted(t *testing.T) {
+	dir := t.TempDir()
+	mdPath := filepath.Join(dir, "plan.md")
+	oldContent := "# Plan\n\nThe brown fox jumps over the lazy dog near the old river bank.\n"
+	newContent := "# Plan\n\nThe red fox jumps over the lazy dog near the old river bank.\n"
+	os.WriteFile(mdPath, []byte(newContent), 0644)
+
+	comment := func(id, quote string) Comment {
+		return Comment{
+			ID: id, StartLine: 3, EndLine: 3, Body: "Which fox?", Quote: quote,
+			Anchor: "The brown fox jumps over the lazy dog near the old river bank.",
+			Scope:  "line", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+		}
+	}
+	s := &Session{
+		Mode:     "files",
+		RepoRoot: dir,
+		Files: []*FileEntry{{
+			Path: "plan.md", AbsPath: mdPath, Status: "modified", FileType: "markdown",
+			Content: newContent, PreviousContent: oldContent, Comments: []Comment{},
+			PreviousComments: []Comment{comment("c_quote", "The brown fox"), comment("c_line", "")},
+		}},
+		roundComplete: make(chan struct{}, 1),
+	}
+
+	s.carryForwardComments()
+
+	got := map[string]Comment{}
+	for _, c := range s.Files[0].Comments {
+		got[c.ID] = c
+	}
+	if c := got["c_quote"]; !c.Drifted || c.StartLine != 3 {
+		t.Errorf("quoted comment: Drifted=%v line=%d, want Drifted=true line 3", c.Drifted, c.StartLine)
+	}
+	if c := got["c_line"]; c.Drifted || c.StartLine != 3 {
+		t.Errorf("whole-line comment: Drifted=%v line=%d, want Drifted=false line 3", c.Drifted, c.StartLine)
+	}
+}
