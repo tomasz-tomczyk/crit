@@ -4,6 +4,11 @@ import { addComment, clearAllComments, getMdPath, loadPage, mdSection, reviewScr
 // The "Open Questions" blockquote, near the end of plan.md.
 const OPEN_QUESTION_LINE = 47;
 
+// Pierre and crit each round the scroll position, so on some layouts (CI's
+// Linux fonts, a palette change) the thread ends up 1px off. The bug this
+// guards against moves it by the reply's height (62px).
+const MAX_MOVE_PX = 2;
+
 test.describe('Document view keeps the reader in place — File Mode', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
@@ -27,7 +32,7 @@ test.describe('Document view keeps the reader in place — File Mode', () => {
     await waitForScrollStable(page);
 
     // THEN - the thread stayed where it was in every frame, not only at the end
-    expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(1);
+    expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(MAX_MOVE_PX);
   });
 
   test('a reply still leaves the thread in place after the review view is rebuilt', async ({ page, request }) => {
@@ -54,10 +59,8 @@ test.describe('Document view keeps the reader in place — File Mode', () => {
     await expect(card.locator('.comment-reply')).toHaveCount(1);
     await waitForScrollStable(page);
 
-    // THEN - the thread stayed where it was in every frame. The palette change
-    // can leave the document on sub-pixel positions, and the fix skips shifts
-    // under 1px, so up to 1px can remain (the bug moves it by the reply height).
-    expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(2);
+    // THEN - the thread stayed where it was in every frame
+    expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(MAX_MOVE_PX);
   });
 
   // The file header sits above the document in the same Pierre item. Once the
@@ -87,7 +90,7 @@ test.describe('Document view keeps the reader in place — File Mode', () => {
       await waitForScrollStable(page);
 
       // THEN - the thread stayed where it was in every frame
-      expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(1);
+      expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(MAX_MOVE_PX);
     });
   }
 });
