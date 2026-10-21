@@ -3384,11 +3384,15 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 			return
 		default:
 		}
-		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
-		sess.RefreshFileContent()
+		// Re-read content (and file list/diffs in git mode) so next fetch returns
+		// updated data. Git mode leaves content alone: the browser still shows
+		// the text it loaded and comments anchor to it; the next live session
+		// fetch syncs content and moves comments together (SyncWorkingTree).
 		if sess.Mode == "git" {
 			sess.RefreshFileList()
 			sess.RefreshDiffs()
+		} else {
+			sess.RefreshFileContent()
 		}
 		sess.Notify(SSEEvent{Type: "comments-changed"})
 	}

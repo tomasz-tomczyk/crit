@@ -766,6 +766,14 @@ type scopedSessionSnapshot struct {
 	reviewComments   []Comment
 	focus            Focus
 	lastRangeFocus   *Focus
+	vcsName          string
+	sessionKey       string
+	story            *Story
+	generatedRules   []vcs.GeneratedRule
+	// commentedFiles lists files with comments visible in the current focus,
+	// so scope "all" can keep them as orphaned rows when they drop out of
+	// the diff (the same rows GetSessionInfo shows).
+	commentedFiles []SessionFileInfo
 }
 
 func (s *Session) snapshotForScoped() scopedSessionSnapshot {
@@ -776,6 +784,7 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 	unresolvedCounts := make(map[string]int, len(s.Files))
 	lazyFiles := make(map[string]*FileEntry, len(s.Files))
 	totalUnresolved := 0
+	var commentedFiles []SessionFileInfo
 	for _, f := range s.Files {
 		commentCounts[f.Path] = countVisibleComments(f.Comments, s.Focus)
 		for _, c := range f.Comments {
@@ -786,6 +795,17 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 		}
 		if f.Lazy {
 			lazyFiles[f.Path] = f
+		}
+		if n := commentCounts[f.Path]; n > 0 {
+			commentedFiles = append(commentedFiles, SessionFileInfo{
+				Path:         f.Path,
+				OldPath:      f.OldPath,
+				Status:       f.Status,
+				FileType:     f.FileType,
+				CommentCount: n,
+				Orphaned:     true,
+				Generated:    f.Generated,
+			})
 		}
 	}
 	rc := make([]Comment, 0, len(s.reviewComments))
@@ -798,6 +818,10 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 			continue
 		}
 		rc = append(rc, c)
+	}
+	var vcsName string
+	if s.VCS != nil {
+		vcsName = s.VCS.Name()
 	}
 
 	return scopedSessionSnapshot{
@@ -816,6 +840,11 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 		reviewComments:   rc,
 		focus:            s.Focus,
 		lastRangeFocus:   s.LastRangeFocus,
+		vcsName:          vcsName,
+		sessionKey:       s.SessionKey,
+		story:            s.story,
+		generatedRules:   s.generatedRules,
+		commentedFiles:   commentedFiles,
 	}
 }
 
@@ -873,7 +902,13 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 		}
 		return nil
 	}
-	if fc.Status == "renamed" && fc.OldPath != "" && (scope == "" || scope == "all" || scope == "branch") {
+	// "all" is base vs working tree, the diff the cached session holds, so it
+	// uses the same helper. VCS backends without staging (jj, Sapling) only
+	// know "branch" in FileDiffScoped.
+	if scope == "all" && fc.Status == "deleted" {
+		return nil // as the cached session: no hunks, the UI shows a placeholder
+	}
+	if scope == "all" || (fc.Status == "renamed" && fc.OldPath != "" && (scope == "" || scope == "branch")) {
 		h, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, ignoreWhitespace, v)
 		if err == nil {
 			return h
@@ -897,8 +932,8 @@ func changesForScopeSelection(v vcs.VCS, repoRoot, baseRef, scope, commit string
 	if commit != "" {
 		return v.ChangedFilesForCommit(commit, repoRoot)
 	}
-	if scope == "all" && baseRef != "" {
-		return v.ChangedFilesFromBaseInDir(baseRef, repoRoot)
+	if scope == "all" {
+		return changedFilesForSession(v, baseRef, repoRoot)
 	}
 	return v.ChangedFilesScoped(scope, baseRef)
 }
@@ -918,8 +953,11 @@ func countHunkStats(hunks []vcs.DiffHunk) (additions, deletions int) {
 }
 
 // GetSessionInfoScoped returns session metadata filtered to a specific diff scope.
-// When scope is "" or in file mode (scopes only apply to git), delegates to GetSessionInfo.
-// All other scopes (including "all") run fresh git queries to pick up files added after startup.
+// When scope is "", in file/plan mode (scopes only apply to git), or under
+// range focus, delegates to GetSessionInfo (the round snapshot).
+// All other scopes (including "all") run fresh git queries to pick up work
+// done after the round started. "all" also keeps commented files that left the
+// diff as orphaned rows, as GetSessionInfo does.
 // When commit is non-empty, files and diffs are scoped to that single commit.
 func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
@@ -938,56 +976,111 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 		return s.GetSessionInfo()
 	}
 
+	liveAll := scope == "all" && commit == ""
+	if commit == "" {
+		// Working-tree scopes show live content; make the session's content
+		// (what comments anchor to) match it before reading comment counts.
+		s.SyncWorkingTree()
+	}
 	snap := s.snapshotForScoped()
 
-	info := SessionInfo{
+	info := snap.sessionInfo()
+	if snap.vc == nil {
+		return info
+	}
+
+	var changes []vcs.FileChange
+	var err error
+	if liveAll {
+		changes, err = s.liveAllChanges(snap.vc, snap.baseRef, snap.repoRoot, snap.ignorePatterns)
+	} else {
+		changes, err = changesForScopeSelection(snap.vc, snap.repoRoot, snap.baseRef, scope, commit)
+	}
+	if err != nil {
+		return info
+	}
+	changes = filterBinary(config.FilterIgnored(changes, snap.ignorePatterns))
+
+	info.Files = snap.scopedFileInfos(changes, scope, commit)
+	if liveAll {
+		info.Files = appendOrphanedCommentedFiles(info.Files, snap.commentedFiles)
+	}
+
+	info.HiddenUnresolved = snap.hiddenUnresolved(info.Files)
+	return info
+}
+
+// sessionInfo returns the session metadata of a scoped response, without files.
+func (snap *scopedSessionSnapshot) sessionInfo() SessionInfo {
+	return SessionInfo{
 		Mode:            snap.mode,
+		VCSName:         snap.vcsName,
 		Branch:          snap.branch,
 		BaseRef:         snap.baseRef,
 		BaseBranchName:  snap.baseBranchName,
 		ReviewRound:     snap.reviewRound,
 		AvailableScopes: availableScopes(snap.baseRef, snap.vc),
 		ReviewComments:  snap.reviewComments,
+		Cwd:             snap.repoRoot,
+		SessionKey:      snap.sessionKey,
 		Focus:           snap.focus,
 		LastRangeFocus:  snap.lastRangeFocus,
+		Story:           snap.story,
+	}
+}
+
+// scopedFileInfos builds the file rows for changes. Lazy files keep their
+// numstat counts instead of a per-file diff. Scope "all" rebuilds the whole
+// session diff, so it applies the startup lazy threshold with fresh counts;
+// other scopes reuse the session's lazy entries.
+func (snap *scopedSessionSnapshot) scopedFileInfos(changes []vcs.FileChange, scope, commit string) []SessionFileInfo {
+	liveAll := scope == "all" && commit == ""
+	lazyAll := liveAll && len(changes) > lazyFileThreshold
+	var numstats map[string]vcs.NumstatEntry
+	if lazyAll && snap.baseRef != "" {
+		numstats, _ = snap.vc.DiffNumstat(snap.baseRef, snap.repoRoot)
 	}
 
-	if snap.vc == nil {
-		return info
-	}
-
-	changes, err := changesForScopeSelection(snap.vc, snap.repoRoot, snap.baseRef, scope, commit)
-	if err != nil || len(changes) == 0 {
-		return info
-	}
-
-	changes = config.FilterIgnored(changes, snap.ignorePatterns)
-	changes = filterBinary(changes)
-
-	for _, fc := range changes {
+	files := make([]SessionFileInfo, 0, len(changes))
+	for i, fc := range changes {
 		fi := SessionFileInfo{
 			Path:         fc.Path,
 			OldPath:      fc.OldPath,
 			Status:       fc.Status,
 			FileType:     detectFileType(fc.Path),
 			CommentCount: snap.commentCounts[fc.Path],
+			Generated:    vcs.IsGenerated(fc.Path, snap.generatedRules),
 		}
-
-		if lf, ok := snap.lazyFiles[fc.Path]; ok {
-			fi.Lazy = true
-			fi.Additions = lf.LazyAdditions
-			fi.Deletions = lf.LazyDeletions
-			info.Files = append(info.Files, fi)
-			continue
+		switch lf, ok := snap.lazyFiles[fc.Path]; {
+		case lazyAll && i >= lazyFileThreshold:
+			fe := &FileEntry{AbsPath: filepath.Join(snap.repoRoot, fc.Path)}
+			populateLazyFile(fe, fc, numstats, true)
+			fi.Lazy, fi.Additions, fi.Deletions = true, fe.LazyAdditions, fe.LazyDeletions
+		case !liveAll && ok:
+			fi.Lazy, fi.Additions, fi.Deletions = true, lf.LazyAdditions, lf.LazyDeletions
+		default:
+			hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot, snap.vc, false)
+			fi.Additions, fi.Deletions = countHunkStats(hunks)
 		}
-
-		hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot, snap.vc, false)
-		fi.Additions, fi.Deletions = countHunkStats(hunks)
-		info.Files = append(info.Files, fi)
+		files = append(files, fi)
 	}
+	return files
+}
 
-	info.HiddenUnresolved = snap.hiddenUnresolved(info.Files)
-	return info
+// appendOrphanedCommentedFiles adds an orphaned row for each commented file
+// that is no longer in files, so its comments stay reachable after the work
+// is reverted (the same rows GetSessionInfo shows).
+func appendOrphanedCommentedFiles(files, commented []SessionFileInfo) []SessionFileInfo {
+	listed := make(map[string]bool, len(files))
+	for _, fi := range files {
+		listed[fi.Path] = true
+	}
+	for _, cf := range commented {
+		if !listed[cf.Path] {
+			files = append(files, cf)
+		}
+	}
+	return files
 }
 
 // hiddenUnresolved returns the count of unresolved comments that exist outside
@@ -1107,6 +1200,103 @@ func scopedDiffContents(path, scope, repoRoot, worktreeContent string, v vcs.VCS
 	return previousContent, content, true
 }
 
+// liveAllFileDiff returns the scope "all" diff (base vs working tree) for path,
+// read fresh from git and disk instead of the round snapshot. The response has
+// the same shape as GetFileDiffSnapshot's, plus the current content and its
+// hash, so the diff and the text it is drawn on come from the same moment.
+// A path that is in the session but no longer differs from base gets no hunks.
+func (s *Session) liveAllFileDiff(path string, ignoreWhitespace bool) (map[string]any, bool) {
+	s.SyncWorkingTree(path)
+
+	s.mu.RLock()
+	f := s.fileByPathLocked(path)
+	repoRoot := s.RepoRoot
+	baseRef := s.BaseRef
+	vc := s.VCS
+	focus := s.Focus
+	ignorePatterns := s.IgnorePatterns
+	s.mu.RUnlock()
+	if vc == nil || repoRoot == "" {
+		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
+	}
+
+	changes, err := s.liveAllChanges(vc, baseRef, repoRoot, ignorePatterns)
+	if err != nil {
+		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
+	}
+	fc, found := findChange(changes, path)
+	// Only read paths the file list or the session knows about.
+	if !found && f == nil {
+		return nil, false
+	}
+
+	content, hash := s.liveFileContent(path, f, fc, repoRoot)
+	result := map[string]any{"content": content, "file_hash": hash, "hunks": []vcs.DiffHunk{}}
+	if !found {
+		return result, true
+	}
+	if hunks := liveAllHunks(fc, content, baseRef, repoRoot, ignoreWhitespace, vc); hunks != nil {
+		result["hunks"] = hunks
+	}
+	if detectFileType(path) != "code" {
+		result["previous_content"] = gitBaseContentForMarkdown(s, focus, fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, vc)
+	}
+	return result, true
+}
+
+func findChange(changes []vcs.FileChange, path string) (vcs.FileChange, bool) {
+	for _, c := range changes {
+		if c.Path == path {
+			return c, true
+		}
+	}
+	return vcs.FileChange{}, false
+}
+
+// liveFileContent returns the working-tree content for a scope "all" diff.
+// Session files serve the synced session content, so the text matches the
+// lines comments anchor to; other files are read from disk. Deleted files
+// have no content.
+func (s *Session) liveFileContent(path string, f *FileEntry, fc vcs.FileChange, repoRoot string) (content, hash string) {
+	if fc.Status == "deleted" {
+		return "", ""
+	}
+	if f != nil {
+		// Orphaned and deleted entries have no content; a file that came back
+		// is read from disk below.
+		s.mu.RLock()
+		live := !f.Orphaned && f.AbsPath != "" && f.Status != "deleted"
+		s.mu.RUnlock()
+		if live && s.ensureFileLoaded(f) == nil {
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+			return f.Content, f.FileHash
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, path))
+	if err != nil {
+		return "", ""
+	}
+	return string(data), fileHash(data)
+}
+
+// liveAllHunks diffs one file base vs working tree, the way the session's
+// cached hunks are built (populateEagerFile): a deleted file has none, so the
+// UI shows its placeholder. Returns nil when the diff fails.
+func liveAllHunks(fc vcs.FileChange, content, baseRef, repoRoot string, ignoreWhitespace bool, vc vcs.VCS) []vcs.DiffHunk {
+	if fc.Status == "deleted" {
+		return nil
+	}
+	if fc.Status == "untracked" || fc.Status == "added" {
+		return vcs.FileDiffUnifiedNewFile(content)
+	}
+	hunks, err := diffHunksForFile(fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, ignoreWhitespace, vc)
+	if err != nil {
+		return nil
+	}
+	return hunks
+}
+
 // GetFileDiffSnapshotScoped returns diff data for a file filtered by scope.
 // When scope is "" or in file mode (scopes only apply to git), delegates to GetFileDiffSnapshot.
 // When commit is non-empty, returns the diff for that single commit.
@@ -1117,6 +1307,9 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWh
 	s.mu.RUnlock()
 	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan" || inRange) {
 		return s.GetFileDiffSnapshot(path, ignoreWhitespace)
+	}
+	if commit == "" && scope == "all" {
+		return s.liveAllFileDiff(path, ignoreWhitespace)
 	}
 
 	status, content, oldPath, baseRef, repoRoot := s.loadScopedFileState(path, scope, commit)

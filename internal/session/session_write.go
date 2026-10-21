@@ -298,7 +298,12 @@ func (s *Session) WriteFiles() {
 func (s *Session) SyncWriteFiles() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	return s.syncWriteFilesLocked()
+}
 
+// syncWriteFilesLocked is SyncWriteFiles for a caller that already holds
+// writeMu.
+func (s *Session) syncWriteFilesLocked() error {
 	s.mu.Lock()
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()

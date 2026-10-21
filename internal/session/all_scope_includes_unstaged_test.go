@@ -110,9 +110,8 @@ func TestGetFileDiffSnapshotScoped_AllIncludesUnstagedLandedDuringReview(t *test
 
 	sess := startAllScopeSession(t)
 
+	// No refresh: "all" must read the working tree, not the round snapshot.
 	writeFile(t, filepath.Join(dir, "app.go"), strings.Replace(branchVersion, "\"branch version\"", "\"LIVE UNSTAGED\"", 1))
-	sess.RefreshDiffs()
-	quiesceSession(t, sess)
 
 	allSnap, ok := sess.GetFileDiffSnapshotScoped("app.go", "all", "", false)
 	if !ok {
@@ -124,7 +123,7 @@ func TestGetFileDiffSnapshotScoped_AllIncludesUnstagedLandedDuringReview(t *test
 	}
 }
 
-func TestGetSessionInfoScoped_AllDropsRevertedBranchWork(t *testing.T) {
+func TestGetFileDiffSnapshotScoped_AllDropsRevertedBranchWork(t *testing.T) {
 	dir := newAllScopeRepo(t)
 	withImport := strings.Replace(allScopeSample, "package sample", "package sample\n\nimport \"NEWIMPORT\"", 1)
 	writeFile(t, filepath.Join(dir, "app.go"), withImport)

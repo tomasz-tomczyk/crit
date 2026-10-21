@@ -459,6 +459,20 @@ type Session struct {
 	// ingested one). Read/write under s.mu; surfaced via GetSessionInfo.
 	story *Story
 
+	// roundCompletePending is true from SignalRoundComplete until the git
+	// watcher has carried comments forward. SyncWorkingTree must not touch
+	// content in that window. Read/write under s.mu.
+	roundCompletePending bool
+	// roundSignalSeq counts SignalRoundComplete calls, so a watcher run only
+	// clears roundCompletePending when no newer signal arrived meanwhile.
+	roundSignalSeq uint64
+
+	// Short-lived cache of the scope "all" file list (see liveAllChanges).
+	liveChangesMu     sync.Mutex
+	liveChanges       []vcs.FileChange
+	liveChangesKey    string
+	liveChangesExpiry time.Time
+
 	// RoundSnapshots is in-memory state populated from <folder>/snapshots.json
 	// at boot. Persisted via SaveSnapshotsFile; never written into review.json.
 	//
@@ -2320,6 +2334,10 @@ func (s *Session) isWaitingForAgent() bool {
 // the review file. This prevents a TOCTOU race where GetSessionInfo could observe the
 // new round number before carry-forward is complete, returning empty comments.
 func (s *Session) SignalRoundComplete() {
+	// Wait for an in-flight write (SyncWorkingTree saves moved comment
+	// positions synchronously) so the watcher reloads what matches Content.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
 	if s.writeTimer != nil {
 		s.writeTimer.Stop()
@@ -2329,6 +2347,8 @@ func (s *Session) SignalRoundComplete() {
 	s.lastRoundEdits = s.pendingEdits
 	s.pendingEdits = 0
 	s.waitingForAgent = false
+	s.roundCompletePending = s.Mode == "git"
+	s.roundSignalSeq++
 	// Clear comments on all files.
 	// ReviewRound is incremented later by the watcher after carry-forward.
 	for _, f := range s.Files {
