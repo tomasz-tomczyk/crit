@@ -1720,6 +1720,15 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-brand);
   font-family: var(--crit-font-mono);
 }
+/* Opening quote before "Line N" on a comment on selected text. */
+.comment-line-ref-quote {
+  margin-right: 3px;
+  font-family: Georgia, serif;
+  font-size: 1.6em;
+  font-style: italic;
+  line-height: 0;
+  vertical-align: -0.3em;
+}
 
 .comment-actions {
   display: flex;

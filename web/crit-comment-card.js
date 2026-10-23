@@ -118,6 +118,15 @@
       lineRef.textContent = comment.start_line === comment.end_line
         ? 'Line ' + comment.start_line
         : 'Lines ' + comment.start_line + '-' + comment.end_line;
+      // Mark comments on selected text.
+      if (comment.quote) {
+        lineRef.title = 'Comment on selected text';
+        var quoteMark = document.createElement('span');
+        quoteMark.className = 'comment-line-ref-quote';
+        quoteMark.setAttribute('aria-hidden', 'true');
+        quoteMark.textContent = '\u201C';
+        lineRef.prepend(quoteMark);
+      }
       headerLeft.appendChild(lineRef);
     }
     var time = document.createElement('span');
