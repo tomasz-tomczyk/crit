@@ -5375,41 +5375,78 @@ html[data-theme="light"] .toggle-btn.active {
 /* Send now button */
 .btn-agent {
   background: transparent;
-  color: var(--crit-brand);
-  border: 1px solid var(--crit-brand);
+  color: var(--crit-live-fg);
+  border: 1px solid var(--crit-live-fg);
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 .btn-agent:hover {
-  background: var(--crit-brand);
-  color: var(--crit-fg-on-brand);
+  background: var(--crit-live-badge-bg);
+  color: var(--crit-live-fg);
 }
+/* Bolt-only pill floated beside the message's first line (22px line box);
+   its label shows as a bubble to its left after a short hover (the message
+   body clips anything above it). */
+.thread-send-now {
+  position: relative;
+  float: right;
+  justify-content: center;
+  width: 28px;
+  height: 20px;
+  margin: 1px 0 0 12px;
+  padding: 0;
+  border-radius: 10px;
+}
+.thread-send-now svg { width: 11px; height: 11px; }
+.thread-send-now::after {
+  content: attr(data-hint);
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--crit-editor-bg);
+  border: 1px solid color-mix(in srgb, var(--crit-live-fg) 40%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  color: var(--crit-editor-fg);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+.thread-send-now:hover::after { opacity: 1; transition-delay: 0.7s; }
+.thread-send-now:focus-visible::after { opacity: 1; }
 .btn-agent:disabled {
   opacity: 0.5;
   cursor: wait;
 }
 
-/* Live Thread — green ambient glow (the theme's green) */
+/* Live Thread — orange ambient glow, matching the live badge */
 .live-thread > .comment-card {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
-              0 0 12px color-mix(in srgb, var(--crit-green) 6%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 20%, transparent),
+              0 0 12px color-mix(in srgb, var(--crit-live-fg) 6%, transparent);
 }
 .live-thread.agent-pending > .comment-card {
   animation: agent-glow 2s ease-in-out infinite;
 }
 @keyframes agent-glow {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
-                          0 0 8px color-mix(in srgb, var(--crit-green) 5%, transparent); }
-  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 35%, transparent),
-                    0 0 16px color-mix(in srgb, var(--crit-green) 12%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 20%, transparent),
+                          0 0 8px color-mix(in srgb, var(--crit-live-fg) 5%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 35%, transparent),
+                    0 0 16px color-mix(in srgb, var(--crit-live-fg) 12%, transparent); }
 }
 
 /* Live thread badge */
+/* Orange, not green: a live thread goes straight to the agent. */
 .live-thread-badge {
   font-size: 10px;
   font-weight: 600;
-  color: var(--crit-green);
+  color: var(--crit-live-fg);
   background: var(--crit-live-badge-bg);
   padding: 1px 6px;
   border-radius: 3px;
