@@ -6275,6 +6275,8 @@
       return;
     }
     ignoreTreeObserverUntil = Date.now() + 200;
+    // Supersede a file jump still in flight so it does not scroll back down.
+    pierreJumpSeq++;
     // The conversation is the review list's header. A smooth scroll there
     // stops partway: files mounting on the way up adjust scrollTop, and that
     // cancels the browser's animation.
