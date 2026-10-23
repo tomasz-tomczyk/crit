@@ -7150,6 +7150,9 @@
 
   function setUIState(state) {
     uiState = state;
+    // The files-changed toast belongs to the review; its Reload must not
+    // run over the waiting dialog.
+    if (state !== 'reviewing') dismissToast('files-changed');
     if (state === 'reviewing') {
       waitingNotApproved = false;
       stopTipRotation();
@@ -7338,65 +7341,14 @@
         // Reset action tracking for new round
         userActedThisRound = false;
 
-        // Capture per-file user state before rebuilding
-        const prevState = {};
-        for (let pi = 0; pi < files.length; pi++) {
-          prevState[files[pi].path] = {
-            viewMode: files[pi].viewMode,
-            collapsed: files[pi].collapsed,
-            viewed: files[pi].viewed,
-            viewedHunks: files[pi].viewedHunks,
-            fileHash: files[pi].fileHash,
-          };
-        }
-
         // Clear commit filter on round-complete
         clearCommitPins();
 
-        // Re-fetch everything on file-changed (round complete)
-        let sessionRes = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(currentSessionFetchScope())));
-        sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
-        session = sessionRes;
-        reviewComments = sessionRes.review_comments || [];
-
-        // Reload all files
-        files = await loadAllFileData(session.files || [], currentFileDataScope());
-        hiddenUnresolved = session.hidden_unresolved || 0;
-
-        // Restore per-file user state from previous round
-        for (let fi = 0; fi < files.length; fi++) {
-          const prev = prevState[files[fi].path];
-          if (prev) {
-            const contentChanged = prev.fileHash && files[fi].fileHash && prev.fileHash !== files[fi].fileHash;
-            // Rendered needs base content; a loaded file without it falls
-            // back to Document. Lazy files are checked once they load. A
-            // renderer's view needs a renderer that still applies (the file
-            // may have been deleted); without one the mode default applies.
-            // In files mode Diff needs hunks; a file the round left unchanged
-            // has no Diff button, so it goes back to Document.
-            if (prev.viewMode === 'rendered-diff' && !files[fi].lazy && !hasRenderedDiff(files[fi])) {
-              files[fi].viewMode = 'document';
-            } else if (prev.viewMode === 'rendered' && !fileRendererFor(files[fi])) {
-              files[fi].viewMode = session.mode === 'git' ? 'diff' : 'document';
-            } else if (prev.viewMode === 'diff' && session.mode !== 'git' && files[fi].fileType === 'markdown' &&
-                !files[fi].lazy && !(files[fi].diffHunks && files[fi].diffHunks.length > 0)) {
-              files[fi].viewMode = 'document';
-            } else {
-              files[fi].viewMode = prev.viewMode;
-            }
-            // Lazy files must stay collapsed — they have no content to render
-            if (!files[fi].lazy && !contentChanged) files[fi].collapsed = prev.collapsed;
-            if (prev.viewed && !contentChanged) files[fi].viewed = true;
-            files[fi].viewedHunks = prev.viewedHunks;
-            reconcileStoryViewed(files[fi]);
-          }
-        }
-
-        await Promise.all(files.map(function(f) {
-          return f.viewMode === 'rendered-diff' && !f.lazy ? ensurePreviousLineBlocks(f) : null;
-        }));
-
-        files.sort(fileSortComparator);
+        // Re-fetch everything on file-changed (round complete), keeping each
+        // file's view state. The round's own content supersedes any
+        // files-changed toast, including one raised during the fetch.
+        await refetchReviewFiles();
+        dismissToast('files-changed');
 
         activeForms = [];
         activeReplyForms.clear();
@@ -7412,19 +7364,8 @@
         reviewCommentEditingId = null;
         navCommentId = null;
 
-        saveViewedState();
         updateHeaderRound();
-        updateDiffModeToggle();
-        renderFileTree();
-        renderAllFiles();
-        buildToc();
-        updateCommentCount();
-        updateViewedCount();
-        updateTreeViewedState();
-        // Re-render the story layer against the fresh file data (or tear it
-        // down if the round dropped the story). Preserves position when the
-        // current chapter still exists (storyFromHash re-reads the hash).
-        applyStoryPresence();
+        rerenderReview();
         setUIState('reviewing');
         // Signal "ready" in the tab bar if the user has tabbed away.
         // Cleared on visibilitychange → visible.
@@ -7435,6 +7376,14 @@
       },
       'edit-detected': function(data) {
       try {
+        // Mid-round (files and plan mode): the server has the new content,
+        // but the page's file content is only refreshed by round-complete, so
+        // offer a reload.
+        // Git mode is left alone: its edits arrive as the next round.
+        if (uiState === 'reviewing' && session.mode !== 'git') {
+          showFilesChangedToast();
+          return;
+        }
         const count = parseInt(data.content, 10);
         const el = document.getElementById('waitingEdits');
         if (el && uiState === 'waiting') {
@@ -7665,6 +7614,118 @@
     if (!el) return;
     el.classList.add('toast-out');
     el.addEventListener('animationend', function() { el.remove(); }, { once: true });
+  }
+
+  // Re-fetch the session and every file, keeping each file's view state
+  // (view mode, collapsed, viewed). Used by round-complete and by the
+  // mid-round files-changed refresh. A newer call wins: an older one that
+  // finishes later returns false without touching the page's data.
+  let reviewFetchGen = 0;
+  async function refetchReviewFiles() {
+    const gen = ++reviewFetchGen;
+    const prevState = {};
+    for (let pi = 0; pi < files.length; pi++) {
+      prevState[files[pi].path] = {
+        viewMode: files[pi].viewMode,
+        collapsed: files[pi].collapsed,
+        viewed: files[pi].viewed,
+        viewedHunks: files[pi].viewedHunks,
+        fileHash: files[pi].fileHash,
+      };
+    }
+
+    let sessionRes = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(currentSessionFetchScope())));
+    sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
+    if (gen !== reviewFetchGen) return false;
+    session = sessionRes;
+    reviewComments = sessionRes.review_comments || [];
+    const loaded = await loadAllFileData(session.files || [], currentFileDataScope());
+    if (gen !== reviewFetchGen) return false;
+    files = loaded;
+    hiddenUnresolved = session.hidden_unresolved || 0;
+
+    for (let fi = 0; fi < files.length; fi++) {
+      const prev = prevState[files[fi].path];
+      if (prev) {
+        const contentChanged = prev.fileHash && files[fi].fileHash && prev.fileHash !== files[fi].fileHash;
+        // Rendered needs base content; a loaded file without it falls
+        // back to Document. Lazy files are checked once they load. A
+        // renderer's view needs a renderer that still applies (the file
+        // may have been deleted); without one the mode default applies.
+        // In files mode Diff needs hunks; a file the round left unchanged
+        // has no Diff button, so it goes back to Document.
+        if (prev.viewMode === 'rendered-diff' && !files[fi].lazy && !hasRenderedDiff(files[fi])) {
+          files[fi].viewMode = 'document';
+        } else if (prev.viewMode === 'rendered' && !fileRendererFor(files[fi])) {
+          files[fi].viewMode = session.mode === 'git' ? 'diff' : 'document';
+        } else if (prev.viewMode === 'diff' && session.mode !== 'git' && files[fi].fileType === 'markdown' &&
+            !files[fi].lazy && !(files[fi].diffHunks && files[fi].diffHunks.length > 0)) {
+          files[fi].viewMode = 'document';
+        } else {
+          files[fi].viewMode = prev.viewMode;
+        }
+        // Lazy files must stay collapsed — they have no content to render
+        if (!files[fi].lazy && !contentChanged) files[fi].collapsed = prev.collapsed;
+        if (prev.viewed && !contentChanged) files[fi].viewed = true;
+        files[fi].viewedHunks = prev.viewedHunks;
+        reconcileStoryViewed(files[fi]);
+      }
+    }
+
+    await Promise.all(files.map(function(f) {
+      return f.viewMode === 'rendered-diff' && !f.lazy ? ensurePreviousLineBlocks(f) : null;
+    }));
+    if (gen !== reviewFetchGen) return false;
+
+    files.sort(fileSortComparator);
+    saveViewedState();
+    return true;
+  }
+
+  // Redraw the review from the current session and files. The review list
+  // keeps the reader's position as its items update. Re-renders the story
+  // layer too (or tears it down if the data dropped the story); it keeps its
+  // position when the current chapter still exists.
+  function rerenderReview() {
+    // The Document view scroll anchor names its block by line numbers, which
+    // the new content may have shifted, so it would pin a different block.
+    // The next scroll sets it again.
+    pierreReaderAnchor = null;
+    updateDiffModeToggle();
+    renderFileTree();
+    renderAllFiles();
+    buildToc();
+    updateCommentCount();
+    updateViewedCount();
+    updateTreeViewedState();
+    applyStoryPresence();
+  }
+
+  // A file under review changed on disk during the round (files and plan
+  // mode). File content is otherwise only refreshed by round-complete, so
+  // offer to refresh the files in place the same way, without starting a
+  // new round. Shown once until dismissed or refreshed.
+  function showFilesChangedToast() {
+    const existing = document.getElementById('toast-files-changed');
+    if (existing && !existing.classList.contains('toast-out')) return;
+    const el = showToast('files-changed', 'info',
+      '<span>Files in this review changed on disk.</span>' +
+      '<div class="toast-actions">' +
+        '<button class="toast-btn toast-btn-filled" id="filesChangedReloadBtn">Reload</button>' +
+        '<button class="toast-btn toast-btn-ghost" data-dismiss-toast="files-changed">Dismiss</button>' +
+      '</div>');
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.querySelector('#filesChangedReloadBtn').addEventListener('click', async function() {
+      dismissToast('files-changed');
+      try {
+        // false: a newer fetch (another Reload, or a new round) took over.
+        if (await refetchReviewFiles()) rerenderReview();
+      } catch (err) {
+        console.error('Error reloading changed files:', err);
+        showFilesChangedToast();
+      }
+    });
   }
 
   // Event delegation for toast dismiss buttons (replaces inline onclick)

@@ -49,6 +49,15 @@ export async function loadPage(page: Page) {
   await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
 }
 
+// loadPage, then wait for the /api/events stream: SSE-driven updates (rounds,
+// edit-detected) can otherwise land before the page is listening.
+export async function loadPageWithEvents(page: Page) {
+  const connected = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/events' && response.ok());
+  await loadPage(page);
+  await connected;
+}
+
 // ----- Pierre diff surface -----
 //
 // Git-mode files render through @pierre/diffs CodeView. Each file is a
