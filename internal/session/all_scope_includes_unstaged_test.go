@@ -63,6 +63,9 @@ func startAllScopeSession(t *testing.T) *Session {
 		t.Fatal(err)
 	}
 	quiesceSession(t, sess)
+	// Stop writes the test schedules (AddComment, SyncWorkingTree) before
+	// t.TempDir is removed; Windows fails the cleanup if a write lands.
+	t.Cleanup(func() { quiesceSession(t, sess) })
 	return sess
 }
 
