@@ -310,15 +310,6 @@ func SaveSnapshotsFile(snapshotsPath string, sf SnapshotsFile) error {
 	return config.AtomicWriteFile(snapshotsPath, append(data, '\n'), 0o644)
 }
 
-// writeCritJSON resolves the review path and writes a CritJSON via saveCritJSON.
-func writeCritJSON(cj CritJSON, outputDir string) error {
-	path, err := ResolveReviewPath(outputDir)
-	if err != nil {
-		return err
-	}
-	return SaveCritJSON(path, cj)
-}
-
 // LoadCritJSON reads the review file from disk (folder layout
 // <identity>/review.json), or returns a fresh CritJSON if it doesn't exist.
 // Triggers v3->v4 migration on read for any pre-existing flat-file review.

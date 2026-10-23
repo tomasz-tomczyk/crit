@@ -46,7 +46,6 @@ var (
 	resolveReviewPath                = review.ResolveReviewPath
 	clearCritJSON                    = review.ClearCritJSON
 	processBulkReviewEntry           = comment.ProcessBulkReviewEntry
-	resolvePullScope                 = session.ResolvePullScope
 	fetchPRByNumber                  = FetchPRByNumber
 	ensureSHAFetched                 = vcs.EnsureSHAFetched
 	runPushLive                      = RunPushLive

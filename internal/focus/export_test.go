@@ -1,26 +1,17 @@
 package focus
 
-import "net/http"
+import "github.com/tomasz-tomczyk/crit/internal/session"
 
 var (
-	fetchSessionFocusForTest         = fetchSessionFocus
 	resolveFocusFromPRForTest        = resolveFocusFromPR
 	commentScopeOverrideFromFlagTest = commentScopeOverrideFromFlag
 	loadCritJSONForOutputDirForTest  = loadCritJSONForOutputDir
 )
 
 func setProbeDaemonFocusForTest(fn func() *Focus) (restore func()) {
-	return SetProbeDaemonFocusFnForTest(fn)
-}
-
-func probeDaemonFocusForTest() *Focus {
-	return probeDaemonFocus()
+	return session.SetProbeDaemonFocusFnForTest(fn)
 }
 
 func resolveCommentScopeForTest(override CommentFocusOverride, outputDir string) (InheritedScope, error) {
 	return ResolveCommentScope(override, outputDir)
-}
-
-func fetchSessionFocusHTTP(client *http.Client, host string, port int) *Focus {
-	return fetchSessionFocusForTest(client, host, port)
 }

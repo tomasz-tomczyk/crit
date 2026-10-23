@@ -126,6 +126,6 @@ func (s *Session) QuiesceForTest() {
 	}
 	s.writeGen++
 	s.mu.Unlock()
-	s.writeMu.Lock()   // wait for any in-flight writeCritJSON
+	s.writeMu.Lock()   // wait for any in-flight review file write
 	s.writeMu.Unlock() //nolint:staticcheck // intentional barrier
 }

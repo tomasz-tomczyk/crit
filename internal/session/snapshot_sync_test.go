@@ -1,9 +1,11 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -366,4 +368,108 @@ func TestGetFileDiffSnapshotScoped_AllReturnedFileReadsDisk(t *testing.T) {
 	if snap["content"] != back {
 		t.Errorf("content = %q, want the file on disk", snap["content"])
 	}
+}
+
+// renameSample is long enough that git still sees a rename after one edit.
+const renameSample = "package sample\n\nfunc one() {}\n\nfunc two() {}\n\nfunc three() {}\n\nfunc four() {}\n"
+
+// diffCountingVCS counts per-file diff calls. hideFromNumstat drops a path
+// from DiffNumstat, as a rename git did not detect or a backend's stat
+// output would.
+type diffCountingVCS struct {
+	*vcs.GitVCS
+	diffs           atomic.Int32
+	hideFromNumstat string
+}
+
+func (v *diffCountingVCS) DiffNumstat(baseRef, dir string) (map[string]vcs.NumstatEntry, error) {
+	ns, err := v.GitVCS.DiffNumstat(baseRef, dir)
+	delete(ns, v.hideFromNumstat)
+	return ns, err
+}
+
+func (v *diffCountingVCS) FileDiffUnifiedCtx(ctx context.Context, path, baseRef, dir string, ignoreWhitespace bool) ([]vcs.DiffHunk, error) {
+	v.diffs.Add(1)
+	return v.GitVCS.FileDiffUnifiedCtx(ctx, path, baseRef, dir, ignoreWhitespace)
+}
+
+// Scope "all" counts lines with one numstat run, not a diff per file, and
+// the counts match the session's own file list.
+func TestGetSessionInfoScoped_AllCountsLinesWithoutPerFileDiffs(t *testing.T) {
+	sess, v := newLineCountSession(t, "")
+	cached := sess.GetSessionInfo()
+	v.diffs.Store(0)
+
+	info := sess.GetSessionInfoScoped("all", "")
+
+	if n := v.diffs.Load(); n != 0 {
+		t.Errorf("scope=all ran %d per-file diffs, want 0", n)
+	}
+	assertSameLineCounts(t, info, cached, "app.go", "gone.go", "staged.go", "untracked.go", "new_name.go")
+	if fi, _ := fileInfoByPath(info, "new_name.go"); fi.Status != "renamed" || fi.Additions == 0 {
+		t.Errorf("new_name.go = %+v, want a renamed row with counts", fi)
+	}
+}
+
+// A file numstat does not list falls back to its hunks instead of +0 -0.
+func TestGetSessionInfoScoped_AllCountsFileMissingFromNumstat(t *testing.T) {
+	sess, _ := newLineCountSession(t, "app.go")
+	cached := sess.GetSessionInfo()
+
+	info := sess.GetSessionInfoScoped("all", "")
+
+	assertSameLineCounts(t, info, cached, "app.go")
+	if fi, _ := fileInfoByPath(info, "app.go"); fi.Additions == 0 || fi.Deletions == 0 {
+		t.Errorf("app.go = %+v, want non-zero counts from its hunks", fi)
+	}
+}
+
+func assertSameLineCounts(t *testing.T, info, cached SessionInfo, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		got, ok := fileInfoByPath(info, path)
+		want, wantOK := fileInfoByPath(cached, path)
+		if !ok || !wantOK {
+			t.Errorf("%s listed: scoped=%v cached=%v", path, ok, wantOK)
+			continue
+		}
+		if got.Additions != want.Additions || got.Deletions != want.Deletions {
+			t.Errorf("%s = +%d -%d, want +%d -%d", path, got.Additions, got.Deletions, want.Additions, want.Deletions)
+		}
+	}
+}
+
+// newLineCountSession starts a session on a repo with a modified, a
+// deleted, a staged new, an untracked and a renamed file.
+func newLineCountSession(t *testing.T, hideFromNumstat string) (*Session, *diffCountingVCS) {
+	t.Helper()
+	dir := initTestRepo(t)
+	setHome(t, t.TempDir())
+	writeFile(t, filepath.Join(dir, "app.go"), allScopeSample)
+	writeFile(t, filepath.Join(dir, "gone.go"), "package sample\n\nfunc gone() {}\n")
+	writeFile(t, filepath.Join(dir, "old_name.go"), renameSample)
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-m", "base files")
+	gitT(t, dir, "checkout", "-b", "feature")
+	writeFile(t, filepath.Join(dir, "app.go"), strings.Replace(allScopeSample, "\"base\"", "\"branch\"", 1))
+	gitT(t, dir, "commit", "-am", "branch change")
+	chdirForTest(t, dir)
+	writeFile(t, filepath.Join(dir, "app.go"), strings.Replace(allScopeSample, "\"base\"", "\"again\"", 1)+"\nfunc more() {}\n")
+	if err := os.Remove(filepath.Join(dir, "gone.go")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "staged.go"), "package sample\n\nfunc staged() {}\n")
+	gitT(t, dir, "add", "staged.go")
+	writeFile(t, filepath.Join(dir, "untracked.go"), "package sample\n")
+	gitT(t, dir, "mv", "old_name.go", "new_name.go")
+	writeFile(t, filepath.Join(dir, "new_name.go"), strings.Replace(renameSample, "one()", "uno()", 1))
+	gitT(t, dir, "add", "new_name.go")
+
+	v := &diffCountingVCS{GitVCS: &vcs.GitVCS{}, hideFromNumstat: hideFromNumstat}
+	sess, err := NewGitSession(v, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiesceSession(t, sess)
+	return sess, v
 }

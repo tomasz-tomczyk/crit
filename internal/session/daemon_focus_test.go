@@ -50,3 +50,52 @@ func TestResolvePullScopePreservesChangeRequestIdentity(t *testing.T) {
 		})
 	}
 }
+
+// TestPullScopeFor covers the daemon focus and on-disk fallback used by
+// `crit pull` and the hosted comment merge. Pulled comments always get
+// DiffScope=layer.
+func TestPullScopeFor(t *testing.T) {
+	cases := []struct {
+		name        string
+		daemonFocus *Focus
+		cj          *CritJSON
+		wantHead    string
+		wantScope   string
+	}{
+		{name: "no daemon, no review file -> empty"},
+		{name: "no daemon, empty review file -> empty", cj: &CritJSON{}},
+		{
+			name:        "daemon range/layer -> head + layer",
+			daemonFocus: &Focus{Kind: FocusRange, HeadSHA: "abc", DiffScope: DiffScopeLayer},
+			wantHead:    "abc", wantScope: "layer",
+		},
+		{
+			name:        "daemon range/full-stack -> still layer",
+			daemonFocus: &Focus{Kind: FocusRange, HeadSHA: "def", DiffScope: DiffScopeFullStack},
+			wantHead:    "def", wantScope: "layer",
+		},
+		{
+			name:        "daemon working-tree -> empty",
+			daemonFocus: &Focus{Kind: FocusWorkingTree},
+			cj:          &CritJSON{},
+		},
+		{
+			name:      "no daemon, disk says layer -> layer with empty head",
+			cj:        &CritJSON{ActiveDiffScope: "layer"},
+			wantScope: "layer",
+		},
+		{
+			name:      "no daemon, disk says full_stack -> still layer",
+			cj:        &CritJSON{ActiveDiffScope: "full_stack"},
+			wantScope: "layer",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := PullScopeFor(tc.daemonFocus, tc.cj)
+			if got.HeadSHA != tc.wantHead || got.DiffScope != tc.wantScope {
+				t.Errorf("got=%+v want head=%q scope=%q", got, tc.wantHead, tc.wantScope)
+			}
+		})
+	}
+}

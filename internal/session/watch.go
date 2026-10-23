@@ -250,7 +250,7 @@ func rewriteReviewJSONRenames(critPath string, renames []pathRename) {
 		return
 	}
 	_ = WithReviewWriteLock(critPath, func() error {
-		data, err := os.ReadFile(reviewPath)
+		data, err := ReadFileShared(reviewPath)
 		if err != nil {
 			return err
 		}
@@ -261,11 +261,7 @@ func rewriteReviewJSONRenames(critPath string, renames []pathRename) {
 		if !applyReviewJSONRenames(&cj, renames) {
 			return nil
 		}
-		out, err := json.MarshalIndent(cj, "", "  ")
-		if err != nil {
-			return err
-		}
-		return AtomicWriteFile(reviewPath, out, 0o600)
+		return saveCritJSONToDisk(critPath, cj)
 	})
 }
 

@@ -1,19 +1,16 @@
 package focus
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -322,85 +319,6 @@ func commentScopeOverrideFromFlag(s string) (CommentFocusOverride, error) {
 	}
 }
 
-// probeDaemonFocusFn is the live function that contacts the daemon to fetch
-// its current Focus. Indirected through a package var so tests can stub it.
-var probeDaemonFocusFn = probeDaemonFocusReal
-
-// probeDaemonFocus contacts the running daemon (if any) and returns its Focus.
-// Returns nil on any failure — best-effort.
-func probeDaemonFocus() *Focus {
-	return probeDaemonFocusFn()
-}
-
-func probeDaemonFocusReal() *Focus {
-	cwd, err := daemon.ResolvedCWD()
-	if err != nil {
-		return nil
-	}
-	sessions, _ := daemon.ListSessionsForCWD(cwd)
-	if len(sessions) == 0 {
-		return nil
-	}
-	// Query every daemon for its Focus. When multiple daemons run in the
-	// same cwd (e.g. one reviewing a PR, one reviewing the working tree),
-	// returning sessions[0] would silently stamp `crit comment` with the
-	// wrong scope. Treat ambiguity as "no inheritable focus" so the caller
-	// falls through to the on-disk ActiveDiffScope path — which is the
-	// safer default than guessing.
-	client := &http.Client{Timeout: 2 * time.Second}
-	var rangeFoci []*Focus
-	var workingFoci []*Focus
-	for _, sess := range sessions {
-		f := fetchSessionFocus(client, sess.Host, sess.Port)
-		if f == nil {
-			continue
-		}
-		if f.Kind == FocusRange {
-			rangeFoci = append(rangeFoci, f)
-		} else {
-			workingFoci = append(workingFoci, f)
-		}
-	}
-	// Range focus is the strictly-scoped one — prefer it when uniquely
-	// resolvable. If two daemons both expose a Range focus, ambiguity
-	// wins: return nil and let the caller resolve from disk / explicit flag.
-	if len(rangeFoci) == 1 {
-		return rangeFoci[0]
-	}
-	if len(rangeFoci) > 1 {
-		return nil
-	}
-	if len(workingFoci) == 1 {
-		return workingFoci[0]
-	}
-	return nil
-}
-
-// fetchSessionFocus queries one daemon's /api/session and returns its Focus
-// (nil on any error). Factored out so probeDaemonFocusReal can iterate over
-// every matching daemon without ballooning its complexity.
-func fetchSessionFocus(client *http.Client, host string, port int) *Focus {
-	connHost := host
-	if connHost == "" {
-		connHost = "127.0.0.1"
-	}
-	resp, err := client.Get(fmt.Sprintf("http://%s:%d/api/session", connHost, port))
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	var info struct {
-		Focus *Focus `json:"focus"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return nil
-	}
-	return info.Focus
-}
-
 // loadCritJSONForOutputDir loads the on-disk CritJSON for the given output dir
 // (or the resolved review path when outputDir is ""). A missing review file is
 // the common case and returns ok=false silently. Parse errors and other I/O
@@ -427,7 +345,7 @@ func loadCritJSONForOutputDir(outputDir string) (CritJSON, bool) {
 // based on the --scope flag, a running daemon's Focus, and the on-disk
 // ActiveDiffScope. Order of precedence per spec §C "crit comment scope inheritance".
 func ResolveCommentScope(override CommentFocusOverride, outputDir string) (InheritedScope, error) {
-	daemon := probeDaemonFocus()
+	daemon := session.ProbeDaemonFocus()
 
 	switch override {
 	case ScopeOverrideWorkingTree:
@@ -480,37 +398,6 @@ func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 			"Note: stamping comment with diff_scope=%q from review file (no daemon running; head_sha unknown)\n",
 			cj.ActiveDiffScope)
 		return InheritedScope{DiffScope: cj.ActiveDiffScope}
-	}
-	return InheritedScope{}
-}
-
-// ResolvePullScope reconstructs the active change-request layer for imported
-// remote comments. Forge + ChangeNumber preserve the provider-specific focus
-// key (pr:N or mr:N); BaseSHA + HeadSHA preserve range identity as a fallback.
-func ResolvePullScope(cj *CritJSON) InheritedScope {
-	return PullScopeFor(probeDaemonFocus(), cj)
-}
-
-// ProbeDaemonFocus returns the running daemon's focus, or nil. It makes an
-// HTTP call, so a caller about to take a lock probes first and passes the
-// result to PullScopeFor inside the lock.
-func ProbeDaemonFocus() *Focus {
-	return probeDaemonFocus()
-}
-
-// PullScopeFor is ResolvePullScope with an already probed daemon focus.
-func PullScopeFor(focus *Focus, cj *CritJSON) InheritedScope {
-	if focus != nil && focus.Kind == FocusRange {
-		return InheritedScope{
-			HeadSHA:      focus.HeadSHA,
-			BaseSHA:      focus.BaseSHA,
-			Forge:        focus.Forge,
-			ChangeNumber: focus.ChangeNumber,
-			DiffScope:    "layer",
-		}
-	}
-	if cj != nil && cj.ActiveDiffScope != "" {
-		return InheritedScope{DiffScope: "layer"}
 	}
 	return InheritedScope{}
 }

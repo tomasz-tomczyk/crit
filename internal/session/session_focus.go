@@ -268,8 +268,15 @@ func (s *Session) SetFocus(f Focus) error {
 	// Without this, recent in-memory comments (authored within the last
 	// 200ms) live only in s.Files and would be lost when buildFilesForFocus
 	// returns a fresh slice with empty Comments. writeFilesErr is idempotent
-	// when there's nothing pending.
-	_ = s.writeFilesErr()
+	// when there's nothing pending. When the flush fails, stop here: the
+	// swap would drop the comments that did not reach disk.
+	if err := s.writeFilesErr(); err != nil {
+		// Retry later, so the unsaved comments do not wait for the next edit.
+		s.mu.Lock()
+		s.scheduleWrite()
+		s.mu.Unlock()
+		return fmt.Errorf("saving comments before changing focus: %w", err)
+	}
 
 	// Snapshot for rollback.
 	s.mu.Lock()
@@ -998,14 +1005,15 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	var changes []vcs.FileChange
 	var err error
 	if liveAll {
+		// Already filtered for ignore patterns and binary files.
 		changes, err = s.liveAllChanges(snap.vc, snap.baseRef, snap.repoRoot, snap.ignorePatterns)
 	} else {
 		changes, err = changesForScopeSelection(snap.vc, snap.repoRoot, snap.baseRef, scope, commit)
+		changes = filterBinary(config.FilterIgnored(changes, snap.ignorePatterns))
 	}
 	if err != nil {
 		return info
 	}
-	changes = filterBinary(config.FilterIgnored(changes, snap.ignorePatterns))
 
 	info.Files = snap.scopedFileInfos(changes, scope, commit)
 	if liveAll {
@@ -1035,18 +1043,9 @@ func (snap *scopedSessionSnapshot) sessionInfo() SessionInfo {
 	}
 }
 
-// scopedFileInfos builds the file rows for changes. Lazy files keep their
-// numstat counts instead of a per-file diff. Scope "all" rebuilds the whole
-// session diff, so it applies the startup lazy threshold with fresh counts;
-// other scopes reuse the session's lazy entries.
+// scopedFileInfos builds the file rows for changes.
 func (snap *scopedSessionSnapshot) scopedFileInfos(changes []vcs.FileChange, scope, commit string) []SessionFileInfo {
-	liveAll := scope == "all" && commit == ""
-	lazyAll := liveAll && len(changes) > lazyFileThreshold
-	var numstats map[string]vcs.NumstatEntry
-	if lazyAll && snap.baseRef != "" {
-		numstats, _ = snap.vc.DiffNumstat(snap.baseRef, snap.repoRoot)
-	}
-
+	counter := snap.newScopedLineCounter(changes, scope, commit)
 	files := make([]SessionFileInfo, 0, len(changes))
 	for i, fc := range changes {
 		fi := SessionFileInfo{
@@ -1057,20 +1056,70 @@ func (snap *scopedSessionSnapshot) scopedFileInfos(changes []vcs.FileChange, sco
 			CommentCount: snap.commentCounts[fc.Path],
 			Generated:    vcs.IsGenerated(fc.Path, snap.generatedRules),
 		}
-		switch lf, ok := snap.lazyFiles[fc.Path]; {
-		case lazyAll && i >= lazyFileThreshold:
-			fe := &FileEntry{AbsPath: filepath.Join(snap.repoRoot, fc.Path)}
-			populateLazyFile(fe, fc, numstats, true)
-			fi.Lazy, fi.Additions, fi.Deletions = true, fe.LazyAdditions, fe.LazyDeletions
-		case !liveAll && ok:
-			fi.Lazy, fi.Additions, fi.Deletions = true, lf.LazyAdditions, lf.LazyDeletions
-		default:
-			hunks := scopedHunks(fc, scope, commit, snap.baseRef, snap.repoRoot, snap.vc, false)
-			fi.Additions, fi.Deletions = countHunkStats(hunks)
-		}
+		fi.Lazy, fi.Additions, fi.Deletions = counter.count(i, fc)
 		files = append(files, fi)
 	}
 	return files
+}
+
+// scopedLineCounter gives the +/- counts of a scoped file list. Scope "all"
+// takes every file's counts from one numstat run instead of a diff per
+// file, and applies the startup lazy threshold. Other scopes reuse the
+// session's lazy entries and count the hunks of the rest.
+type scopedLineCounter struct {
+	snap          *scopedSessionSnapshot
+	scope, commit string
+	liveAll       bool
+	lazyAll       bool
+	numstats      map[string]vcs.NumstatEntry
+	haveNumstats  bool
+}
+
+func (snap *scopedSessionSnapshot) newScopedLineCounter(changes []vcs.FileChange, scope, commit string) scopedLineCounter {
+	c := scopedLineCounter{snap: snap, scope: scope, commit: commit}
+	c.liveAll = scope == "all" && commit == ""
+	c.lazyAll = c.liveAll && len(changes) > lazyFileThreshold
+	if c.liveAll && snap.baseRef != "" {
+		ns, err := snap.vc.DiffNumstat(snap.baseRef, snap.repoRoot)
+		c.numstats, c.haveNumstats = ns, err == nil
+	}
+	return c
+}
+
+// count returns whether the file at index i is lazy, and its +/- counts.
+func (c scopedLineCounter) count(i int, fc vcs.FileChange) (lazy bool, additions, deletions int) {
+	lazy = c.lazyAll && i >= lazyFileThreshold
+	if c.liveAll && (c.haveNumstats || lazy) {
+		if additions, deletions, ok := c.numstatCounts(fc, lazy); ok {
+			return lazy, additions, deletions
+		}
+	}
+	if lf, ok := c.snap.lazyFiles[fc.Path]; ok && !c.liveAll {
+		return true, lf.LazyAdditions, lf.LazyDeletions
+	}
+	hunks := scopedHunks(fc, c.scope, c.commit, c.snap.baseRef, c.snap.repoRoot, c.snap.vc, false)
+	additions, deletions = countHunkStats(hunks)
+	return false, additions, deletions
+}
+
+// numstatCounts returns fc's +/- counts from the numstat run, counting lines
+// on disk for a new file numstat does not list. A deleted file that is not
+// lazy shows no counts, as scope "all" shows no hunks for it. ok is false
+// for a file that is not lazy and that numstat does not list, such as a
+// rename git did not detect or a backend whose stat output names it
+// differently; the caller then counts its hunks.
+func (c scopedLineCounter) numstatCounts(fc vcs.FileChange, lazy bool) (additions, deletions int, ok bool) {
+	if !lazy && fc.Status == "deleted" {
+		return 0, 0, true
+	}
+	_, listed := c.numstats[fc.Path]
+	isNew := fc.Status == "untracked" || fc.Status == "added"
+	if !lazy && !listed && !isNew {
+		return 0, 0, false
+	}
+	fe := &FileEntry{AbsPath: filepath.Join(c.snap.repoRoot, fc.Path)}
+	populateLazyFile(fe, fc, c.numstats, true)
+	return fe.LazyAdditions, fe.LazyDeletions, true
 }
 
 // appendOrphanedCommentedFiles adds an orphaned row for each commented file

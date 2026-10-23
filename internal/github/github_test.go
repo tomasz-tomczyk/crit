@@ -2699,56 +2699,6 @@ func TestMergeGHCommentsScoped_NoStampWithEmptyScope(t *testing.T) {
 	}
 }
 
-// TestResolvePullScope verifies the daemon-probe + on-disk fallback used by
-// `crit pull` and mergeWebComments. Mirrors the precedence in
-// resolveCommentScope (focus_cli.go) but always emits DiffScope=layer.
-func TestResolvePullScope(t *testing.T) {
-	cases := []struct {
-		name        string
-		daemonFocus *Focus
-		diskScope   string
-		wantHead    string
-		wantScope   string
-	}{
-		{name: "no daemon, no disk -> empty (legacy)", wantHead: "", wantScope: ""},
-		{
-			name:        "daemon range/layer -> head + layer",
-			daemonFocus: &Focus{Kind: FocusRange, HeadSHA: "abc", DiffScope: DiffScopeLayer},
-			wantHead:    "abc", wantScope: "layer",
-		},
-		{
-			name:        "daemon range/full-stack -> still layer (pulls anchor to PR diff)",
-			daemonFocus: &Focus{Kind: FocusRange, HeadSHA: "def", DiffScope: DiffScopeFullStack},
-			wantHead:    "def", wantScope: "layer",
-		},
-		{
-			name:        "daemon working-tree -> empty",
-			daemonFocus: &Focus{Kind: FocusWorkingTree},
-			wantHead:    "", wantScope: "",
-		},
-		{
-			name:      "no daemon, disk says layer -> layer with empty head",
-			diskScope: "layer",
-			wantHead:  "", wantScope: "layer",
-		},
-		{
-			name:      "no daemon, disk says full_stack -> still layer",
-			diskScope: "full_stack",
-			wantHead:  "", wantScope: "layer",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			withDaemonFocus(t, tc.daemonFocus)
-			cj := &CritJSON{ActiveDiffScope: tc.diskScope}
-			got := resolvePullScope(cj)
-			if got.HeadSHA != tc.wantHead || got.DiffScope != tc.wantScope {
-				t.Errorf("got=%+v want head=%q scope=%q", got, tc.wantHead, tc.wantScope)
-			}
-		})
-	}
-}
-
 // TestParsePRViewJSON_ForkPR locks down the parser's handling of fork PRs:
 // isCrossRepository must round-trip and HeadRepoURL must come from
 // headRepository.url so ensureSHAFetched can fall back to the fork remote.

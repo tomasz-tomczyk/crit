@@ -965,7 +965,7 @@ func highestWebIndex(cj session.CritJSON) int {
 // with HeadSHA + DiffScope=layer so they pass visibleInFocus in range view.
 // See spec §E "Write path — `mergeWebComments`".
 func MergeWebComments(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply) error {
-	return MergeWebCommentsFor(critPath, newComments, replyUpdates, focus.ProbeDaemonFocus())
+	return MergeWebCommentsFor(critPath, newComments, replyUpdates, session.ProbeDaemonFocus())
 }
 
 // MergeWebCommentsFor is MergeWebComments with the daemon focus already
@@ -1012,14 +1012,14 @@ func updateReviewFileIf(critPath string, mutate func(*session.CritJSON) bool) er
 }
 
 // mergeWebCommentsInto adds pulled comments and replies to cj. daemonFocus
-// comes from focus.ProbeDaemonFocus, called before the review lock because
+// comes from session.ProbeDaemonFocus, called before the review lock because
 // it makes an HTTP call.
 func mergeWebCommentsInto(cj *session.CritJSON, newComments []WebComment, replyUpdates map[string][]WebReply, daemonFocus *focus.Focus) {
 	// Find the highest existing web-N index so new IDs are globally unique
 	// even if earlier ones were deleted from the review file.
 	webCount := highestWebIndex(*cj)
 
-	scope := focus.PullScopeFor(daemonFocus, cj)
+	scope := session.PullScopeFor(daemonFocus, cj)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
@@ -1113,7 +1113,7 @@ func applyWebCommentPlacements(cj *session.CritJSON, placements map[string]sessi
 // mergeFetchedComments writes new comments, reply updates and placements
 // from one fetch in a single load and save of the review file.
 func mergeFetchedComments(critPath string, fetched fetchWebCommentsResult) error {
-	return mergeFetchedCommentsFor(critPath, fetched, focus.ProbeDaemonFocus())
+	return mergeFetchedCommentsFor(critPath, fetched, session.ProbeDaemonFocus())
 }
 
 func mergeFetchedCommentsFor(critPath string, fetched fetchWebCommentsResult, daemonFocus *focus.Focus) error {
@@ -1190,30 +1190,35 @@ func persistShareState(critPath string, shareURL string, deleteToken string, sco
 	return persistShareStateForTarget(critPath, shareURL, "", deleteToken, scope, org, orgName, visibility)
 }
 
+// persistShareStateForTarget writes the share fields to the review file under
+// the review write lock. Unlike updateReviewFile it creates the file when it
+// is missing: the first `crit share` of plain files has no review file yet.
+// A file that does not read or parse is an error, so it is not overwritten.
 func persistShareStateForTarget(critPath string, shareURL string, shareBaseURL string, deleteToken string, scope string, org, orgName, visibility string) error {
 	return session.WithReviewWriteLock(critPath, func() error {
-		return persistShareStateLocked(critPath, shareURL, shareBaseURL, deleteToken, scope, org, orgName, visibility)
+		var cj session.CritJSON
+		data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
+		switch {
+		case err == nil:
+			if err := json.Unmarshal(data, &cj); err != nil {
+				return fmt.Errorf("invalid review file: %w", err)
+			}
+		case !os.IsNotExist(err):
+			return err
+		}
+		if cj.Files == nil {
+			cj.Files = make(map[string]session.CritJSONFile)
+		}
+		cj.ShareURL = shareURL
+		cj.ShareBaseURL = shareBaseURL
+		cj.DeleteToken = deleteToken
+		cj.ShareScope = scope
+		cj.ShareOrg = org
+		cj.ShareOrgName = orgName
+		cj.ShareVisibility = visibility
+		cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		return session.SaveCritJSON(critPath, cj)
 	})
-}
-
-func persistShareStateLocked(critPath string, shareURL string, shareBaseURL string, deleteToken string, scope string, org, orgName, visibility string) error {
-	var cj session.CritJSON
-	if data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review); err == nil {
-		_ = json.Unmarshal(data, &cj)
-	}
-	if cj.Files == nil {
-		cj.Files = make(map[string]session.CritJSONFile)
-	}
-	cj.ShareURL = shareURL
-	cj.ShareBaseURL = shareBaseURL
-	cj.DeleteToken = deleteToken
-	cj.ShareScope = scope
-	cj.ShareOrg = org
-	cj.ShareOrgName = orgName
-	cj.ShareVisibility = visibility
-	cj.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-
-	return session.SaveCritJSON(critPath, cj)
 }
 
 // clearShareState removes share URL, delete token, share scope, and last-share

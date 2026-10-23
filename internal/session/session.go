@@ -494,6 +494,12 @@ type Session struct {
 	// deletedReplyIDs lists replies the reviewer deleted, so a daemon write
 	// does not take them back from a review file that still has them.
 	deletedReplyIDs map[string]struct{}
+	// resolvedDirtyIDs lists comments whose resolved state the reviewer
+	// changed since the last write, each with the value of resolvedDirtySeq
+	// at the change. A write that takes in a CLI reply keeps the reviewer's
+	// resolved state for these instead of the one on disk.
+	resolvedDirtyIDs map[string]uint64
+	resolvedDirtySeq uint64
 
 	// pendingRemoteDeletes is the provider-neutral delete queue. A concurrent
 	// push may drain it on disk, so lastLoadedPendingDeletes prevents daemon
@@ -1530,6 +1536,7 @@ func (s *Session) ResolveReviewComment(id string, resolved bool) (Comment, bool)
 				s.reviewComments[i].ResolvedRound = 0
 			}
 			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.markResolvedDirtyLocked(id)
 			s.scheduleWrite()
 			return s.reviewComments[i], true
 		}
@@ -1583,6 +1590,7 @@ func (s *Session) AddReviewCommentReply(commentID, body, author, userID string) 
 			s.reviewComments[i].Resolved = false
 			s.reviewComments[i].ResolvedRound = 0
 			s.reviewComments[i].UpdatedAt = now
+			s.markResolvedDirtyLocked(commentID)
 			s.scheduleWrite()
 			return r, true
 		}
@@ -1705,6 +1713,7 @@ func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Commen
 		f.Comments[i].ResolvedRound = 0
 	}
 	f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.markResolvedDirtyLocked(id)
 	s.scheduleWrite()
 	return f.Comments[i], true
 }
@@ -1860,6 +1869,7 @@ func (s *Session) AddReply(filePath, commentID, body, author, userID string) (Re
 	f.Comments[i].Resolved = false
 	f.Comments[i].ResolvedRound = 0
 	f.Comments[i].UpdatedAt = now
+	s.markResolvedDirtyLocked(commentID)
 	s.scheduleWrite()
 	return r, true
 }
@@ -2386,7 +2396,7 @@ func (s *Session) ClearAllComments() {
 	// Hold writeMu for the duration so any in-flight debounced write must
 	// finish (and observe the new writeGen) before we proceed. Without this,
 	// a WriteFiles() call that passed the gen check a moment ago could
-	// atomicWriteFile the old snapshot back onto disk after os.Remove below.
+	// AtomicWriteFile the old snapshot back onto disk after os.Remove below.
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	s.mu.Lock()

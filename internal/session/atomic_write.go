@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// atomicWriteFile writes data to the target path atomically using a
+// AtomicWriteFile writes data to the target path atomically using a
 // same-directory tempfile + fsync + rename. On POSIX rename is atomic, so a
 // crash mid-write cannot leave a truncated file at target. Parent
 // directories are created with mode 0700 if missing. The final file is

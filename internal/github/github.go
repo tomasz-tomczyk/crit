@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -1104,16 +1103,7 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 		successByID[e.GitHubID] = e.Body
 	}
 
-	reviewPath := session.ReviewPathsFor(critPath).Review
-	return session.WithReviewWriteLock(critPath, func() error {
-		data, err := os.ReadFile(reviewPath)
-		if err != nil {
-			return err
-		}
-		var cj session.CritJSON
-		if err := json.Unmarshal(data, &cj); err != nil {
-			return err
-		}
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
 		for path, cf := range cj.Files {
 			for i, c := range cf.Comments {
 				// Stamp only the hash: the body may have been edited again
@@ -1129,11 +1119,24 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 			}
 			cj.Files[path] = cf
 		}
-		out, err := json.MarshalIndent(cj, "", "  ")
+	})
+}
+
+// updateReviewFile reads review.json under the review write lock, applies
+// mutate and saves the result with session.SaveCritJSON. A missing or
+// corrupt review file is an error.
+func updateReviewFile(critPath string, mutate func(*session.CritJSON)) error {
+	return session.WithReviewWriteLock(critPath, func() error {
+		data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
 		if err != nil {
 			return err
 		}
-		return config.AtomicWriteFile(reviewPath, append(out, '\n'), 0644)
+		var cj session.CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			return err
+		}
+		mutate(&cj)
+		return session.SaveCritJSON(critPath, cj)
 	})
 }
 
@@ -1380,16 +1383,7 @@ type replyKey struct {
 // commentIDs maps "path:endLine" -> GitHubID for root comments.
 // replyIDs maps replyKey -> GitHubID for replies.
 func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
-	return session.WithReviewWriteLock(critPath, func() error {
-		data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
-		if err != nil {
-			return err
-		}
-		var cj session.CritJSON
-		if err := json.Unmarshal(data, &cj); err != nil {
-			return err
-		}
-
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
 		for path, cf := range cj.Files {
 			for i, c := range cf.Comments {
 				if c.GitHubID == 0 {
@@ -1411,12 +1405,6 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 			}
 			cj.Files[path] = cf
 		}
-
-		out, err := json.MarshalIndent(cj, "", "  ")
-		if err != nil {
-			return err
-		}
-		return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
 	})
 }
 
@@ -1499,17 +1487,8 @@ func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 		drainedSet[id] = struct{}{}
 	}
 
-	return session.WithReviewWriteLock(critPath, func() error {
-		data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
-		if err != nil {
-			return err
-		}
-		var cj session.CritJSON
-		if err := json.Unmarshal(data, &cj); err != nil {
-			return err
-		}
-
-		refs := session.RemoteDeletesFor(cj, forge.GitHub)
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		refs := session.RemoteDeletesFor(*cj, forge.GitHub)
 		kept := make([]session.RemoteRef, 0, len(refs))
 		for _, ref := range refs {
 			if _, drained := drainedSet[ref.CommentID]; drained {
@@ -1517,13 +1496,7 @@ func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 			}
 			kept = append(kept, ref)
 		}
-		session.ReplaceRemoteDeletes(&cj, forge.GitHub, kept)
-
-		out, err := json.MarshalIndent(cj, "", "  ")
-		if err != nil {
-			return err
-		}
-		return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+		session.ReplaceRemoteDeletes(cj, forge.GitHub, kept)
 	})
 }
 

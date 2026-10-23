@@ -29,14 +29,3 @@ func ParseScopeSpec(s string) (DiffScope, error) {
 func CommentScopeOverrideFromFlag(s string) (CommentFocusOverride, error) {
 	return commentScopeOverrideFromFlag(s)
 }
-
-// SetProbeDaemonFocusFnForTest replaces daemon focus probing during tests.
-func SetProbeDaemonFocusFnForTest(fn func() *Focus) (restore func()) {
-	prev := probeDaemonFocusFn
-	if fn == nil {
-		probeDaemonFocusFn = func() *Focus { return nil }
-	} else {
-		probeDaemonFocusFn = fn
-	}
-	return func() { probeDaemonFocusFn = prev }
-}

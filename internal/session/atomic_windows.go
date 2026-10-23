@@ -17,7 +17,9 @@ import (
 // FILE_SHARE_DELETE. Most short-lived readers (json.Unmarshal after
 // os.ReadFile) hold the handle for only microseconds, so a brief retry loop
 // recovers reliably. Git for Windows, rclone, and Go's own module cache use
-// the same recipe.
+// the same recipe. A missing file is not retried: for a rename it means the
+// temp file or the folder is gone, and waiting does not bring it back. Only
+// readers retry that case.
 func renameAtomic(src, dst string) error {
 	const maxAttempts = 10
 	delay := 1 * time.Millisecond
@@ -27,7 +29,7 @@ func renameAtomic(src, dst string) error {
 		if err == nil {
 			return nil
 		}
-		if !isWindowsTransientIOErr(err) {
+		if errors.Is(err, fs.ErrNotExist) || !isWindowsTransientIOErr(err) {
 			return err
 		}
 		time.Sleep(delay)
@@ -38,7 +40,7 @@ func renameAtomic(src, dst string) error {
 	return err
 }
 
-// readFileShared reads path with the same retry recipe as renameAtomic.
+// ReadFileShared reads path with the same retry recipe as renameAtomic.
 // While renameAtomic protects writers from short-lived readers, the inverse
 // race exists too: os.ReadFile fails with ERROR_SHARING_VIOLATION /
 // ERROR_LOCK_VIOLATION when a writer is mid-rename over the destination.

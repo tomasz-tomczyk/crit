@@ -1,6 +1,7 @@
 package comment
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,10 +23,15 @@ const pinOuterHTMLMax = 2048
 // tag chain the browser agent would. Tests replace it.
 var readLivePageHTML = readLivePageHTMLDefault
 
-// livePageCache holds the live pages fetched in one CLI run, keyed by route,
-// so a bulk run with many pins on one page fetches it once. A nil cache
-// fetches every time.
-type livePageCache map[string]livePageResult
+// livePageCache holds the live pages fetched in one CLI run, keyed by origin
+// and route, so a bulk run with many pins on one page fetches it once. A nil
+// cache fetches every time.
+type livePageCache map[livePageKey]livePageResult
+
+type livePageKey struct {
+	origin string
+	route  string
+}
 
 type livePageResult struct {
 	data []byte
@@ -36,12 +42,40 @@ func (c livePageCache) read(origin, route string) ([]byte, error) {
 	if c == nil {
 		return readLivePageHTML(origin, route)
 	}
-	if r, ok := c[route]; ok {
+	key := livePageKey{origin: origin, route: route}
+	if r, ok := c[key]; ok {
 		return r.data, r.err
 	}
 	data, err := readLivePageHTML(origin, route)
-	c[route] = livePageResult{data: data, err: err}
+	c[key] = livePageResult{data: data, err: err}
 	return data, err
+}
+
+// prefetchLivePages fetches the pages that pins on routes will read, before
+// the caller takes review.lock. The fetch can take up to its timeout, and a
+// daemon save waits on that lock the whole time. It reads the review file
+// without the lock only to learn its type and origin, and only reads: no
+// migration and no defaults for a missing file. When the file does not read
+// or parse, or the review is not live, the cache stays empty and the locked
+// update handles it as before. A page missing from the cache is still
+// fetched on first use.
+func prefetchLivePages(critPath string, routes []string) livePageCache {
+	pages := livePageCache{}
+	if len(routes) == 0 {
+		return pages
+	}
+	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
+	if err != nil {
+		return pages
+	}
+	var cj session.CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil || cj.ReviewType != "live" {
+		return pages
+	}
+	for _, route := range routes {
+		_, _ = pages.read(cj.Origin, normalizePinRoute(cj.ReviewType, route, cj.Origin))
+	}
+	return pages
 }
 
 func enrichPinAnchor(cj *session.CritJSON, anchor *session.DOMAnchor, pages livePageCache) error {

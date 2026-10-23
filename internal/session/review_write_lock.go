@@ -1,7 +1,6 @@
 package session
 
 import (
-	"errors"
 	"fmt"
 	"os"
 )
@@ -24,11 +23,17 @@ func WithReviewWriteLock(identity string, fn func() error) error {
 // lockReviewAttempts bounds retries when the lock file keeps being replaced.
 const lockReviewAttempts = 10
 
-// lockReview opens and locks the review's lock file. When ClearReviewFolder
-// removed the folder while this caller waited, the lock it got is on a file
-// no longer at the path, and a later caller could lock a new file at the same
-// time. It then starts again with whatever file is at the path now.
+// lockReview opens and locks the review's lock file.
 func lockReview(identity string) (*os.File, error) {
+	return lockIdentityFile(identity, ReviewPathsFor(identity).ReviewLock, "review lock")
+}
+
+// lockIdentityFile opens and locks lockPath, a lock file inside the review
+// folder. When ClearReviewFolder removed the folder while this caller waited,
+// the lock it got is on a file no longer at the path, and a later caller
+// could lock a new file at the same time. It then starts again with whatever
+// file is at the path now. name labels errors.
+func lockIdentityFile(identity, lockPath, name string) (*os.File, error) {
 	paths := ReviewPathsFor(identity)
 	for attempt := 0; attempt < lockReviewAttempts; attempt++ {
 		if err := ensureReviewFolder(identity); err != nil {
@@ -37,24 +42,24 @@ func lockReview(identity string) (*os.File, error) {
 		if err := os.MkdirAll(paths.Folder, 0o700); err != nil {
 			return nil, fmt.Errorf("creating review folder: %w", err)
 		}
-		f, err := os.OpenFile(paths.ReviewLock, os.O_CREATE|os.O_RDWR, 0o644)
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 		if os.IsNotExist(err) {
 			continue // the folder was removed after MkdirAll; create it again
 		}
 		if err != nil {
-			return nil, fmt.Errorf("opening review lock: %w", err)
+			return nil, fmt.Errorf("opening %s: %w", name, err)
 		}
 		if err := flockExclusive(f); err != nil {
 			_ = f.Close()
-			return nil, fmt.Errorf("locking review: %w", err)
+			return nil, fmt.Errorf("acquiring %s: %w", name, err)
 		}
-		if lockFileCurrent(f, paths.ReviewLock) {
+		if lockFileCurrent(f, lockPath) {
 			return f, nil
 		}
 		_ = funlock(f)
 		_ = f.Close()
 	}
-	return nil, errors.New("locking review: lock file kept being replaced")
+	return nil, fmt.Errorf("acquiring %s: lock file kept being replaced", name)
 }
 
 // lockFileCurrent reports whether f is still the file at path.

@@ -70,21 +70,6 @@ func RunCleanup(args []string) error {
 	return nil
 }
 
-func removeStaleReviewPath(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	if info.IsDir() {
-		return session.ClearReviewFolder(path) == nil
-	}
-	if err := os.Remove(path); err != nil {
-		return false
-	}
-	_ = os.Remove(path + ".snapshots.json")
-	return true
-}
-
 type staleReview struct {
 	key        string
 	path       string

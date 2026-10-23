@@ -7,11 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/andybalholm/cascadia"
 
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"golang.org/x/net/html"
 )
 
@@ -593,5 +596,82 @@ func TestReadLivePageHTMLDefault(t *testing.T) {
 	}
 	if _, err := livePageURL("http://example.com", "%zz"); err == nil {
 		t.Fatal("expected bad route")
+	}
+}
+
+// fetchChecksLockIsFree replaces the live page fetch with one that, while
+// it runs, tries to take the review write lock from another goroutine. It
+// records whether the lock was free during the fetch. The returned func
+// waits for that goroutine.
+func fetchChecksLockIsFree(t *testing.T, critPath string, lockFree *[]bool) func() {
+	t.Helper()
+	var wg sync.WaitGroup
+	old := readLivePageHTML
+	readLivePageHTML = func(origin, route string) ([]byte, error) {
+		got := make(chan struct{})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = session.WithReviewWriteLock(critPath, func() error {
+				close(got)
+				return nil
+			})
+		}()
+		select {
+		case <-got:
+			*lockFree = append(*lockFree, true)
+		case <-time.After(time.Second):
+			*lockFree = append(*lockFree, false)
+		}
+		return []byte(`<html><body><main><button>Save</button></main></body></html>`), nil
+	}
+	t.Cleanup(func() { readLivePageHTML = old })
+	return wg.Wait
+}
+
+func TestPinFetchesLivePageOutsideReviewLock(t *testing.T) {
+	cases := map[string]func(critPath string) error{
+		"single pin": func(critPath string) error {
+			_, err := addPinComment(critPath, "button", "/dash", "body", "bot", "u1")
+			return err
+		},
+		"bulk pins": func(critPath string) error {
+			return bulkAddCommentsToCritJSONAtPath([]BulkCommentEntry{
+				{Selector: "button", Route: "/dash", Body: "one"},
+				{Selector: "main", Route: "/dash", Body: "two"},
+			}, "bot", "u1", critPath, inheritedScope{})
+		},
+	}
+	for name, add := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			seedPinReview(t, dir, CritJSON{ReviewType: "live", Origin: "http://localhost:3000", ReviewRound: 1, Files: map[string]CritJSONFile{}})
+			critPath, err := review.ResolveReviewPath(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var lockFree []bool
+			wait := fetchChecksLockIsFree(t, critPath, &lockFree)
+
+			err = add(critPath)
+			wait()
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lockFree) != 1 {
+				t.Fatalf("fetches = %d, want 1", len(lockFree))
+			}
+			if !lockFree[0] {
+				t.Error("the live page was fetched while the review lock was held")
+			}
+			cj, err := review.LoadCritJSON(critPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cj.Files["/dash"].Comments; len(got) == 0 || len(got[0].DOMAnchor.TagChain) < 2 {
+				t.Errorf("pin anchor not filled from the fetched page: %+v", got)
+			}
+		})
 	}
 }

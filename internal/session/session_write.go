@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -81,6 +82,7 @@ type writeFilesSnapshot struct {
 	pendingRemoteDeletes    []RemoteRef
 	lastLoadedRemoteDeletes map[RemoteRef]struct{}
 	deletedCommentIDs       map[string]map[string]struct{}
+	resolvedDirtyIDs        map[string]uint64
 	// Per-file data needed for the merge. We copy comments so the snapshot
 	// is independent of later in-memory mutations.
 	files []writeFileSnapshot
@@ -136,6 +138,7 @@ func (s *Session) clearAllCommentData() {
 	}
 	s.reviewComments = nil
 	s.deletedCommentIDs = nil
+	s.resolvedDirtyIDs = nil
 	s.ReviewRound = 1
 	s.RoundSnapshots = nil
 	s.mu.Unlock()
@@ -404,6 +407,7 @@ func (s *Session) writeReviewFile(critPath string) error {
 		s.diskHasUnloadedComments = unloaded
 		s.clearPendingWrite(snap)
 		s.clearWrittenDeletedCommentIDs(snap.deletedCommentIDs)
+		s.clearWrittenResolvedDirtyIDs(snap.resolvedDirtyIDs)
 		// Sync in-memory pending-delete state to what we just wrote, so the
 		// next snapshot does not re-include IDs that a concurrent
 		// `crit push` already drained. See reconcilePendingRemoteDeletes.
@@ -434,6 +438,7 @@ func (s *Session) markEmptyWritten(snap writeFilesSnapshot) {
 	s.lastCritJSONMtime = time.Time{}
 	s.clearPendingWrite(snap)
 	s.clearWrittenDeletedCommentIDs(snap.deletedCommentIDs)
+	s.clearWrittenResolvedDirtyIDs(snap.resolvedDirtyIDs)
 	s.pendingRemoteDeletes = nil
 	s.lastLoadedPendingDeletes = nil
 }
@@ -453,6 +458,27 @@ func (s *Session) clearWrittenDeletedCommentIDs(written map[string]map[string]st
 	}
 	if len(s.deletedCommentIDs) == 0 {
 		s.deletedCommentIDs = nil
+	}
+}
+
+// markResolvedDirtyLocked records that the reviewer changed id's resolved
+// state. Caller must hold s.mu.
+func (s *Session) markResolvedDirtyLocked(id string) {
+	if s.resolvedDirtyIDs == nil {
+		s.resolvedDirtyIDs = make(map[string]uint64)
+	}
+	s.resolvedDirtySeq++
+	s.resolvedDirtyIDs[id] = s.resolvedDirtySeq
+}
+
+// clearWrittenResolvedDirtyIDs drops the resolved changes a completed write
+// included. A change made again after the write's snapshot has a newer seq
+// and stays. Caller must hold s.mu.
+func (s *Session) clearWrittenResolvedDirtyIDs(written map[string]uint64) {
+	for id, seq := range written {
+		if s.resolvedDirtyIDs[id] == seq {
+			delete(s.resolvedDirtyIDs, id)
+		}
 	}
 }
 
@@ -498,6 +524,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		pendingRemoteDeletes:    pendDeletes,
 		lastLoadedRemoteDeletes: lastLoaded,
 		deletedCommentIDs:       deletedByPath,
+		resolvedDirtyIDs:        maps.Clone(s.resolvedDirtyIDs),
 		files:                   make([]writeFileSnapshot, len(s.Files)),
 	}
 	for i, f := range s.Files {
@@ -682,15 +709,7 @@ func (s *Session) ApplyReviewFileUpdate(update func() error) (changed bool, err 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	s.mu.Lock()
-	if s.writeTimer != nil {
-		s.writeTimer.Stop()
-		s.writeTimer = nil
-	}
-	s.writeGen++
-	s.mu.Unlock()
-
-	if err := s.writeFilesErr(); err != nil {
+	if err := s.syncWriteFilesLocked(); err != nil {
 		return false, err
 	}
 	if update != nil {
@@ -747,7 +766,12 @@ func (s *Session) mergeRepliesWrittenSinceLastWrite(critPath string) {
 }
 
 // addNewRepliesLocked appends disk replies of dc that memory lacks and the
-// reviewer did not delete. Caller must hold s.mu.
+// reviewer did not delete. When it adopts a reply it also takes dc's
+// Resolved, ResolvedRound and UpdatedAt: `crit comment --reply-to` sets them
+// along with the reply (--resolve resolves, a plain reply unresolves), and
+// the next write would otherwise put memory's old values back on disk. It
+// does not when the reviewer changed the resolved state since the last
+// write: that change is newer than the one on disk. Caller must hold s.mu.
 func (s *Session) addNewRepliesLocked(comments []Comment, dc Comment) bool {
 	for i := range comments {
 		if comments[i].ID != dc.ID {
@@ -766,6 +790,11 @@ func (s *Session) addNewRepliesLocked(comments []Comment, dc Comment) bool {
 			}
 			comments[i].Replies = append(comments[i].Replies, r)
 			changed = true
+		}
+		if _, dirty := s.resolvedDirtyIDs[dc.ID]; changed && !dirty {
+			comments[i].Resolved = dc.Resolved
+			comments[i].ResolvedRound = dc.ResolvedRound
+			comments[i].UpdatedAt = dc.UpdatedAt
 		}
 		return changed
 	}

@@ -2582,3 +2582,21 @@ func TestLoadPreviewShareComments_IncludesPulledKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestPersistShareState_DoesNotOverwriteCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	reviewPath := session.MustMkdirAll(filepath.Join(dir, ".crit", "review.json"))
+	if err := os.WriteFile(reviewPath, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := persistShareState(filepath.Join(dir, ".crit"), "https://crit.md/r/abc", "tok_123", "", "", "", "")
+
+	if err == nil {
+		t.Fatal("expected an error for a corrupt review file")
+	}
+	data, _ := os.ReadFile(reviewPath)
+	if string(data) != "{not json" {
+		t.Errorf("corrupt review file was overwritten: %q", data)
+	}
+}

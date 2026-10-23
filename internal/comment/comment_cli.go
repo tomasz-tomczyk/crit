@@ -287,6 +287,10 @@ func addReplyToCritJSONAtPath(commentID, body, author, userID string, resolve bo
 	return addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID, resolve, critPath, filterPath, true)
 }
 
+// errNoRedirect reports that the review file found by comment ID could not
+// take the reply either, so the caller returns the original error.
+var errNoRedirect = errors.New("reply not added to redirected review")
+
 func addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID string, resolve bool, critPath string, filterPath string, allowRedirect bool) error {
 	var replyErr error
 	err := updateCritJSON(critPath, func(cj *session.CritJSON) error {
@@ -305,11 +309,10 @@ func addReplyToCritJSONAtPathWithRedirect(commentID, body, author, userID string
 	if err != nil {
 		return replyErr
 	}
-	errNoRedirect := errors.New("reply not added to redirected review")
 	err = session.WithReviewWriteLock(altPath, func() error {
 		altCJ, err := review.LoadCritJSON(altPath)
 		if err != nil || appendReply(&altCJ, commentID, body, author, userID, resolve, filterPath) != nil {
-			return errNoRedirect
+			return errNoRedirect // the caller shows the original "not found"
 		}
 		return review.SaveCritJSON(altPath, altCJ)
 	})
@@ -571,7 +574,8 @@ func bulkAddCommentsToCritJSONAtPathWithRedirect(entries []BulkCommentEntry, glo
 	if len(entries) == 0 {
 		return fmt.Errorf("no comment entries provided")
 	}
-	pages := livePageCache{}
+	// Fetch live pages before taking the lock; see prefetchLivePages.
+	pages := prefetchLivePages(primaryPath, bulkPinRoutes(entries))
 	apply := func(cj *session.CritJSON) error {
 		for i, e := range entries {
 			if err := processBulkEntry(cj, i, e, globalAuthor, globalUserID, scope, pages); err != nil {

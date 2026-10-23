@@ -3,9 +3,8 @@ package review
 import "testing"
 
 var (
-	findStaleReviewsForTest      = findStaleReviews
-	deleteStaleReviewsForTest    = deleteStaleReviews
-	removeStaleReviewPathForTest = removeStaleReviewPath
+	findStaleReviewsForTest   = findStaleReviews
+	deleteStaleReviewsForTest = deleteStaleReviews
 )
 
 func withFetchPRByNumber(t *testing.T, fn func(int) (*PRHeadInfo, error)) {
