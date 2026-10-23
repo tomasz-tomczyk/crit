@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/diff"
@@ -1154,7 +1156,57 @@ func remapCommentPosition(c Comment, lineMap map[int]int, newLines []string, new
 		start, end, drift = verifyAndCorrectPosition(newLines, c.Anchor, start, end)
 		drifted = drift != 0
 	}
+	// The anchor check tolerates small edits to the line, but a comment on
+	// selected text is about its quote: once the quoted words are gone from
+	// its lines (its highlight finds nothing), the comment is Drifted.
+	if !drifted && c.Quote != "" && !quoteOnLines(newLines, start, end, c.Quote) {
+		drifted = true
+	}
 	return start, end, drifted
+}
+
+var (
+	quoteLinkTargetRe = regexp.MustCompile(`\]\([^)]*\)`)
+	quoteHTMLTagRe    = regexp.MustCompile(`</?[A-Za-z][A-Za-z0-9-]*(\s[^>]*)?/?>`)
+)
+
+// normalizeQuoteText keeps only letters and digits, lowercased, after
+// dropping markdown link targets and HTML tags. A quote is copied from the
+// rendered page (no `**`, link URLs or `<br/>` from the source), so both
+// sides are compared in this form.
+func normalizeQuoteText(s string) string {
+	if strings.Contains(s, "](") {
+		s = quoteLinkTargetRe.ReplaceAllString(s, "]")
+	}
+	if strings.Contains(s, "<") {
+		s = quoteHTMLTagRe.ReplaceAllString(s, " ")
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
+}
+
+// quoteOnLines reports whether quote is still on lines start..end (1-based,
+// inclusive), compared as normalizeQuoteText does. It mirrors the browser's
+// quote highlight, which needs the exact words: a comment is Drifted exactly
+// when its highlight would find nothing.
+func quoteOnLines(lines []string, start, end int, quote string) bool {
+	if start < 1 || end > len(lines) || start > end {
+		return true
+	}
+	span := lines[start-1 : end]
+	for _, line := range span {
+		if strings.Contains(line, quote) { // the usual case: quote unchanged
+			return true
+		}
+	}
+	q := normalizeQuoteText(quote)
+	return q == "" || strings.Contains(normalizeQuoteText(strings.Join(span, "\n")), q)
 }
 
 // carryForwardComments maps comments from the previous round to new document
