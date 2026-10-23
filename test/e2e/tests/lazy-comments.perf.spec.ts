@@ -151,3 +151,20 @@ test('a file jump still loading does not pull a review comment away', async ({ p
   await waitForScrollStable(page);
   await expect(reviewCard).toBeInViewport();
 });
+
+test('a jump right after a review comment is not pulled back to the top', async ({ page, request }) => {
+  await expect(await request.post('/api/comments', { data: { body: 'Review-level note' } })).toBeOK();
+  // An eager file a few screens down: its jump scrolls at once, while the
+  // review comment's alignment frames are still running.
+  const session = await (await request.get('/api/session')).json();
+  const eager = session.files[12].path;
+  const target = await addComment(request, eager, 1, 'Further down');
+  await loadPage(page);
+
+  await page.keyboard.press('Shift+C');
+  const cards = page.locator('.panel-comment-block .comment-card');
+  await cards.filter({ hasText: 'Review-level note' }).click();
+  await cards.filter({ hasText: 'Further down' }).click();
+  await waitForScrollStable(page);
+  await expect(page.locator(`#filesContainer .comment-card[data-comment-id="${target.id}"]`)).toBeInViewport();
+});
