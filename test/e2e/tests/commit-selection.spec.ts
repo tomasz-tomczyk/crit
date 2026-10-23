@@ -138,6 +138,53 @@ test.describe('Commit Selection', () => {
     await expect(page.locator('#commitDropdown')).toBeHidden();
   });
 
+  // A pinned commit overrides the scope server-side. The scope toggle shows
+  // that, and clicking the already-active scope (or its shortcut) releases
+  // the pin instead of doing nothing.
+  test('clicking the active scope releases a pinned commit', async ({ page }) => {
+    // File diffs ask for scope=all so they match the live file list.
+    const fileDiff = page.waitForRequest(r => r.url().includes('/api/file/diff?') && new URL(r.url()).searchParams.get('scope') === 'all');
+    await loadPage(page);
+    await fileDiff;
+    const toggle = page.locator('#scopeToggle');
+    const allBtn = toggle.locator('.toggle-btn[data-scope="all"]');
+    await expect(allBtn).toHaveClass(/active/);
+    await expect(toggle).not.toHaveClass(/commit-pinned/);
+
+    await openCommitPicker(page);
+    await pick(page, realCommitItems(page).first());
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveClass(/commit-pinned/);
+    await expect(allBtn).toHaveAttribute('title', /a commit is pinned/);
+    await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(0);
+
+    const response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
+    await allBtn.click();
+    await response;
+    await expect(toggle).not.toHaveClass(/commit-pinned/);
+    await expect(allBtn).not.toHaveAttribute('title', /a commit is pinned/);
+    await expect(label(page)).toHaveText('All commits');
+    await expect(allBtn).toHaveClass(/active/);
+    await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(1);
+    await expect(page.locator('.tree-file[data-tree-path="config.yaml"]')).toHaveCount(1);
+  });
+
+  test('the shortcut for the active scope releases a pinned commit', async ({ page }) => {
+    await loadPage(page);
+    await openCommitPicker(page);
+    await pick(page, realCommitItems(page).first());
+    await page.keyboard.press('Escape');
+    const toggle = page.locator('#scopeToggle');
+    await expect(toggle).toHaveClass(/commit-pinned/);
+
+    const response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
+    await page.keyboard.press('Shift+1');
+    await response;
+    await expect(toggle).not.toHaveClass(/commit-pinned/);
+    await expect(label(page)).toHaveText('All commits');
+    await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(1);
+  });
+
   // Regression: switching commit scope hid out-of-scope unresolved comments
   // from the finish button label — it showed "Approve" while hidden_unresolved > 0.
   test('finish button says Finish Review while an unresolved comment is outside the selected commit', async ({ page, request }) => {

@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
 import {
   clearAllComments, loadPage, clearFocus, fileHeader, fileItem, focusedFile, focusedRows, hoverLine, pressUntil,
   hoveredFile, reviewScroller, revealFile, treePaths, waitForScrollStable,
-  readFixtureState, roundComplete,
+  readFixtureState, roundComplete, switchToDocumentView,
 } from './helpers';
 
 // Viewed state lives in per-origin localStorage (app.js viewedStorageKey), and
@@ -191,13 +191,16 @@ test.describe('Viewed Shortcut — Git Mode', () => {
     await page.keyboard.press('j');
     await expect(fileItem(page, first).locator('[data-selected-line]').first()).toBeAttached();
 
+    const status = page.locator('#copyStatus');
     await page.keyboard.press('a');
     await expect(viewedBox(page, first)).toBeChecked();
     await expectCollapsed(page, first);
+    await expect(status).toHaveText(`Marked ${first} viewed`);
 
     // Focus stays on the collapsed file, so a second press un-views it.
     await page.keyboard.press('a');
     await expect(viewedBox(page, first)).not.toBeChecked();
+    await expect(status).toHaveText(`Unmarked ${first} viewed`);
   });
 
   test('a toggles viewed on the file under the mouse when nothing is focused', async ({ page }) => {
@@ -353,12 +356,15 @@ test.describe('Collapse Shortcut — Git Mode', () => {
     await expect.poll(async () => (await focusedRows(page)).length).toBeGreaterThan(0);
     const current = focusedFile(await focusedRows(page));
 
+    const status = page.locator('#copyStatus');
     await page.keyboard.press('o');
     await expectCollapsed(page, current);
     await expect(viewedBox(page, current)).not.toBeChecked();
+    await expect(status).toHaveText(`Collapsed ${current}`);
 
     await page.keyboard.press('o');
     await expectExpanded(page, current);
+    await expect(status).toHaveText(`Expanded ${current}`);
   });
 
   test('o collapses the file under the mouse when nothing is focused', async ({ page }) => {
@@ -400,6 +406,30 @@ test.describe('Collapse Shortcut — Git Mode', () => {
       await expect.poll(async () => Math.abs((await item.boundingBox())!.y - listTop)).toBeLessThan(2);
     });
   }
+
+  // A mounted rendered document keeps its reader anchor while it resizes.
+  // Collapsing hides it, and a hidden section must not pull the list away
+  // from the collapsed header.
+  test('collapsing a document mid-file with o brings its header back to the top', async ({ page }) => {
+    const doc = await switchToDocumentView(page);
+    const item = fileItem(page, 'plan.md');
+    const scroller = reviewScroller(page);
+    await scroller.evaluate((el) => {
+      const host = Array.from(el.querySelectorAll('diffs-container'))
+        .find(h => h.querySelector('.pierre-file-header[data-file-path="plan.md"]'))!;
+      el.scrollTop += host.getBoundingClientRect().top - el.getBoundingClientRect().top + 300;
+    });
+    await waitForScrollStable(page);
+    const listTop = (await scroller.boundingBox())!.y;
+    expect((await item.boundingBox())!.y).toBeLessThan(listTop - 100);
+
+    const box = (await doc.locator('.document-wrapper').boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, listTop + 200);
+    await page.keyboard.press('o');
+    await expect(fileHeader(page, 'plan.md')).toHaveClass(/\bcollapsed\b/);
+    await waitForScrollStable(page);
+    await expect.poll(async () => Math.abs((await item.boundingBox())!.y - listTop)).toBeLessThan(2);
+  });
 });
 
 // ============================================================

@@ -194,6 +194,29 @@ test.describe('Comment markdown rendering', () => {
     await expect(card(page.locator('#filesContainer'), target.id)).toBeInViewport();
   });
 
+  test('a ref chip to a review comment opens the collapsed review conversation', async ({ page, request }) => {
+    const res = await request.post('/api/comments', { data: { body: 'Review-level target' } });
+    await expect(res).toBeOK();
+    const target = await res.json();
+    const path = await getMdPath(request);
+    const ref = await addComment(request, path, 18, `See ${target.id}`);
+
+    await loadPage(page);
+    const conversation = page.locator('#reviewConversation');
+    await conversation.locator('.review-conversation-toggle').click();
+    await expect(conversation).toHaveClass(/collapsed/);
+    await expect(card(conversation, target.id)).toHaveCount(0);
+    const doc = await switchToDocumentView(page);
+    // Same flash as a ref to a card that is already shown.
+    await recordClassAdditions(page, 'comment-ref-flash');
+
+    const chip = card(doc, ref.id).locator('.comment-ref');
+    await expect(chip).toBeVisible();
+    await expectClassAddedTo(page, 'comment-ref-flash', () => chip.click(), target.id);
+    await expect(conversation).not.toHaveClass(/collapsed/);
+    await expect(card(conversation, target.id)).toBeInViewport();
+  });
+
   test('diff comments render markdown and tables', async ({ page, request }) => {
     // server.go new line 5 (`"log"`) is an addition.
     const table = await addComment(request, 'server.go', 5, TABLE_MD);

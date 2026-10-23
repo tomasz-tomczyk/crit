@@ -109,7 +109,13 @@
     const owner = files.find(function(f) {
       return (f.comments || []).some(function(c) { return c.id === id; });
     });
-    if (owner) pierreJumpToComment(id, owner.path, flashCommentRefCard);
+    if (owner) {
+      pierreJumpToComment(id, owner.path, flashCommentRefCard);
+      return;
+    }
+    // A review-level comment has no card while the review conversation is
+    // collapsed. scrollToReviewComment expands it first.
+    if (reviewComments.some(function(c) { return c.id === id; })) scrollToReviewComment(id, flashCommentRefCard);
   }
 
   function flashCommentRefCard(card) {
@@ -118,11 +124,17 @@
       card.classList.remove('collapsed');
       if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
     }
-    card.classList.remove('comment-ref-flash');
-    void card.offsetWidth;
-    card.classList.add('comment-ref-flash');
-    card.addEventListener('animationend', function() {
-      card.classList.remove('comment-ref-flash');
+    restartFlash(card, 'comment-ref-flash');
+  }
+
+  // Play a one-shot highlight animation on `el`. Removing the class and
+  // forcing a reflow restarts the animation when it is already running.
+  function restartFlash(el, className) {
+    el.classList.remove(className);
+    void el.offsetWidth;
+    el.classList.add(className);
+    el.addEventListener('animationend', function() {
+      el.classList.remove(className);
     }, { once: true });
   }
 
@@ -935,26 +947,12 @@
     saveViewedState();
     updateViewedCount();
     updateTreeViewedState();
-    if (pierreView && pierreViewActive()) {
-      // Header is rebuilt by the item update (checkbox state included).
-      pierreView.setCollapsed(file, file.viewed ? true : file.collapsed);
-      critFind.filesChanged();
-      return;
-    }
-    // Update the checkbox in the file header
-    const section = document.getElementById('file-section-' + filePath);
-    if (section) {
-      const cb = section.querySelector('.file-header-viewed input');
-      if (cb) cb.checked = file.viewed;
-      // Collapse when marking as viewed
-      if (file.viewed && section.open) {
-        if (section.getBoundingClientRect().top < 0) {
-          section.scrollIntoView({ behavior: 'instant' });
-        }
-        section.open = false;
-        file.collapsed = true;
-      }
-    }
+    // Both callers (the Pierre file header and the `a` shortcut) only run in
+    // the Pierre view. The header is rebuilt by the item update (checkbox
+    // state included).
+    if (!pierreView) return;
+    pierreView.setCollapsed(file, file.viewed ? true : file.collapsed);
+    critFind.filesChanged();
   }
 
   // Wraps crit.shared.waitForSession with the app.js-specific UI:
@@ -2047,8 +2045,9 @@
       pierreDocumentResizeObserver = new ResizeObserver(function(entries) {
         const anchor = pierreReaderAnchor;
         if (!anchor || !entries.some(function(entry) { return entry.target === anchor.section; })) return;
-        // A removed section reports a zero rect; there is nothing to keep in place.
-        if (!anchor.section.isConnected) return;
+        // A removed or hidden section reports a zero rect; there is nothing
+        // to keep in place.
+        if (!anchor.section.isConnected || !anchor.section.getClientRects().length) return;
         const el = anchor.selector ? anchor.section.querySelector(anchor.selector) : anchor.section;
         const scroller = document.getElementById('filesContainer');
         if (!el || !scroller) return;
@@ -2536,6 +2535,8 @@
   // `isCurrent` (optional) stops the alignment once a newer jump has started,
   // so a card that cannot reach the center (the top of the list) does not keep
   // pulling the list back over the next jump.
+  // An element taller than the list is aligned by its top instead, so its
+  // start (and the line just above a comment card) stays in view.
   function scrollPierreElementIntoView(el, isCurrent) {
     const root = document.getElementById('filesContainer');
     if (!root || !el) return;
@@ -2544,7 +2545,8 @@
       if (isCurrent && !isCurrent()) return;
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const offset = elRect.top - rootRect.top - (root.clientHeight - elRect.height) / 2;
+      const gap = Math.max(0, (root.clientHeight - elRect.height) / 2);
+      const offset = elRect.top - rootRect.top - gap;
       if (Math.abs(offset) < 2 || frames++ >= 12) return;
       // Make each layout correction immediate instead of starting overlapping
       // browser scroll animations during the bounded alignment loop.
@@ -2554,7 +2556,8 @@
   }
 
   // Jump to a comment: load/expand its file, let Pierre scroll the anchor
-  // line into place, then hand the mounted card to `done` (flash/highlight).
+  // line into place, center the mounted card, then hand it to `done`
+  // (highlight only; `done` must not scroll again).
   // Outdated and file-level comments anchor at the file top.
   // Each jump takes a sequence number; a jump that a newer one has replaced
   // (rapid next-comment navigation) skips its alignment and `done`.
@@ -2586,15 +2589,20 @@
         whenMounted(card, function(el) {
           if (!isCurrent()) return;
           // Diff jumps don't wait for the list to settle. The view's scrollTo
-          // passes no smooth behavior, so the list is already in place, and
-          // Pierre itself places an anchored line. Waiting would add 250ms+
-          // to every next-comment step. Only document comments need the
-          // inner alignment below, after the outer scroll stops.
-          if (!inDocument) { done(el); return; }
+          // passes no smooth behavior, so the list is already in place; the
+          // card is then centered right away (top-aligned when taller than
+          // the list). Waiting would add 250ms+ to every next-comment step.
+          // Only document comments wait for the outer scroll to stop before
+          // the alignment below.
+          if (!inDocument) {
+            scrollPierreElementIntoView(el, isCurrent);
+            done(el);
+            return;
+          }
           whenListScrollSettled(document.getElementById('filesContainer'), function() {
             whenMounted(card, function(mountedCard) {
               if (!isCurrent()) return;
-              scrollPierreElementIntoView(mountedCard);
+              scrollPierreElementIntoView(mountedCard, isCurrent);
               done(mountedCard);
             });
           }, isCurrent);
@@ -3365,8 +3373,7 @@
   }
 
   // Fill a file header (name, badge, stats, markdown toggle, change nav,
-  // file-comment button, viewed checkbox). Shared by the classic <summary>
-  // header and Pierre's custom header slot.
+  // file-comment button, viewed checkbox) for Pierre's custom header slot.
   function populateFileHeader(file, header) {
     const dirParts = file.path.split('/');
     const fileName = dirParts.pop();
@@ -3439,7 +3446,7 @@
       toggle.addEventListener('click', function(e) {
         const btn = e.target.closest('.toggle-btn');
         if (!btn) return;
-        e.preventDefault(); // Don't toggle the <details>
+        e.preventDefault();
         const fileForms = getFormsForFile(file.path);
         fileForms.forEach(function(f) { removeForm(f.formKey); });
         if (activeFilePath === file.path) {
@@ -3519,7 +3526,7 @@
       fileCommentBtn.setAttribute('aria-label', 'Add file-level comment');
       fileCommentBtn.innerHTML = ICON_COMMENT;
       fileCommentBtn.addEventListener('click', function(e) {
-        e.stopPropagation(); // Don't toggle the <details>
+        e.stopPropagation(); // Don't collapse the file (header click)
         e.preventDefault();
         openFileCommentForm(file.path);
       });
@@ -3532,7 +3539,7 @@
     viewedLabel.title = shortcutTitle('Viewed', 'toggle_viewed');
     viewedLabel.innerHTML = '<input type="checkbox"' + (file.viewed ? ' checked' : '') + '><span>Viewed</span>';
     viewedLabel.addEventListener('click', function(e) {
-      e.stopPropagation(); // Don't toggle the <details>
+      e.stopPropagation(); // Don't collapse the file (header click)
     });
     viewedLabel.querySelector('input').addEventListener('change', function() {
       toggleViewed(file.path);
@@ -6314,7 +6321,9 @@
   }
 
   // Scroll to and flash a specific review-level comment card. Mirrors scrollToComment.
-  function scrollToReviewComment(commentId) {
+  // `flash` (optional) replaces the default highlight; it runs before the
+  // scroll so a card it expands is placed at its full height.
+  function scrollToReviewComment(commentId, flash) {
     if (isReviewConversationCollapsed()) {
       setReviewConversationCollapsed(false);
       renderReviewConversation();
@@ -6329,17 +6338,13 @@
       return;
     }
     ignoreTreeObserverUntil = Date.now() + 200;
+    if (flash) flash(card);
+    else restartFlash(card, 'comment-card-highlight');
     // The conversation is the review list's header. A smooth scroll there
     // stops partway: files mounting on the way up adjust scrollTop, and that
     // cancels the browser's animation.
     if (section.closest('#filesContainer')) scrollPierreElementIntoView(card, function() { return seq === pierreJumpSeq; });
     else card.scrollIntoView({ block: 'center', behavior: 'instant' });
-    card.classList.remove('comment-card-highlight');
-    void card.offsetWidth;
-    card.classList.add('comment-card-highlight');
-    card.addEventListener('animationend', function() {
-      card.classList.remove('comment-card-highlight');
-    }, { once: true });
     updateTreeActive(REVIEW_CONVERSATION_PATH);
   }
 
@@ -6933,15 +6938,10 @@
   }
 
 
+  // Highlight only. pierreJumpToComment has already placed the card, and
+  // the story path scrolls it itself.
   function flashCommentCard(commentCard) {
-    if (pierreView && pierreViewActive()) scrollPierreElementIntoView(commentCard);
-    else commentCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    commentCard.classList.remove('comment-card-highlight');
-    void commentCard.offsetWidth;
-    commentCard.classList.add('comment-card-highlight');
-    commentCard.addEventListener('animationend', function() {
-      commentCard.classList.remove('comment-card-highlight');
-    }, { once: true });
+    restartFlash(commentCard, 'comment-card-highlight');
   }
 
   function scrollToComment(commentId, filePath) {
@@ -6972,7 +6972,9 @@
         const pane = document.getElementById('storyPane');
         if (!pane) return;
         const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-        if (card) flashCommentCard(card);
+        if (!card) return;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        flashCommentCard(card);
       };
       if (navigated) requestAnimationFrame(locate); else locate();
       return;
@@ -7630,8 +7632,17 @@
   // finish-review copy flow and the settings overlay (crit-share.js has its
   // own internal copy for the share modal's clipboard buttons).
   function announceCopy() {
+    announce('Copied to clipboard');
+  }
+
+  // Write a short message to the polite live region for screen readers.
+  // Clearing first and setting the text a frame later makes a repeat of the
+  // same message count as a change, so it is read again.
+  function announce(message) {
     const el = document.getElementById('copyStatus');
-    if (el) { el.textContent = ''; el.textContent = 'Copied to clipboard'; }
+    if (!el) return;
+    el.textContent = '';
+    requestAnimationFrame(function() { el.textContent = message; });
   }
 
   // ===== Toast System =====
@@ -7798,7 +7809,13 @@
   function scrollToHashHeading() {
     const hash = window.location.hash;
     if (!hash || hash === '#') return;
-    const target = document.getElementById(decodeURIComponent(hash.slice(1)));
+    const id = decodeURIComponent(hash.slice(1));
+    // Ids and names in a document's raw HTML carry a user-content- prefix
+    // (document-html.js), so #foo also finds the author's id="foo" or
+    // name="foo", as on GitHub.
+    const target = document.getElementById(id) ||
+      document.getElementById('user-content-' + id) ||
+      document.querySelector('[name="' + CSS.escape('user-content-' + id) + '"]');
     if (!target) return;
     scrollReviewToElement(target, 8, 'instant');
   }
@@ -7859,23 +7876,20 @@
 
   // A diagram is drawn after the document's first highlight pass, which could
   // only see its hidden source: highlight quotes again in the drawn output.
-  // Deferred so the renderer has cached its clean output first: it caches
-  // right after the event.
+  // The renderer caches its clean output before it sends the event.
   function installRenderedQuoteHighlights() {
     document.addEventListener('crit:rendered', function(e) {
       const target = e.target;
-      requestAnimationFrame(function() {
-        const content = target.isConnected && target.closest('.line-content');
-        const block = content && content.closest('.line-block[data-file-path]');
-        const section = block && block.closest('.file-section');
-        const file = block && getFileByPath(block.dataset.filePath);
-        if (!section || !file) return;
-        content.querySelectorAll('.quote-highlight').forEach(function(mark) {
-          mark.replaceWith.apply(mark, Array.from(mark.childNodes));
-        });
-        content.normalize();
-        highlightQuotesInSection(section, file, content);
+      const content = target.isConnected && target.closest('.line-content');
+      const block = content && content.closest('.line-block[data-file-path]');
+      const section = block && block.closest('.file-section');
+      const file = block && getFileByPath(block.dataset.filePath);
+      if (!section || !file) return;
+      content.querySelectorAll('.quote-highlight').forEach(function(mark) {
+        mark.replaceWith.apply(mark, Array.from(mark.childNodes));
       });
+      content.normalize();
+      highlightQuotesInSection(section, file, content);
     });
   }
 
@@ -9345,6 +9359,11 @@
           toggleViewed(filePath);
         } else if (file) {
           pierreView.setCollapsed(file, !file.collapsed);
+        }
+        // Full path: base names like README.md repeat across folders.
+        if (file) {
+          if (markViewed) announce((file.viewed ? 'Marked ' : 'Unmarked ') + file.path + ' viewed');
+          else announce((file.collapsed ? 'Collapsed ' : 'Expanded ') + file.path);
         }
         // The file stayed open (un-viewed, or expanded): keep the focused
         // line highlighted, as Esc does when it leaves visual mode.
@@ -11480,12 +11499,7 @@
               const start = parseInt(el.dataset.startLine);
               const end = parseInt(el.dataset.endLine);
               if (start >= anchor.startLine && end <= anchor.endLine) {
-                el.classList.remove('comment-card-highlight');
-                void el.offsetWidth;
-                el.classList.add('comment-card-highlight');
-                el.addEventListener('animationend', function () {
-                  el.classList.remove('comment-card-highlight');
-                }, { once: true });
+                restartFlash(el, 'comment-card-highlight');
               }
             });
             return Promise.resolve();

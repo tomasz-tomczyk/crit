@@ -554,6 +554,30 @@ test('renderAll: a rebuilt target with rendered source shows the cached output a
   });
 });
 
+test('renderAll: crit:rendered fires after the clean output is cached', async () => {
+  const r = freshRegistry();
+  const calls = deferredRenderer(r);
+  await withFakeDom(async () => {
+    const a = stubTarget('graph');
+    // A listener marks up the drawn output, as quote highlights do.
+    a.target.dispatchEvent = function() {
+      const out = this.querySelector(':scope > .crit-render-output');
+      out.innerHTML = out.innerHTML.replace('graph', '<mark>graph</mark>');
+      return true;
+    };
+    const done = r.renderAll(a.root);
+    await tick();
+    calls[0].resolve('<svg>graph</svg>');
+    await done;
+    assert.equal(a.target.querySelector(':scope > .crit-render-output').innerHTML, '<svg><mark>graph</mark></svg>');
+
+    const b = stubTarget('graph');
+    r.renderAll(b.root);
+    assert.equal(calls.length, 1, 'served from the cache');
+    assert.equal(b.target.querySelector(':scope > .crit-render-output').innerHTML, '<svg>graph</svg>', 'cache holds no markup from the listener');
+  });
+});
+
 test('renderAll: a cached output whose ids are already in the page renders afresh', async () => {
   const r = freshRegistry();
   const calls = [];

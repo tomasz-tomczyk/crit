@@ -330,8 +330,10 @@
       if (typeof result === 'string') output.innerHTML = result;
       else if (result && result.nodeType) output.appendChild(result);
       if (old) old.replaceWith(output);
-      markRendered(target, renderer, ctx, output);
+      // Cache before markRendered: its crit:rendered listeners may mark up
+      // the output (quote highlights), and the cache must hold it clean.
       cachePut(key, output);
+      markRendered(target, renderer, ctx, output);
     }).catch(function (err) {
       if (target._critGen !== gen) return;
       console.warn('[crit] renderer ' + renderer.name + ' failed:', err);
