@@ -1,5 +1,7 @@
 import { test, expect, type APIRequestContext, type Locator } from '@playwright/test';
-import { addComment, clearAllComments, getMdPath, loadPage, mdSection, reviewScroller, waitForScrollStable } from './helpers';
+import * as fs from 'fs';
+import * as path from 'path';
+import { addComment, clearAllComments, getMdPath, loadPage, mdSection, reviewScroller, roundComplete, sessionCwd, waitForScrollStable } from './helpers';
 
 // The "Open Questions" blockquote, near the end of plan.md.
 const OPEN_QUESTION_LINE = 47;
@@ -61,6 +63,43 @@ test.describe('Document view keeps the reader in place — File Mode', () => {
 
     // THEN - the thread stayed where it was in every frame
     expect(await largestMoveSinceTrackingStarted(card)).toBeLessThan(MAX_MOVE_PX);
+  });
+
+  test('a new round that adds lines above the thread leaves the thread where it was', async ({ page, request }) => {
+    // GIVEN - a thread near the end of the plan, read with the start of the document above the screen
+    const mdPath = await getMdPath(request);
+    const comment = await addComment(request, mdPath, OPEN_QUESTION_LINE, 'Rate-limit by key or by IP?');
+    await loadPage(page);
+    const section = await mdSection(page);
+    const card = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
+    await card.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await waitForScrollStable(page);
+    await expectDocumentStartsAboveScreen(section, reviewScroller(page));
+    const before = await screenTop(card);
+
+    // WHEN - the reviewer finishes, the agent adds paragraphs at the top of the plan, and a new round starts
+    const file = path.join(await sessionCwd(request), mdPath);
+    const original = fs.readFileSync(file, 'utf8');
+    const finished = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/finish' && r.request().method() === 'POST');
+    await page.locator('#finishBtn').click();
+    expect((await finished).ok()).toBe(true);
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+    const lines = original.split('\n');
+    lines.splice(1, 0, '', 'Added above the thread.', '', 'And another paragraph.', '');
+    fs.writeFileSync(file, lines.join('\n'));
+    try {
+      await expect(page.locator('#waitingEdits')).toContainText('edit', { timeout: 5_000 });
+      await expect(await request.post('/api/round-complete')).toBeOK();
+      await expect(page.locator('#waitingOverlay')).not.toHaveClass(/active/, { timeout: 15_000 });
+      await expect(section.getByText('Added above the thread.')).toBeAttached();
+      await waitForScrollStable(page);
+
+      // THEN - the thread is where it was, although its line numbers moved down
+      expect(Math.abs((await screenTop(card)) - before)).toBeLessThan(MAX_MOVE_PX);
+    } finally {
+      fs.writeFileSync(file, original);
+      await roundComplete(request);
+    }
   });
 
   // The file header sits above the document in the same Pierre item. Once the

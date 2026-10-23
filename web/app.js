@@ -7353,6 +7353,11 @@
         // Clear commit filter on round-complete
         clearCommitPins();
 
+        // The Document view scroll anchor names its block by line numbers,
+        // which the new round may have shifted, so it would pin a different
+        // block. The next scroll sets it again.
+        pierreReaderAnchor = null;
+
         // Re-fetch everything on file-changed (round complete)
         let sessionRes = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(currentSessionFetchScope())));
         sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
