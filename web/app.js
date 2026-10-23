@@ -4551,6 +4551,17 @@
     renderFileByPath(newForm.filePath);
     focusCommentTextarea(newForm.formKey);
     pierreRevealForm(newForm);
+    if (!newForm.editingId) flashNewForm(newForm.formKey);
+  }
+
+  // A new form can open below an existing thread; flash it once it is on
+  // screen so it is easy to spot (the flash a comment reference gives a card).
+  function flashNewForm(key) {
+    whenMounted(function() {
+      const form = document.querySelector('.comment-form[data-form-key="' + CSS.escape(key) + '"]');
+      const r = form && form.getBoundingClientRect();
+      return r && r.height > 0 && r.top < window.innerHeight && r.bottom > 0 ? form : null;
+    }, flashCommentRefCard);
   }
 
   function openFileCommentForm(filePath) {
@@ -4575,6 +4586,7 @@
     renderFileByPath(filePath);
     focusCommentTextarea(newForm.formKey);
     pierreRevealForm(newForm);
+    flashNewForm(newForm.formKey);
   }
 
   function createFileCommentForm(formObj) {
