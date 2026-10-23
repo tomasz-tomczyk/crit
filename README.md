@@ -459,6 +459,33 @@ Use `--no-ignore` to temporarily bypass all patterns:
 crit --no-ignore
 ```
 
+### Custom styles
+
+To restyle Crit with your own CSS, create `~/.crit/custom.css`. Every Crit page (reviews, live mode and the theme preview) loads it after Crit's own styles, reading it fresh each time, so edit the file and reload the tab to see changes. If the file can't be read, Crit logs why and uses its own styles. In review and live mode, Settings → Configuration shows whether the file exists and its path, and Settings → Display has a "Use custom CSS" switch to turn it off without deleting it.
+
+Crit marks the page with the mode in use, `data-crit-mode="light"` or `"dark"` (also when following the system setting), so you can keep everything for one mode in one block. Override theme variables and nest element rules inside it:
+
+```css
+:root[data-crit-mode="dark"] {
+  /* the block a comment is on, and the exact words it quotes */
+  --crit-comment-range-bg: rgba(83, 155, 245, 0.15);
+  --crit-quote-highlight-bg: rgba(83, 155, 245, 0.28);
+
+  .line-block.has-comment { box-shadow: inset 3px 0 0 #539bf5; }
+}
+
+:root[data-crit-mode="light"] {
+  --crit-comment-range-bg: rgba(9, 105, 218, 0.10);
+  --crit-quote-highlight-bg: rgba(9, 105, 218, 0.18);
+
+  .line-block.has-comment { box-shadow: inset 3px 0 0 #0969da; }
+}
+```
+
+For a single value that differs by mode, `light-dark(light, dark)` also works.
+
+Code diffs are drawn inside shadow roots, which page CSS cannot reach with selectors; only inherited CSS variables (such as the ones above, or `--diffs-*` overrides) get through. Override the derived `--crit-*` variables, as above: the palette's own `--crit-palette-*` values are set inline on `<html>`, so they only change with `!important`. Class names are not a stable API and may change between releases.
+
 ### Environment variables
 
 | Variable                    | Description                                       |

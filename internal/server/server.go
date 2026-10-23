@@ -151,6 +151,9 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	// Theme preview page — static samples, no session needed.
 	mux.HandleFunc("/themes", s.serveHTML("themes.html"))
 
+	// The user's own stylesheet, linked last from index.html and themes.html.
+	mux.HandleFunc("/custom.css", s.handleCustomCSS)
+
 	// Live-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/live", s.serveIndexHTML())
 	for _, f := range AgentScriptFiles {
@@ -566,6 +569,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 		resp["close_on_approve_after_ms"] = ms
 	}
 
+	// The user's own stylesheet, for the settings panel's Custom CSS card.
+	if path := config.CustomCSSPath(); path != "" {
+		resp["custom_css_path"] = path
+		info, err := os.Stat(path)
+		resp["custom_css_exists"] = err == nil && info.Mode().IsRegular()
+	}
+
 	// Integration detection
 	s.addIntegrationStatus(resp)
 
@@ -807,6 +817,33 @@ func (s *Server) serveEmbeddedCSS(name string) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		io.Copy(w, f)
 	}
+}
+
+// handleCustomCSS serves ~/.crit/custom.css, read on every request so edits
+// apply on reload. Without one it answers 204 No Content, an empty
+// stylesheet, so pages can link it unconditionally. A file that exists but
+// can't be read is logged.
+func (s *Server) handleCustomCSS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	path := config.CustomCSSPath()
+	if path == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	css, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("custom.css: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = w.Write(css)
 }
 
 // filterFilesAtRound returns the subset of files that have a snapshot recorded

@@ -590,6 +590,17 @@ func GlobalConfigPath() string {
 	return filepath.Join(home, ".crit.config.json")
 }
 
+// CustomCSSPath is where crit looks for the user's own stylesheet:
+// ~/.crit/custom.css. It lives in the home directory, so a project repo
+// cannot supply or redirect it. Empty when the home directory is unknown.
+func CustomCSSPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".crit", "custom.css")
+}
+
 // SaveGlobalConfig performs a read-modify-write on ~/.crit.config.json.
 // It uses map[string]json.RawMessage to preserve unknown keys.
 // The apply function receives the raw map and should set or delete keys as needed.

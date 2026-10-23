@@ -18,6 +18,9 @@
     const palette = palettes.find(function(p) { return p.id === themes[mode]; });
     if (!palette) return;
     root.dataset.critPalette = palette.id;
+    // The resolved mode, also when following the system setting, for
+    // ~/.crit/custom.css rules such as :root[data-crit-mode="dark"] { … }.
+    root.dataset.critMode = mode;
     root.style.colorScheme = mode;
     Object.keys(palette.colors).forEach(function(role) {
       root.style.setProperty('--crit-palette-' + role, palette.colors[role]);
@@ -38,8 +41,17 @@
   function applySaved(root) {
     const palettes = window.crit && window.crit.palettes;
     if (!palettes) return;
+    applyCustomCSSSetting();
     const systemLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
     return apply(savedSettings(), palettes, root || document.documentElement, systemLight);
+  }
+
+  // Turn the ~/.crit/custom.css link off or on to match the "Use custom CSS"
+  // setting (on unless set to false). Runs from <head> via applySaved(), so a
+  // stylesheet that is switched off never paints.
+  function applyCustomCSSSetting() {
+    const link = typeof document !== 'undefined' && document.getElementById('critCustomCSS');
+    if (link) link.disabled = savedSettings().customCSS === false;
   }
 
   // "System" follows the OS; re-theme when it flips. Live mode needs this
@@ -53,7 +65,7 @@
     });
   }
 
-  const api = { pair: pair, apply: apply, applySaved: applySaved, DEFAULTS: DEFAULTS };
+  const api = { pair: pair, apply: apply, applySaved: applySaved, applyCustomCSSSetting: applyCustomCSSSetting, DEFAULTS: DEFAULTS };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};
     window.crit.themePalette = api;

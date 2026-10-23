@@ -30,6 +30,11 @@ test.describe('live-mode shell — bootstrap', () => {
 
     await expect.poll(() => loaded.some(u => u.endsWith('/live-mode.js'))).toBe(true);
     await expect.poll(() => loaded.some(u => u.endsWith('/style-live.css'))).toBe(true);
+    // style-live.css goes in before the user's ~/.crit/custom.css, which stays last.
+    expect(await page.evaluate(() => {
+      const sheets = Array.from(document.head.querySelectorAll('style, link[rel="stylesheet"]'));
+      return sheets.slice(-2).map(s => s.getAttribute('href'));
+    })).toEqual(['style-live.css', 'custom.css']);
     await expect(page.locator('html')).toHaveClass(/crit-mode-live/);
     await expect(page.locator('.header')).toBeVisible();
     await expect(page.locator('.crit-live-iframe-pane')).toBeVisible();

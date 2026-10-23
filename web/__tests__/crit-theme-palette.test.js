@@ -184,6 +184,7 @@ test('apply selects explicit and system light/dark modes on a fake root', () => 
     const selected = palette.apply(settings, themes, root, systemLight);
     assert.equal(selected.id, id);
     assert.equal(root.dataset.critPalette, id);
+    assert.equal(root.dataset.critMode, mode);
     assert.equal(root.style.colorScheme, mode);
     for (const [role, value] of Object.entries(selected.colors)) {
       assert.equal(root.values.get(`--crit-palette-${role}`), value);

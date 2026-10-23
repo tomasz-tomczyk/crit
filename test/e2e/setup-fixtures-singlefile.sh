@@ -86,5 +86,17 @@ fi
 # Isolate from user's ~/.crit.config.json (and USERPROFILE on Windows).
 e2e_export_fake_home "$DIR"
 
+# A ~/.crit/custom.css whose only effect is a probe variable that
+# custom-css.singlefile.spec.ts reads back (no visible change for other specs).
+mkdir -p "$DIR/.crit"
+cat > "$DIR/.crit/custom.css" <<'CSS'
+:root[data-crit-palette] { --crit-e2e-custom-css: applied; }
+:root[data-crit-mode="light"] { --crit-e2e-mode: light; }
+:root[data-crit-mode="dark"] {
+  --crit-e2e-mode: dark;
+  .document-wrapper { --crit-e2e-nested: dark; }
+}
+CSS
+
 # Run crit in single-file mode, outside any git repository
 e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" plan.md
