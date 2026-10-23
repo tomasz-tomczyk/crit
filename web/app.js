@@ -8866,10 +8866,14 @@
   let navHighlightTimer;
 
   function collectNavigableComments() {
-    // Document order matching render: file-scope cards above the body, then
-    // line comments by end_line / start_line. Used so [/] can reach comments
-    // whose .file-body is still deferred.
+    // Document order matching render: the review conversation above every
+    // file, then per file the file-scope cards above the body and line
+    // comments by end_line / start_line. Used so [/] can reach comments whose
+    // .file-body is still deferred.
     const list = [];
+    for (let ri = 0; ri < reviewComments.length; ri++) {
+      list.push({ id: reviewComments[ri].id, filePath: null, resolved: !!reviewComments[ri].resolved });
+    }
     for (let fi = 0; fi < files.length; fi++) {
       const file = files[fi];
       const comments = file.comments || [];
@@ -8904,17 +8908,38 @@
 
   function highlightNavComment(commentId, filePath) {
     if (!pierreView || !pierreViewActive()) return;
-    pierreJumpToComment(commentId, filePath, function(card) {
-      if (navHighlightTimer) {
-        clearTimeout(navHighlightTimer);
-        document.querySelectorAll('.comment-nav-highlight').forEach(function(el) { el.classList.remove('comment-nav-highlight'); });
-      }
-      card.classList.add('comment-nav-highlight');
-      navHighlightTimer = setTimeout(function() {
-        card.classList.remove('comment-nav-highlight');
-        navHighlightTimer = null;
-      }, 1000);
-    });
+    if (filePath === null) jumpToReviewNavComment(commentId, markNavComment);
+    else pierreJumpToComment(commentId, filePath, markNavComment);
+  }
+
+  // The review conversation is the Pierre list header, always mounted above
+  // the first file, so its card needs no load or mount wait.
+  function jumpToReviewNavComment(commentId, done) {
+    // Supersede a file jump still in flight so it does not steal the highlight.
+    const seq = ++pierreJumpSeq;
+    if (isReviewConversationCollapsed()) {
+      setReviewConversationCollapsed(false);
+      renderReviewConversation();
+    }
+    const section = document.getElementById('reviewConversation');
+    const card = section && section.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
+    if (!card) return;
+    ignoreTreeObserverUntil = Date.now() + 400;
+    updateTreeActive(REVIEW_CONVERSATION_PATH);
+    scrollPierreElementIntoView(card, function() { return seq === pierreJumpSeq; });
+    done(card);
+  }
+
+  function markNavComment(card) {
+    if (navHighlightTimer) {
+      clearTimeout(navHighlightTimer);
+      document.querySelectorAll('.comment-nav-highlight').forEach(function(el) { el.classList.remove('comment-nav-highlight'); });
+    }
+    card.classList.add('comment-nav-highlight');
+    navHighlightTimer = setTimeout(function() {
+      card.classList.remove('comment-nav-highlight');
+      navHighlightTimer = null;
+    }, 1000);
   }
 
   function navigateToComment(direction) {
