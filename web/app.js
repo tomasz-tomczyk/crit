@@ -110,20 +110,58 @@
     }, { once: true });
   }
 
+  // Links between comments and text: a comment reference chip goes to its
+  // comment, a quoted comment's line label goes to its quote (goToQuote).
+  const COMMENT_LINK = '.comment-ref, .comment-line-ref[role="link"]';
+  function followCommentLink(link) {
+    if (link.dataset.refId) scrollToCommentRef(link.dataset.refId);
+    else goToQuote(link.closest('.comment-card').dataset.commentId);
+  }
+
   document.addEventListener('click', function(e) {
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
-    e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+    const link = e.target.closest && e.target.closest(COMMENT_LINK);
+    if (link) {
+      e.preventDefault();
+      followCommentLink(link);
+      return;
+    }
+    // A quote highlight goes to its comment. Deferred so a double or triple
+    // click that selects text inside the highlight doesn't jump.
+    const mark = e.target.closest && e.target.closest('mark.quote-highlight:not([data-comment-id^="draft-"])');
+    if (mark && e.detail === 1) {
+      setTimeout(function() {
+        if (window.getSelection().isCollapsed) scrollToCommentRef(mark.dataset.commentId);
+      }, 300);
+    }
   });
 
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
+    const link = e.target.closest && e.target.closest(COMMENT_LINK);
+    if (!link) return;
     e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+    followCommentLink(link);
   });
+
+  // Scroll to and flash a comment's quote highlight in the rendered document.
+  function goToQuote(commentId) {
+    const marks = document.querySelectorAll('#filesContainer mark.quote-highlight[data-comment-id="' + CSS.escape(commentId) + '"]');
+    if (marks.length === 0) return;
+    marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    marks.forEach(flashCommentRefCard);
+  }
+
+  // In a rendered document, a quoted comment's line label links to its quote.
+  // Code view and story view have no highlight in #filesContainer to go to.
+  function linkLineRefToQuote(card, comment, filePath) {
+    const file = getFileByPath(filePath);
+    if (!comment.quote || !file || !pierreIsDocumentView(file) || storyActive()) return;
+    const label = card.querySelector('.comment-line-ref');
+    if (!label) return;
+    label.tabIndex = 0;
+    label.setAttribute('role', 'link');
+    label.title = 'Go to the quoted text';
+  }
 
   // ===== Attachment Image Src Rewrite =====
   // Markdown stored in review.json uses canonical relative paths
@@ -5511,6 +5549,7 @@
       showLineRef: true,
       showReplyInput: true,
     });
+    linkLineRefToQuote(parts.card, comment, filePath);
 
     const editBtn = document.createElement('button');
     editBtn.title = 'Edit';
@@ -6568,6 +6607,7 @@
       showLineRef: true,
       showReplyInput: true,
     });
+    linkLineRefToQuote(parts.card, comment, filePath);
 
     const unresolveBtn = document.createElement('button');
     unresolveBtn.className = 'resolve-btn resolve-btn--active';

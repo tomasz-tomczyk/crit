@@ -1720,6 +1720,10 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-brand);
   font-family: var(--crit-font-mono);
 }
+/* A quoted comment's label links to its quote in a rendered document (app.js). */
+.comment-line-ref[role="link"] { cursor: pointer; }
+.comment-line-ref[role="link"]:hover { text-decoration: underline; }
+.comment-line-ref[role="link"]:focus-visible { outline: 2px solid var(--crit-brand); outline-offset: 2px; }
 
 .comment-actions {
   display: flex;
@@ -1764,6 +1768,8 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-radius: 1px;
   padding: 1px 0;
 }
+/* A saved comment's highlight links to the comment (app.js). */
+mark.quote-highlight:not([data-comment-id^="draft-"]) { cursor: pointer; }
 .comment-body {
   padding: 10px 14px;
   color: var(--crit-editor-fg);
