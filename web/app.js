@@ -6275,7 +6275,11 @@
       return;
     }
     ignoreTreeObserverUntil = Date.now() + 200;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // The conversation is the review list's header. A smooth scroll there
+    // stops partway: files mounting on the way up adjust scrollTop, and that
+    // cancels the browser's animation.
+    if (section.closest('#filesContainer')) scrollPierreElementIntoView(card);
+    else card.scrollIntoView({ block: 'center', behavior: 'instant' });
     card.classList.remove('comment-card-highlight');
     void card.offsetWidth;
     card.classList.add('comment-card-highlight');

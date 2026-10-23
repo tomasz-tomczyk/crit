@@ -104,3 +104,19 @@ test('a comments refresh during lazy load is not overwritten', async ({ page, re
   await expect(badge).toHaveText('1');
   await expect(page.locator('#commentCountNumber')).toHaveText('1');
 });
+
+// The review conversation heads the list. Coming back to it from a comment
+// at the far end must not stop partway up while files mount on the way.
+test('a review comment card in the panel scrolls back from the bottom', async ({ page, request }) => {
+  await expect(await request.post('/api/comments', { data: { body: 'Review-level note' } })).toBeOK();
+  const tail = await addComment(request, TAIL_FILE, 1, 'At the bottom');
+  await loadPage(page);
+
+  await page.keyboard.press('Shift+C');
+  const cards = page.locator('.panel-comment-block .comment-card');
+  await cards.filter({ hasText: 'At the bottom' }).click();
+  await expect(page.locator(`#filesContainer .comment-card[data-comment-id="${tail.id}"]`)).toBeInViewport();
+
+  await cards.filter({ hasText: 'Review-level note' }).click();
+  await expect(page.locator('#reviewConversation .comment-card')).toBeInViewport();
+});
