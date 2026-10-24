@@ -58,19 +58,22 @@ test('keeps the found file active in the tree until it scrolls out of view', asy
 
   await loadPage(page);
   await openFind(page);
-  await input(page).fill('Goodbye287()');
-  await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({ path: 'file287.go', visible: true });
-  await expect(treeRow('file287.go')).toHaveClass(/active/);
+  // file125.go is lazy and off screen, but the first lazy files load first.
+  // A match deeper in the list waits for ~180 lazy files to load, which can
+  // outrun the poll on a slow runner.
+  await input(page).fill('Goodbye125()');
+  await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({ path: 'file125.go', visible: true });
+  await expect(treeRow('file125.go')).toHaveClass(/active/);
 
-  // The centered match leaves file286.go at the top of the list. A scroll
+  // The centered match leaves file124.go at the top of the list. A scroll
   // after the tree's 400ms post-jump window (on a slow runner, the jump's
   // own) must not hand the tree to it.
   await page.waitForTimeout(500);
   await scrollList(1);
-  await expect(treeRow('file287.go')).toHaveClass(/active/);
+  await expect(treeRow('file125.go')).toHaveClass(/active/);
 
   await scrollList(2000);
-  await expect(treeRow('file287.go')).not.toHaveClass(/active/);
+  await expect(treeRow('file125.go')).not.toHaveClass(/active/);
 });
 
 test('Esc closes the bar, clears highlights and stays put', async ({ page }) => {
