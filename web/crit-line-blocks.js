@@ -19,12 +19,23 @@
     return (typeof window !== 'undefined' && window.crit && window.crit.renderers) || null;
   }
 
+  // GitHub's slug (github-slugger), so in-document links written for GitHub
+  // resolve here too: every space becomes its own hyphen, nothing is collapsed
+  // or trimmed (`S7 — Data` → `s7--data`).
   function slugifyHeading(text) {
     return text
       .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s-]/gu, '')
-      .replace(/[\s-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc} -]/gu, '')
+      .replace(/ /g, '-');
+  }
+
+  // The heading's text as rendered, which is what GitHub slugs: link text
+  // counts, link URLs and images do not.
+  function headingText(inline) {
+    return (inline.children || [])
+      .filter(function(child) { return child.type === 'text' || child.type === 'code_inline'; })
+      .map(function(child) { return child.content; })
+      .join('');
   }
 
   // Turn valid document frontmatter into a YAML fence without shifting maps.
@@ -516,7 +527,8 @@
     handleListToken: handleListToken,
     handleTableToken: handleTableToken,
     handleBlockquoteToken: handleBlockquoteToken,
-    slugifyHeading: slugifyHeading
+    slugifyHeading: slugifyHeading,
+    headingText: headingText
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};

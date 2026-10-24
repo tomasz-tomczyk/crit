@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
+const markdownit = require('markdown-it');
 
 // Load crit-line-blocks.js in a fake-browser shim.
 const src = fs.readFileSync(path.join(__dirname, '..', 'crit-line-blocks.js'), 'utf8');
@@ -19,7 +20,7 @@ const sandbox = {
   document: {}
 };
 fn(sandbox.window, sandbox.document);
-const { slugifyHeading } = sandbox.window.crit.lineBlocks;
+const { slugifyHeading, headingText } = sandbox.window.crit.lineBlocks;
 
 // --- slugifyHeading ---
 
@@ -35,17 +36,25 @@ test('slugifyHeading handles special characters', () => {
   assert.equal(slugifyHeading('What\'s new in v2.0?'), 'whats-new-in-v20');
 });
 
-test('slugifyHeading collapses multiple spaces/hyphens', () => {
-  assert.equal(slugifyHeading('foo  --  bar'), 'foo-bar');
+test('slugifyHeading turns every space into its own hyphen, as GitHub does', () => {
+  assert.equal(slugifyHeading('S7 — Data collection'), 's7--data-collection');
+  assert.equal(slugifyHeading('Step 1 – Checkout'), 'step-1--checkout');
+  assert.equal(slugifyHeading('Cart  totals'), 'cart--totals');
+  assert.equal(slugifyHeading('foo  --  bar'), 'foo------bar');
+  assert.equal(slugifyHeading('Fish & Chips'), 'fish--chips');
 });
 
-test('slugifyHeading trims leading and trailing hyphens', () => {
-  assert.equal(slugifyHeading(' Hello '), 'hello');
-  assert.equal(slugifyHeading('---hello---'), 'hello');
+test('slugifyHeading keeps leading and trailing hyphens', () => {
+  assert.equal(slugifyHeading('---hello---'), '---hello---');
 });
 
-test('slugifyHeading handles inline code and markup in heading text', () => {
-  assert.equal(slugifyHeading('Using `fetch()` for APIs'), 'using-fetch-for-apis');
+test('slugifyHeading keeps underscores', () => {
+  assert.equal(slugifyHeading('my_var settings'), 'my_var-settings');
+});
+
+test('slugifyHeading drops emoji and symbols but keeps the spaces around them', () => {
+  assert.equal(slugifyHeading('Shop 🚀 launch'), 'shop--launch');
+  assert.equal(slugifyHeading('Area m² prices'), 'area-m-prices');
 });
 
 test('slugifyHeading preserves unicode letters', () => {
@@ -60,6 +69,34 @@ test('slugifyHeading matches GitHub-style slug for typical headings', () => {
   assert.equal(slugifyHeading('Getting Started'), 'getting-started');
   assert.equal(slugifyHeading('API Reference (v3)'), 'api-reference-v3');
   assert.equal(slugifyHeading('1. First Step'), '1-first-step');
+});
+
+// --- headingText: the slug comes from the heading as rendered, not its Markdown source ---
+
+function slugOfHeading(markdown) {
+  const tokens = markdownit({ html: true }).parse(markdown, {});
+  return slugifyHeading(headingText(tokens[1]));
+}
+
+test('a link in a heading contributes its text, not its URL', () => {
+  assert.equal(slugOfHeading('## See [shop-api](https://example.com)'), 'see-shop-api');
+});
+
+test('inline code in a heading contributes its content, not the backticks', () => {
+  assert.equal(slugOfHeading('## Using `fetch()` for APIs'), 'using-fetch-for-apis');
+});
+
+test('emphasis and inline HTML in a heading contribute only their text', () => {
+  assert.equal(slugOfHeading('## **Bold** cart'), 'bold-cart');
+  assert.equal(slugOfHeading('## <em>Shop</em> totals'), 'shop-totals');
+});
+
+test('an image in a heading contributes nothing', () => {
+  assert.equal(slugOfHeading('## Logo ![shop logo](logo.png)'), 'logo-');
+});
+
+test('an underscore in a heading is plain text, not emphasis', () => {
+  assert.equal(slugOfHeading('## my_var settings'), 'my_var-settings');
 });
 
 // --- Duplicate heading dedup (mirrors the Map-based counter in app.js heading_open) ---

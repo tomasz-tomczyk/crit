@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import * as fs from 'fs';
+import * as path from 'path';
+import { loadPage, roundComplete, sessionCwd } from './helpers';
 
 // plan.md has 8 headings: h1 Authentication Plan; h2 Overview, Design
 // Decisions, Implementation Steps, Open Questions, Timeline; h3 Step 1, Step 2.
@@ -39,5 +41,40 @@ test.describe('Heading Anchors — Single File Mode', () => {
     // A later hash change (in-page anchor link) scrolls to that heading.
     await page.evaluate(() => { window.location.hash = '#open-questions'; });
     await expect(page.locator('h2#open-questions')).toBeInViewport();
+  });
+
+  test.describe('with an in-document link written for GitHub', () => {
+    let planPath: string;
+    let originalPlan: string;
+
+    test.beforeAll(async ({ request }) => {
+      planPath = path.join(await sessionCwd(request), 'plan.md');
+      originalPlan = fs.readFileSync(planPath, 'utf-8');
+      fs.writeFileSync(planPath, originalPlan
+        .replace('This is phase 1 of the auth system.', 'This is phase 1 of the auth system, see [phase 2](#rollout--phase-2).')
+        // The URL in the heading must stay out of the slug, as on GitHub.
+        + '\n## Rollout — [Phase 2](https://example.com/phase-2)\n\nPer-tenant rate limits.\n');
+      await roundComplete(request);
+    });
+
+    test.afterAll(async ({ request }) => {
+      fs.writeFileSync(planPath, originalPlan);
+      await roundComplete(request);
+    });
+
+    test('clicking the link jumps to the heading it names', async ({ page }) => {
+      // GIVEN - the target heading carries GitHub's slug and is below the fold
+      await loadPage(page);
+      const target = page.locator('h2#rollout--phase-2');
+      await expect(target).toBeAttached();
+      await expect(target).not.toBeInViewport();
+
+      // WHEN - the reader clicks the link in the Overview paragraph
+      await page.locator('a[href="#rollout--phase-2"]', { hasText: 'phase 2' }).click();
+
+      // THEN - the review scrolls to that heading
+      await expect(page).toHaveURL(/#rollout--phase-2$/);
+      await expect(target).toBeInViewport();
+    });
   });
 });

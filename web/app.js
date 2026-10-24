@@ -294,7 +294,7 @@
     const token = tokens[idx];
     const inline = tokens[idx + 1];
     if (inline && inline.type === 'inline') {
-      const baseSlug = window.crit.lineBlocks.slugifyHeading(inline.content);
+      const baseSlug = window.crit.lineBlocks.slugifyHeading(window.crit.lineBlocks.headingText(inline));
       if (baseSlug) {
         const count = headingSlugCounter.get(baseSlug) || 0;
         const slug = count === 0 ? baseSlug : baseSlug + '-' + count;
