@@ -76,14 +76,12 @@ func hintMissingIntegrationsFor(cwd, home string) {
 	}
 }
 
-func installDaemonSignalHandler(pid int) {
+func installDaemonSignalHandler(entry daemon.SessionEntry) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, daemon.TerminationSignals()...)
 	go func() {
 		<-sigCh
-		if proc, err := os.FindProcess(pid); err == nil {
-			_ = daemon.TerminateProcess(proc)
-		}
+		daemon.StopForSignal(entry)
 		os.Exit(0)
 	}()
 }

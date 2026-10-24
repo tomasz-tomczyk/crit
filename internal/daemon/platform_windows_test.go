@@ -10,6 +10,20 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func TestDaemonSysProcAttr_OwnHiddenConsoleAndProcessGroup(t *testing.T) {
+	const detachedProcess = 0x00000008
+	flags := daemonSysProcAttr().CreationFlags
+	if flags&createNoWindow == 0 {
+		t.Error("daemon must get its own hidden console (CREATE_NO_WINDOW), not share the parent's")
+	}
+	if flags&createNewProcessGroup == 0 {
+		t.Error("daemon must run in its own process group (CREATE_NEW_PROCESS_GROUP)")
+	}
+	if flags&detachedProcess != 0 {
+		t.Error("a console-less daemon (DETACHED_PROCESS) would open a window for every console child")
+	}
+}
+
 func TestOpenProcessProbeAlive(t *testing.T) {
 	tests := []struct {
 		name string

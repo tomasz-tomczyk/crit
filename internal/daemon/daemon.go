@@ -1011,6 +1011,21 @@ func RequestShutdown(s SessionEntry) ShutdownResult {
 	return ShutdownUnavailable
 }
 
+// StopForSignal stops the daemon a client started when that client is
+// interrupted: gracefully over /api/shutdown, falling back to a termination
+// signal for a daemon that does not answer it. Returns without waiting for the
+// daemon to exit.
+func StopForSignal(s SessionEntry) {
+	switch RequestShutdown(s) {
+	case ShutdownAccepted, ShutdownWrongDaemon:
+		return
+	case ShutdownUnavailable:
+		if proc, err := os.FindProcess(s.PID); err == nil {
+			_ = terminateProc(proc)
+		}
+	}
+}
+
 // WaitForExit waits for the process to exit and kills it if it is still alive
 // after stopWait. It reports whether the process is gone, so callers do not
 // remove files that a surviving daemon may write again.

@@ -711,6 +711,48 @@ func TestRequestShutdown(t *testing.T) {
 	}
 }
 
+func TestStopForSignal(t *testing.T) {
+	stopping := func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"status": "stopping"})
+	}
+	tests := []struct {
+		name         string
+		handler      http.HandlerFunc
+		wantSignaled bool
+	}{
+		{name: "daemon stops over HTTP", handler: stopping, wantSignaled: false},
+		{
+			name: "another daemon on the port",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "pid does not match this daemon", http.StatusConflict)
+			},
+			wantSignaled: false,
+		},
+		{name: "older daemon without the endpoint", handler: http.NotFound, wantSignaled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(tt.handler)
+			defer srv.Close()
+			port, _ := strconv.Atoi(srv.URL[len("http://127.0.0.1:"):])
+
+			var signaledPID int
+			origTerminate := terminateProc
+			terminateProc = func(proc *os.Process) error {
+				signaledPID = proc.Pid
+				return nil
+			}
+			t.Cleanup(func() { terminateProc = origTerminate })
+
+			StopForSignal(SessionEntry{PID: os.Getpid(), Port: port})
+
+			if gotSignaled := signaledPID == os.Getpid(); gotSignaled != tt.wantSignaled {
+				t.Errorf("daemon signaled = %v, want %v", gotSignaled, tt.wantSignaled)
+			}
+		})
+	}
+}
+
 func TestFindSessionForCWDBranch_MatchesByBranch(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)

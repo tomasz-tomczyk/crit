@@ -296,7 +296,7 @@ func RunLive(args []string) {
 		fmt.Fprintf(os.Stderr, "[crit] open %s/live\n", entry.BaseURL())
 	}
 
-	installLiveDaemonSignalHandler(entry.PID)
+	installLiveDaemonSignalHandler(entry)
 
 	runLiveClient(entry, key, quiet)
 }
@@ -318,15 +318,12 @@ func checkLiveSmoke(origin, cookies string) {
 	}
 }
 
-func installDaemonSignalHandler(pid int) {
+func installDaemonSignalHandler(entry daemon.SessionEntry) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		proc, err := os.FindProcess(pid)
-		if err == nil {
-			_ = daemon.TerminateProcess(proc)
-		}
+		daemon.StopForSignal(entry)
 		os.Exit(0)
 	}()
 }

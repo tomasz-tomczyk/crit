@@ -166,7 +166,7 @@ func RunPlan(args []string) error {
 	}
 
 	if weStartedDaemon {
-		installDaemonSignalHandler(entry.PID)
+		installDaemonSignalHandler(entry)
 	}
 
 	approved := daemon.RunReviewClient(entry, key, quiet)
@@ -343,7 +343,7 @@ func runPlanReviewHook(logPrefix, planHook, sessionID string, content []byte, em
 	}
 
 	if weStartedDaemon {
-		installDaemonSignalHandler(entry.PID)
+		installDaemonSignalHandler(entry)
 	}
 
 	approved, prompt := daemon.RunReviewClientRaw(entry, key, planHook)

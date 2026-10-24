@@ -129,7 +129,7 @@ func RunPreview(args []string) {
 		fmt.Fprintf(os.Stderr, "[crit] open %s/preview\n", entry.BaseURL())
 	}
 
-	installDaemonSignalHandler(entry.PID)
+	installDaemonSignalHandler(entry)
 
 	// Daemon owns the initial browser open (same as crit live after #768).
 	// Opening here too doubles the tab on cold start.
@@ -159,15 +159,12 @@ func resolvePreviewShareURL(flagValue string, cfg config.Config) string {
 	return target.URL
 }
 
-func installDaemonSignalHandler(pid int) {
+func installDaemonSignalHandler(entry daemon.SessionEntry) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		proc, err := os.FindProcess(pid)
-		if err == nil {
-			_ = daemon.TerminateProcess(proc)
-		}
+		daemon.StopForSignal(entry)
 		os.Exit(0)
 	}()
 }
