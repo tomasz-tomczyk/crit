@@ -216,8 +216,8 @@ func TestPlanSessionKey(t *testing.T) {
 	if key1 == key3 {
 		t.Error("different slugs should produce different keys")
 	}
-	if key1 == key4 {
-		t.Error("different cwds should produce different keys")
+	if key1 != key4 {
+		t.Error("the same global plan slug should produce the same key from different cwds")
 	}
 	if len(key1) != 12 {
 		t.Errorf("key length = %d, want 12", len(key1))

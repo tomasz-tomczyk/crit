@@ -26,15 +26,11 @@ func planStorageDir(slug string) (string, error) {
 	return filepath.Join(home, ".crit", "plans", slug), nil
 }
 
-// planSessionKey computes a session key for plan mode.
-// Uses cwd + slug to produce a unique 12-char hex key.
-// PlanSessionKey computes a session key for plan mode.
-func PlanSessionKey(cwd, slug string) string {
-	h := sha256.New()
-	h.Write([]byte(cwd))
-	h.Write([]byte{0})
-	h.Write([]byte("__plan:" + slug))
-	return hex.EncodeToString(h.Sum(nil))[:12]
+// PlanSessionKey identifies the global plan directory for a slug, regardless
+// of the caller's working directory.
+func PlanSessionKey(_ string, slug string) string {
+	hash := sha256.Sum256([]byte("__plan:" + slug))
+	return hex.EncodeToString(hash[:])[:12]
 }
 
 var nonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)
@@ -146,9 +142,18 @@ func ApplyPlanOverrides(s *Session, planDir, slug string) {
 	s.PlanDir = planDir
 	s.OutputDir = planDir
 	s.RepoRoot = planDir
+	kept := s.Files[:0]
 	for _, f := range s.Files {
+		// The initial load may have created an orphan for the saved plan's
+		// display path before current.md is renamed. The following load will
+		// attach its comments to the live file instead.
+		if f.Orphaned {
+			continue
+		}
 		f.Path = slug + ".md"
+		kept = append(kept, f)
 	}
+	s.Files = kept
 }
 
 // resolveSlug determines the plan slug when --name is not provided.
