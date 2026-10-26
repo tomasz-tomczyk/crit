@@ -294,6 +294,19 @@ func TestApplyPlanOverrides(t *testing.T) {
 	}
 }
 
+func TestApplyPlanOverrides_DropsOrphansFromInitialLoad(t *testing.T) {
+	plan := &FileEntry{Path: "current.md", Status: "modified"}
+	orphan := &FileEntry{Path: "saved-plan.md", Status: "removed", Orphaned: true,
+		Comments: []Comment{{ID: "saved-comment"}}}
+	s := &Session{Files: []*FileEntry{plan, orphan}}
+
+	ApplyPlanOverrides(s, t.TempDir(), "saved-plan")
+
+	if len(s.Files) != 1 || s.Files[0] != plan || plan.Path != "saved-plan.md" {
+		t.Fatalf("plan files after removing initial orphan = %+v", s.Files)
+	}
+}
+
 func TestLookupPlanSlug_NoFile(t *testing.T) {
 	// Point planSessionsFile to a temp location
 	home := t.TempDir()
