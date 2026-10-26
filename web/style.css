@@ -516,6 +516,11 @@ body {
   border: 1px solid color-mix(in srgb, var(--crit-red) 30%, transparent);
   color: var(--crit-red);
 }
+.toast.toast-success {
+  background: var(--crit-bg-elevated);
+  border: 1px solid var(--crit-border);
+  color: var(--crit-fg-secondary);
+}
 .toast-btn {
   font-family: var(--crit-font-body);
   font-size: 12px;
@@ -541,6 +546,10 @@ body {
   background: var(--crit-red);
 }
 .toast.toast-error .toast-btn-filled:hover { filter: brightness(1.1); }
+.toast.toast-success .toast-btn-filled {
+  background: var(--crit-green);
+}
+.toast.toast-success .toast-btn-filled:hover { filter: brightness(1.1); }
 .toast-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .btn-success {
