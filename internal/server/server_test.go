@@ -1391,7 +1391,7 @@ func TestApiConfig_IncludesHostedToken(t *testing.T) {
 
 func TestPostShareURL_ReturnsHostedToken(t *testing.T) {
 	s, _ := newTestServer(t)
-	body := `{"url":"https://crit.example/r/zzz","delete_token":"d"}`
+	body := `{"url":"https://crit.example/r/zzz","target_url":"https://crit.example","delete_token":"d"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1536,7 +1536,7 @@ func TestGetConfig_MethodNotAllowed(t *testing.T) {
 func TestPostShareURL(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://crit.md/r/abc123"}`
+	body := `{"url":"https://crit.md/r/abc123","target_url":"https://crit.md"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1587,7 +1587,7 @@ func TestPostShare_RemoteDeletedCreatesFreshShare(t *testing.T) {
 	baseURL = critWeb.URL
 
 	s.shareURL = critWeb.URL
-	session.SetSharedURLAndToken(critWeb.URL+"/r/oldtoken", "old-delete-token")
+	session.SetSharedTarget(critWeb.URL+"/r/oldtoken", critWeb.URL, "old-delete-token")
 	session.SetShareScope("old-scope")
 	session.SetShareOrgInfo("old-org", "Old Org", "organization")
 
@@ -1647,7 +1647,7 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://crit.md/r/abc","delete_token":"deletetoken1234567890x"}`
+	body := `{"url":"https://crit.md/r/abc","target_url":"https://crit.md","delete_token":"deletetoken1234567890x"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

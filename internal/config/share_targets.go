@@ -253,39 +253,6 @@ func FindShareTarget(cfg Config, rawURL string) (ShareTarget, bool, error) {
 
 func (t ShareTarget) NeedsShareConsent() bool { return t.URL == DefaultShareURL && !t.ShareConsented }
 
-// InferShareBaseURL identifies the deployment for a legacy review URL. It
-// prefers the longest configured path-prefix boundary; root deployments using
-// the conventional /r/<token> route can be inferred from their origin.
-func InferShareBaseURL(sharedURL string, targets []ShareTarget) (string, bool) {
-	u, err := url.Parse(sharedURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", false
-	}
-	best := ""
-	bestPathLen := -1
-	for _, target := range targets {
-		t, err := url.Parse(target.URL)
-		if err != nil || !sameOrigin(t, u) {
-			continue
-		}
-		basePath := strings.TrimRight(t.Path, "/")
-		if basePath == "" || u.Path == basePath || strings.HasPrefix(u.Path, basePath+"/") {
-			if len(basePath) > bestPathLen {
-				best = target.URL
-				bestPathLen = len(basePath)
-			}
-		}
-	}
-	if best != "" {
-		return best, true
-	}
-	if strings.HasPrefix(u.Path, "/r/") {
-		base, err := CanonicalShareURL(u.Scheme + "://" + u.Host)
-		return base, err == nil
-	}
-	return "", false
-}
-
 // MutateShareTargets materializes legacy singleton sharing state and applies a
 // target mutation in the same locked atomic config transaction.
 func MutateShareTargets(mutate func(*[]ShareTarget) error) error {

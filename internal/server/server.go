@@ -934,12 +934,6 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		if body.TargetURL == "" {
-			targets, _ := s.resolvedShareTargets()
-			if inferred, ok := config.InferShareBaseURL(body.URL, targets); ok {
-				body.TargetURL = inferred
-			}
-		}
 		var target config.ShareTarget
 		var err error
 		if !s.configConfigured && s.shareURL == "" && body.TargetURL != "" {

@@ -96,19 +96,6 @@ func TestSameOriginRedirectPolicy(t *testing.T) {
 	}
 }
 
-func TestInferShareBaseURLBoundaryAndLongest(t *testing.T) {
-	targets := []ShareTarget{{URL: "https://example.com/crit"}, {URL: "https://example.com/crit/team"}}
-	if got, ok := InferShareBaseURL("https://example.com/crit/team/r/x", targets); !ok || got != targets[1].URL {
-		t.Fatalf("got %q %v", got, ok)
-	}
-	if got, ok := InferShareBaseURL("https://example.com/crit-extra/r/x", targets); ok || got != "" {
-		t.Fatalf("boundary matched %q", got)
-	}
-	if got, ok := InferShareBaseURL("https://root.example/r/tok", nil); !ok || got != "https://root.example" {
-		t.Fatalf("root inference got %q %v", got, ok)
-	}
-}
-
 func TestCrossOriginRedirectErrorMessage(t *testing.T) {
 	err := &CrossOriginRedirectError{From: "https://a.example", To: "https://b.example"}
 	if got := err.Error(); got != "refusing cross-origin redirect from https://a.example to https://b.example" {

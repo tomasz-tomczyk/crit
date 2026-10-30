@@ -1685,12 +1685,8 @@ func TestResolveOperationTargetNewShareAndBoundConflicts(t *testing.T) {
 	if _, err := resolveOperationTarget(cfg, "https://b.example", true, cj, true); err == nil {
 		t.Fatal("expected bound/explicit mismatch to fail")
 	}
-	target, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://a.example/r/tok"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target.URL != "https://a.example" {
-		t.Fatalf("inferred base = %q", target.URL)
+	if _, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://a.example/r/tok"}, true); err == nil || !strings.Contains(err.Error(), "cannot identify") {
+		t.Fatalf("legacy review without share_base_url must not guess a target, got %v", err)
 	}
 }
 

@@ -55,8 +55,9 @@ func TestRunFetch_PrintsReviewFilePath(t *testing.T) {
 
 			tmpDir := t.TempDir()
 			cj := session.CritJSON{
-				ShareURL: ts.URL + "/r/test123",
-				Files:    map[string]session.CritJSONFile{},
+				ShareURL:     ts.URL + "/r/test123",
+				ShareBaseURL: ts.URL,
+				Files:        map[string]session.CritJSONFile{},
 			}
 			data, err := json.Marshal(cj)
 			if err != nil {
@@ -144,7 +145,8 @@ func TestRunFetch_ReplyUpdates(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	cj := session.CritJSON{
-		ShareURL: ts.URL + "/r/tok",
+		ShareURL:     ts.URL + "/r/tok",
+		ShareBaseURL: ts.URL,
 		Files: map[string]session.CritJSONFile{
 			"plan.md": {Comments: []session.Comment{{
 				ID:        "web-1",
@@ -202,8 +204,9 @@ func TestConcurrentFetchSameReview(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	cj := session.CritJSON{
-		ShareURL: ts.URL + "/r/tok",
-		Files:    map[string]session.CritJSONFile{},
+		ShareURL:     ts.URL + "/r/tok",
+		ShareBaseURL: ts.URL,
+		Files:        map[string]session.CritJSONFile{},
 	}
 	data, err := json.Marshal(cj)
 	if err != nil {

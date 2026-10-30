@@ -487,8 +487,9 @@ func TestFetch_PrintsReviewFilePath(t *testing.T) {
 
 			tmpDir := t.TempDir()
 			cj := session.CritJSON{
-				ShareURL: ts.URL + "/r/test123",
-				Files:    map[string]session.CritJSONFile{},
+				ShareURL:     ts.URL + "/r/test123",
+				ShareBaseURL: ts.URL,
+				Files:        map[string]session.CritJSONFile{},
 			}
 			data, err := json.Marshal(cj)
 			if err != nil {

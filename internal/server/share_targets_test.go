@@ -177,6 +177,26 @@ func TestTargetForRequestBoundAndDisabled(t *testing.T) {
 	}
 }
 
+func TestTargetForRequestLegacyReviewDoesNotUseDefault(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://a.example"},{"url":"https://b.example","default":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, sess := newTestServer(t)
+	s.configConfigured = true
+	s.projectDir = sess.RepoRoot
+	sess.SetSharedTarget("https://a.example/r/tok", "", "del")
+
+	if _, err := s.targetForRequest(""); err == nil || !strings.Contains(err.Error(), "cannot identify") {
+		t.Fatalf("expected unidentified origin, got %v", err)
+	}
+	got, err := s.targetForRequest("https://a.example")
+	if err != nil || got.URL != "https://a.example" {
+		t.Fatalf("explicit confirmation got=%#v err=%v", got, err)
+	}
+}
+
 func TestResolvedShareTargetsLegacyConstructor(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.configConfigured = false
