@@ -42,11 +42,11 @@ Nix:
 nix profile install github:tomasz-tomczyk/crit
 ```
 
-Arch Linux (community):
+Arch Linux:
 ```bash
 yay -S crit.md-bin
 ```
-> Community package on the [AUR](https://aur.archlinux.org/packages/crit.md-bin), maintained outside this project. Any AUR helper works in place of `yay`.
+> [AUR](https://aur.archlinux.org/packages/crit.md-bin) package, maintained outside this project. Any AUR helper works in place of `yay`.
 
 Windows:
 ```bash
