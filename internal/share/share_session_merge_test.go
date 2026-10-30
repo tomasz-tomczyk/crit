@@ -57,8 +57,8 @@ func TestDaemonSaveKeepsMergedReviewCommentAndReply(t *testing.T) {
 	sess.AddReviewComment("local review", "", "")
 	sess.WriteFiles()
 
-	if err := MergeWebComments(critPath, []WebComment{{Body: "remote review", Scope: "review"}},
-		map[string][]WebReply{local.ID: {{Body: "remote reply"}}}); err != nil {
+	if _, err := MergeWebComments(critPath, []WebComment{{Body: "remote review", Scope: "review"}},
+		map[string][]WebReply{local.ID: {{Body: "remote reply"}}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	sess.AddReviewComment("typed during the merge", "", "")
@@ -89,7 +89,7 @@ func TestSyncCommentsFromDiskKeepsUnsavedComment(t *testing.T) {
 	sess, critPath := newMergeSession(t)
 	sess.AddComment("plan.md", 1, 1, "", "local", "", "", "")
 	sess.QuiesceForTest() // keep the comment unsaved: no debounced save
-	if err := MergeWebComments(critPath, []WebComment{{Body: "remote", FilePath: "plan.md", StartLine: 1, EndLine: 1}}, nil); err != nil {
+	if _, err := MergeWebComments(critPath, []WebComment{{Body: "remote", FilePath: "plan.md", StartLine: 1, EndLine: 1}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	sess.SyncCommentsFromDisk()
@@ -108,7 +108,8 @@ func TestApplyReviewFileUpdateWithPendingWrite(t *testing.T) {
 	sess, critPath := newMergeSession(t)
 	sess.AddReviewComment("pending", "", "")
 	changed, err := sess.ApplyReviewFileUpdate(func() error {
-		return MergeWebComments(critPath, []WebComment{{Body: "remote review", Scope: "review"}}, nil)
+		_, err := MergeWebComments(critPath, []WebComment{{Body: "remote review", Scope: "review"}}, nil, nil)
+		return err
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -129,9 +130,9 @@ func TestMergedWebRepliesHaveIDs(t *testing.T) {
 	sess, critPath := newMergeSession(t)
 	local, _ := sess.AddComment("plan.md", 1, 1, "", "local", "", "", "")
 	sess.WriteFiles()
-	err := MergeWebComments(critPath,
+	_, err := MergeWebComments(critPath,
 		[]WebComment{{Body: "remote", FilePath: "plan.md", StartLine: 1, EndLine: 1, Replies: []WebReply{{Body: "thread reply"}}}},
-		map[string][]WebReply{local.ID: {{Body: "new reply"}}})
+		map[string][]WebReply{local.ID: {{Body: "new reply"}}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

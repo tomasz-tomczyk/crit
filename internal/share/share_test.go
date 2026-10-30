@@ -1520,7 +1520,8 @@ func TestMergeRepliesIntoComment(t *testing.T) {
 		webReplies := []WebReply{
 			{Body: "verified", AuthorDisplayName: "Alice"},
 		}
-		result := mergeRepliesIntoComment(c, webReplies)
+		result := c
+		mergeWebReplies(&result, webReplies)
 		if len(result.Replies) != 2 {
 			t.Fatalf("expected 2 replies, got %d", len(result.Replies))
 		}
@@ -1543,7 +1544,8 @@ func TestMergeRepliesIntoComment(t *testing.T) {
 		webReplies := []WebReply{
 			{Body: "done", AuthorDisplayName: "Bob"},
 		}
-		result := mergeRepliesIntoComment(c, webReplies)
+		result := c
+		mergeWebReplies(&result, webReplies)
 		if len(result.Replies) != 1 {
 			t.Fatalf("expected 1 reply (duplicate skipped), got %d", len(result.Replies))
 		}
@@ -1555,7 +1557,8 @@ func TestMergeRepliesIntoComment(t *testing.T) {
 			Body:    "note",
 			Replies: []Reply{{ID: "r1", Body: "existing"}},
 		}
-		result := mergeRepliesIntoComment(c, nil)
+		result := c
+		mergeWebReplies(&result, nil)
 		if len(result.Replies) != 1 {
 			t.Fatalf("expected 1 reply, got %d", len(result.Replies))
 		}
@@ -1566,7 +1569,8 @@ func TestMergeRepliesIntoComment(t *testing.T) {
 		webReplies := []WebReply{
 			{Body: "new reply", AuthorDisplayName: "Eve"},
 		}
-		result := mergeRepliesIntoComment(c, webReplies)
+		result := c
+		mergeWebReplies(&result, webReplies)
 		if len(result.Replies) != 1 {
 			t.Fatalf("expected 1 reply, got %d", len(result.Replies))
 		}
@@ -1906,7 +1910,7 @@ func TestMergeWebComments(t *testing.T) {
 		{Body: "web comment", FilePath: "main.go", StartLine: 5, EndLine: 5, AuthorDisplayName: "Web User"},
 		{Body: "review note", Scope: "review", AuthorDisplayName: "Reviewer"},
 	}
-	if err := MergeWebComments(critPath, newComments, nil); err != nil {
+	if _, err := MergeWebComments(critPath, newComments, nil, nil); err != nil {
 		t.Fatalf("MergeWebComments: %v", err)
 	}
 
@@ -1948,7 +1952,7 @@ func TestMergeWebComments_PreviewPinPreservesDOMAnchor(t *testing.T) {
 		DOMAnchor:         anchor,
 		AuthorDisplayName: "Alice",
 	}}
-	if err := MergeWebComments(critPath, newComments, nil); err != nil {
+	if _, err := MergeWebComments(critPath, newComments, nil, nil); err != nil {
 		t.Fatalf("MergeWebComments: %v", err)
 	}
 
@@ -2096,7 +2100,7 @@ func TestMergeWebComments_AppliesReplyUpdates(t *testing.T) {
 	updates := map[string][]WebReply{
 		"c1": {{Body: "thanks", AuthorDisplayName: "Bob"}},
 	}
-	if err := MergeWebComments(critPath, nil, updates); err != nil {
+	if _, err := MergeWebComments(critPath, nil, updates, nil); err != nil {
 		t.Fatalf("MergeWebComments: %v", err)
 	}
 

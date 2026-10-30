@@ -418,3 +418,37 @@ test('newly mounted stubs hydrate after the scroll callback sampled the previous
   assert.equal(view.isStub('lazy.go'), false);
   view.destroy();
 });
+
+test('elementPlacer keeps an element at its viewport offset through Pierre, and stops at the list end', function() {
+  const fake = fakePierre();
+  let scrollTop = 500;
+  let max = 10000;
+  let pending = null;
+  const proto = fake.P.CodeView.prototype;
+  proto.getScrollTop = function() { return scrollTop; };
+  proto.getTopForItem = function(id) { return id === 'a.go' ? 300 : undefined; };
+  proto.scrollTo = function(target) { fake.log.push(['scrollTo', target]); pending = target; };
+  proto.render = function(immediate) {
+    if (immediate && pending) { scrollTop = Math.min(max, 300 - pending.offset); pending = null; }
+  };
+  // The item's element sits at viewport top (300 - scrollTop); the element
+  // inside it, 900px further down.
+  const item = { contains: () => true, getBoundingClientRect: () => ({ top: 300 - scrollTop }) };
+  const el = { getBoundingClientRect: () => ({ top: 300 - scrollTop + 900 }) };
+  proto.getRenderedItems = function() { return [{ id: 'a.go', element: item }]; };
+  const placer = makeView(fake).elementPlacer();
+
+  assert.equal(placer.place(el, 700), false, 'already there');
+  // Pierre re-anchored below a collapsed comment and scrolled 320px up.
+  scrollTop = 180;
+  assert.equal(placer.place(el, 700), true);
+  assert.equal(scrollTop, 500, 'back where the reader was');
+  const target = fake.log.filter(e => e[0] === 'scrollTo').pop()[1];
+  assert.deepEqual(target, { type: 'item', id: 'a.go', align: 'start', offset: -200 });
+
+  // Somewhere the list end cannot reach: as far as it goes, then held.
+  max = 450;
+  assert.equal(placer.place(el, 200), true);
+  assert.equal(scrollTop, 450);
+  assert.equal(placer.place(el, 200), false, 'clamped, nothing more to do');
+});

@@ -43,13 +43,13 @@ func FetchWebCommentsForReview(shareURL, shareBaseURL string, cj session.CritJSO
 	return fetchWebCommentsForReview(shareURL, shareBaseURL, cj, authToken)
 }
 
-func MergeFetchedComments(critPath string, fetched FetchWebCommentsResult) error {
+func MergeFetchedComments(critPath string, fetched FetchWebCommentsResult) (int, error) {
 	return mergeFetchedComments(critPath, fetched)
 }
 
 // MergeFetchedCommentsFor is MergeFetchedComments with the daemon focus
 // already known, for the daemon itself.
-func MergeFetchedCommentsFor(critPath string, fetched FetchWebCommentsResult, daemonFocus *focus.Focus) error {
+func MergeFetchedCommentsFor(critPath string, fetched FetchWebCommentsResult, daemonFocus *focus.Focus) (int, error) {
 	return mergeFetchedCommentsFor(critPath, fetched, daemonFocus)
 }
 

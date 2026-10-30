@@ -317,25 +317,42 @@ func fetchAllDiscussions(ctx context.Context, repo forge.RepoContext, id forge.C
 	}
 }
 
+// dropDeletedGitLabNotes removes the comments and replies whose GitLab note
+// is gone, with the sub-threads that descend from them, the way a local
+// delete does.
 func dropDeletedGitLabNotes(cj *session.CritJSON, seen map[int64]bool) int {
 	removed := 0
 	for path, file := range cj.Files {
+		var dropped []string
 		comments := file.Comments[:0]
 		for _, comment := range file.Comments {
 			if comment.GitLabNoteID != 0 && !seen[comment.GitLabNoteID] {
 				removed++
+				dropped = append(dropped, session.ThreadMessageIDs(comment)...)
 				continue
 			}
 			replies := comment.Replies[:0]
 			for _, reply := range comment.Replies {
 				if reply.GitLabNoteID != 0 && !seen[reply.GitLabNoteID] {
 					removed++
+					dropped = append(dropped, reply.ID)
 					continue
 				}
 				replies = append(replies, reply)
 			}
 			comment.Replies = replies
 			comments = append(comments, comment)
+		}
+		if subThreads := session.SubThreadIDs(comments, dropped); len(subThreads) > 0 {
+			kept := comments[:0]
+			for _, comment := range comments {
+				if _, drop := subThreads[comment.ID]; drop {
+					removed++
+					continue
+				}
+				kept = append(kept, comment)
+			}
+			comments = kept
 		}
 		file.Comments = comments
 		cj.Files[path] = file

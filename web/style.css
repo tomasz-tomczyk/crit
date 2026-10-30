@@ -1676,17 +1676,21 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-editor-fg);
 }
 
-.comment-card.collapsed .comment-collapse-btn {
+/* Collapse rules reach the card's own parts only (child combinators): a
+   sub-thread card nested in an expanded card keeps its own state. */
+.comment-card.collapsed > .comment-header .comment-collapse-btn {
   transform: rotate(-90deg);
 }
 
-.comment-card.collapsed .comment-body,
-.comment-card.collapsed .comment-replies,
-.comment-card.collapsed .reply-form {
+.comment-card.collapsed > .comment-body,
+.comment-card.collapsed > .comment-replies,
+.comment-card.collapsed > .reply-form,
+.comment-card.collapsed > .subthreads,
+.comment-card.collapsed > .subthread-quote {
   display: none;
 }
 
-.comment-card.collapsed .comment-header {
+.comment-card.collapsed > .comment-header {
   border-bottom: none;
 }
 
@@ -2033,7 +2037,9 @@ tspan.quote-highlight {
   transition: opacity 0.15s;
 }
 
-.comment-reply:hover .reply-actions {
+/* A reply's own actions only, and not while the pointer is over the
+   sub-threads nested under it (their replies show their own). */
+.comment-reply:hover:not(:has(> .subthreads:hover)) > .reply-header > .reply-actions {
   opacity: 1;
 }
 
@@ -3075,8 +3081,11 @@ textarea.drag-active {
   outline-offset: 2px;
 }
 
-/* Hide-resolved: body-class-driven CSS rule (replaces imperative DOM walk). */
-body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) {
+/* Hide-resolved: body-class-driven CSS rule (replaces imperative DOM walk).
+   The block's own card decides (a resolved sub-thread nested in an open
+   thread hides alone), and a resolved thread with an open sub-thread under
+   it (.has-open-subthreads) stays. */
+body.hide-resolved .comment-block:not(.panel-comment-block):not(.has-open-subthreads):has(> .resolved-card) {
   display: none;
 }
 
@@ -5080,7 +5089,7 @@ html[data-theme="light"] .toggle-btn.active {
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
-.outdated-comment .comment-card {
+.outdated-comment > .comment-card {
   border-color: var(--crit-drift-card-border);
 }
 /* GitHub-synced comment badge -- small pill with the GitHub mark, same
@@ -5224,7 +5233,7 @@ html[data-theme="light"] .toggle-btn.active {
 }
 .drifted-line-content:empty::after { content: ' '; }
 /* Hide drifted context when comment card is collapsed */
-.comment-card.collapsed .drifted-context {
+.comment-card.collapsed > .drifted-context {
   display: none;
 }
 
@@ -5457,9 +5466,9 @@ html[data-theme="light"] .toggle-btn.active {
   50% { opacity: 0; }
 }
 
-.live-thread.agent-pending .reply-input,
-.live-thread.agent-pending .reply-textarea,
-.live-thread.agent-pending .reply-form-buttons {
+.live-thread.agent-pending > .comment-card > .reply-form .reply-input,
+.live-thread.agent-pending > .comment-card > .reply-form .reply-textarea,
+.live-thread.agent-pending > .comment-card > .reply-form .reply-form-buttons {
   opacity: 0.5;
   pointer-events: none;
 }
@@ -5945,6 +5954,60 @@ body.pierre-review .review-conversation:not([data-doc-layout="centered"]) { marg
 .review-conversation .comment-block { padding: 0; margin: 0; }
 .review-conversation .comment-block + .comment-block { margin-top: 10px; }
 .review-conversation .comment-form-wrapper { padding-left: 0; }
+
+/* ===== Sub-threads =====
+   A sub-thread nests under the message whose passage it comments on: under a
+   comment body (inside its card) or under a reply. Every level gets the same
+   indent, thread line and margins. */
+.subthreads {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 14px 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--crit-border);
+}
+.comment-reply > .subthreads {
+  margin: 6px 0 2px;
+}
+.comment-form > .subthreads {
+  margin-top: 10px;
+}
+.subthreads > .comment-block,
+.subthreads > .comment-form-wrapper {
+  padding: 0;
+  margin: 0;
+}
+.subthreads > .comment-block + .comment-block {
+  margin-top: 0;
+}
+.subthreads > .comment-block > .comment-card,
+.subthreads > .comment-form-wrapper > .comment-form {
+  margin: 0;
+}
+/* The passage a sub-thread comments on, at the top of its card and of its
+   composer. */
+.subthread-quote {
+  margin: 8px 14px 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--crit-quote-highlight-border);
+  border-radius: 0 4px 4px 0;
+  background: var(--crit-quote-highlight-bg);
+  color: var(--crit-editor-fg-secondary);
+  font-family: var(--crit-font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The same passage, highlighted in the message it comments on (light-DOM
+   cards; Pierre's code uses crit-quote inside its shadow roots). */
+::highlight(crit-message-quote) {
+  background-color: var(--crit-quote-highlight-bg);
+  text-decoration: underline;
+  text-decoration-color: var(--crit-quote-highlight-border);
+  text-decoration-thickness: 1.5px;
+}
 
 /* ===== Tree section: review-conversation row sits in its own section
    above FILES, separated by the file-tree-header's bottom border. ===== */

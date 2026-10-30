@@ -466,6 +466,45 @@
       return hit ? hit.id : null;
     }
 
+    // Keep an element of the list at a viewport offset through the height
+    // changes that follow (a comment collapsed, expanded, resolved). Pierre
+    // keeps the first line or file at or below the viewport top in place
+    // when something above it changes height, and in a rendered document or
+    // the list header that anchor sits below the comments: they would slide by
+    // the height change. Returns a placer whose place(el, viewportOffset)
+    // scrolls through Pierre's own target (relative to the rendered item that
+    // holds `el`, or to the first rendered item for an element of the list
+    // header) and renders at once, before the next paint. It returns true when
+    // it scrolled; a position the list end cannot reach counts as held once
+    // the list has gone as far as it can.
+    function elementPlacer() {
+      var last = null;
+      return {
+        place: function(el, viewportOffset) {
+          if (disposed || !el) return false;
+          var rendered = viewer.getRenderedItems();
+          var ref = null;
+          for (var i = 0; i < rendered.length && !ref; i++) {
+            if (rendered[i].element && rendered[i].element.contains(el)) ref = rendered[i];
+          }
+          if (!ref) ref = rendered[0];
+          if (!ref || !ref.element) return false;
+          var itemTop = viewer.getTopForItem(ref.id);
+          if (itemTop === undefined) return false;
+          // Offset of the item's top in the viewport that puts `el` at viewportOffset.
+          var offset = viewportOffset - (el.getBoundingClientRect().top - ref.element.getBoundingClientRect().top);
+          var desired = itemTop - offset;
+          var current = viewer.getScrollTop();
+          if (Math.abs(current - desired) < 1) { last = null; return false; }
+          if (last && Math.abs(last.desired - desired) < 1 && Math.abs(last.result - current) < 1) return false;
+          viewer.scrollTo({ type: 'item', id: ref.id, align: 'start', offset: offset });
+          viewer.render(true);
+          last = { desired: desired, result: viewer.getScrollTop() };
+          return true;
+        },
+      };
+    }
+
     function destroy() {
       disposed = true;
       generation++;
@@ -493,6 +532,7 @@
       renderedPaths: renderedPaths,
       isOnScreen: isOnScreen,
       hoveredPath: hoveredPath,
+      elementPlacer: elementPlacer,
       isStub: function(path) { return stubs.has(path); },
       destroy: destroy,
     };

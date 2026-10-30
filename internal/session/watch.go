@@ -527,6 +527,9 @@ func carryForwardComment(old Comment, now string) Comment {
 		UserID:    old.UserID,
 		DOMAnchor: old.DOMAnchor,
 		PinNumber: old.PinNumber,
+
+		// A sub-thread stays attached to the message it comments on.
+		ParentID: old.ParentID,
 	}
 	// Drift fields are carried forward only for code-review comments. Live
 	// pins (DOMAnchor != nil) are never drifted: the live DOM can change
@@ -1229,10 +1232,11 @@ func (s *Session) carryForwardFileComments(f *FileEntry) {
 			continue
 		}
 
-		// File-level and old-side comments keep their original positions.
-		// File-level comments have no line references. Old-side comments
-		// reference the base ref which doesn't change between rounds.
-		if c.Scope == "file" || c.Side == "old" {
+		// File-level, old-side comments and sub-threads keep their original
+		// positions. File-level comments and sub-threads have no line
+		// references. Old-side comments reference the base ref which doesn't
+		// change between rounds.
+		if c.Scope == "file" || c.Side == "old" || c.ParentID != "" {
 			f.Comments = append(f.Comments, carryForwardComment(c, now))
 			continue
 		}

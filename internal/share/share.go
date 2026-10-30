@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,7 +71,10 @@ func ShareScope(paths []string) string {
 }
 
 // computeShareHash returns a short stable hash of the current share state:
-// file contents (for change detection) and comment resolution states.
+// file contents (for change detection) and comment resolution states, plus,
+// for each sub-thread, its anchor and its replies, so a new sub-thread or a
+// reply in one triggers the upsert. A share without sub-threads hashes as it
+// did before they existed, so upgrading crit does not force a re-upload.
 // If the hash equals LastShareHash in the review file, nothing has changed since
 // the last push and no new round is needed.
 func computeShareHash(files []ShareFile, comments []ShareComment) string {
@@ -88,6 +92,13 @@ func computeShareHash(files []ShareFile, comments []ShareComment) string {
 	}
 	for _, c := range sortedC {
 		fmt.Fprintf(h, "comment:%s:%v\n", c.ExternalID, c.Resolved)
+		if c.ParentExternalID == "" {
+			continue
+		}
+		fmt.Fprintf(h, "sub_thread:%s:%s\n", c.ExternalID, c.ParentExternalID)
+		for _, r := range c.Replies {
+			fmt.Fprintf(h, "sub_thread_reply:%s:%s\n", c.ExternalID, r.ExternalID)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
@@ -139,6 +150,58 @@ type ShareComment struct {
 	Resolved    bool               `json:"resolved,omitempty"`
 	GitHubID    int64              `json:"github_id,omitempty"`
 	DOMAnchor   *session.DOMAnchor `json:"dom_anchor,omitempty"`
+
+	// ParentExternalID is set on a sub-thread: the local id of the message
+	// (comment, sub-thread or reply) it comments on. The payload builders send
+	// such an entry under "sub_threads" as a ShareSubThread, never under
+	// "comments", where crit-web would take it for a line comment.
+	ParentExternalID string `json:"-"`
+}
+
+// ShareSubThread is a sub-thread in a share payload, under the "sub_threads"
+// key: a comment on a passage (Quote, at QuoteOffset in the rendered body) of
+// the shared message ParentExternalID — a comment, another sub-thread or a
+// reply of the payload. crit-web places it with that message's thread; it
+// has no lines. A crit-web that predates sub-threads ignores the key, so the
+// share succeeds there without them.
+type ShareSubThread struct {
+	ExternalID       string       `json:"external_id"`
+	ParentExternalID string       `json:"parent_external_id"`
+	Body             string       `json:"body"`
+	Quote            string       `json:"quote,omitempty"`
+	QuoteOffset      *int         `json:"quote_offset,omitempty"`
+	Author           string       `json:"author_display_name,omitempty"`
+	UserID           string       `json:"user_id,omitempty"`
+	ReviewRound      int          `json:"review_round,omitempty"`
+	Resolved         bool         `json:"resolved"`
+	Replies          []ShareReply `json:"replies,omitempty"`
+}
+
+// splitSubThreads routes the sub-threads of comments to the payload's
+// "sub_threads" key. Both lists are non-nil, so they marshal as [] rather
+// than null: an explicit empty list tells crit-web the share has none.
+func splitSubThreads(comments []ShareComment) ([]ShareComment, []ShareSubThread) {
+	roots := []ShareComment{}
+	subThreads := []ShareSubThread{}
+	for _, c := range comments {
+		if c.ParentExternalID == "" {
+			roots = append(roots, c)
+			continue
+		}
+		subThreads = append(subThreads, ShareSubThread{
+			ExternalID:       c.ExternalID,
+			ParentExternalID: c.ParentExternalID,
+			Body:             c.Body,
+			Quote:            c.Quote,
+			QuoteOffset:      c.QuoteOffset,
+			Author:           c.Author,
+			UserID:           c.UserID,
+			ReviewRound:      c.ReviewRound,
+			Resolved:         c.Resolved,
+			Replies:          c.Replies,
+		})
+	}
+	return roots, subThreads
 }
 
 // shareFileEntries serializes ShareFile values into the JSON-friendly maps
@@ -165,13 +228,12 @@ func shareFileEntries(files []ShareFile) []map[string]any {
 // buildSharePayload constructs the JSON payload for POST /api/reviews.
 func BuildSharePayload(files []ShareFile, comments []ShareComment, reviewRound int, cliArgs []string, org, visibility, reviewType string) map[string]any {
 	fileList := shareFileEntries(files)
-	if comments == nil {
-		comments = []ShareComment{}
-	}
+	roots, subThreads := splitSubThreads(comments)
 	payload := map[string]any{
 		"files":        fileList,
 		"review_round": reviewRound,
-		"comments":     comments,
+		"comments":     roots,
+		"sub_threads":  subThreads,
 	}
 	if len(cliArgs) > 0 {
 		payload["cli_args"] = cliArgs
@@ -191,13 +253,12 @@ func BuildSharePayload(files []ShareFile, comments []ShareComment, reviewRound i
 // BuildUpsertPayload constructs the JSON payload for PUT /api/reviews/:token.
 func BuildUpsertPayload(files []ShareFile, comments []ShareComment, deleteToken string, reviewRound int, cliArgs []string) map[string]any {
 	fileList := shareFileEntries(files)
-	if comments == nil {
-		comments = []ShareComment{}
-	}
+	roots, subThreads := splitSubThreads(comments)
 	payload := map[string]any{
 		"delete_token": deleteToken,
 		"files":        fileList,
-		"comments":     comments,
+		"comments":     roots,
+		"sub_threads":  subThreads,
 		"review_round": reviewRound,
 	}
 	if len(cliArgs) > 0 {
@@ -443,6 +504,10 @@ func SetBearer(req *http.Request, token string) {
 // ShareComment entries for the given file paths, plus the review round.
 // fallbackAuthor is used when a comment has no Author set (typically cfg.Author).
 //
+// The entries include the sub-threads (ParentExternalID set), which the
+// payload builders send under "sub_threads"; see sharedThreadIndexes for the
+// resolved threads a share still sends to keep an open sub-thread anchored.
+//
 // ExternalID is set so the server persists it on first insert and matches it
 // on subsequent upserts. This enables round-trip carry-forward of `user_id`:
 // replace_comments matches incoming attrs.external_id against the
@@ -518,6 +583,10 @@ func commentToShareComment(c session.Comment, filePath, scope, fallbackAuthor, c
 // resolved comments are included. When setExternalID is true, ExternalID is set
 // from the local comment ID for round-trip tracking. fallbackAuthor fills missing
 // Author fields (typically cfg.Author).
+//
+// Sub-threads come with ParentExternalID set, for the payload builders to
+// route them under "sub_threads": in "comments", crit-web would take them for
+// line comments.
 func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolved, setExternalID bool, fallbackAuthor string) ([]ShareComment, int) {
 	data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
 	if err != nil {
@@ -539,32 +608,95 @@ func loadCommentsFromCritJSON(critPath string, filePaths []string, includeResolv
 	}
 
 	var comments []ShareComment
-	for filePath, cf := range cj.Files {
-		if !pathSet[filePath] {
-			continue
-		}
-		for _, c := range cf.Comments {
-			if !includeResolved && c.Resolved {
+	add := func(list []session.Comment, filePath, listScope string) {
+		shared := sharedThreadIndexes(list, includeResolved)
+		for i, c := range list {
+			if !shared[i] {
 				continue
 			}
-			scope := c.Scope
-			comments = append(comments, commentToShareComment(c, filePath, scope, fallbackAuthor, critPath, includeResolved, setExternalID))
+			scope := listScope
+			if scope == "" {
+				scope = c.Scope
+			}
+			sc := commentToShareComment(c, filePath, scope, fallbackAuthor, critPath, includeResolved, setExternalID)
+			// A resolved thread is only shared to hold an open sub-thread:
+			// it goes as resolved.
+			sc.Resolved = c.Resolved
+			sc.ParentExternalID = c.ParentID
+			comments = append(comments, sc)
 		}
 	}
-	for _, c := range cj.ReviewComments {
-		if !includeResolved && c.Resolved {
-			continue
+	for filePath, cf := range cj.Files {
+		if pathSet[filePath] {
+			add(cf.Comments, filePath, "")
 		}
-		comments = append(comments, commentToShareComment(c, "", "review", fallbackAuthor, critPath, includeResolved, setExternalID))
 	}
+	add(cj.ReviewComments, "", "review")
 	return comments, round
 }
 
+// sharedThreadIndexes returns which comments of one list (a file's comments
+// or the review-level comments) a share sends: every unresolved thread and
+// sub-thread (every one, when includeResolved), plus every resolved thread or
+// sub-thread an open sub-thread hangs from. crit shows such a parent while the
+// sub-thread is open, and crit-web needs it as the anchor: without it, the
+// sub-thread would vanish from the share. A sub-thread whose chain of parents
+// does not reach a root thread of the list is left out, as nothing places it.
+func sharedThreadIndexes(comments []session.Comment, includeResolved bool) []bool {
+	owner := make(map[string]int, len(comments))
+	for i, c := range comments {
+		owner[c.ID] = i
+		for _, r := range c.Replies {
+			owner[r.ID] = i
+		}
+	}
+	shared := make([]bool, len(comments))
+	for i, c := range comments {
+		if c.Resolved && !includeResolved {
+			continue
+		}
+		if c.ParentID == "" {
+			shared[i] = true
+			continue
+		}
+		if chain, ok := parentThreads(comments, owner, i); ok {
+			shared[i] = true
+			for _, j := range chain {
+				shared[j] = true
+			}
+		}
+	}
+	return shared
+}
+
+// parentThreads returns the indexes of the threads sub-thread i hangs from,
+// up to its root thread, and false when the chain breaks or loops.
+func parentThreads(comments []session.Comment, owner map[string]int, i int) ([]int, bool) {
+	var chain []int
+	seen := map[int]bool{i: true}
+	for comments[i].ParentID != "" {
+		j, ok := owner[comments[i].ParentID]
+		if !ok || seen[j] {
+			return nil, false
+		}
+		seen[j] = true
+		chain = append(chain, j)
+		i = j
+	}
+	return chain, true
+}
+
 // WebReply is the shape of a reply nested inside a WebComment.
+//
+// ExternalID is the local reply id the reply was shared under: empty for a
+// reply written on crit-web, or one crit-web predating it does not return.
+// SubThreads are the sub-threads on a passage of this reply.
 type WebReply struct {
-	Body              string `json:"body"`
-	AuthorDisplayName string `json:"author_display_name"`
-	UserID            string `json:"user_id"`
+	Body              string       `json:"body"`
+	AuthorDisplayName string       `json:"author_display_name"`
+	UserID            string       `json:"user_id"`
+	ExternalID        string       `json:"external_id,omitempty"`
+	SubThreads        []WebComment `json:"sub_threads,omitempty"`
 }
 
 // WebComment is the shape of a comment returned by GET /api/reviews/:token/comments.
@@ -572,7 +704,14 @@ type WebReply struct {
 // and is treated as a session-owner token for anonymous web visitors. UserID
 // is the verified user id, set when the comment was authored by a logged-in
 // user (either CLI with bearer token or LiveView while signed in).
+//
+// crit-web lists only threads at the top level. Each message carries the
+// sub-threads on its passages under SubThreads (here and on each WebReply),
+// themselves WebComments, at any depth; a crit that predates them ignores the
+// key. ID is the crit-web row id, which ties a thread imported in a merge to
+// the sub-threads under it.
 type WebComment struct {
+	ID                string             `json:"id,omitempty"`
 	Body              string             `json:"body"`
 	FilePath          string             `json:"file_path"`
 	StartLine         int                `json:"start_line"`
@@ -591,17 +730,46 @@ type WebComment struct {
 	DOMAnchor         *session.DOMAnchor `json:"dom_anchor,omitempty"`
 	Anchor            string             `json:"anchor,omitempty"`
 	Drifted           bool               `json:"drifted,omitempty"`
+	SubThreads        []WebComment       `json:"sub_threads,omitempty"`
+}
+
+// ThreadsWithSubThreads returns the threads of incoming that carry a
+// sub-thread, on themselves or on a reply: what mergeWebSubThreadsInto walks.
+func ThreadsWithSubThreads(incoming []WebComment) []WebComment {
+	var out []WebComment
+	for _, wc := range incoming {
+		if hasSubThreads(wc) {
+			out = append(out, wc)
+		}
+	}
+	return out
+}
+
+func hasSubThreads(wc WebComment) bool {
+	if len(wc.SubThreads) > 0 {
+		return true
+	}
+	for _, wr := range wc.Replies {
+		if len(wr.SubThreads) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // buildLocalFingerprintIndex returns both the fingerprint set and a map from
 // fingerprint to local comment ID. The ID map lets callers look up the local
 // comment when a web comment matches by fingerprint (so replies can be merged
-// instead of dropped).
+// instead of dropped). Sub-threads are left out: they are never shared, and
+// their lines (0) would match a file-level web comment with the same body.
 func buildLocalFingerprintIndex(cj session.CritJSON) (map[string]bool, map[string]string) {
 	fps := make(map[string]bool)
 	ids := make(map[string]string)
 	for path, f := range cj.Files {
 		for _, c := range f.Comments {
+			if c.ParentID != "" {
+				continue
+			}
 			key := fmt.Sprintf("%s|%s|%d|%d", c.Body, path, c.StartLine, c.EndLine)
 			fps[key] = true
 			if c.ID != "" {
@@ -610,6 +778,9 @@ func buildLocalFingerprintIndex(cj session.CritJSON) (map[string]bool, map[strin
 		}
 	}
 	for _, c := range cj.ReviewComments {
+		if c.ParentID != "" {
+			continue
+		}
 		key := c.Body + "||0|0"
 		fps[key] = true
 		if c.ID != "" {
@@ -624,6 +795,10 @@ type fetchWebCommentsResult struct {
 	NewComments  []WebComment
 	ReplyUpdates map[string][]WebReply      // external_id -> replies from web
 	Placements   map[string]session.Comment // local comment ID -> carried line, anchor, drifted
+	// Threads are the fetched threads that carry sub-threads. Their sub-threads
+	// are deduplicated and imported at merge time (mergeWebSubThreadsInto),
+	// against the review file being written.
+	Threads []WebComment
 }
 
 // fetchWebComments fetches all comments from crit-web, returning new comments
@@ -701,6 +876,7 @@ func fetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs map[stri
 		}
 		result.NewComments = append(result.NewComments, wc)
 	}
+	result.Threads = ThreadsWithSubThreads(all)
 	return result, nil
 }
 
@@ -753,7 +929,8 @@ func localCommentsByID(cj session.CritJSON) map[string]session.Comment {
 func sharedLines(comments []ShareComment) map[string]session.SharedLine {
 	out := make(map[string]session.SharedLine, len(comments))
 	for _, c := range comments {
-		if c.ExternalID != "" {
+		// A sub-thread has no lines for crit-web to carry.
+		if c.ExternalID != "" && c.ParentExternalID == "" {
 			out[c.ExternalID] = session.SharedLine{StartLine: c.StartLine, EndLine: c.EndLine}
 		}
 	}
@@ -957,23 +1134,29 @@ func highestWebIndex(cj session.CritJSON) int {
 
 // mergeWebComments adds web-reviewer comments into the review file under their respective
 // files or into review_comments for review-level (scope:"review") comments.
-// It also merges reply updates for existing comments identified by external_id.
-// Pass nil for replyUpdates to skip reply merging.
+// It also merges reply updates for existing comments identified by external_id,
+// and imports the sub-threads of threads (see mergeWebSubThreadsInto).
+// Pass nil for replyUpdates to skip reply merging. Returns the number of
+// sub-threads added.
 //
 // When the active focus is a range mode (probed from a running daemon, or
 // inferred from the on-disk ActiveDiffScope), imported comments are stamped
 // with HeadSHA + DiffScope=layer so they pass visibleInFocus in range view.
 // See spec §E "Write path — `mergeWebComments`".
-func MergeWebComments(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply) error {
-	return MergeWebCommentsFor(critPath, newComments, replyUpdates, session.ProbeDaemonFocus())
+func MergeWebComments(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply, threads []WebComment) (int, error) {
+	return MergeWebCommentsFor(critPath, newComments, replyUpdates, threads, session.ProbeDaemonFocus())
 }
 
 // MergeWebCommentsFor is MergeWebComments with the daemon focus already
 // known. The daemon passes its own focus rather than probing itself over HTTP.
-func MergeWebCommentsFor(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply, daemonFocus *focus.Focus) error {
-	return updateReviewFile(critPath, func(cj *session.CritJSON) {
-		mergeWebCommentsInto(cj, newComments, replyUpdates, daemonFocus)
+func MergeWebCommentsFor(critPath string, newComments []WebComment, replyUpdates map[string][]WebReply, threads []WebComment, daemonFocus *focus.Focus) (int, error) {
+	added := 0
+	err := updateReviewFileIf(critPath, func(cj *session.CritJSON) bool {
+		var changed bool
+		added, changed = mergeWebCommentsInto(cj, newComments, replyUpdates, threads, daemonFocus)
+		return changed || len(newComments) > 0 || len(replyUpdates) > 0
 	})
+	return added, err
 }
 
 // updateReviewFile loads the review file, applies mutate, stamps UpdatedAt,
@@ -1011,28 +1194,23 @@ func updateReviewFileIf(critPath string, mutate func(*session.CritJSON) bool) er
 	})
 }
 
-// mergeWebCommentsInto adds pulled comments and replies to cj. daemonFocus
-// comes from session.ProbeDaemonFocus, called before the review lock because
-// it makes an HTTP call.
-func mergeWebCommentsInto(cj *session.CritJSON, newComments []WebComment, replyUpdates map[string][]WebReply, daemonFocus *focus.Focus) {
+// mergeWebCommentsInto merges one fetch into cj: the new comments, the reply
+// updates, then the sub-threads of threads. daemonFocus comes from
+// session.ProbeDaemonFocus, called before the review lock because it makes an
+// HTTP call. Returns the number of sub-threads added and whether cj changed.
+func mergeWebCommentsInto(cj *session.CritJSON, newComments []WebComment, replyUpdates map[string][]WebReply, threads []WebComment, daemonFocus *focus.Focus) (int, bool) {
 	// Find the highest existing web-N index so new IDs are globally unique
 	// even if earlier ones were deleted from the review file.
 	webCount := highestWebIndex(*cj)
 
 	scope := session.PullScopeFor(daemonFocus, cj)
 
+	// The crit-web id of each comment imported here, to its local id: the
+	// sub-threads under it anchor on that.
+	imported := make(map[string]string, len(newComments))
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, wc := range newComments {
 		webCount++
-		var replies []session.Reply
-		for _, wr := range wc.Replies {
-			replies = append(replies, session.Reply{
-				ID:     session.RandomReplyID(),
-				Body:   wr.Body,
-				Author: wr.AuthorDisplayName,
-				UserID: wr.UserID,
-			})
-		}
 		c := session.StampWithFocus(session.Comment{
 			ID:            fmt.Sprintf("web-%d", webCount),
 			StartLine:     wc.StartLine,
@@ -1049,10 +1227,13 @@ func mergeWebCommentsInto(cj *session.CritJSON, newComments []WebComment, replyU
 			Resolved:      wc.Resolved,
 			ResolvedRound: wc.ResolvedRound,
 			DOMAnchor:     wc.DOMAnchor,
-			Replies:       replies,
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}, scope.AsFocus())
+		mergeWebReplies(&c, wc.Replies)
+		if wc.ID != "" {
+			imported[wc.ID] = c.ID
+		}
 		if wc.Scope == "review" {
 			cj.ReviewComments = append(cj.ReviewComments, c)
 		} else {
@@ -1061,23 +1242,27 @@ func mergeWebCommentsInto(cj *session.CritJSON, newComments []WebComment, replyU
 			cj.Files[wc.FilePath] = entry
 		}
 	}
+	changed := len(newComments) > 0
 
 	// Merge reply updates for existing comments (matched by external_id).
 	if len(replyUpdates) > 0 {
 		for filePath, cf := range cj.Files {
 			for i := range cf.Comments {
-				if webReplies, ok := replyUpdates[cf.Comments[i].ID]; ok {
-					cf.Comments[i] = mergeRepliesIntoComment(cf.Comments[i], webReplies)
+				if webReplies, ok := replyUpdates[cf.Comments[i].ID]; ok && mergeWebReplies(&cf.Comments[i], webReplies) {
+					changed = true
 				}
 			}
 			cj.Files[filePath] = cf
 		}
 		for i := range cj.ReviewComments {
-			if webReplies, ok := replyUpdates[cj.ReviewComments[i].ID]; ok {
-				cj.ReviewComments[i] = mergeRepliesIntoComment(cj.ReviewComments[i], webReplies)
+			if webReplies, ok := replyUpdates[cj.ReviewComments[i].ID]; ok && mergeWebReplies(&cj.ReviewComments[i], webReplies) {
+				changed = true
 			}
 		}
 	}
+
+	added, subThreadsChanged := mergeWebSubThreadsInto(cj, threads, imported)
+	return added, changed || subThreadsChanged
 }
 
 // applyWebCommentPlacements sets line, anchor, and drifted on the comments in
@@ -1110,44 +1295,281 @@ func applyWebCommentPlacements(cj *session.CritJSON, placements map[string]sessi
 	}
 }
 
-// mergeFetchedComments writes new comments, reply updates and placements
-// from one fetch in a single load and save of the review file.
-func mergeFetchedComments(critPath string, fetched fetchWebCommentsResult) error {
+// mergeFetchedComments writes new comments, reply updates, sub-threads and
+// placements from one fetch in a single load and save of the review file.
+// Returns the number of sub-threads added.
+func mergeFetchedComments(critPath string, fetched fetchWebCommentsResult) (int, error) {
 	return mergeFetchedCommentsFor(critPath, fetched, session.ProbeDaemonFocus())
 }
 
-func mergeFetchedCommentsFor(critPath string, fetched fetchWebCommentsResult, daemonFocus *focus.Focus) error {
-	if !fetchHasUpdates(fetched) {
-		return nil
+func mergeFetchedCommentsFor(critPath string, fetched fetchWebCommentsResult, daemonFocus *focus.Focus) (int, error) {
+	if !fetchHasUpdates(fetched) && len(fetched.Threads) == 0 {
+		return 0, nil
 	}
-	return updateReviewFile(critPath, func(cj *session.CritJSON) {
-		mergeWebCommentsInto(cj, fetched.NewComments, fetched.ReplyUpdates, daemonFocus)
+	added := 0
+	err := updateReviewFileIf(critPath, func(cj *session.CritJSON) bool {
+		var changed bool
+		added, changed = mergeWebCommentsInto(cj, fetched.NewComments, fetched.ReplyUpdates, fetched.Threads, daemonFocus)
 		applyWebCommentPlacements(cj, fetched.Placements)
+		return changed || fetchHasUpdates(fetched)
 	})
+	return added, err
 }
 
 func fetchHasUpdates(fetched fetchWebCommentsResult) bool {
 	return len(fetched.NewComments) > 0 || len(fetched.ReplyUpdates) > 0 || len(fetched.Placements) > 0
 }
 
-// mergeRepliesIntoComment merges web replies into a comment, deduplicating by body.
-func mergeRepliesIntoComment(c session.Comment, webReplies []WebReply) session.Comment {
-	existing := make(map[string]bool)
-	for _, r := range c.Replies {
-		existing[r.Body] = true
-	}
+// mergeWebReplies merges web replies into c and reports whether c changed.
+// A web reply is already there when a local reply has its external id or,
+// for one that never went through a share, its body (among the replies c had
+// before: two equal web replies both come in). A local copy without an id
+// gets one, and a new reply keeps its external id as local id when free, or
+// gets a fresh one: sub-threads anchor on reply ids, which must stay the
+// same from one fetch to the next.
+func mergeWebReplies(c *session.Comment, webReplies []WebReply) bool {
+	known := len(c.Replies)
+	changed := false
 	for _, wr := range webReplies {
-		if existing[wr.Body] {
+		if j := localReplyIndex(c.Replies[:known], wr); j >= 0 {
+			if c.Replies[j].ID == "" {
+				c.Replies[j].ID = newReplyID(c.Replies, wr.ExternalID)
+				changed = true
+			}
 			continue
 		}
 		c.Replies = append(c.Replies, session.Reply{
-			ID:     session.RandomReplyID(),
+			ID:     newReplyID(c.Replies, wr.ExternalID),
 			Body:   wr.Body,
 			Author: wr.AuthorDisplayName,
 			UserID: wr.UserID,
 		})
+		changed = true
 	}
-	return c
+	return changed
+}
+
+// localReplyIndex returns the index of wr's local copy in replies, by
+// external id, else by body, or -1.
+func localReplyIndex(replies []session.Reply, wr WebReply) int {
+	if wr.ExternalID != "" {
+		for j, r := range replies {
+			if r.ID == wr.ExternalID {
+				return j
+			}
+		}
+	}
+	for j, r := range replies {
+		if r.Body == wr.Body {
+			return j
+		}
+	}
+	return -1
+}
+
+// safeReplyID matches the reply ids a crit-web external id may become: made
+// of letters, digits, "_" and "-", like the rp_ ids crit gives replies, so
+// the id stays a plain URL path segment and HTML attribute value.
+var safeReplyID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// newReplyID returns the local id of a reply imported from crit-web: its
+// external id when that id is safe and free in replies, else a fresh rp_ id.
+func newReplyID(replies []session.Reply, externalID string) string {
+	if !safeReplyID.MatchString(externalID) {
+		return session.RandomReplyID()
+	}
+	for _, r := range replies {
+		if r.ID == externalID {
+			return session.RandomReplyID()
+		}
+	}
+	return externalID
+}
+
+// reviewListKey keys the review-level comments among the file lists of a
+// subThreadImport; no file path is empty.
+const reviewListKey = ""
+
+// subThreadImport is the state of one mergeWebSubThreadsInto: the comment
+// lists of the review file, keyed by file path (reviewListKey for the
+// review-level ones), written back once the walk is done.
+type subThreadImport struct {
+	lists    map[string][]session.Comment
+	webCount int
+	now      string
+	added    int
+	changed  bool
+}
+
+// mergeWebSubThreadsInto imports into cj the sub-threads that threads, the
+// threads of one fetch, carry on their messages, at any depth. It runs on the
+// review file being written, after the threads themselves were merged: this
+// is the sub-thread half of the dedup rule, on every import path.
+//
+// Each web message is mapped to its local copy. A thread: by the local id it
+// was just imported under (imported, keyed by crit-web id), else by external
+// id, else by fingerprint. A reply: by external id, else by body, within its
+// local thread; a local reply without an id gets one. A web sub-thread
+// already local, by external id or else by (parent, body, quote), only gets
+// its new replies; any other is added under the local message, in the list of
+// its root thread, with that thread's scope, side and view tags. A message
+// with no local copy keeps its sub-threads out. Returns the number of
+// sub-threads added and whether cj changed.
+func mergeWebSubThreadsInto(cj *session.CritJSON, threads []WebComment, imported map[string]string) (int, bool) {
+	if len(threads) == 0 {
+		return 0, false
+	}
+	m := subThreadImport{
+		lists:    map[string][]session.Comment{reviewListKey: cj.ReviewComments},
+		webCount: highestWebIndex(*cj),
+		now:      time.Now().UTC().Format(time.RFC3339),
+	}
+	for path, f := range cj.Files {
+		m.lists[path] = f.Comments
+	}
+	_, fingerprints := buildLocalFingerprintIndex(*cj)
+
+	for _, wt := range threads {
+		id := imported[wt.ID]
+		if id == "" {
+			id = wt.ExternalID
+		}
+		if id == "" {
+			id = fingerprints[fmt.Sprintf("%s|%s|%d|%d", wt.Body, wt.FilePath, wt.StartLine, wt.EndLine)]
+		}
+		if key, ok := m.listOf(id, wt); ok {
+			m.walk(key, id, wt)
+		}
+	}
+
+	if !m.changed {
+		return 0, false
+	}
+	cj.ReviewComments = m.lists[reviewListKey]
+	for path, comments := range m.lists {
+		if path == reviewListKey {
+			continue
+		}
+		entry := cj.Files[path]
+		entry.Comments = comments
+		cj.Files[path] = entry
+	}
+	return m.added, true
+}
+
+// listOf returns the key of the list holding comment id, looking first where
+// crit-web files the web thread wt.
+func (m *subThreadImport) listOf(id string, wt WebComment) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+	preferred := wt.FilePath
+	if wt.Scope == "review" {
+		preferred = reviewListKey
+	}
+	if commentIndex(m.lists[preferred], id) >= 0 {
+		return preferred, true
+	}
+	for key, comments := range m.lists {
+		if commentIndex(comments, id) >= 0 {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+func commentIndex(comments []session.Comment, id string) int {
+	for i, c := range comments {
+		if c.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// walk imports the sub-threads of the web thread w, whose local copy is the
+// comment localID of list key: those on the comment, then those on each of
+// its replies.
+func (m *subThreadImport) walk(key, localID string, w WebComment) {
+	for _, ws := range w.SubThreads {
+		m.importSubThread(key, localID, ws)
+	}
+	for _, wr := range w.Replies {
+		if len(wr.SubThreads) == 0 {
+			continue
+		}
+		i := commentIndex(m.lists[key], localID)
+		if i < 0 {
+			return
+		}
+		c := &m.lists[key][i]
+		j := localReplyIndex(c.Replies, wr)
+		if j < 0 {
+			continue
+		}
+		if c.Replies[j].ID == "" {
+			c.Replies[j].ID = newReplyID(c.Replies, wr.ExternalID)
+			m.changed = true
+		}
+		replyID := c.Replies[j].ID
+		for _, ws := range wr.SubThreads {
+			m.importSubThread(key, replyID, ws)
+		}
+	}
+}
+
+// importSubThread imports the web sub-thread ws on the local message
+// parentID of list key, then the sub-threads under it.
+func (m *subThreadImport) importSubThread(key, parentID string, ws WebComment) {
+	list := m.lists[key]
+	i := -1
+	if ws.ExternalID != "" {
+		i = commentIndex(list, ws.ExternalID)
+	} else {
+		for j, c := range list {
+			if c.ParentID == parentID && c.Body == ws.Body && c.Quote == ws.Quote {
+				i = j
+				break
+			}
+		}
+	}
+	if i >= 0 {
+		if mergeWebReplies(&list[i], ws.Replies) {
+			m.changed = true
+		}
+		m.walk(key, list[i].ID, ws)
+		return
+	}
+
+	root, ok := session.ThreadRoot(list, parentID)
+	if !ok {
+		return
+	}
+	m.webCount++
+	c := session.Comment{
+		ID:            fmt.Sprintf("web-%d", m.webCount),
+		ParentID:      parentID,
+		Body:          ws.Body,
+		Quote:         ws.Quote,
+		QuoteOffset:   ws.QuoteOffset,
+		Author:        ws.AuthorDisplayName,
+		UserID:        ws.UserID,
+		Scope:         root.Scope,
+		Side:          root.Side,
+		HeadSHA:       root.HeadSHA,
+		DiffScope:     root.DiffScope,
+		FocusKey:      root.FocusKey,
+		ReviewRound:   ws.ReviewRound,
+		Resolved:      ws.Resolved,
+		ResolvedRound: ws.ResolvedRound,
+		CreatedAt:     m.now,
+		UpdatedAt:     m.now,
+	}
+	mergeWebReplies(&c, ws.Replies)
+	m.lists[key] = append(list, c)
+	m.added++
+	m.changed = true
+	m.walk(key, c.ID, ws)
 }
 
 // updateShareState writes LastShareHash and ReviewRound back to the review

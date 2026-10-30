@@ -693,8 +693,8 @@ func fetchPRThreadResolvedPage(owner, name string, prNumber int, cursor string) 
 // If ghID is non-zero, matches by GitHubID. Otherwise falls back to author+lines+body.
 func isDuplicateGHComment(comments []session.Comment, ghID int64, author string, startLine, endLine int, body string) bool {
 	for _, c := range comments {
-		if c.DOMAnchor != nil {
-			continue // live pins never participate in GH dedup
+		if c.DOMAnchor != nil || c.ParentID != "" {
+			continue // live pins and sub-threads never participate in GH dedup
 		}
 		if ghID != 0 && c.GitHubID == ghID {
 			return true
@@ -1386,6 +1386,9 @@ func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, r
 	return updateReviewFile(critPath, func(cj *session.CritJSON) {
 		for path, cf := range cj.Files {
 			for i, c := range cf.Comments {
+				if c.ParentID != "" {
+					continue // sub-threads are never posted; keep them off any GitHub thread
+				}
 				if c.GitHubID == 0 {
 					key := fmt.Sprintf("%s:%d", path, c.EndLine)
 					if id, ok := commentIDs[key]; ok {

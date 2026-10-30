@@ -247,7 +247,7 @@ func runShareExisting(existingCfg session.CritJSON, critPath string, files []Sha
 			return runShareNew(critPath, files, sharePaths, svcURL, authToken, fallbackAuthor, org, visibility, showQR)
 		}
 		fmt.Fprintf(os.Stderr, "warning: could not pull remote comments: %v\n", err)
-	} else if err := mergeFetchedComments(critPath, fetched); err != nil {
+	} else if _, err := mergeFetchedComments(critPath, fetched); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not merge remote comments: %v\n", err)
 	}
 
@@ -577,27 +577,30 @@ func runFetchUnderLock(critPath string) error {
 		return fmt.Errorf("fetching remote comments: %w", err)
 	}
 
-	if !fetchHasUpdates(fetched) {
+	subThreads, err := mergeFetchedComments(critPath, fetched)
+	if err != nil {
+		return fmt.Errorf("saving review file: %w", err)
+	}
+	if !fetchHasUpdates(fetched) && subThreads == 0 {
 		fmt.Println("No new comments.")
 		fmt.Printf("Review file: %s\n", session.ReviewPathsFor(critPath).Review)
 		return nil
-	}
-
-	if err := mergeFetchedComments(critPath, fetched); err != nil {
-		return fmt.Errorf("saving review file: %w", err)
 	}
 	if cj.ShareBaseURL == "" {
 		_ = bindShareBaseURL(critPath, target.URL)
 	}
 
-	printFetchResult(fetched)
+	printFetchResult(fetched, subThreads)
 	fmt.Printf("Review file: %s\n", session.ReviewPathsFor(critPath).Review)
 	return nil
 }
 
-func printFetchResult(fetched fetchWebCommentsResult) {
+func printFetchResult(fetched fetchWebCommentsResult, subThreads int) {
 	if len(fetched.NewComments) > 0 {
 		printFetchedComments(fetched.NewComments)
+	}
+	if subThreads > 0 {
+		fmt.Printf("Fetched %d new sub-thread(s).\n", subThreads)
 	}
 	if len(fetched.Placements) > 0 {
 		fmt.Printf("Updated %d comment placement(s).\n", len(fetched.Placements))

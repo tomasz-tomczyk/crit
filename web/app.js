@@ -107,7 +107,7 @@
       return;
     }
     const owner = files.find(function(f) {
-      return (f.comments || []).some(function(c) { return c.id === id; });
+      return fileThreadComments(f).some(function(c) { return c.id === id; });
     });
     if (owner) {
       pierreJumpToComment(id, owner.path, flashCommentRefCard);
@@ -120,9 +120,10 @@
 
   function flashCommentRefCard(card) {
     const id = card.dataset.commentId;
+    expandCardsAround(card);
     if (card.classList.contains('collapsed')) {
       card.classList.remove('collapsed');
-      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
+      if (id) rememberCollapse(card, false);
     }
     restartFlash(card, 'comment-ref-flash');
   }
@@ -424,6 +425,14 @@
   }
 
   let reviewComments = []; // review-level (general) comments
+  // Sub-threads (comments with a parent_id, nested under the message whose
+  // passage they comment on) arrive in the same lists as root threads. They
+  // are split off at ingestion (setFileComments / setReviewComments), so
+  // file.comments and reviewComments only ever hold threads placed on lines
+  // or files; file.subThreads / reviewSubThreads hold the rest, indexed by
+  // parent message id (file.subThreadIndex / reviewSubThreadIndex).
+  let reviewSubThreads = [];
+  let reviewSubThreadIndex = new Map();
   let reviewCommentFormActive = false; // is the review comment form open?
   let reviewCommentEditingId = null; // id of review comment being edited, or null
 
@@ -499,8 +508,24 @@
   // Track active reply form state so it survives DOM re-renders (commentId → { text })
   const activeReplyForms = new Map();
 
-  // Track manually toggled collapse state (comment ID → boolean, true = collapsed)
+  // Open sub-thread composers, keyed by the id of the commented message:
+  // { parentId, listPath ('' = review-level), quote, quoteOffset, draftBody,
+  //   focused, caret }. The card renders each one under its message and
+  // rebuilds it, text and focus included, on every re-render.
+  const activeSubThreadForms = new Map();
+
+  // Manually toggled collapse state: comment ID → { collapsed, state }. A
+  // choice holds while the card stays in the state it was made in (see
+  // buildCommentCard); when the card changes state (resolved, unresolved, last
+  // open sub-thread under it resolved), that state's default applies again.
   const commentCollapseOverrides = {};
+
+  // Record a collapse made on a rendered card (expand all, jumps), in the
+  // state the card was rendered in.
+  function rememberCollapse(card, collapsed) {
+    const id = card.dataset.commentId;
+    if (id) commentCollapseOverrides[id] = { collapsed: collapsed, state: card.dataset.collapseState || '' };
+  }
 
   // SVG Icon Constants — extracted to crit-icons.js (window.crit.icons)
   const ICON_CHEVRON = window.crit.icons.ICON_CHEVRON;
@@ -514,6 +539,11 @@
   const ICON_FILE = window.crit.icons.ICON_FILE;
   const ICON_COPY_PATH = window.crit.icons.ICON_COPY_PATH;
   const ICON_COPY_PATH_CHECK = window.crit.icons.ICON_COPY_PATH_CHECK;
+
+  // Sub-thread helpers (selection → message, quotes, parent index) live in
+  // crit-subthreads.js (window.crit.subthreads).
+  const subthreads = window.crit.subthreads;
+  const EMPTY_SUBTHREAD_INDEX = new Map();
 
   function formKey(form) {
     if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
@@ -642,14 +672,13 @@
 
     // Create lightweight placeholders for lazy files
     const lazyFiles = lazy.map(function(fi) {
-      return {
+      const placeholder = {
         path: fi.path,
         oldPath: fi.old_path || '',
         status: fi.status,
         fileType: fi.file_type,
         content: '',
         previousContent: '',
-        comments: (commentsByPath && commentsByPath[fi.path]) || [],
         diffHunks: [],
         lineBlocks: null,
         previousLineBlocks: null,
@@ -662,6 +691,8 @@
         generated: !!fi.generated,
         fileHash: '',
       };
+      setCommentsFrom(placeholder, commentsByPath);
+      return placeholder;
     });
 
     return eagerFiles.concat(lazyFiles);
@@ -684,8 +715,7 @@
   // (empty when the fetch failed).
   function setCommentsFrom(f, byPath) {
     if (!f) return;
-    const comments = byPath && byPath[f.path];
-    f.comments = Array.isArray(comments) ? comments : [];
+    setFileComments(f, byPath && byPath[f.path]);
   }
 
   // Set each file's comments from a fetchAllFileComments result. A null
@@ -693,9 +723,99 @@
   function applyAllFileComments(byPath) {
     if (!byPath) return;
     for (const f of files) {
-      const comments = byPath[f.path];
-      f.comments = Array.isArray(comments) ? comments : [];
+      setFileComments(f, byPath[f.path]);
     }
+  }
+
+  // ===== Comment lists: root threads and sub-threads =====
+  // Every comment list from the API (a file's, or the review-level one) is
+  // split here: root threads stay in file.comments / reviewComments, which
+  // the rest of the UI reads as threads placed on lines or files, and
+  // sub-threads go to file.subThreads / reviewSubThreads with an index by
+  // parent message. A list path is the file path, or '' for review-level.
+  function setFileComments(file, list) {
+    const parts = subthreads.partitionComments(list);
+    file.comments = parts.roots;
+    file.subThreads = parts.subThreads;
+    file.subThreadIndex = subthreads.indexByParent(parts.subThreads);
+    pruneSubThreadForms(file.path, list);
+  }
+
+  function setReviewComments(list) {
+    const parts = subthreads.partitionComments(list);
+    reviewComments = parts.roots;
+    reviewSubThreads = parts.subThreads;
+    reviewSubThreadIndex = subthreads.indexByParent(parts.subThreads);
+    pruneSubThreadForms('', list);
+  }
+
+  // A composer whose message left the list (deleted here, in another tab or
+  // by the agent) has nowhere to render: drop it, so it neither keeps the
+  // review conversation open nor answers Escape unseen.
+  function pruneSubThreadForms(listPath, list) {
+    if (activeSubThreadForms.size === 0) return;
+    const ids = subthreads.messageIds(list);
+    activeSubThreadForms.forEach(function(form, parentId) {
+      if (form.listPath === listPath && !ids.has(parentId)) activeSubThreadForms.delete(parentId);
+    });
+  }
+
+  function listRootThreads(listPath) {
+    if (!listPath) return reviewComments;
+    const file = getFileByPath(listPath);
+    return (file && file.comments) || [];
+  }
+
+  function listSubThreads(listPath) {
+    if (!listPath) return reviewSubThreads;
+    const file = getFileByPath(listPath);
+    return (file && file.subThreads) || [];
+  }
+
+  // Every comment of a list: root threads, then sub-threads.
+  function listAllComments(listPath) {
+    return listRootThreads(listPath).concat(listSubThreads(listPath));
+  }
+
+  function subThreadIndexFor(listPath) {
+    if (!listPath) return reviewSubThreadIndex;
+    const file = getFileByPath(listPath);
+    return (file && file.subThreadIndex) || EMPTY_SUBTHREAD_INDEX;
+  }
+
+  // Sub-threads nested directly under a message (comment or reply).
+  function subThreadsOf(listPath, messageId) {
+    return subThreadIndexFor(listPath).get(messageId) || [];
+  }
+
+  function findListComment(listPath, id) {
+    return listAllComments(listPath).find(function(c) { return c.id === id; }) || null;
+  }
+
+  // The root thread a comment, sub-thread or reply belongs to.
+  function threadRootId(listPath, id) {
+    return subthreads.rootIdOf(id, listAllComments(listPath));
+  }
+
+  // A resolved thread stays shown (expanded, and through hide-resolved)
+  // while an unresolved sub-thread sits anywhere under it.
+  function hasOpenSubThreads(listPath, comment) {
+    return subthreads.hasOpenDescendant(comment, subThreadIndexFor(listPath));
+  }
+
+  // Resolved, with nothing open under it: what hide-resolved hides.
+  function settledThread(listPath, comment) {
+    return !!comment.resolved && !hasOpenSubThreads(listPath, comment);
+  }
+
+  function hiddenResolved(listPath, comment) {
+    return isHideResolved() && settledThread(listPath, comment);
+  }
+
+  // Every comment of a file, sub-threads included: an open sub-thread counts
+  // like an open comment (badges, counts, Approve).
+  function fileThreadComments(file) {
+    return (file.comments || []).concat(file.subThreads || []);
   }
 
   // Load a single file's content and diff from the API. Comments are not
@@ -1036,7 +1156,7 @@
     sessionRes = await hydrateStoryIfMissing(sessionRes);
     sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
     session = sessionRes;
-    reviewComments = sessionRes.review_comments || [];
+    setReviewComments(sessionRes.review_comments);
 
     // Fire-and-forget: verify file list endpoint is available for @-mention autocomplete
     fetch('/api/files/list')
@@ -1231,7 +1351,7 @@
         let corrected = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(diffScope)));
         corrected = await hydrateFullSessionForStoryIfNeeded(corrected);
         session = corrected;
-        reviewComments = corrected.review_comments || [];
+        setReviewComments(corrected.review_comments);
       } else if (scopes.indexOf(diffScope) === -1) {
         diffScope = 'all';
         setSetting('diffScope', 'all');
@@ -1239,7 +1359,7 @@
         // stale cookie value and may have returned an empty file list.
         const corrected = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=all'));
         session = corrected;
-        reviewComments = corrected.review_comments || [];
+        setReviewComments(corrected.review_comments);
       }
       scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
         b.classList.toggle('active', b.dataset.scope === diffScope);
@@ -1562,7 +1682,7 @@
     let inner =
       '<span class="tree-conversation-icon">' + ICON_REVIEW_CONVERSATION + '</span>' +
       '<span class="tree-conversation-name">Review conversation</span>';
-    const unresolved = reviewComments.filter(function(c) { return !c.resolved; }).length;
+    const unresolved = listAllComments('').filter(function(c) { return !c.resolved; }).length;
     if (unresolved > 0) {
       inner += '<span class="tree-conversation-badge">' + unresolved + '</span>';
     }
@@ -1664,7 +1784,7 @@
       if (f.viewed) {
         innerHtml += '<span class="tree-viewed-check" title="Viewed">&#10003;</span>';
       }
-      const unresolvedCount = f.comments.filter(function(c) { return !c.resolved; }).length;
+      const unresolvedCount = fileThreadComments(f).filter(function(c) { return !c.resolved; }).length;
       if (unresolvedCount > 0) {
         innerHtml += '<span class="tree-comment-badge">' + unresolvedCount + '</span>';
       }
@@ -1732,7 +1852,7 @@
       const file = byPath.get(path);
       if (!file) continue;
       let badge = el.querySelector('.tree-comment-badge');
-      const count = file.comments.filter(function(c) { return !c.resolved; }).length;
+      const count = fileThreadComments(file).filter(function(c) { return !c.resolved; }).length;
       if (count > 0) {
         if (badge) {
           badge.textContent = count;
@@ -1875,16 +1995,16 @@
   function pierreAnnotationsFor(file) {
     const A = window.crit.pierreAdapter;
     const out = [];
-    const hideResolved = isHideResolved();
+    const hidden = function(c) { return hiddenResolved(file.path, c); };
     if (pierrePlaceholderText(file)) {
       // No lines to anchor to: file-level threads, every line comment as
       // outdated, then the placeholder.
       const lineComments = (file.comments || []).filter(function(c) {
-        return c.scope !== 'file' && !(hideResolved && c.resolved);
+        return c.scope !== 'file' && !hidden(c);
       });
       for (let i = 0; i < (file.comments || []).length; i++) {
         const c = file.comments[i];
-        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
+        if (c.scope === 'file' && !hidden(c)) out.push(A.annotationForComment(c));
       }
       if (lineComments.length) out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'outdated', id: file.path } });
       out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'placeholder', id: file.path } });
@@ -1895,7 +2015,7 @@
       // file-level threads and the file form sit above it.
       for (let i = 0; i < (file.comments || []).length; i++) {
         const c = file.comments[i];
-        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
+        if (c.scope === 'file' && !hidden(c)) out.push(A.annotationForComment(c));
       }
       const fileForm = getFileComposeForm(file.path);
       if (fileForm && !fileForm.editingId) out.push(A.annotationForForm(fileForm));
@@ -1907,7 +2027,7 @@
       let beyondEnd = false;
       for (let i = 0; i < (file.comments || []).length; i++) {
         const c = file.comments[i];
-        if (hideResolved && c.resolved) continue;
+        if (hidden(c)) continue;
         if (c.scope !== 'file' && c.end_line > lineCount) { beyondEnd = true; continue; }
         out.push(A.annotationForComment(c));
       }
@@ -1925,7 +2045,7 @@
     let outdated = false;
     for (let i = 0; i < (file.comments || []).length; i++) {
       const c = file.comments[i];
-      if (hideResolved && c.resolved) continue;
+      if (hidden(c)) continue;
       if (c.scope !== 'file' && !lineKeys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''))) {
         outdated = true;
         continue;
@@ -2208,7 +2328,7 @@
     for (let i = 0; i < file.comments.length; i++) {
       const c = file.comments[i];
       if (anchored(c)) continue;
-      if (isHideResolved() && c.resolved) continue;
+      if (hiddenResolved(filePath, c)) continue;
       const el = c.resolved ? createResolvedElement(c, filePath) : createCommentElement(c, filePath);
       el.classList.add('outdated-comment');
       const headerLeft = el.querySelector('.comment-header-left');
@@ -2623,6 +2743,103 @@
     })();
   }
 
+  // ----- Keep a clicked card in place -----
+  // Pierre keeps its scroll anchor (the first line or file at or below the
+  // viewport top) in place across height changes; in a rendered document or
+  // the review conversation that anchor sits below the comments, so a card
+  // collapsed, expanded, resolved or unresolved slid with everything above
+  // it. The clicked card keeps its viewport offset instead, until it settles
+  // or the reader scrolls, types, clicks or picks (the mobile file picker
+  // can change without a pointer event). When it disappears in a collapsed
+  // ancestor, that ancestor keeps its own place (or comes back to the top
+  // when its header was above); when hide-resolved removes the whole thread,
+  // what follows it takes the thread's place, as far as the list end allows.
+  const CARD_HOLD_MAX_MS = 2000;
+  const CARD_HOLD_SETTLED_FRAMES = 4;
+  const CARD_HOLD_RELEASE_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown', 'change'];
+  let heldCard = null;
+
+  function holdCardInView(card, untilRebuilt) {
+    const root = document.getElementById('filesContainer');
+    if (!pierreView || !pierreViewActive() || !root || !root.contains(card) || !card.dataset.commentId) return;
+    releaseHeldCard();
+    const paneTop = root.getBoundingClientRect().top;
+    // The card and the cards around it, innermost first, with their place.
+    const places = [];
+    for (let el = card; el; el = el.parentElement && el.parentElement.closest('.comment-card')) {
+      if (el.dataset.commentId) places.push({ id: el.dataset.commentId, offset: el.getBoundingClientRect().top - paneTop });
+    }
+    const placer = pierreView.elementPlacer();
+    const hold = { observer: null, root: root, onScroll: null };
+    const findCard = function(id) {
+      return root.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
+    };
+    // With hide-resolved on, the whole thread can go: what follows it then
+    // takes its place.
+    const afterThread = function() {
+      const outer = findCard(places[places.length - 1].id);
+      let next = outer && outer.parentElement ? outer.parentElement.nextElementSibling : null;
+      while (next && next.getClientRects().length === 0) next = next.nextElementSibling;
+      return next;
+    };
+    // The clicked card, else the card it disappeared into, at its own place.
+    const correct = function() {
+      if (heldCard !== hold) return false;
+      for (let i = 0; i < places.length; i++) {
+        const current = findCard(places[i].id);
+        if (current && current.getClientRects().length > 0) return placer.place(current, Math.max(0, places[i].offset));
+      }
+      const next = afterThread();
+      return next ? placer.place(next, places[places.length - 1].offset) : false;
+    };
+    heldCard = hold;
+    // Pierre re-anchors in its ResizeObserver callback, and again in the
+    // render that its scroll handler queues. Correct right after each, in
+    // the same frame, so nothing paints out of place: an observer created
+    // after Pierre's runs after it, and a frame callback requested from a
+    // scroll listener added after Pierre's runs after its render.
+    const surface = card.closest('.pierre-document, #reviewConversation, .pierre-annotation');
+    if (surface && typeof ResizeObserver === 'function') {
+      hold.observer = new ResizeObserver(correct);
+      hold.observer.observe(surface);
+    }
+    hold.onScroll = function() { requestAnimationFrame(correct); };
+    root.addEventListener('scroll', hold.onScroll, { passive: true });
+    CARD_HOLD_RELEASE_EVENTS.forEach(function(type) {
+      window.addEventListener(type, releaseHeldCard, { capture: true, passive: true });
+    });
+    const until = performance.now() + CARD_HOLD_MAX_MS;
+    let settledFrames = 0;
+    (function frame() {
+      if (heldCard !== hold) return;
+      // A resolve re-renders the card (and collapses the cards around it)
+      // once the server answers: count settled frames only from that render,
+      // or the wait for the server would count as settled and the hold would
+      // end just before Pierre reacts to it.
+      const rebuilt = !untilRebuilt || findCard(places[0].id) !== card;
+      settledFrames = correct() || !rebuilt ? 0 : settledFrames + 1;
+      if (settledFrames >= CARD_HOLD_SETTLED_FRAMES || performance.now() > until) releaseHeldCard();
+      else requestAnimationFrame(frame);
+    })();
+  }
+
+  function releaseHeldCard() {
+    if (!heldCard) return;
+    if (heldCard.observer) heldCard.observer.disconnect();
+    heldCard.root.removeEventListener('scroll', heldCard.onScroll);
+    heldCard = null;
+    CARD_HOLD_RELEASE_EVENTS.forEach(function(type) {
+      window.removeEventListener(type, releaseHeldCard, { capture: true });
+    });
+  }
+
+  // Capture phase: take the position before the button's own handler acts.
+  document.addEventListener('click', function(e) {
+    const button = e.target.closest && e.target.closest('.comment-collapse-btn, .comment-actions .resolve-btn');
+    const card = button && button.closest('.comment-card');
+    if (card) holdCardInView(card, button.classList.contains('resolve-btn'));
+  }, true);
+
   // Scroll inside Pierre's list without asking the browser to find every
   // ancestor scroll container. The comments panel and other fixed chrome can
   // otherwise make native scrollIntoView move the document instead of the
@@ -2659,6 +2876,7 @@
   let pierreJumpSeq = 0;
   function pierreJumpToComment(commentId, filePath, done) {
     if (!pierreView) return;
+    releaseHeldCard();
     const seq = ++pierreJumpSeq;
     const isCurrent = function() { return seq === pierreJumpSeq; };
     const card = function() {
@@ -2669,7 +2887,9 @@
       const file = getFileByPath(filePath);
       if (!file) return;
       if (file.collapsed) pierreView.setCollapsed(file, false);
-      const comment = (file.comments || []).find(function(c) { return c.id === commentId; });
+      // A sub-thread sits inside its root thread's card: place the root.
+      const anchorId = threadRootId(filePath, commentId) || commentId;
+      const comment = (file.comments || []).find(function(c) { return c.id === anchorId; });
       const inDocument = pierreIsDocumentView(file) && comment && comment.scope !== 'file';
       const anchored = comment && comment.scope !== 'file' && !inDocument && pierreAnchorTest(file)(comment);
       if (anchored) pinTreeActive(filePath);
@@ -2689,6 +2909,8 @@
           // the list). Waiting would add 250ms+ to every next-comment step.
           // Only document comments wait for the outer scroll to stop before
           // the alignment below.
+          // A sub-thread card inside collapsed cards is hidden: open them first.
+          expandCardsAround(el);
           if (!inDocument) {
             scrollPierreElementIntoView(el, isCurrent);
             done(el);
@@ -2697,6 +2919,7 @@
           whenListScrollSettled(document.getElementById('filesContainer'), function() {
             whenMounted(card, function(mountedCard) {
               if (!isCurrent()) return;
+              expandCardsAround(mountedCard);
               scrollPierreElementIntoView(mountedCard, isCurrent);
               done(mountedCard);
             });
@@ -2861,14 +3084,13 @@
   // so a refresh re-derives only files whose ranges or hunks changed.
   const pierreRangeCache = new Map(); // path → { key, commented, forming }
   function pierreCommentRangeCSS() {
-    const hideResolved = isHideResolved();
     const unified = diffMode === 'unified';
     const commented = [];
     const forming = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const commentRanges = (f.comments || []).filter(function(c) {
-        return c.scope !== 'file' && !(hideResolved && c.resolved);
+        return c.scope !== 'file' && !hiddenResolved(f.path, c);
       }).map(function(c) { return { start: c.start_line, end: c.end_line, old: c.side === 'old' }; });
       const formRanges = getFormsForFile(f.path).filter(function(form) {
         return form.scope !== 'file' && form.startLine && (form.afterBlockIndex === null || form.afterBlockIndex === undefined);
@@ -2906,6 +3128,8 @@
     if (phase === 'unmount') { pierreDecorations.unmount(host); return; }
     host.toggleAttribute('data-crit-file-view', session.mode === 'files' && pierreIsFileView(getFileByPath(filePath)));
     pierreDecorations.mount(host, filePath, pierreQuotedComments(getFileByPath(filePath)));
+    // A remounted card brings its sub-threads' passages back on screen.
+    if (host.querySelector('.subthreads')) scheduleMessageQuoteHighlights();
     if (host.querySelector('.pierre-document')) {
       if (pierreStaleDocuments.has(filePath)) refreshPierreDocument(filePath);
       // Render new targets, and re-render ones Pierre kept detached while
@@ -3063,6 +3287,7 @@
     rebuildNavList();
     applyHideResolved();
     critFind.filesChanged();
+    scheduleMessageQuoteHighlights();
   }
 
   // Re-publish one file after a comment/form change. Thread cards are
@@ -3125,7 +3350,8 @@
   }
 
   function rememberKeyboardFocusFromForm(formObj) {
-    if (!formObj || !formObj.filePath || formObj.scope === 'file') return;
+    // File-level and sub-thread forms have no line to come back to.
+    if (!formObj || !formObj.filePath || formObj.scope === 'file' || formObj.parentId) return;
     if (pierreViewActive()) {
       // j/k continue from the commented line once the form closes.
       const file = getFileByPath(formObj.filePath);
@@ -3438,6 +3664,7 @@
     if (!pierreView) { renderAllFiles(); return; }
     refreshPierreFile(filePath);
     updateTreeCommentBadges(filePath);
+    scheduleMessageQuoteHighlights();
   }
 
   function currentRenderedFileSection(filePath) {
@@ -3728,7 +3955,7 @@
     container.appendChild(rightLabel);
 
     // Two-pointer merge for horizontal alignment
-    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments, file.path);
     const fileForms = getFormsForFile(file.path);
     const placedOld = new Set();
     function oldBlock(idx, diffClass) {
@@ -3895,7 +4122,7 @@
     const oldBlocks = file.previousLineBlocks;
     const newBlocks = file.lineBlocks;
 
-    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments, file.path);
     const fileForms = getFormsForFile(file.path);
     const placedOld = new Set();
     function oldBlock(idx) {
@@ -4021,7 +4248,7 @@
     container.className = 'document-wrapper' + (file.fileType === 'code' ? ' code-document' : '');
     if (!file.lineBlocks) return container;
 
-    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments);
+    const { commentsMap, oldCommentsMap, rangeSet: commentRangeSet } = buildCommentIndices(file.comments, file.path);
     const oldSideComments = renderOldSideComments(file, oldCommentsMap, null);
     if (oldSideComments) container.appendChild(oldSideComments);
 
@@ -4389,12 +4616,11 @@
   //   commentedRangeSet: Set<"line:side">              (highlight ranges)
   // Old-side comments (left on deleted lines in the diff) use old line
   // numbers, so they must not share a map with the current document's lines.
-  function buildCommentIndices(comments) {
+  function buildCommentIndices(comments, listPath) {
     const commentsMap = {};
     const oldCommentsMap = {};
     const diffCommentsMap = {};
     const rangeSet = new Set();
-    const hideResolved = isHideResolved();
     for (const c of comments) {
       // commentsMap / oldCommentsMap — keyed by end_line only
       const lineKey = c.end_line;
@@ -4407,7 +4633,7 @@
       diffCommentsMap[sideKey].push(c);
       // commentedRangeSet — non-file-scope comments; skip resolved when the
       // hide-resolved toggle is on so the line highlight tracks card visibility.
-      if (c.scope !== 'file' && !(hideResolved && c.resolved)) {
+      if (c.scope !== 'file' && !hiddenResolved(listPath, c)) {
         const side = c.side || '';
         for (let ln = c.start_line; ln <= c.end_line; ln++) rangeSet.add(ln + ':' + side);
       }
@@ -4630,7 +4856,7 @@
 
   function closeEmptyReviewForm() {
     if (!reviewCommentFormActive || reviewCommentEditingId) return;
-    const ta = document.querySelector('#reviewConversation .comment-form textarea');
+    const ta = document.querySelector('#reviewConversation .comment-form[data-form-key="review:new"] textarea');
     if (ta && ta.value.trim()) return;
     cancelReviewCommentForm();
   }
@@ -5195,9 +5421,11 @@
       : function() { cancelComment(formObj); };
     // Esc is ambiguous (could be a fat-finger), so gate it on a confirm if
     // there's unsaved content. The Cancel button is an explicit, labeled
-    // discard action — no prompt there (matches GitHub).
+    // discard action — no prompt there (matches GitHub). Callers with their
+    // own form state pass opts.confirmDiscard.
+    const confirmDiscard = opts.confirmDiscard || confirmDiscardReviewCommentForm;
     const doCancelFromEsc = opts.onCancel
-      ? function() { if (confirmDiscardReviewCommentForm()) opts.onCancel(); }
+      ? function() { if (confirmDiscard()) opts.onCancel(); }
       : function() { if (confirmDiscardCommentForm(formObj)) cancelComment(formObj); };
 
     bindSubmitCancelKeys(textarea, doSubmit, doCancelFromEsc);
@@ -5222,7 +5450,8 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
-    // Callers put editingId on formObj, not opts.
+    // Callers put editingId on formObj, not opts. opts.createComment(body)
+    // replaces the line and review-level creation (sub-thread composers).
     if (agentEnabled && !opts.editingId && !formObj.editingId) {
       const sendBtn = document.createElement('button');
       sendBtn.className = 'btn btn-sm btn-agent';
@@ -5233,12 +5462,14 @@
         submitBtn.disabled = true;
         const isReview = formObj.scope === 'review';
         const fp = isReview ? '' : formObj.filePath;
-        const rerender = isReview
-          ? renderReviewConversation
-          : function() { renderFileByPath(fp); };
-        const comment = isReview
-          ? await addReviewComment(textarea.value)
-          : await submitComment(textarea.value, formObj);
+        const rerender = fp
+          ? function() { renderFileByPath(fp); }
+          : renderReviewConversation;
+        const comment = opts.createComment
+          ? await opts.createComment(textarea.value)
+          : isReview
+            ? await addReviewComment(textarea.value)
+            : await submitComment(textarea.value, formObj);
         if (!comment) {
           sendBtn.disabled = false;
           submitBtn.disabled = false;
@@ -5359,8 +5590,7 @@
         });
         if (!res.ok) throw new Error('Server returned ' + res.status);
         const updated = await res.json();
-        const idx = file.comments.findIndex(c => c.id === formObj.editingId);
-        if (idx >= 0) file.comments[idx] = updated;
+        setFileComments(file, fileThreadComments(file).map(function(c) { return c.id === formObj.editingId ? updated : c; }));
         userActedThisRound = true;
       } else {
         const payload = {
@@ -5418,7 +5648,7 @@
   }
 
   function confirmDiscardReviewCommentForm() {
-    const ta = document.querySelector('#reviewConversation .comment-form textarea');
+    const ta = document.querySelector('#reviewConversation .comment-form[data-form-key^="review:"] textarea');
     const text = ta ? ta.value : '';
     if (!text.trim()) return true;
     return window.confirm('Discard comment?');
@@ -5597,17 +5827,43 @@
   // injects the module-scoped deps and the default override callbacks. The
   // real implementation lives in frontend/crit-comment-card.js so live-mode
   // can mount the same renderer with its own deps.
+  //
+  // opts.thread, the card's surface, nests sub-threads under the card's body
+  // and under each reply, built by that surface's factory: 'inline'
+  // (documents, diffs, story), 'review' (review conversation) or 'panel'
+  // (comments panel, read-only mirror).
   function buildCommentCard(comment, filePath, opts) {
     opts = opts || {};
     const merged = Object.assign({}, opts);
+    const listPath = filePath || '';
+    const thread = opts.thread || null;
+    // A resolved thread with an open sub-thread under it renders expanded.
+    const openBelow = !!comment.resolved && hasOpenSubThreads(listPath, comment);
+    if (openBelow) merged.collapseDefault = false;
+    // What the collapse default depends on: resolved or not, and, for a
+    // resolved card, whether an open sub-thread under it keeps it open.
+    const collapseState = (comment.resolved ? 'resolved' : 'open') + (openBelow ? '+open-below' : '');
+    if (comment.parent_id) {
+      // A sub-thread is anchored to a passage, not to lines.
+      merged.showLineRef = false;
+      if (comment.quote) merged.quote = comment.quote;
+    }
     if (typeof merged.isPendingAgentRequest !== 'function') {
       merged.isPendingAgentRequest = function (id) { return pendingAgentRequests.has(id); };
     }
     if (typeof merged.getCollapseOverride !== 'function') {
-      merged.getCollapseOverride = function (id) { return commentCollapseOverrides[id]; };
+      merged.getCollapseOverride = function (id) {
+        const override = commentCollapseOverrides[id];
+        if (override && override.state === collapseState) return override.collapsed;
+        // A choice made in another state is dropped, so it cannot come back.
+        delete commentCollapseOverrides[id];
+        return undefined;
+      };
     }
     if (typeof merged.setCollapseOverride !== 'function') {
-      merged.setCollapseOverride = function (id, val) { commentCollapseOverrides[id] = val; };
+      merged.setCollapseOverride = function (id, val) {
+        commentCollapseOverrides[id] = { collapsed: val, state: collapseState };
+      };
     }
     if (typeof merged.isLiveThread !== 'function') {
       merged.isLiveThread = isLiveThread;
@@ -5619,17 +5875,31 @@
       getReviewRound: function () { return session && session.review_round; },
       getAgentName: function () { return agentName; },
       buildCommentEnv: buildCommentEnv,
-      renderReplyList: renderReplyList,
+      renderReplyList: thread
+        ? function(c, fp, extraClass) { return renderReplyList(c, fp, extraClass, thread); }
+        : renderReplyList,
+      renderSubThreads: thread
+        ? function(c, fp) { return renderSubThreadList(c.id, fp, thread); }
+        : null,
       createReplyInput: createReplyInput,
       iconChevron: ICON_CHEVRON,
       linkifyDom: linkifyCommentRefsInDom,
     }, opts.deps || {});
-    return window.crit.commentCard.buildCommentCard(comment, filePath, merged);
+    const parts = window.crit.commentCard.buildCommentCard(comment, filePath, merged);
+    parts.card.dataset.collapseState = collapseState;
+    if (openBelow) parts.wrapper.classList.add('has-open-subthreads');
+    return parts;
   }
 
-  function createCommentElement(comment, filePath) {
+  // Inline card factories (documents, diffs, story). `thread` is the
+  // sub-thread context of a nested card; a root thread omits it.
+  function inlineThread(thread) {
+    return thread || 'inline';
+  }
+
+  function createCommentElement(comment, filePath, thread) {
     if (findFormForEdit(comment.id)) {
-      return createInlineEditor(comment, filePath);
+      return createInlineEditor(comment, filePath, inlineThread(thread));
     }
 
     const parts = buildCommentCard(comment, filePath, {
@@ -5638,6 +5908,7 @@
       collapseDefault: false,
       showLineRef: true,
       showReplyInput: true,
+      thread: inlineThread(thread),
     });
 
     const editBtn = document.createElement('button');
@@ -5670,8 +5941,9 @@
     return parts.wrapper;
   }
 
-  // Build a reply list container for a comment's replies
-  function renderReplyList(comment, filePath, extraClass) {
+  // Build a reply list container for a comment's replies. With a sub-thread
+  // context (`thread`), each reply carries the sub-threads on its passages.
+  function renderReplyList(comment, filePath, extraClass, thread) {
     const repliesContainer = document.createElement('div');
     repliesContainer.className = 'comment-replies' + (extraClass ? ' ' + extraClass : '');
     comment.replies.forEach(function(reply) {
@@ -5715,7 +5987,7 @@
       replyDeleteBtn.className = 'delete-btn';
       replyDeleteBtn.title = 'Delete';
       replyDeleteBtn.innerHTML = ICON_DELETE;
-      replyDeleteBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteReply(comment.id, reply.id, filePath); });
+      replyDeleteBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteReply(comment.id, reply, filePath); });
       replyActions.appendChild(replyEditBtn);
       replyActions.appendChild(replyDeleteBtn);
       replyHeader.appendChild(replyActions);
@@ -5729,9 +6001,368 @@
       linkifyCommentRefsInDom(replyBody);
       replyEl.appendChild(replyBody);
 
+      if (thread) {
+        const replySubThreads = renderSubThreadList(reply.id, filePath, thread);
+        if (replySubThreads) replyEl.appendChild(replySubThreads);
+      }
+
       repliesContainer.appendChild(replyEl);
     });
     return repliesContainer;
+  }
+
+  // ===== Sub-threads =====
+  // A sub-thread nests under the message whose passage it comments on, inside
+  // that message's thread: under a comment body, or under a reply. Cards build
+  // their sub-threads from the model on every render (renderSubThreadList),
+  // composers included, so a rebuild never loses them.
+
+  // The sub-threads (and the open composer) under one message, or null.
+  function renderSubThreadList(messageId, listPath, thread) {
+    const subs = subThreadsOf(listPath, messageId);
+    const form = activeSubThreadForms.get(messageId);
+    // The comments panel mirrors sub-threads read-only: composers stay inline.
+    const composer = thread !== 'panel' && form && form.listPath === listPath ? form : null;
+    if (subs.length === 0 && !composer) return null;
+    const container = document.createElement('div');
+    // Every level gets the same indent (style.css).
+    container.className = 'subthreads';
+    container.dataset.parentId = messageId;
+    container.dataset.listPath = listPath;
+    for (let i = 0; i < subs.length; i++) {
+      container.appendChild(createSubThreadElement(subs[i], listPath, thread));
+    }
+    if (composer) container.appendChild(createSubThreadComposer(composer));
+    scheduleMessageQuoteHighlights();
+    return container;
+  }
+
+  // A sub-thread card, built by the factory of the surface it sits in.
+  function createSubThreadElement(sub, listPath, thread) {
+    if (thread === 'panel') return createPanelCommentCard(sub, listPath || null, thread);
+    if (thread === 'review') {
+      return reviewCommentEditingId === sub.id ? createReviewCommentEditor(sub) : createReviewConversationCard(sub, thread);
+    }
+    return sub.resolved ? createResolvedElement(sub, listPath, thread) : createCommentElement(sub, listPath, thread);
+  }
+
+  // A nested card is hidden while a card around it is collapsed: open those
+  // cards, so a jump to it (or to a composer in it) lands on something shown.
+  function expandCardsAround(el) {
+    let outer = el.parentElement && el.parentElement.closest('.comment-card.collapsed');
+    while (outer) {
+      outer.classList.remove('collapsed');
+      rememberCollapse(outer, false);
+      const btn = outer.querySelector(':scope > .comment-header .comment-collapse-btn');
+      if (btn) {
+        btn.title = 'Collapse comment';
+        btn.setAttribute('aria-label', 'Collapse comment');
+      }
+      outer = outer.parentElement && outer.parentElement.closest('.comment-card.collapsed');
+    }
+  }
+
+  // Deleting a comment or a reply deletes every sub-thread under it (the
+  // server cascades): ask first when there is any, saying how many.
+  function confirmCascadeDelete(listPath, message, noun) {
+    const n = subthreads.descendants(message, subThreadIndexFor(listPath)).length;
+    if (n === 0) return true;
+    return window.confirm('Delete this ' + noun + '? Its ' + n + ' sub-thread' + (n === 1 ? '' : 's') +
+      ' will be deleted too.');
+  }
+
+  // Drop a deleted comment and the sub-threads under it from its list, with
+  // the reply boxes that belonged to them (setting the list drops their
+  // composers).
+  function removeFromList(listPath, comment) {
+    const gone = [comment].concat(subthreads.descendants(comment, subThreadIndexFor(listPath)));
+    const goneIds = new Set(gone.map(function(c) { return c.id; }));
+    const remaining = listAllComments(listPath).filter(function(c) { return !goneIds.has(c.id); });
+    if (!listPath) {
+      setReviewComments(remaining);
+    } else {
+      const file = getFileByPath(listPath);
+      if (file) setFileComments(file, remaining);
+    }
+    gone.forEach(function(c) {
+      activeReplyForms.delete(c.id);
+      pendingAgentRequests.delete(c.id);
+    });
+  }
+
+  // ----- Sub-thread composer -----
+
+  function subThreadFormKey(parentId) {
+    return 'subthread:' + parentId;
+  }
+
+  function confirmDiscardText(text) {
+    return !(text || '').trim() || window.confirm('Discard comment?');
+  }
+
+  // The list holding a message (comment, sub-thread or reply): '' for the
+  // review-level list, a file path, or null when no list has it.
+  function messageListPath(messageId) {
+    const holds = function(comments) {
+      return comments.some(function(c) {
+        return c.id === messageId || (c.replies || []).some(function(r) { return r.id === messageId; });
+      });
+    };
+    if (holds(listAllComments(''))) return '';
+    const owner = files.find(function(f) { return holds(fileThreadComments(f)); });
+    return owner ? owner.path : null;
+  }
+
+  function renderCommentList(listPath) {
+    if (listPath) renderFileByPath(listPath);
+    else renderReviewConversation();
+  }
+
+  // Open the composer of a sub-thread on a passage of a message, given a
+  // resolved selection { parentId, quote, quoteOffset }. Kept apart from
+  // resolveMessageSelection so other entry points (a selection toolbar) can
+  // open it too. False when no list holds the message.
+  function openSubThreadForm(target) {
+    const listPath = messageListPath(target.parentId);
+    if (listPath === null) return false;
+    // Composers left empty elsewhere close, like empty line forms do.
+    const emptied = new Set();
+    activeSubThreadForms.forEach(function(form, parentId) {
+      if (parentId === target.parentId || (form.draftBody || '').trim()) return;
+      activeSubThreadForms.delete(parentId);
+      emptied.add(form.listPath);
+    });
+    closeEmptyForms(null);
+    closeEmptyReviewForm();
+    const existing = activeSubThreadForms.get(target.parentId);
+    if (existing) {
+      // Another passage of the same message: keep what was typed.
+      existing.quote = target.quote;
+      existing.quoteOffset = target.quoteOffset;
+      existing.focused = true;
+    } else {
+      activeSubThreadForms.set(target.parentId, {
+        parentId: target.parentId,
+        listPath: listPath,
+        quote: target.quote,
+        quoteOffset: target.quoteOffset,
+        draftBody: '',
+        focused: true,
+        caret: null,
+      });
+    }
+    emptied.delete(listPath);
+    emptied.forEach(function(path) { renderCommentList(path); });
+    renderCommentList(listPath);
+    revealSubThreadComposer(target.parentId);
+    return true;
+  }
+
+  function closeSubThreadForm(parentId) {
+    const form = activeSubThreadForms.get(parentId);
+    if (!form) return;
+    activeSubThreadForms.delete(parentId);
+    renderCommentList(form.listPath);
+  }
+
+  function subThreadComposerTextarea(parentId) {
+    return document.querySelector('.comment-form[data-form-key="' + CSS.escape(subThreadFormKey(parentId)) + '"] textarea');
+  }
+
+  function focusSubThreadComposer(textarea) {
+    expandCardsAround(textarea);
+    textarea.scrollIntoView({ block: 'nearest' });
+    textarea.focus({ preventScroll: true });
+  }
+
+  // Bring a new composer into view. When the passage was selected in the
+  // comments panel, or the card is not mounted (Pierre virtualizes the
+  // list), jump to its thread first.
+  function revealSubThreadComposer(parentId) {
+    requestAnimationFrame(function() {
+      const form = activeSubThreadForms.get(parentId);
+      if (!form) return;
+      const shown = subThreadComposerTextarea(parentId);
+      if (shown && shown.getClientRects().length > 0) {
+        focusSubThreadComposer(shown);
+        return;
+      }
+      const rootId = threadRootId(form.listPath, parentId);
+      if (!rootId) return;
+      const focusWhenMounted = function() {
+        whenMounted(function() { return subThreadComposerTextarea(parentId); }, focusSubThreadComposer);
+      };
+      if (!form.listPath) {
+        scrollToReviewComment(rootId);
+        focusWhenMounted();
+      } else if (storyActive()) {
+        scrollToComment(rootId, form.listPath);
+        focusWhenMounted();
+      } else if (pierreView) {
+        pierreJumpToComment(rootId, form.listPath, focusWhenMounted);
+      }
+    });
+  }
+
+  // Create the sub-thread through its root thread's list, then reload that
+  // list. Resolves to the new comment, or null (the composer stays open).
+  async function submitSubThread(form, body) {
+    if (!body.trim() || form.submitting) return null;
+    form.submitting = true;
+    const payload = { body: body.trim(), parent_id: form.parentId, quote: form.quote };
+    if (form.quoteOffset !== null && form.quoteOffset !== undefined) payload.quote_offset = form.quoteOffset;
+    if (configAuthor) payload.author = configAuthor;
+    const url = form.listPath ? '/api/file/comments?path=' + enc(form.listPath) : '/api/comments';
+    let created;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.status === 404) {
+        // The message was deleted meanwhile (another tab, the agent): the
+        // composer has nothing left to hang under.
+        form.submitting = false;
+        showMiniToast('The commented message no longer exists');
+        activeSubThreadForms.delete(form.parentId);
+        await refreshAfterReplyChange(form.listPath);
+        return null;
+      }
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      created = await res.json();
+    } catch (err) {
+      console.error('Error adding sub-thread:', err);
+      showMiniToast('Failed to add comment');
+      form.submitting = false;
+      return null;
+    }
+    userActedThisRound = true;
+    if (activeSubThreadForms.get(form.parentId) === form) activeSubThreadForms.delete(form.parentId);
+    await refreshAfterReplyChange(form.listPath);
+    return created;
+  }
+
+  // The composer under a message: the quoted passage, then a comment form.
+  // Its text, caret and focus live in `form`, so a rebuilt card restores them.
+  function createSubThreadComposer(form) {
+    const el = createCommentFormUI({
+      formObj: { scope: 'subthread', filePath: form.listPath, startLine: 0, endLine: 0, formKey: subThreadFormKey(form.parentId) },
+      headerText: 'Comment on passage',
+      submitText: 'Comment',
+      initialBody: form.draftBody || '',
+      autoFocus: false,
+      onSubmit: function(body) { submitSubThread(form, body); },
+      onCancel: function() { closeSubThreadForm(form.parentId); },
+      confirmDiscard: function() { return confirmDiscardText(form.draftBody); },
+      createComment: function(body) { return submitSubThread(form, body); },
+    });
+    el.classList.add('subthread-composer');
+    const quote = document.createElement('div');
+    quote.className = 'subthread-quote';
+    quote.textContent = form.quote;
+    el.querySelector('.comment-form-header').after(quote);
+
+    const textarea = el.querySelector('textarea');
+    textarea.placeholder = 'Comment on this passage... (Ctrl+Enter to submit, Escape to cancel)';
+    textarea.setAttribute('aria-label', 'Comment on the quoted passage');
+    const rememberCaret = function() { form.caret = [textarea.selectionStart, textarea.selectionEnd]; };
+    textarea.addEventListener('input', function() {
+      form.draftBody = textarea.value;
+      rememberCaret();
+    });
+    textarea.addEventListener('keyup', rememberCaret);
+    textarea.addEventListener('mouseup', rememberCaret);
+    textarea.addEventListener('focus', function() { form.focused = true; });
+    // A re-render detaches the textarea while it has focus: the flag stays,
+    // and the rebuilt composer takes focus back. Focus moving elsewhere (the
+    // textarea still in the page) clears it.
+    textarea.addEventListener('blur', function() {
+      if (textarea.isConnected) form.focused = false;
+    });
+    if (form.focused) {
+      requestAnimationFrame(function() {
+        if (!textarea.isConnected || activeSubThreadForms.get(form.parentId) !== form) return;
+        const active = document.activeElement;
+        if (active && active !== textarea && active.matches && active.matches('textarea, input, select, [contenteditable="true"]')) return;
+        textarea.focus({ preventScroll: true });
+        const end = textarea.value.length;
+        const caret = form.caret || [end, end];
+        textarea.setSelectionRange(Math.min(caret[0], end), Math.min(caret[1], end));
+      });
+    }
+    return el;
+  }
+
+  // ----- Passage highlights -----
+  // Each open sub-thread's passage is highlighted in its parent message's
+  // body, in inline cards and in their comments-panel copies, with the CSS
+  // Custom Highlight API under its own name: crit-quote belongs to Pierre's
+  // shadow roots and is rebuilt wholesale there. Cards are rebuilt on every
+  // change, so the ranges are recomputed after renders, once per frame. A
+  // passage no longer found in its message is not highlighted.
+  const MESSAGE_QUOTE_HIGHLIGHT = 'crit-message-quote';
+  let messageQuoteFrame = 0;
+  let messageQuoteCodeObserver = null;
+
+  function scheduleMessageQuoteHighlights() {
+    if (messageQuoteFrame || typeof CSS === 'undefined' || !CSS.highlights || typeof Highlight === 'undefined') return;
+    messageQuoteFrame = requestAnimationFrame(function() {
+      messageQuoteFrame = 0;
+      syncMessageQuoteHighlights();
+    });
+  }
+
+  function syncMessageQuoteHighlights() {
+    const ranges = [];
+    let pendingCode = false;
+    document.querySelectorAll('.subthreads[data-parent-id]').forEach(function(container) {
+      // The message's own body: a sibling of the container, in the card or
+      // the reply that holds it.
+      const owner = container.parentElement;
+      const body = owner && Array.from(owner.children).find(function(child) {
+        return child.matches(subthreads.MESSAGE_BODY_SELECTOR);
+      });
+      if (!body) return;
+      const listPath = container.dataset.listPath || '';
+      const parentId = container.dataset.parentId;
+      const passages = subThreadsOf(listPath, parentId)
+        .filter(function(sub) { return !sub.resolved && sub.quote; })
+        .map(function(sub) { return { quote: sub.quote, offset: sub.quote_offset }; });
+      const form = activeSubThreadForms.get(parentId);
+      if (form && form.listPath === listPath) passages.push({ quote: form.quote, offset: form.quoteOffset });
+      passages.forEach(function(passage) {
+        const range = subthreads.quoteRange(body, passage.quote, passage.offset);
+        if (range) ranges.push(range);
+      });
+      // Fenced code is highlighted after mount, which replaces its text.
+      if (passages.length && body.querySelector('code[data-crit-code="pending"]')) pendingCode = true;
+    });
+    if (ranges.length) CSS.highlights.set(MESSAGE_QUOTE_HIGHLIGHT, new Highlight(...ranges));
+    else CSS.highlights.delete(MESSAGE_QUOTE_HIGHLIGHT);
+    if (pendingCode) watchMessageCodeHighlighting();
+  }
+
+  // Recompute once fenced code inside a message body has been highlighted.
+  function watchMessageCodeHighlighting() {
+    if (messageQuoteCodeObserver) return;
+    messageQuoteCodeObserver = new MutationObserver(function(records) {
+      for (let i = 0; i < records.length; i++) {
+        if (records[i].target.closest(subthreads.MESSAGE_BODY_SELECTOR)) {
+          scheduleMessageQuoteHighlights();
+          return;
+        }
+      }
+    });
+    messageQuoteCodeObserver.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-crit-code'] });
+  }
+
+  // Root threads the comments panel lists for a list: its threads, plus any
+  // sub-thread whose message is gone (nowhere to nest, but still open work
+  // that blocks Approve, so it stays reachable and resolvable here).
+  function panelThreads(listPath) {
+    const roots = listRootThreads(listPath);
+    return roots.concat(subthreads.orphanSubThreads(roots, listSubThreads(listPath)));
   }
 
   // ===== Quote Highlighting in Document/Diff Body =====
@@ -5922,12 +6553,14 @@
     return mark;
   }
 
-  function createInlineEditor(comment, filePath) {
+  function createInlineEditor(comment, filePath, thread) {
     const formObj = findFormForEdit(comment.id);
     if (!formObj) return null;
 
     let headerText;
-    if (comment.scope === 'file') {
+    if (comment.parent_id) {
+      headerText = 'Editing comment';
+    } else if (comment.scope === 'file') {
       headerText = 'Editing file comment';
     } else {
       const lineRef = comment.start_line === comment.end_line
@@ -5943,12 +6576,15 @@
       autoFocus: true
     });
 
-    // Keep replies visible below the edit form, inside the form's card
-    if (comment.replies && comment.replies.length > 0) {
-      const formCard = formEl.querySelector('.comment-form');
-      if (formCard) {
-        formCard.appendChild(renderReplyList(comment, filePath));
-      }
+    // Keep sub-threads and replies visible below the edit form, inside the
+    // form's card
+    const formCard = formEl.querySelector('.comment-form');
+    if (formCard && thread) {
+      const bodySubThreads = renderSubThreadList(comment.id, filePath, thread);
+      if (bodySubThreads) formCard.appendChild(bodySubThreads);
+    }
+    if (formCard && comment.replies && comment.replies.length > 0) {
+      formCard.appendChild(renderReplyList(comment, filePath, '', thread));
     }
     return formEl;
   }
@@ -5962,15 +6598,19 @@
       editingId: comment.id,
     };
     if (comment.scope === 'file') form.scope = 'file';
+    // A sub-thread has no lines: its edit form is placed by the card only.
+    if (comment.parent_id) form.parentId = comment.parent_id;
     openForm(form);
   }
 
   async function deleteComment(id, filePath) {
     const file = getFileByPath(filePath);
     if (!file) return;
+    const comment = findListComment(filePath, id) || { id: id };
+    if (!confirmCascadeDelete(filePath, comment, 'comment')) return;
     try {
       await fetch('/api/comment/' + id + '?path=' + enc(filePath), { method: 'DELETE' });
-      file.comments = file.comments.filter(c => c.id !== id);
+      removeFromList(filePath, comment);
       pendingAgentRequests.delete(id);
       userActedThisRound = true;
     } catch (err) {
@@ -6019,12 +6659,12 @@
     try {
       const res = await fetch('/api/file/comments?path=' + enc(filePath));
       if (res.ok) {
-        file.comments = await res.json();
+        setFileComments(file, await res.json());
       }
     } catch (err) {
       console.error('Error refreshing comments:', err);
     }
-    checkAgentReplies(file.comments);
+    checkAgentReplies(fileThreadComments(file));
     renderFileByPath(filePath);
     updateCommentCount();
     updateTreeCommentBadges();
@@ -6078,8 +6718,7 @@
       });
       if (!res.ok) throw new Error('Server returned ' + res.status);
       const updated = await res.json();
-      const idx = reviewComments.findIndex(function(c) { return c.id === id; });
-      if (idx >= 0) reviewComments[idx] = updated;
+      setReviewComments(listAllComments('').map(function(c) { return c.id === id ? updated : c; }));
       userActedThisRound = true;
     } catch (err) {
       console.error('Error updating review comment:', err);
@@ -6094,10 +6733,12 @@
   }
 
   async function deleteReviewComment(id) {
+    const comment = findListComment('', id) || { id: id };
+    if (!confirmCascadeDelete('', comment, 'comment')) return;
     try {
       const res = await fetch('/api/review-comment/' + id, { method: 'DELETE' });
       if (!res.ok) throw new Error('Server returned ' + res.status);
-      reviewComments = reviewComments.filter(function(c) { return c.id !== id; });
+      removeFromList('', comment);
       userActedThisRound = true;
     } catch (err) {
       console.error('Error deleting review comment:', err);
@@ -6121,7 +6762,7 @@
     renderCommentsPanel();
     scrollToReviewConversation();
     requestAnimationFrame(function() {
-      const ta = document.querySelector('#reviewConversation textarea');
+      const ta = document.querySelector('#reviewConversation .comment-form[data-form-key="review:new"] textarea');
       if (ta) ta.focus();
     });
   }
@@ -6133,7 +6774,7 @@
     renderCommentsPanel();
     scrollToReviewConversation();
     requestAnimationFrame(function() {
-      const ta = document.querySelector('#reviewConversation textarea');
+      const ta = document.querySelector('#reviewConversation .comment-form[data-form-key="review:' + CSS.escape(comment.id) + '"] textarea');
       if (ta) ta.focus();
     });
   }
@@ -6177,7 +6818,7 @@
     try {
       const res = await fetch('/api/comments');
       if (res.ok) {
-        reviewComments = await res.json();
+        setReviewComments(await res.json());
       }
     } catch (err) {
       console.error('Error refreshing review comments:', err);
@@ -6193,7 +6834,7 @@
     '<path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11H8.5l-3 2.75V11H3.5A1.5 1.5 0 0 1 2 9.5Z"/>' +
     '</svg>';
 
-  function createReviewConversationCard(comment) {
+  function createReviewConversationCard(comment, thread) {
     const isResolved = comment.resolved;
     const cardClassExtra = [
       isResolved ? 'resolved-card' : '',
@@ -6206,6 +6847,7 @@
       collapseDefault: isResolved,
       showLineRef: false,
       showReplyInput: true,
+      thread: thread || 'review',
     });
 
     if (isResolved) {
@@ -6293,6 +6935,7 @@
 
     section.hidden = false;
     section.innerHTML = '';
+    scheduleMessageQuoteHighlights();
 
     // File and plan reviews (and live/preview, which use files mode) render a
     // centered document, so center the section with it. Git mode renders
@@ -6303,7 +6946,9 @@
       delete section.dataset.docLayout;
     }
 
-    const collapsed = isReviewConversationCollapsed() && !reviewCommentFormActive;
+    // An open form (comment, edit, sub-thread composer) keeps it expanded.
+    const collapsed = isReviewConversationCollapsed() && !reviewCommentFormActive &&
+      !Array.from(activeSubThreadForms.values()).some(function(form) { return form.listPath === ''; });
     section.classList.toggle('collapsed', collapsed);
 
     // Header — chevron on the left, matching `.tree-folder` and `.comment-card`
@@ -6335,7 +6980,7 @@
 
     // Match the file-tree badge convention: count unresolved (the "needs attention" signal),
     // not total. Resolved threads are visible but de-emphasised.
-    const unresolvedCount = reviewComments.filter(function(c) { return !c.resolved; }).length;
+    const unresolvedCount = listAllComments('').filter(function(c) { return !c.resolved; }).length;
     if (unresolvedCount > 0) {
       const count = document.createElement('span');
       count.className = 'count';
@@ -6432,6 +7077,7 @@
       scrollToReviewConversation();
       return;
     }
+    expandCardsAround(card);
     ignoreTreeObserverUntil = Date.now() + 200;
     if (flash) flash(card);
     else restartFlash(card, 'comment-card-highlight');
@@ -6452,7 +7098,7 @@
 
   async function refreshAfterReplyChange(filePath) {
     if (filePath) {
-      refreshFileComments(filePath);
+      await refreshFileComments(filePath);
     } else {
       await refreshReviewComments();
       renderReviewConversation();
@@ -6488,7 +7134,8 @@
     btnRow.className = 'reply-edit-actions';
     btnRow.appendChild(saveBtn);
     btnRow.appendChild(cancelBtn);
-    replyEl.appendChild(btnRow);
+    // Right under the textarea, above the reply's sub-threads.
+    textarea.after(btnRow);
 
     cancelBtn.addEventListener('click', () => refreshAfterReplyChange(filePath));
     saveBtn.addEventListener('click', async () => {
@@ -6513,9 +7160,10 @@
     bindSubmitCancelKeys(textarea, function() { saveBtn.click(); }, function() { cancelBtn.click(); });
   }
 
-  async function deleteReply(commentId, replyId, filePath) {
+  async function deleteReply(commentId, reply, filePath) {
+    if (!confirmCascadeDelete(filePath || '', reply, 'reply')) return;
     try {
-      const res = await fetch(replyMutationUrl(commentId, replyId, filePath), {
+      const res = await fetch(replyMutationUrl(commentId, reply.id, filePath), {
         method: 'DELETE'
       });
       if (!res.ok) throw new Error('Server returned ' + res.status);
@@ -6526,10 +7174,11 @@
     refreshAfterReplyChange(filePath);
   }
 
-  // The selector skips the panel copy of the comment, which has no reply form.
+  // The selector skips the panel copy of the comment, which has no reply
+  // form, and the reply forms of sub-thread cards nested inside it.
   function focusRebuiltReplyForm(commentId) {
     requestAnimationFrame(function() {
-      const sel = '.comment-card[data-comment-id="' + commentId + '"] ';
+      const sel = '.comment-card[data-comment-id="' + commentId + '"] > .reply-form ';
       const ta = document.querySelector(sel + '.reply-textarea');
       if (ta) ta.focus();
       const btns = document.querySelector(sel + '.reply-form-buttons');
@@ -6654,16 +7303,8 @@
         if (!res.ok) throw new Error('Server returned ' + res.status);
         userActedThisRound = true;
 
-        // Keep a live thread talking to the agent.
-        let comment = null;
-        if (filePath) {
-          const file = getFileByPath(filePath);
-          if (file && file.comments) {
-            comment = file.comments.find(function(c) { return c.id === commentId; });
-          }
-        } else {
-          comment = reviewComments.find(function(c) { return c.id === commentId; });
-        }
+        // Keep a live thread (or sub-thread) talking to the agent.
+        const comment = findListComment(filePath, commentId);
         if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
           pendingAgentRequests.add(commentId);
           fetch('/api/agent/request', {
@@ -6718,13 +7359,14 @@
     return form;
   }
 
-  function createResolvedElement(comment, filePath) {
+  function createResolvedElement(comment, filePath, thread) {
     const parts = buildCommentCard(comment, filePath, {
       wrapperClass: 'comment-block',
       cardClassExtra: 'resolved-card',
       collapseDefault: true,
       showLineRef: true,
       showReplyInput: true,
+      thread: inlineThread(thread),
     });
 
     const unresolveBtn = document.createElement('button');
@@ -6755,11 +7397,11 @@
   function updateCommentCount() {
     let unresolved = 0, resolved = 0;
     for (const f of files) {
-      for (const c of f.comments) {
+      for (const c of fileThreadComments(f)) {
         if (c.resolved) resolved++; else unresolved++;
       }
     }
-    for (const c of reviewComments) {
+    for (const c of listAllComments('')) {
       if (c.resolved) resolved++; else unresolved++;
     }
     const total = unresolved + resolved;
@@ -6798,7 +7440,7 @@
     }
   }
 
-  function createPanelCommentCard(comment, filePath) {
+  function createPanelCommentCard(comment, filePath, thread) {
     // Build a real comment card for the panel, but without reply input/buttons
     const isGeneral = !filePath;
     const isResolved = comment.resolved;
@@ -6815,6 +7457,7 @@
       showLineRef: !isGeneral,
       repliesExtraClass: 'panel-replies',
       showReplyInput: false,
+      thread: thread || 'panel',
     });
 
     // Resolve/unresolve button — works for both file and review comments
@@ -6834,10 +7477,14 @@
     });
     parts.actions.appendChild(resolveBtn);
 
+    // A click inside a nested sub-thread card belongs to that card only.
+    const ownClick = function(e) {
+      return !e.target.closest('.comment-actions') && e.target.closest('.panel-comment-block') === parts.wrapper;
+    };
     if (isGeneral) {
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
-        if (e.target.closest('.comment-actions')) return;
+        if (!ownClick(e)) return;
         scrollToReviewComment(comment.id);
       });
     } else {
@@ -6845,7 +7492,7 @@
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
         // Don't scroll if clicking action buttons
-        if (e.target.closest('.comment-actions')) return;
+        if (!ownClick(e)) return;
         scrollToComment(comment.id, filePath);
       });
     }
@@ -6864,10 +7511,11 @@
     const body = document.getElementById('commentsPanelBody');
     const savedScroll = body.scrollTop;
     body.innerHTML = '';
+    scheduleMessageQuoteHighlights();
 
-    // Compute counts
-    const allFileComments = files.reduce(function(acc, f) { return acc.concat(f.comments); }, []);
-    const allComments = reviewComments.concat(allFileComments);
+    // Compute counts (sub-threads included: each is a comment of its own)
+    const allFileComments = files.reduce(function(acc, f) { return acc.concat(fileThreadComments(f)); }, []);
+    const allComments = listAllComments('').concat(allFileComments);
     const totalCount = allComments.length;
     const openCount = allComments.filter(function(c) { return !c.resolved; }).length;
     const resolvedCount = allComments.filter(function(c) { return c.resolved; }).length;
@@ -6891,11 +7539,19 @@
       else if (f === 'resolved') countEl.textContent = resolvedCount;
     });
 
-    // Filter function based on active pill
-    const visibleFilter = function(c) {
-      if (commentsActiveFilter === 'open') return !c.resolved;
-      if (commentsActiveFilter === 'resolved') return c.resolved;
-      return true;
+    // Filter function based on active pill. The pills count comments, sub-
+    // threads included, and sub-threads show nested in their thread: a filter
+    // lists every thread where it finds a match, in the thread itself or in
+    // a sub-thread under it, so each counted comment can be seen.
+    const visibleFilter = function(listPath) {
+      return function(c) {
+        if (commentsActiveFilter === 'all') return true;
+        const wantResolved = commentsActiveFilter === 'resolved';
+        if (!!c.resolved === wantResolved) return true;
+        return subthreads.descendants(c, subThreadIndexFor(listPath)).some(function(sub) {
+          return !!sub.resolved === wantResolved;
+        });
+      };
     };
 
     let hasComments = false;
@@ -6904,7 +7560,7 @@
     // Note: the compose/edit form is rendered in the inline Review Conversation
     // section at the top of the document (see renderReviewConversation), not here.
     // Cards in the panel are read-only mirrors that link back to the inline section.
-    const visibleReviewComments = reviewComments.filter(visibleFilter);
+    const visibleReviewComments = panelThreads('').filter(visibleFilter(''));
     if (visibleReviewComments.length > 0) {
       hasComments = true;
       const group = document.createElement('div');
@@ -6924,7 +7580,7 @@
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const visibleComments = file.comments.filter(visibleFilter);
+      const visibleComments = panelThreads(file.path).filter(visibleFilter(file.path));
       if (visibleComments.length === 0) continue;
       hasComments = true;
 
@@ -7025,8 +7681,7 @@
       } else {
         card.classList.remove('collapsed');
       }
-      const id = card.dataset.commentId;
-      if (id) commentCollapseOverrides[id] = anyExpanded;
+      rememberCollapse(card, anyExpanded);
     });
 
     updateExpandAllLabel();
@@ -7049,7 +7704,9 @@
       let side;
       let fileScope = false;
       if (file && file.comments) {
-        const c = file.comments.find(function (x) { return x.id === commentId; });
+        // A sub-thread sits inside its root thread's card: place the root.
+        const anchorId = threadRootId(filePath, commentId) || commentId;
+        const c = file.comments.find(function (x) { return x.id === anchorId; });
         if (c) {
           fileScope = c.scope === 'file';
           if (!fileScope) {
@@ -7068,6 +7725,7 @@
         if (!pane) return;
         const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
         if (!card) return;
+        expandCardsAround(card);
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         flashCommentCard(card);
       };
@@ -7260,9 +7918,9 @@
       case 'reviewing':
         let unresolvedComments = 0;
         for (let fi = 0; fi < files.length; fi++) {
-          if (files[fi].comments) unresolvedComments += files[fi].comments.filter(function(c) { return !c.resolved; }).length;
+          unresolvedComments += fileThreadComments(files[fi]).filter(function(c) { return !c.resolved; }).length;
         }
-        unresolvedComments += reviewComments.filter(function(c) { return !c.resolved; }).length;
+        unresolvedComments += listAllComments('').filter(function(c) { return !c.resolved; }).length;
         unresolvedComments += hiddenUnresolved;
         finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
         if (!promptTrustConfig.project_prompts_untrusted) {
@@ -7317,7 +7975,7 @@
   async function resolveAllAndFinish() {
     // Resolve all unresolved file comments
     for (let fi = 0; fi < files.length; fi++) {
-      const fileComments = files[fi].comments || [];
+      const fileComments = fileThreadComments(files[fi]);
       for (let ci = 0; ci < fileComments.length; ci++) {
         if (!fileComments[ci].resolved) {
           try {
@@ -7331,10 +7989,11 @@
       }
     }
     // Resolve all unresolved review comments
-    for (let ri = 0; ri < reviewComments.length; ri++) {
-      if (!reviewComments[ri].resolved) {
+    const allReviewComments = listAllComments('');
+    for (let ri = 0; ri < allReviewComments.length; ri++) {
+      if (!allReviewComments[ri].resolved) {
         try {
-          await fetch('/api/review-comment/' + reviewComments[ri].id + '/resolve', {
+          await fetch('/api/review-comment/' + allReviewComments[ri].id + '/resolve', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ resolved: true }),
@@ -7376,16 +8035,17 @@
     let unresolvedCount = 0;
     let hasNewComments = false;
     for (let fi = 0; fi < files.length; fi++) {
-      if (!files[fi].comments) continue;
-      for (let ci = 0; ci < files[fi].comments.length; ci++) {
-        const c = files[fi].comments[ci];
+      const fileComments = fileThreadComments(files[fi]);
+      for (let ci = 0; ci < fileComments.length; ci++) {
+        const c = fileComments[ci];
         if (!c.resolved) unresolvedCount++;
         if (!c.carried_forward) hasNewComments = true;
       }
     }
-    for (let ri = 0; ri < reviewComments.length; ri++) {
-      if (!reviewComments[ri].resolved) unresolvedCount++;
-      if (!reviewComments[ri].carried_forward) hasNewComments = true;
+    const allReviewComments = listAllComments('');
+    for (let ri = 0; ri < allReviewComments.length; ri++) {
+      if (!allReviewComments[ri].resolved) unresolvedCount++;
+      if (!allReviewComments[ri].carried_forward) hasNewComments = true;
     }
 
     if (!userActedThisRound && !hasNewComments && unresolvedCount > 0) {
@@ -7453,7 +8113,7 @@
         let sessionRes = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(currentSessionFetchScope())));
         sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
         session = sessionRes;
-        reviewComments = sessionRes.review_comments || [];
+        setReviewComments(sessionRes.review_comments);
 
         // Reload all files
         files = await loadAllFileData(session.files || [], currentFileDataScope());
@@ -7496,6 +8156,7 @@
 
         activeForms = [];
         activeReplyForms.clear();
+        activeSubThreadForms.clear();
         activeFilePath = null;
         selectionStart = null;
         selectionEnd = null;
@@ -7565,14 +8226,14 @@
         // change on file-changed events), in one request for all files.
         const previousCommentSignatures = new Map();
         for (let i = 0; i < files.length; i++) {
-          previousCommentSignatures.set(files[i].path, JSON.stringify(files[i].comments || []));
+          previousCommentSignatures.set(files[i].path, JSON.stringify(fileThreadComments(files[i])));
         }
-        const previousReviewSignature = JSON.stringify(reviewComments || []);
+        const previousReviewSignature = JSON.stringify(listAllComments(''));
         applyAllFileComments(await fetchAllFileComments());
         // Also refresh review-level comments
         try {
           const rcRes = await fetch('/api/comments');
-          if (rcRes.ok) reviewComments = await rcRes.json();
+          if (rcRes.ok) setReviewComments(await rcRes.json());
         } catch {}
         // Save form drafts and focused element before re-render
         let focusedFormKey = null;
@@ -7593,20 +8254,20 @@
           focusedSelEnd = activeEl.selectionEnd;
         }
         for (let i = 0; i < files.length; i++) {
-          checkAgentReplies(files[i].comments);
+          checkAgentReplies(fileThreadComments(files[i]));
           saveOpenFormContent(files[i].path);
         }
-        checkAgentReplies(reviewComments);
+        checkAgentReplies(listAllComments(''));
         // Re-render only the files whose comments actually changed.
         const inStory = storyActive();
         for (let i = 0; i < files.length; i++) {
           const before = previousCommentSignatures.get(files[i].path) || '[]';
-          const after = JSON.stringify(files[i].comments || []);
+          const after = JSON.stringify(fileThreadComments(files[i]));
           if (before === after) continue;
           if (inStory) renderStoryFileByPath(files[i].path);
           else renderFileByPath(files[i].path);
         }
-        if (!inStory && JSON.stringify(reviewComments || []) !== previousReviewSignature) {
+        if (!inStory && JSON.stringify(listAllComments('')) !== previousReviewSignature) {
           renderReviewConversation();
         }
         updateCommentCount();
@@ -7618,7 +8279,8 @@
         if (focusedFormKey) {
           focusTarget = document.querySelector('.comment-form[data-form-key="' + focusedFormKey + '"] textarea');
         } else if (focusedReplyCommentId) {
-          focusTarget = document.querySelector('.comment-card[data-comment-id="' + focusedReplyCommentId + '"] .reply-textarea');
+          // The card's own reply box, not one of a sub-thread nested in it.
+          focusTarget = document.querySelector('.comment-card[data-comment-id="' + focusedReplyCommentId + '"] > .reply-form .reply-textarea');
         }
         if (focusTarget) {
           focusTarget.focus();
@@ -8776,6 +9438,7 @@
     reloadInFlight = (async function() {
       try {
         activeReplyForms.clear();
+        activeSubThreadForms.clear();
         // Scope/base/commit changes can replace diff hunks without changing
         // the final file content hash. Cached Story clones are keyed by that
         // hash, so invalidate them before loading the new scoped file data.
@@ -8792,7 +9455,7 @@
         }
         sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
         session = sessionRes;
-        reviewComments = sessionRes.review_comments || [];
+        setReviewComments(sessionRes.review_comments);
 
         // Update base branch label if it changed
         if (session.base_branch_name) {
@@ -8985,7 +9648,7 @@
       if (comments.length === 0) continue;
       if (file.orphaned) {
         for (let ci = 0; ci < comments.length; ci++) {
-          list.push({ id: comments[ci].id, filePath: file.path, resolved: !!comments[ci].resolved });
+          list.push({ id: comments[ci].id, filePath: file.path, resolved: settledThread(file.path, comments[ci]) });
         }
         continue;
       }
@@ -8996,7 +9659,7 @@
         else lineScope.push(comments[ci]);
       }
       for (let ci = 0; ci < fileScope.length; ci++) {
-        list.push({ id: fileScope[ci].id, filePath: file.path, resolved: !!fileScope[ci].resolved });
+        list.push({ id: fileScope[ci].id, filePath: file.path, resolved: settledThread(file.path, fileScope[ci]) });
       }
       lineScope.sort(function(a, b) {
         const ae = a.end_line || 0, be = b.end_line || 0;
@@ -9005,7 +9668,7 @@
         return as - bs;
       });
       for (let ci = 0; ci < lineScope.length; ci++) {
-        list.push({ id: lineScope[ci].id, filePath: file.path, resolved: !!lineScope[ci].resolved });
+        list.push({ id: lineScope[ci].id, filePath: file.path, resolved: settledThread(file.path, lineScope[ci]) });
       }
     }
     return list;
@@ -9566,6 +10229,11 @@
           const form = activeForms[activeForms.length - 1];
           if (confirmDiscardCommentForm(form)) cancelComment(form);
         }
+        else if (activeSubThreadForms.size > 0) {
+          const parentIds = Array.from(activeSubThreadForms.keys());
+          const last = activeSubThreadForms.get(parentIds[parentIds.length - 1]);
+          if (confirmDiscardText(last.draftBody)) closeSubThreadForm(last.parentId);
+        }
         else if (selectionStart !== null) {
           const clearPath = activeFilePath;
           selectionStart = null;
@@ -9599,6 +10267,13 @@
   // Returns true if a form was opened from an active selection.
   function tryOpenFormFromSelection() {
     const selection = window.getSelection();
+    // A passage of one comment or reply body: a sub-thread under that
+    // message. Any other selection keeps commenting on the document.
+    const message = subthreads.resolveMessageSelection(selection);
+    if (message && openSubThreadForm(message)) {
+      selection.removeAllRanges();
+      return true;
+    }
     // Code lines (Pierre shadow roots, list or story); otherwise the light
     // DOM path below (rendered markdown documents).
     const sel = window.crit.pierreDOM.pierreSelectionForComment(selection);

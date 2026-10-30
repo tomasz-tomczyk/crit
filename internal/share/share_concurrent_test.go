@@ -115,7 +115,7 @@ func TestMergeWebCommentsPreservesConcurrentSessionSave(t *testing.T) {
 		merged <- updateReviewFile(dir, func(cj *session.CritJSON) {
 			close(read)
 			<-release
-			mergeWebCommentsInto(cj, []WebComment{{Body: "remote", FilePath: "plan.md"}}, nil, nil)
+			mergeWebCommentsInto(cj, []WebComment{{Body: "remote", FilePath: "plan.md"}}, nil, nil, nil)
 		})
 	}()
 	<-read

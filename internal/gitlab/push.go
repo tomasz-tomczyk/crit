@@ -161,6 +161,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	candidates, skipped := collectPushCandidates(cj, mr.DiffRefs.HeadSHA)
 	if flags.dryRun {
 		fmt.Printf("GitLab MR !%d: %d new comments/replies, %d skipped; event=%s\n", id.Number, len(candidates), skipped, flags.event)
+		fmt.Print(session.SubThreadsStayNotice(cj))
 		return forge.PushResult{}, nil
 	}
 	existingDrafts, err := fetchDraftNotes(ctx, repo, id)
@@ -224,6 +225,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 			fmt.Printf("Posted %d comments, %d replies, edited %d, deleted %d, resolved %d on MR !%d.\n",
 				result.Created, result.Replied, result.Edited, result.Deleted, result.Resolved, id.Number)
 		}
+		fmt.Print(session.SubThreadsStayNotice(cj))
 		return result, nil
 	}
 
@@ -264,6 +266,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		fmt.Printf("Posted %d comments, %d replies, edited %d, deleted %d, resolved %d on MR !%d.\n",
 			result.Created, result.Replied, result.Edited, result.Deleted, result.Resolved, id.Number)
 	}
+	fmt.Print(session.SubThreadsStayNotice(cj))
 	return result, nil
 }
 
@@ -325,6 +328,12 @@ func collectPushCandidates(cj session.CritJSON, currentHead string) ([]pushCandi
 	skipped := 0
 	for _, path := range paths {
 		for _, comment := range cj.Files[path].Comments {
+			if comment.ParentID != "" {
+				// Sub-threads and their replies stay in crit: a GitLab
+				// discussion is a flat list of notes. The push output counts
+				// them apart from the skipped comments.
+				continue
+			}
 			switch {
 			case comment.Resolved || comment.DOMAnchor != nil || comment.Drifted || comment.EndLine <= 0:
 				skipped++

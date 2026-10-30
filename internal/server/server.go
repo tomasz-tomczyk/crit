@@ -1541,7 +1541,8 @@ func (s *Server) writeJSONError(w http.ResponseWriter, status int, msg string) {
 
 // pullAndMergeRemoteComments is the shared pull+merge used by /api/share/pull
 // and the first half of /api/share/reshare. Returns merged/replies_updated
-// counts. A successful merge is already loaded into the session.
+// counts; merged counts new comments, sub-threads included. A successful
+// merge is already loaded into the session.
 func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err error) {
 	sess := s.session.Load()
 	hostedURL := sess.GetSharedURL()
@@ -1579,18 +1580,21 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 	if err != nil {
 		return 0, 0, err
 	}
-	if !share.FetchHasUpdates(fetched) {
+	if !share.FetchHasUpdates(fetched) && len(fetched.Threads) == 0 {
 		sess.SyncCommentsFromDisk()
 		return 0, 0, nil
 	}
 	rekeyPulledPreviewComments(sess, fetched.NewComments)
+	subThreads := 0
 	if _, err := sess.ApplyReviewFileUpdate(func() error {
 		_, _, daemonFocus := sess.PickerContext()
-		return share.MergeFetchedCommentsFor(critPath, fetched, &daemonFocus)
+		var mergeErr error
+		subThreads, mergeErr = share.MergeFetchedCommentsFor(critPath, fetched, &daemonFocus)
+		return mergeErr
 	}); err != nil {
 		return 0, 0, err
 	}
-	return len(fetched.NewComments), len(fetched.ReplyUpdates), nil
+	return len(fetched.NewComments) + subThreads, len(fetched.ReplyUpdates), nil
 }
 
 // rekeyPulledPreviewComments files comments pulled into a preview session
@@ -1703,7 +1707,9 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newComments, replyUpdates := dedupWebComments(cj, req.Comments)
-	if len(newComments) == 0 && len(replyUpdates) == 0 {
+	// Sub-threads dedup at merge time, against the review file being written.
+	threads := share.ThreadsWithSubThreads(req.Comments)
+	if len(newComments) == 0 && len(replyUpdates) == 0 && len(threads) == 0 {
 		// Comments may already be on disk from a prior pull while memory is
 		// still stale (e.g. pendingWrite blocked the file watcher).
 		sess.SyncCommentsFromDisk()
@@ -1714,16 +1720,19 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 	// a flush and a reload so a debounced save cannot overwrite it, and so
 	// /api/file/comments and the UI see pulled comments without waiting for
 	// the 1s file watcher tick (which can also miss same-second mtime updates).
+	subThreads := 0
 	if _, err := sess.ApplyReviewFileUpdate(func() error {
 		_, _, daemonFocus := sess.PickerContext()
-		return share.MergeWebCommentsFor(critPath, newComments, replyUpdates, &daemonFocus)
+		var mergeErr error
+		subThreads, mergeErr = share.MergeWebCommentsFor(critPath, newComments, replyUpdates, threads, &daemonFocus)
+		return mergeErr
 	}); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]any{"merged": len(newComments), "replies_updated": len(replyUpdates)})
+	writeJSON(w, map[string]any{"merged": len(newComments) + subThreads, "replies_updated": len(replyUpdates)})
 }
 
 // handleFile returns file content + metadata for a single file.
@@ -1935,14 +1944,16 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
-			StartLine int        `json:"start_line"`
-			EndLine   int        `json:"end_line"`
-			Side      string     `json:"side"`
-			Body      string     `json:"body"`
-			Quote     string     `json:"quote"`
-			Author    string     `json:"author"`
-			Scope     string     `json:"scope"`
-			DOMAnchor *DOMAnchor `json:"dom_anchor"`
+			StartLine   int        `json:"start_line"`
+			EndLine     int        `json:"end_line"`
+			Side        string     `json:"side"`
+			Body        string     `json:"body"`
+			Quote       string     `json:"quote"`
+			QuoteOffset *int       `json:"quote_offset"`
+			Author      string     `json:"author"`
+			Scope       string     `json:"scope"`
+			DOMAnchor   *DOMAnchor `json:"dom_anchor"`
+			ParentID    string     `json:"parent_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -1950,6 +1961,18 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Body == "" {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+
+		// Sub-thread: anchored to a message of this file's comments, not to
+		// lines, so it skips the line and live-pin routes below.
+		if req.ParentID != "" {
+			c, ok := s.session.Load().AddSubThread(path, req.ParentID, req.Body, req.Quote, req.QuoteOffset, req.Author, s.authUserID())
+			if !ok {
+				http.Error(w, "Parent message not found", http.StatusNotFound)
+				return
+			}
+			writeJSONStatus(w, http.StatusCreated, c)
 			return
 		}
 
@@ -2377,8 +2400,11 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		var req struct {
-			Body   string `json:"body"`
-			Author string `json:"author"`
+			Body        string `json:"body"`
+			Author      string `json:"author"`
+			ParentID    string `json:"parent_id"`
+			Quote       string `json:"quote"`
+			QuoteOffset *int   `json:"quote_offset"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -2386,6 +2412,15 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Body == "" {
 			http.Error(w, "Comment body is required", http.StatusBadRequest)
+			return
+		}
+		if req.ParentID != "" {
+			c, ok := s.session.Load().AddSubThread("", req.ParentID, req.Body, req.Quote, req.QuoteOffset, req.Author, s.authUserID())
+			if !ok {
+				http.Error(w, "Parent message not found", http.StatusNotFound)
+				return
+			}
+			writeJSONStatus(w, http.StatusCreated, c)
 			return
 		}
 		c := s.session.Load().AddReviewComment(req.Body, req.Author, s.authUserID())
@@ -3254,7 +3289,13 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 		sess.SetReviewCommentLive(comment.ID)
 	}
 
-	prompt := buildAgentPrompt(comment, filePath)
+	var parent *agentPromptParent
+	if comment.ParentID != "" {
+		if author, body, ok := sess.FindMessage(filePath, comment.ParentID); ok {
+			parent = &agentPromptParent{Author: author, Body: body}
+		}
+	}
+	prompt := buildAgentPrompt(comment, filePath, parent)
 
 	// Run agent command asynchronously. Tracked via bgWG so the daemon
 	// shutdown path can wait for the reply to be posted before WriteFiles
@@ -3272,12 +3313,28 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// agentPromptParent is the message a sub-thread comments on, which the agent
+// prompt shows in place of the file lines.
+type agentPromptParent struct {
+	Author string
+	Body   string
+}
+
 // buildAgentPrompt constructs a prompt string from a comment for the agent.
-func buildAgentPrompt(c Comment, filePath string) string {
+// parent is the message a sub-thread comments on; nil for a root thread.
+func buildAgentPrompt(c Comment, filePath string, parent *agentPromptParent) string {
 	var b strings.Builder
-	if filePath == "" {
+	switch {
+	case c.ParentID != "":
+		b.WriteString("A reviewer commented on a passage of a message")
+		if filePath == "" {
+			b.WriteString(" in a general thread of this review")
+		} else {
+			b.WriteString(" in a thread on " + filePath)
+		}
+	case filePath == "":
 		b.WriteString("A reviewer left a general comment on this review")
-	} else {
+	default:
 		b.WriteString("A reviewer left a comment on " + filePath)
 		if c.StartLine > 0 {
 			if c.EndLine > c.StartLine {
@@ -3288,7 +3345,17 @@ func buildAgentPrompt(c Comment, filePath string) string {
 		}
 	}
 	b.WriteString(":\n\n")
-	if c.Quote != "" {
+	switch {
+	case c.ParentID != "":
+		if parent != nil {
+			b.WriteString(fmt.Sprintf("Message from %s:\n> %s\n\n", parent.Author, parent.Body))
+		}
+		if c.Quote != "" {
+			b.WriteString("Passage:\n> ")
+			b.WriteString(c.Quote)
+			b.WriteString("\n\n")
+		}
+	case c.Quote != "":
 		b.WriteString("Code:\n```\n")
 		b.WriteString(c.Quote)
 		b.WriteString("\n```\n\n")

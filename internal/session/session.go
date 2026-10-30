@@ -194,6 +194,12 @@ type Comment struct {
 	//   "pr:<num>"                    — range focus with a known PR number
 	//   "range:<base_sha>..<head_sha>"     — range focus without PR number (full 40-char SHAs)
 	FocusKey string `json:"focus_key,omitempty"`
+
+	// ParentID is set on a sub-thread: a comment on a passage of another
+	// message of the same list (a comment, sub-threads included, or a reply).
+	// Quote and QuoteOffset then locate the passage in the rendered body of
+	// that message, and the lines are 0. Empty for a root thread.
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // SSEEvent is sent to the browser via server-sent events.
@@ -1465,6 +1471,70 @@ func (s *Session) AddReviewComment(body, author, userID string) Comment {
 	return c
 }
 
+// AddSubThread adds a sub-thread on the passage quote of the message
+// parentID: a comment (sub-threads included) or a reply of filePath's
+// comments, or of the review-level comments when filePath is "". It has no
+// lines and takes its root thread's scope, side and view tags, so it shows
+// wherever that thread shows. Returns false when the file or the parent
+// message is not found.
+func (s *Session) AddSubThread(filePath, parentID, body, quote string, quoteOffset *int, author, userID string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := &s.reviewComments
+	newID := randomReviewCommentID
+	if filePath != "" {
+		f := s.fileByPathLocked(filePath)
+		if f == nil {
+			return Comment{}, false
+		}
+		list = &f.Comments
+		newID = RandomCommentID
+	}
+	root, ok := ThreadRoot(*list, parentID)
+	if !ok {
+		return Comment{}, false
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := Comment{
+		ID:          newID(),
+		Side:        root.Side,
+		Body:        body,
+		Quote:       quote,
+		QuoteOffset: quoteOffset,
+		Author:      author,
+		UserID:      userID,
+		Scope:       root.Scope,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
+		HeadSHA:     root.HeadSHA,
+		DiffScope:   root.DiffScope,
+		FocusKey:    root.FocusKey,
+		ParentID:    parentID,
+	}
+	*list = append(*list, c)
+	s.scheduleWrite()
+	return c, true
+}
+
+// FindMessage returns the author and body of the message id, a comment or a
+// reply, in filePath's comments, or in the review-level comments when
+// filePath is "".
+func (s *Session) FindMessage(filePath, id string) (author, body string, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	comments := s.reviewComments
+	if filePath != "" {
+		f := s.fileByPathLocked(filePath)
+		if f == nil {
+			return "", "", false
+		}
+		comments = f.Comments
+	}
+	_, author, body, ok = findMessage(comments, id)
+	return author, body, ok
+}
+
 // GetReviewComments returns a copy of all review-level comments visible
 // in the current focus, with staleness annotated.
 func (s *Session) GetReviewComments() []Comment {
@@ -1503,10 +1573,11 @@ func (s *Session) UpdateReviewComment(id, body string) (Comment, bool) {
 	return Comment{}, false
 }
 
-// DeleteReviewComment deletes a review-level comment by ID. Review-level
+// DeleteReviewComment deletes a review-level comment by ID, with every
+// sub-thread that descends from it or from its replies. Review-level
 // comments are local-only (not synced to GitHub PR review comments), so there
-// is no upstream record to delete. The local tombstone stops the next write
-// from re-adding the comment from disk.
+// is no upstream record to delete. The local tombstones stop the next write
+// from re-adding them from disk.
 func (s *Session) DeleteReviewComment(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1514,6 +1585,7 @@ func (s *Session) DeleteReviewComment(id string) bool {
 		if c.ID == id {
 			s.reviewComments = append(s.reviewComments[:i], s.reviewComments[i+1:]...)
 			s.trackDeletedComment(reviewCommentTombstones, id)
+			s.reviewComments = s.removeSubThreadsLocked(s.reviewComments, reviewCommentTombstones, ThreadMessageIDs(c))
 			s.scheduleWrite()
 			return true
 		}
@@ -1618,8 +1690,9 @@ func (s *Session) UpdateReviewCommentReply(commentID, replyID, body string) (Rep
 	return Reply{}, false
 }
 
-// DeleteReviewCommentReply removes a reply from a review-level comment.
-// Review-level threads are local-only, so a straight removal is safe.
+// DeleteReviewCommentReply removes a reply from a review-level comment, with
+// every sub-thread that descends from the reply. Review-level threads are
+// local-only, so a straight removal is safe.
 func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1630,6 +1703,7 @@ func (s *Session) DeleteReviewCommentReply(commentID, replyID string) bool {
 					s.reviewComments[i].Replies = append(s.reviewComments[i].Replies[:j], s.reviewComments[i].Replies[j+1:]...)
 					s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 					s.markReplyDeletedLocked(replyID)
+					s.reviewComments = s.removeSubThreadsLocked(s.reviewComments, reviewCommentTombstones, []string{replyID})
 					s.scheduleWrite()
 					return true
 				}
@@ -1769,6 +1843,7 @@ func (s *Session) DeleteFileCommentAs(filePath, id, requesterID string) deleteRe
 	}
 	f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
 	s.trackDeletedComment(f.Path, id)
+	f.Comments = s.removeSubThreadsLocked(f.Comments, f.Path, ThreadMessageIDs(c))
 	s.scheduleWrite()
 	return deleteResultDeleted
 }
@@ -1789,8 +1864,23 @@ func (s *Session) DeleteComment(filePath, id string) bool {
 	}
 	f.Comments = append(f.Comments[:i], f.Comments[i+1:]...)
 	s.trackDeletedComment(f.Path, id)
+	f.Comments = s.removeSubThreadsLocked(f.Comments, f.Path, ThreadMessageIDs(c))
 	s.scheduleWrite()
 	return true
+}
+
+// removeSubThreadsLocked returns comments, a file's list (key is its path)
+// or the review-level one (key is reviewCommentTombstones), without every
+// sub-thread under messageIDs, at any depth, each with a tombstone so a merge
+// with the review file on disk does not bring it back. Sub-threads are never
+// pushed to a forge, so none is queued for remote deletion. Caller must hold
+// s.mu.
+func (s *Session) removeSubThreadsLocked(comments []Comment, key string, messageIDs []string) []Comment {
+	ids := SubThreadIDs(comments, messageIDs)
+	for id := range ids {
+		s.trackDeletedComment(key, id)
+	}
+	return omitTombstonedComments(comments, ids)
 }
 
 // appendPendingRemoteDelete queues a provider comment without duplicates.
@@ -1893,8 +1983,9 @@ func (s *Session) UpdateReply(filePath, commentID, replyID, body string) (Reply,
 	return Reply{}, false
 }
 
-// DeleteReply removes a reply from a specific comment. Provider-owned replies
-// are queued for remote deletion on the next push.
+// DeleteReply removes a reply from a specific comment, with every sub-thread
+// that descends from the reply. Provider-owned replies are queued for remote
+// deletion on the next push.
 func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1913,6 +2004,7 @@ func (s *Session) DeleteReply(filePath, commentID, replyID string) bool {
 			f.Comments[i].Replies = append(f.Comments[i].Replies[:j], f.Comments[i].Replies[j+1:]...)
 			f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			s.markReplyDeletedLocked(replyID)
+			f.Comments = s.removeSubThreadsLocked(f.Comments, f.Path, []string{replyID})
 			s.scheduleWrite()
 			return true
 		}

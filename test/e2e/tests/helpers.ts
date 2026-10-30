@@ -912,3 +912,115 @@ export async function expectSettledAt(page: Page, filePath: string): Promise<num
   expect(Math.max(...tops) - Math.min(...tops), `header top samples ${tops.join(',')}`).toBeLessThanOrEqual(2);
   return tops;
 }
+
+// ----- Sub-threads -----
+//
+// A sub-thread comments on a passage of a message (a comment body or a reply
+// body) and nests under that message. It lives in the list of its root
+// thread: a file's comments, or the review-level comments.
+
+/** Add a reply to a file comment through the API and return it. */
+export async function addReply(
+  request: APIRequestContext, filePath: string, commentId: string, body: string, author = 'agent',
+) {
+  const resp = await request.post(`/api/comment/${commentId}/replies?path=${encodeURIComponent(filePath)}`, {
+    data: { body, author },
+  });
+  await expect(resp).toBeOK();
+  return resp.json();
+}
+
+/**
+ * Add a sub-thread through the API: a comment on `quote`, a passage of the
+ * body of message `parentId` (comment, sub-thread or reply). `filePath` is
+ * its root thread's file, '' for review-level comments.
+ */
+export async function addSubThread(
+  request: APIRequestContext, filePath: string, parentId: string, body: string, quote: string, quoteOffset?: number,
+) {
+  const url = filePath ? `/api/file/comments?path=${encodeURIComponent(filePath)}` : '/api/comments';
+  const data: Record<string, unknown> = { body, parent_id: parentId, quote };
+  if (quoteOffset !== undefined) data.quote_offset = quoteOffset;
+  const resp = await request.post(url, { data });
+  await expect(resp).toBeOK();
+  return resp.json();
+}
+
+/**
+ * Make the server answer every resolve or unresolve 300ms late, as it can
+ * outside a local test run, so the re-render that follows comes many frames
+ * after the click.
+ */
+export async function answerResolvesLate(page: Page) {
+  await page.route(/\/resolve(\?|$)/, async route => {
+    // Added latency, not a wait for state.
+    await new Promise(resolve => setTimeout(resolve, 300));
+    await route.continue();
+  });
+}
+
+/**
+ * Select the first occurrence of `text` inside a message body (a card's
+ * `.comment-body` or a `.reply-body`), then press c. The selection is set
+ * through the Selection API on the body's text nodes, the way a mouse drag
+ * inside the body leaves it. No text field may have focus (c would type).
+ */
+export async function selectInMessageAndPressC(page: Page, body: Locator, text: string) {
+  await expect(body).toBeVisible();
+  await expect(body).toContainText(text);
+  await body.evaluate((el, needle) => {
+    const nodes: Text[] = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n: Node | null;
+    while ((n = walker.nextNode())) nodes.push(n as Text);
+    const full = nodes.map(t => t.data).join('');
+    const at = full.indexOf(needle);
+    if (at < 0) throw new Error(`"${needle}" is not in the body text`);
+    const locate = (pos: number, isEnd: boolean) => {
+      let start = 0;
+      for (const t of nodes) {
+        const end = start + t.data.length;
+        if (isEnd ? pos > start && pos <= end : pos >= start && pos < end) return { node: t, offset: pos - start };
+        start = end;
+      }
+      throw new Error('position outside the body text');
+    };
+    const a = locate(at, false);
+    const b = locate(at + needle.length, true);
+    const range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }, text);
+  await page.keyboard.press('c');
+}
+
+/** The connected passages highlighted as sub-thread quotes, in registry order. */
+export function messageQuoteHighlights(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const highlight = CSS.highlights.get('crit-message-quote');
+    if (!highlight) return [];
+    return [...highlight].filter(r => r.startContainer.isConnected).map(r => {
+      const live = document.createRange();
+      live.setStart(r.startContainer, r.startOffset);
+      live.setEnd(r.endContainer, r.endOffset);
+      return live.toString();
+    });
+  });
+}
+
+/** Whether the sub-thread quote highlight paints (background and underline). */
+export async function expectPaintedMessageQuote(page: Page) {
+  await expect.poll(() => page.evaluate(() => {
+    const ranges = [...(CSS.highlights.get('crit-message-quote') || [])].filter(r => r.startContainer.isConnected);
+    return ranges.length > 0 && ranges.every(range => {
+      const element = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer as Element : range.startContainer.parentElement;
+      if (!element) return false;
+      const style = getComputedStyle(element, '::highlight(crit-message-quote)');
+      return style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.textDecorationLine === 'underline';
+    });
+  })).toBe(true);
+}

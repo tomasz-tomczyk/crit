@@ -578,15 +578,9 @@ func (s *Session) mergeCommentRepliesAndState(comments []Comment, dc Comment) bo
 		if mc.ID != dc.ID {
 			continue
 		}
-		memReplyIDs := make(map[string]struct{}, len(mc.Replies))
-		for _, r := range mc.Replies {
-			memReplyIDs[r.ID] = struct{}{}
-		}
-		for _, dr := range dc.Replies {
-			if _, exists := memReplyIDs[dr.ID]; !exists {
-				comments[i].Replies = append(comments[i].Replies, dr)
-				changed = true
-			}
+		if replies, ok := mergeDiskReplies(mc.Replies, dc.Replies); ok {
+			comments[i].Replies = replies
+			changed = true
 		}
 		if dc.Resolved != mc.Resolved {
 			comments[i].Resolved = dc.Resolved
@@ -656,19 +650,77 @@ func (s *Session) mergeReviewCommentRepliesAndState(dc Comment) bool {
 			s.reviewComments[i].ResolvedRound = dc.ResolvedRound
 			changed = true
 		}
-		memRIDs := make(map[string]struct{}, len(mc.Replies))
-		for _, r := range mc.Replies {
-			memRIDs[r.ID] = struct{}{}
-		}
-		for _, dr := range dc.Replies {
-			if _, exists := memRIDs[dr.ID]; !exists {
-				s.reviewComments[i].Replies = append(s.reviewComments[i].Replies, dr)
-				changed = true
-			}
+		if replies, ok := mergeDiskReplies(mc.Replies, dc.Replies); ok {
+			s.reviewComments[i].Replies = replies
+			changed = true
 		}
 		break
 	}
 	return changed
+}
+
+// idlessReply keys a reply without an id, which only its body and author
+// identify.
+type idlessReply struct{ body, author string }
+
+// mergeDiskReplies adds to mem the replies of disk it does not hold, and
+// reports whether it changed. Replies match by id. Replies without one — any
+// reply imported from crit-web before replies had ids — match by body and
+// author, counted on both sides: each id-less disk reply beyond the copies
+// mem holds is new. A merge on disk (crit fetch) can give such a reply an id
+// in place: mem then holds more id-less copies than disk, and a disk reply
+// with a new id, that body and that author is one of them, which takes the
+// id instead of being appended. Any other new id is a new reply, even with
+// the body of an id-less one.
+func mergeDiskReplies(mem, disk []Reply) ([]Reply, bool) {
+	known := make(map[string]struct{}, len(mem))
+	// surplus counts, per body and author, mem's id-less copies minus disk's.
+	surplus := make(map[idlessReply]int)
+	for _, r := range mem {
+		if r.ID == "" {
+			surplus[idlessReply{r.Body, r.Author}]++
+		} else {
+			known[r.ID] = struct{}{}
+		}
+	}
+	for _, dr := range disk {
+		if dr.ID == "" {
+			surplus[idlessReply{dr.Body, dr.Author}]--
+		}
+	}
+	changed := false
+	for _, dr := range disk {
+		key := idlessReply{dr.Body, dr.Author}
+		if dr.ID == "" {
+			if surplus[key] < 0 {
+				mem = append(mem, dr)
+				surplus[key]++
+				changed = true
+			}
+			continue
+		}
+		if _, exists := known[dr.ID]; exists {
+			continue
+		}
+		known[dr.ID] = struct{}{}
+		changed = true
+		if i := idlessReplyIndex(mem, key); surplus[key] > 0 && i >= 0 {
+			mem[i].ID = dr.ID
+			surplus[key]--
+			continue
+		}
+		mem = append(mem, dr)
+	}
+	return mem, changed
+}
+
+func idlessReplyIndex(replies []Reply, key idlessReply) int {
+	for i, r := range replies {
+		if r.ID == "" && r.Body == key.body && r.Author == key.author {
+			return i
+		}
+	}
+	return -1
 }
 
 func (s *Session) filterDeletedReviewComments(diskComments []Comment) bool {
