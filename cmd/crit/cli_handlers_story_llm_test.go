@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -407,6 +408,59 @@ func TestStoryResume_OpensBrowserAtStoryView(t *testing.T) {
 			t.Error("--no-open must suppress the browser on resume (spawn path)")
 		}
 	})
+}
+
+// TestStorySpawn_DaemonNeverOpensBrowser pins that the story CLI owns the
+// browser open: the spawned daemon always gets --no-open (otherwise it opens
+// the bare review root and ignores the story's --no-open), and the CLI opens
+// the #story view only when --no-open is not set.
+func TestStorySpawn_DaemonNeverOpensBrowser(t *testing.T) {
+	repoDir, _ := setupStoryRepoLLM(t)
+
+	origStart := storyStartDaemon
+	origOpen := openBrowser
+	origHasBrowser := storyDaemonHasBrowser
+	t.Cleanup(func() {
+		storyStartDaemon = origStart
+		openBrowser = origOpen
+		storyDaemonHasBrowser = origHasBrowser
+	})
+	storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+
+	cases := []struct {
+		name     string
+		noOpen   bool
+		wantOpen bool
+	}{
+		{"without --no-open the CLI opens #story", false, true},
+		{"with --no-open nothing opens", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var daemonArgs []string
+			var openedURL string
+			storyStartDaemon = func(_ string, args []string) (daemon.SessionEntry, error) {
+				daemonArgs = args
+				return daemon.SessionEntry{Port: 4330}, nil
+			}
+			openBrowser = func(u, _ string) { openedURL = u }
+
+			spawnStoryDaemonAndOpen(storyFlags{noOpen: tc.noOpen, scopeArgs: []string{"--pr", "7"}}, "key", repoDir)
+
+			if !slices.Contains(daemonArgs, "--no-open") {
+				t.Errorf("daemon must be spawned with --no-open, got args %q", daemonArgs)
+			}
+			if !slices.Contains(daemonArgs, "--pr") || !slices.Contains(daemonArgs, "7") {
+				t.Errorf("daemon must keep the scope args, got %q", daemonArgs)
+			}
+			if tc.wantOpen && !strings.HasSuffix(openedURL, "#story") {
+				t.Errorf("expected browser open at #story, got %q", openedURL)
+			}
+			if !tc.wantOpen && openedURL != "" {
+				t.Errorf("expected no browser open, got %q", openedURL)
+			}
+		})
+	}
 }
 
 func TestStoryLLM_RefreshRegenerates(t *testing.T) {
