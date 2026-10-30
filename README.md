@@ -30,7 +30,7 @@ Brew:
 brew install crit
 ```
 <details>
-<summary>Also available via Go, Nix and Windows</summary>
+<summary>Also available via Go, Nix, Arch Linux, and Windows</summary>
 
 Go:
 ```bash
@@ -41,6 +41,12 @@ Nix:
 ```bash
 nix profile install github:tomasz-tomczyk/crit
 ```
+
+Arch Linux (community):
+```bash
+yay -S crit.md-bin
+```
+> Community package on the [AUR](https://aur.archlinux.org/packages/crit.md-bin), maintained outside this project. Any AUR helper works in place of `yay`.
 
 Windows:
 ```bash
