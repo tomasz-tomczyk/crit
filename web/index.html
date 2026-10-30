@@ -511,6 +511,8 @@
       var pd = document.createElement('script'); pd.src = 'crit-pierre-dom.js'; pd.async = false; document.body.appendChild(pd);
       // Find in the review list (Cmd/Ctrl+F over Pierre's virtualized rows).
       var fd = document.createElement('script'); fd.src = 'crit-find.js'; fd.async = false; document.body.appendChild(fd);
+      // Comment button above a mouse selection (window.crit.selectionToolbar). Must load before app.js.
+      var st = document.createElement('script'); st.src = 'crit-selection-toolbar.js'; st.async = false; document.body.appendChild(st);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();

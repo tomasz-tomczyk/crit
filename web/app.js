@@ -9595,23 +9595,27 @@
 
   // ===== Select-to-Comment helper =====
   // Selection alone never opens the form — copying text stays unhindered.
-  // The user presses `c` after selecting to comment on the selection.
-  // Returns true if a form was opened from an active selection.
-  function tryOpenFormFromSelection() {
-    const selection = window.getSelection();
+  // The user presses `c` after selecting, or clicks Comment on the selection
+  // toolbar, to comment on the selection.
+
+  // Resolves a selection into the form `c` would open, without touching the
+  // selection: { form, range } with openForm's arguments and a live Range
+  // over the selected text, or null when the selection is not commentable.
+  function resolveSelectionComment(selection) {
     // Code lines (Pierre shadow roots, list or story); otherwise the light
     // DOM path below (rendered markdown documents).
     const sel = window.crit.pierreDOM.pierreSelectionForComment(selection);
     if (sel) {
-      selection.removeAllRanges();
-      openForm({
-        filePath: sel.filePath, afterBlockIndex: null, startLine: sel.startLine, endLine: sel.endLine,
-        editingId: null, side: sel.side || undefined, quote: sel.quote, quoteOffset: sel.quoteOffset,
-      });
-      return true;
+      return {
+        range: sel.range,
+        form: {
+          filePath: sel.filePath, afterBlockIndex: null, startLine: sel.startLine, endLine: sel.endLine,
+          editingId: null, side: sel.side || undefined, quote: sel.quote, quoteOffset: sel.quoteOffset,
+        },
+      };
     }
     const range = getLineRangeFromSelection(selection);
-    if (!range) return false;
+    if (!range) return null;
 
     // Capture the selected text for the quote field.
     // If the selection covers the full text of the line range, skip the quote.
@@ -9623,22 +9627,29 @@
         // Strip diff gutter markers (+/-) from the start of each line
         selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
 
+        // Blocks overlapping the line range, ordered by the first selected
+        // line they hold, then document order. One pass over the blocks: this
+        // runs on every mouse selection (selection toolbar), and plans can
+        // hold thousands of blocks.
+        const blocks = [];
+        document.querySelectorAll('.line-block[data-file-path]').forEach(function(el, index) {
+          if (el.dataset.filePath !== range.filePath) return;
+          const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
+          if (s <= range.endLine && endLn >= range.startLine) {
+            blocks.push({ el: el, first: Math.max(s, range.startLine), index: index });
+          }
+        });
+        blocks.sort(function(a, b) { return a.first - b.first || a.index - b.index; });
         let fullText = '';
         const contentEls = [];
-        for (let ln = range.startLine; ln <= range.endLine; ln++) {
-          document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
-            if (el.dataset.filePath !== range.filePath) return;
-            const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
-            if (s <= ln && endLn >= ln) {
-              el.querySelectorAll('.line-content').forEach(function(content) {
-                if (contentEls.indexOf(content) === -1) {
-                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
-                  contentEls.push(content);
-                }
-              });
+        blocks.forEach(function(block) {
+          block.el.querySelectorAll('.line-content').forEach(function(content) {
+            if (contentEls.indexOf(content) === -1) {
+              fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              contentEls.push(content);
             }
           });
-        }
+        });
         // Prefer text clipped to side-filtered contentEls so unified del+add
         // selections don't pollute the quote with the opposite side.
         const clipped = selectedTextWithinElements(selection, contentEls);
@@ -9686,17 +9697,67 @@
       }
     } catch { /* quote is a nice-to-have, don't break form opening */ }
 
+    return {
+      range: selection.getRangeAt(0),
+      form: {
+        filePath: range.filePath,
+        afterBlockIndex: range.afterBlockIndex,
+        startLine: range.startLine,
+        endLine: range.endLine,
+        editingId: null,
+        quote: quote,
+        quoteOffset: quoteOffset
+      },
+    };
+  }
+
+  // Returns true if a form was opened from an active selection.
+  function tryOpenFormFromSelection() {
+    const selection = window.getSelection();
+    const resolved = resolveSelectionComment(selection);
+    if (!resolved) return false;
     selection.removeAllRanges();
-    openForm({
-      filePath: range.filePath,
-      afterBlockIndex: range.afterBlockIndex,
-      startLine: range.startLine,
-      endLine: range.endLine,
-      editingId: null,
-      quote: quote,
-      quoteOffset: quoteOffset
-    });
+    openForm(resolved.form);
     return true;
+  }
+
+  // ===== Selection toolbar =====
+  // A Comment button above a mouse selection that `c` could comment on. It
+  // opens nothing by itself, so selecting to copy or to read stays as it was.
+  window.crit.selectionToolbar.create({
+    label: 'Comment',
+    ariaLabel: 'Comment on selection',
+    icon: ICON_COMMENT,
+    shortcut: function() { return window.crit.shortcuts ? window.crit.shortcuts.getBinding('comment') : ''; },
+    topBoundary: selectionToolbarTopBoundary,
+    shadowRoots: function() {
+      return Array.from(document.querySelectorAll('diffs-container'))
+        .map(function(host) { return host.shadowRoot; }).filter(Boolean);
+    },
+    enabled: function() { return !settingsPanelOpen; },
+    resolve: function(selection) {
+      const resolved = resolveSelectionComment(selection);
+      return resolved && { range: resolved.range, data: resolved.form };
+    },
+    onComment: function(form) {
+      // The form resolved when the bar appeared: Pierre may have replaced the
+      // selected nodes since, but the lines and the quote still hold.
+      const selection = window.getSelection();
+      if (selection) selection.removeAllRanges();
+      openForm(form);
+    },
+  });
+
+  // Bottom of the chrome stuck to the top of the viewport (page header and a
+  // stuck file header), which the toolbar must not cover.
+  function selectionToolbarTopBoundary() {
+    const header = document.querySelector('.header');
+    let bottom = header ? header.getBoundingClientRect().bottom : 0;
+    document.querySelectorAll('.file-header').forEach(function(el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.height > 0 && rect.top <= bottom + 1 && rect.bottom > bottom) bottom = rect.bottom;
+    });
+    return bottom;
   }
 
   // ===== Stack breadcrumb + working-tree pill =====

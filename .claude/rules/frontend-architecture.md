@@ -60,6 +60,7 @@ All custom JS uses the IIFE + dual-export pattern:
 | `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff for the rendered markdown diff (files mode rounds) |
 | `crit-pierre-adapter.js` | `window.crit.pierreAdapter` | Pure mapping: Crit hunks/comments/forms → Pierre diffs, annotations, themes |
 | `crit-pierre-view.js` | `window.crit.pierreView` | The review list on Pierre CodeView (items, lazy hydration, annotation cache, jumps) |
+| `crit-selection-toolbar.js` | `window.crit.selectionToolbar` | Comment button above a mouse selection (trigger, placement, dismissal); vendored by crit-web |
 
 ## ContentRenderer Interface
 

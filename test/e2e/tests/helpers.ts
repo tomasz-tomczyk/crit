@@ -631,12 +631,37 @@ export async function expectPaintedQuote(page: Page) {
 
 // Mouse-select part of one diff line's text (inside Pierre's shadow root),
 // then press c. Returns the selected text.
+export async function selectInLineAndPressC(page: Page, item: Locator, lineNo: number): Promise<string> {
+  const selected = await selectInLine(page, item, lineNo);
+  await page.keyboard.press('c');
+  return selected;
+}
+
+// Mouse-drag across part of a rendered document line's text (light DOM), with
+// no key press. Returns the selected text.
+export async function selectInBlock(page: Page, block: Locator): Promise<string> {
+  const content = block.locator('.line-content').first();
+  await expect(content).toBeVisible();
+  const box = await content.boundingBox();
+  expect(box, 'line content has a bounding box').not.toBeNull();
+  const y = box!.y + box!.height / 2;
+  await page.mouse.move(box!.x + 80, y);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 250, y, { steps: 5 });
+  await page.mouse.up();
+  const selected = await page.evaluate(() => window.getSelection()?.toString().trim() ?? '');
+  expect(selected).toBeTruthy();
+  return selected;
+}
+
+// Mouse-select part of one diff line's text (inside Pierre's shadow root).
+// Returns the selected text.
 //
 // Drag points come from the text itself (the gutter and hover "+" overlap the
 // start of the line box). Chromium occasionally ends a drag inside a shadow
 // root without a selection, so the gesture is retried from a slightly
 // different start until the browser reports a non-empty composed selection.
-export async function selectInLineAndPressC(page: Page, item: Locator, lineNo: number): Promise<string> {
+export async function selectInLine(page: Page, item: Locator, lineNo: number): Promise<string> {
   const line = diffLine(item, lineNo);
   let attempt = 0;
   let selected = '';
@@ -695,7 +720,6 @@ export async function selectInLineAndPressC(page: Page, item: Locator, lineNo: n
     });
     expect(selected.trim()).not.toBe('');
   }).toPass({ timeout: 15_000 });
-  await page.keyboard.press('c');
   return selected;
 }
 
