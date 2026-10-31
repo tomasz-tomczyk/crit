@@ -42,7 +42,10 @@ test('finds and reveals a match in a lazy, off-screen file', async ({ page }) =>
   await input(page).fill('Goodbye287()');
 
   await expect(count(page)).toHaveText('1 of 1', { timeout: 30_000 });
-  await expect.poll(() => currentMatch(page), { timeout: 10_000 }).toMatchObject({
+  // file287 sits far past the eager window. The count can land before the
+  // highlight is mounted, and a 10s poll flakes the perf project, which fails
+  // CI on a pass-after-retry.
+  await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({
     path: 'file287.go', text: 'Goodbye287()', visible: true,
   });
   await expect(page.locator('.tree-file[data-tree-path="file287.go"]')).toHaveClass(/active/);
