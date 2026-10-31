@@ -5392,41 +5392,49 @@ html[data-theme="light"] .toggle-btn.active {
 /* Send now button */
 .btn-agent {
   background: transparent;
-  color: var(--crit-brand);
-  border: 1px solid var(--crit-brand);
+  color: var(--crit-live-fg);
+  border: 1px solid var(--crit-live-fg);
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 .btn-agent:hover {
-  background: var(--crit-brand);
-  color: var(--crit-fg-on-brand);
+  background: var(--crit-live-badge-bg);
+  color: var(--crit-live-fg);
 }
 .btn-agent:disabled {
   opacity: 0.5;
   cursor: wait;
 }
 
-/* Live Thread — green ambient glow (the theme's green) */
+/* Live Thread — orange ambient glow, matching the live badge */
 .live-thread > .comment-card {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
-              0 0 12px color-mix(in srgb, var(--crit-green) 6%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 20%, transparent),
+              0 0 12px color-mix(in srgb, var(--crit-live-fg) 6%, transparent);
 }
 .live-thread.agent-pending > .comment-card {
   animation: agent-glow 2s ease-in-out infinite;
 }
 @keyframes agent-glow {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 20%, transparent),
-                          0 0 8px color-mix(in srgb, var(--crit-green) 5%, transparent); }
-  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-green) 35%, transparent),
-                    0 0 16px color-mix(in srgb, var(--crit-green) 12%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 20%, transparent),
+                          0 0 8px color-mix(in srgb, var(--crit-live-fg) 5%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--crit-live-fg) 35%, transparent),
+                    0 0 16px color-mix(in srgb, var(--crit-live-fg) 12%, transparent); }
 }
 
 /* Live thread badge */
+/* Orange, not green: a live thread goes straight to the agent. */
+/* A palette's orange role need not be orange (Tokyo Night maps it to
+   blue-grey), so palettes get the same fixed orange as theme.css. Kept out of
+   crit-palette.css, which crit-web copies and does not use for this. */
+:root[data-crit-palette] {
+  --crit-live-fg: light-dark(#bc4c00, #ff9e64);
+  --crit-live-badge-bg: light-dark(rgba(188, 76, 0, 0.1), rgba(255, 158, 100, 0.14));
+}
 .live-thread-badge {
   font-size: 10px;
   font-weight: 600;
-  color: var(--crit-green);
+  color: var(--crit-live-fg);
   background: var(--crit-live-badge-bg);
   padding: 1px 6px;
   border-radius: 3px;

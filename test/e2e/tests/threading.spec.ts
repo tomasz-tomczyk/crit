@@ -75,7 +75,7 @@ test.describe('Comment Threading', () => {
     // Cancel collapses without submitting.
     await card.locator('.reply-input').click();
     await card.locator('.reply-textarea').fill('draft text');
-    await card.locator('.reply-form-buttons .btn:not(.btn-primary)').click();
+    await card.locator('.reply-form-buttons').getByRole('button', { name: 'Cancel' }).click();
     await expect(card.locator('.reply-input')).toBeVisible();
     await expect(section.locator('.comment-reply')).toHaveCount(0);
   });

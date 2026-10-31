@@ -347,13 +347,16 @@
 
   // Bind Ctrl/Cmd+Enter (submit) and Escape (cancel) to a text input/textarea.
   // opts.stopPropagation defaults to true (matches comment-form keydown behavior).
+  // opts.onShiftSubmit, when set, takes Ctrl/Cmd+Shift+Enter instead of onSubmit.
   function bindSubmitCancelKeys(el, onSubmit, onCancel, opts) {
     const stop = !opts || opts.stopPropagation !== false;
+    const onShiftSubmit = opts && opts.onShiftSubmit;
     el.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         if (stop) e.stopPropagation();
-        onSubmit(e);
+        if (e.shiftKey && onShiftSubmit) onShiftSubmit(e);
+        else onSubmit(e);
       } else if (e.key === 'Escape') {
         e.preventDefault();
         if (stop) e.stopPropagation();
@@ -5212,7 +5215,11 @@
       ? function() { if (confirmDiscardReviewCommentForm()) opts.onCancel(); }
       : function() { if (confirmDiscardCommentForm(formObj)) cancelComment(formObj); };
 
-    bindSubmitCancelKeys(textarea, doSubmit, doCancelFromEsc);
+    // Ctrl/Cmd+Shift+Enter is Send now while the button is shown, else a plain Comment.
+    let sendNow = null;
+    bindSubmitCancelKeys(textarea, doSubmit, doCancelFromEsc, {
+      onShiftSubmit: function() { if (sendNow) sendNow(); else doSubmit(); },
+    });
 
     if (!opts.onSubmit) {
       textarea.addEventListener('input', function() { debouncedSaveDraft(textarea.value, formObj); });
@@ -5239,7 +5246,7 @@
       const sendBtn = document.createElement('button');
       sendBtn.className = 'btn btn-sm btn-agent';
       sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> Send now';
-      sendBtn.title = 'Submit comment and send to agent';
+      sendBtn.title = 'Submit comment and send to agent (Ctrl+Shift+Enter)';
       sendBtn.addEventListener('click', async function() {
         sendBtn.disabled = true;
         submitBtn.disabled = true;
@@ -5274,6 +5281,7 @@
         }
       });
       actions.appendChild(sendBtn);
+      sendNow = function() { if (!sendBtn.disabled) sendBtn.click(); };
     }
 
     form.appendChild(header);
@@ -6549,6 +6557,12 @@
     });
   }
 
+  function findCommentForReply(commentId, filePath) {
+    if (!filePath) return reviewComments.find(function(c) { return c.id === commentId; }) || null;
+    const file = getFileByPath(filePath);
+    return (file && file.comments && file.comments.find(function(c) { return c.id === commentId; })) || null;
+  }
+
   function createReplyInput(commentId, filePath) {
     const form = document.createElement('div');
     form.className = 'reply-form';
@@ -6585,6 +6599,18 @@
 
     buttons.appendChild(cancelBtn);
     buttons.appendChild(submitBtn);
+
+    // A thread that is not live yet can still go to the agent: the reply is
+    // sent with it and the thread turns live.
+    let sendBtn = null;
+    const replyComment = findCommentForReply(commentId, filePath);
+    if (agentEnabled && !isPending && replyComment && !isLiveThread(replyComment)) {
+      sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-sm btn-agent';
+      sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg> Send now';
+      sendBtn.title = 'Reply and send the thread to the agent (Ctrl+Shift+Enter)';
+      buttons.appendChild(sendBtn);
+    }
     // Always mounted; CSS hides the whole form when the card is collapsed.
     form.appendChild(buttons);
 
@@ -6648,10 +6674,11 @@
       }, 150);
     });
 
-    submitBtn.addEventListener('click', async function() {
+    async function submitReply(sendToAgent) {
       const body = activeField().value.trim();
       if (!body) { activeField().focus(); return; }
       submitBtn.disabled = true;
+      if (sendBtn) sendBtn.disabled = true;
       try {
         const payload = { body: body };
         if (configAuthor) payload.author = configAuthor;
@@ -6667,25 +6694,23 @@
         userActedThisRound = true;
 
         // Keep a live thread talking to the agent.
-        let comment = null;
-        if (filePath) {
-          const file = getFileByPath(filePath);
-          if (file && file.comments) {
-            comment = file.comments.find(function(c) { return c.id === commentId; });
-          }
-        } else {
-          comment = reviewComments.find(function(c) { return c.id === commentId; });
-        }
-        if (comment && (isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
+        const comment = findCommentForReply(commentId, filePath);
+        if (comment && (sendToAgent || isLiveThread(comment) || pendingAgentRequests.has(commentId))) {
           pendingAgentRequests.add(commentId);
           fetch('/api/agent/request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ comment_id: commentId, file_path: filePath }),
+          }).then(function(agentRes) {
+            // A 400 (no agent left) must free the reply box like a network error.
+            if (!agentRes.ok) throw new Error('Server returned ' + agentRes.status);
+            if (sendToAgent) showMiniToast('Sent to agent');
           }).catch(function(err) {
             console.error('Error sending reply to agent:', err);
             pendingAgentRequests.delete(commentId);
             showMiniToast('Failed to send to agent');
+            if (filePath) renderFileByPath(filePath);
+            else renderReviewConversation();
           });
         }
 
@@ -6696,14 +6721,19 @@
         console.error('Failed to add reply:', err);
         showMiniToast('Failed to save reply');
         submitBtn.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
       }
-    });
+    }
+
+    submitBtn.addEventListener('click', function() { submitReply(false); });
+    if (sendBtn) sendBtn.addEventListener('click', function() { submitReply(true); });
 
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         e.stopPropagation();
-        submitBtn.click();
+        if (e.shiftKey && sendBtn) sendBtn.click();
+        else submitBtn.click();
       }
       if (e.key === 'Escape') {
         e.preventDefault();

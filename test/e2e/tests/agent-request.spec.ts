@@ -38,6 +38,90 @@ test.describe('Send to Agent', () => {
     await expect(page.locator('.agent-pending-author')).toHaveText('@echo');
   });
 
+  test('Ctrl+Shift+Enter in a new comment acts as Send now', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Sent with the shortcut');
+
+    const agentReq = page.waitForRequest((req) =>
+      req.url().includes('/api/agent/request') && req.method() === 'POST'
+    );
+    await textarea.press('Control+Shift+Enter');
+
+    expect((await agentReq).postDataJSON().file_path).toBeTruthy();
+    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
+    await expect(page.locator('.agent-pending-reply')).toBeVisible();
+  });
+
+  test('Ctrl+Enter only saves the comment', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved, not sent');
+    let agentRequests = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/agent/request')) agentRequests++;
+    });
+
+    await textarea.press('Control+Enter');
+
+    await expect(doc.locator('.comment-card')).toContainText('Saved, not sent');
+    await page.waitForTimeout(300);
+    expect(agentRequests).toBe(0);
+  });
+
+  test('Send now in a reply sends it and makes the thread live', async ({ page }) => {
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved first, sent later');
+    await textarea.press('Control+Enter');
+    const card = doc.locator('.comment-card', { hasText: 'Saved first, sent later' });
+    await expect(card.locator('.live-thread-badge')).toHaveCount(0);
+
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Please look at this now');
+    const agentReq = page.waitForRequest((req) =>
+      req.url().includes('/api/agent/request') && req.method() === 'POST'
+    );
+    await card.locator('.reply-form .btn-agent').click();
+
+    expect((await agentReq).postDataJSON().file_path).toBeTruthy();
+    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
+    const liveCard = doc.locator('.comment-card', { hasText: 'Saved first, sent later' });
+    await expect(liveCard).toContainText('Please look at this now');
+    await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
+  });
+
+  test('a failed Send now in a reply frees the reply box', async ({ page }) => {
+    // Hold the agent request until the saved reply has redrawn the thread as
+    // waiting, then fail it as a server with no agent left does.
+    let failAgentRequest!: () => void;
+    const agentRequestHeld = new Promise<void>((resolve) => { failAgentRequest = resolve; });
+    await page.route('**/api/agent/request', async (route) => {
+      await agentRequestHeld;
+      await route.fulfill({ status: 400, body: 'no agent' });
+    });
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved first, sent later');
+    await textarea.press('Control+Enter');
+    const card = doc.locator('.comment-card', { hasText: 'Saved first, sent later' });
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Please look at this now');
+    await card.locator('.reply-form .btn-agent').click();
+    await expect(card).toContainText('Please look at this now');
+    await expect(card.locator('.reply-input')).toHaveAttribute('placeholder', /^Waiting for @/);
+
+    failAgentRequest();
+
+    await expect(page.locator('.mini-toast')).toContainText('Failed to send to agent');
+    await expect(card.locator('.reply-input')).toHaveAttribute('placeholder', 'Write a reply…');
+    await expect(card.locator('.reply-input')).toBeEnabled();
+  });
+
   test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 
