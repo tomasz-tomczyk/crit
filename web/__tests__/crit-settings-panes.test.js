@@ -423,6 +423,51 @@ test('renderSettingsTab: account card present when share_url + auth_logged_in', 
   assert.match(pane.innerHTML, /a@b\.com/);
 });
 
+function renderCustomCSS(cfg, opts) {
+  const { panes: sp } = loadPanes((opts && opts.cookie) || '');
+  const pane = makePane();
+  sp.renderSettingsTab(pane, {
+    mode: (opts && opts.mode) || 'code-review',
+    cfg: Object.assign({ no_integration_check: true }, cfg),
+    show: { account: false, agent: false, share: false },
+    hooks: { applyTheme: () => {}, applyWidth: () => {}, getHideResolved: () => false, setHideResolved: () => {} },
+  });
+  return pane.innerHTML;
+}
+
+test('renderSettingsTab: custom CSS card and switch when the file exists', () => {
+  const html = renderCustomCSS({ custom_css_path: '/home/u/.crit/custom.css', custom_css_exists: true });
+  assert.match(html, /Custom CSS[\s\S]*Found/);
+  assert.match(html, /data-copy="\/home\/u\/\.crit\/custom\.css"/);
+  assert.match(html, /id="customCSSToggle"[^>]* checked/);
+});
+
+test('renderSettingsTab: custom CSS switch reflects the saved setting', () => {
+  const cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ customCSS: false }));
+  const html = renderCustomCSS({ custom_css_path: '/p', custom_css_exists: true }, { cookie });
+  assert.match(html, /id="customCSSToggle"/);
+  assert.doesNotMatch(html, /id="customCSSToggle"[^>]* checked/);
+});
+
+test('renderSettingsTab: custom CSS card shows None with a docs link, and no switch, without the file', () => {
+  const html = renderCustomCSS({ custom_css_path: '/p', custom_css_exists: false });
+  assert.match(html, /Custom CSS[\s\S]*None/);
+  assert.match(html, /href="https:\/\/github\.com\/tomasz-tomczyk\/crit#custom-styles"/);
+  assert.doesNotMatch(html, /customCSSToggle/);
+});
+
+test('renderSettingsTab: custom CSS card shown in live mode', () => {
+  const html = renderCustomCSS({ custom_css_path: '/p', custom_css_exists: true }, { mode: 'live' });
+  assert.match(html, /Custom CSS[\s\S]*Found/);
+  assert.match(html, /id="customCSSToggle"/);
+});
+
+test('renderSettingsTab: no custom CSS card, or Configuration section, without a path', () => {
+  const html = renderCustomCSS({});
+  assert.doesNotMatch(html, /Custom CSS/);
+  assert.doesNotMatch(html, /Configuration/);
+});
+
 test('renderSettingsTab: opts.show overrides defaults', () => {
   const sp = loadShared();
   const pane = makePane();

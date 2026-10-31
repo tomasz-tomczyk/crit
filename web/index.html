@@ -14,6 +14,8 @@
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="crit-palette.css">
 <link rel="stylesheet" href="style.css">
+<!-- The user's ~/.crit/custom.css (empty if none); last, so its rules win. -->
+<link rel="stylesheet" href="custom.css" id="critCustomCSS">
 <!-- Theme palette before first paint, in every mode (review, live, preview). -->
 <script src="pierre/palettes.js"></script>
 <script src="crit-theme-palette.js"></script>
@@ -355,7 +357,8 @@
       var l = document.createElement('link');
       l.rel = 'stylesheet';
       l.href = 'style-live.css';
-      document.head.appendChild(l);
+      // Before the user's custom.css, which must stay last.
+      document.head.insertBefore(l, document.getElementById('critCustomCSS'));
 
       // Sub-modules loaded in parallel; live-mode.js (loaded last) requires
       // their window.crit.* / window.crit.live.* namespaces to be present.

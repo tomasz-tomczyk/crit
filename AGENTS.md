@@ -261,7 +261,7 @@ File-scoped (require `?path=X`):
 - `POST|PUT|DELETE /api/comment/{id}/replies[/{rid}]?path=X` — reply CRUD
 - `PUT /api/comment/{id}/resolve?path=X` — set resolved state
 
-Static: `GET /files/<path>` — serve files from repo root (path traversal protected). `GET /` — embedded frontend assets.
+Static: `GET /files/<path>` — serve files from repo root (path traversal protected). `GET /custom.css` — the user's `~/.crit/custom.css` (204 when absent or unusable). `GET /` — embedded frontend assets.
 </important>
 
 <important if="you are modifying server security, request handling, or path-validation logic">
@@ -278,6 +278,8 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 <important if="you are modifying web/ — app.js, style.css, theme.css, or index.html">
 
 Frontend split: `index.html` (HTML shell), `app.js` (all logic), `style.css` (layout/components), `theme.css` (theme variables).
+
+User stylesheet: `~/.crit/custom.css` (`config.CustomCSSPath()`) is served at `GET /custom.css` and linked as `<link id="critCustomCSS">`, which must stay the last stylesheet in `index.html` and `themes.html` (the live bootstrap inserts `style-live.css` before it). The Settings "Custom CSS" card reads `custom_css_path` / `custom_css_exists` from `/api/config`; the "Use custom CSS" switch (`customCSS` setting) disables the link via `crit-theme-palette.js`. `data-crit-mode` (`light` | `dark`) on `<html>` is for user stylesheets, so keep it and the `--crit-*` variables stable.
 
 ### Multi-file state model
 

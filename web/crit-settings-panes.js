@@ -213,6 +213,7 @@
     if (mode === 'live') {
       return {
         width: false,         // width pill is file-mode only
+        customCSS: true,      // ~/.crit/custom.css card and on/off switch
         hideResolved: true,
         ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
         account: true,
@@ -224,6 +225,7 @@
     return {
       themePreview: true,   // "Preview all themes" link under the theme selects
       width: true,
+      customCSS: true,      // ~/.crit/custom.css card and on/off switch
       hideResolved: true,
       ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
       account: true,
@@ -632,6 +634,18 @@
       html += '</div>';
     }
 
+    // Custom CSS row: only when ~/.crit/custom.css exists
+    if (show.customCSS && cfg.custom_css_exists) {
+      var useCustomCSS = getSetting('customCSS', true) !== false;
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Use custom CSS</span>';
+      html += '<label class="comments-panel-switch">';
+      html += '<input type="checkbox" id="customCSSToggle" aria-label="Use custom CSS"' + (useCustomCSS ? ' checked' : '') + '>';
+      html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
+      html += '</label>';
+      html += '</div>';
+    }
+
     // Ignore whitespace row (code diffs / git mode only)
     if (show.ignoreWhitespace && hooks.getIgnoreWhitespace) {
       var ignoreWhitespace = !!hooks.getIgnoreWhitespace();
@@ -647,7 +661,7 @@
     html += '</div>'; // close settings-display-group
 
     // ---------- Configuration ----------
-    var anyConfigCard = show.account || show.agent || show.share;
+    var anyConfigCard = show.account || show.agent || show.share || (show.customCSS && !!cfg.custom_css_path);
     if (anyConfigCard) {
       html += '<div class="settings-section-label">Configuration</div>';
       html += '<div class="config-cards">';
@@ -721,6 +735,28 @@
           html += '<span class="config-card-value">Disabled</span>';
           html += '</div></div>';
         }
+      }
+
+      // Custom CSS card: whether ~/.crit/custom.css exists, and where it goes
+      if (show.customCSS && cfg.custom_css_path) {
+        if (cfg.custom_css_exists) {
+          html += '<div class="config-card config-card--green"><div class="config-card-header">';
+          html += '<span class="config-card-icon" style="color:var(--crit-green)">&#10003;</span>';
+          html += '<span class="config-card-title">Custom CSS</span>';
+          html += '<span class="config-card-value">Found</span>';
+          html += '</div>';
+          html += '<div class="config-card-body">Edit the file and reload this page to see changes.</div>';
+        } else {
+          html += '<div class="config-card config-card--gray config-card--unconfigured"><div class="config-card-header">';
+          html += '<span class="config-card-icon" style="color:var(--crit-editor-fg-muted)">&mdash;</span>';
+          html += '<span class="config-card-title">Custom CSS</span>';
+          html += '<span class="config-card-value">None</span>';
+          html += '</div>';
+          html += '<div class="config-card-body">Create this file to restyle Crit with your own CSS. <a href="https://github.com/tomasz-tomczyk/crit#custom-styles" target="_blank" rel="noopener" style="color:var(--crit-brand)">Learn more</a></div>';
+        }
+        html += '<div class="config-card-cmd"><span>' + esc(cfg.custom_css_path) + '</span>' +
+          '<button class="config-card-copy" data-copy="' + esc(cfg.custom_css_path) + '">Copy</button></div>';
+        html += '</div>';
       }
 
       html += '</div>'; // close config-cards
@@ -822,6 +858,15 @@
           if (hooks.onIgnoreWhitespaceChange) hooks.onIgnoreWhitespaceChange();
         });
       }
+    }
+
+    var cssToggle = pane.querySelector('#customCSSToggle');
+    if (cssToggle) {
+      cssToggle.addEventListener('change', function () {
+        setSetting('customCSS', cssToggle.checked);
+        var palette = window.crit && window.crit.themePalette;
+        if (palette && palette.applyCustomCSSSetting) palette.applyCustomCSSSetting();
+      });
     }
 
     pane.querySelectorAll('[data-renderer-setting]').forEach(function(select) {
