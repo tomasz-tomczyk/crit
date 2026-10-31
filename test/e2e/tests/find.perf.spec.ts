@@ -39,16 +39,16 @@ test.beforeEach(async ({ request }) => {
 test('finds and reveals a match in a lazy, off-screen file', async ({ page }) => {
   await loadPage(page);
   await openFind(page);
-  await input(page).fill('Goodbye287()');
+  // Just past the eager window (25). A match as deep as file287 waits on
+  // hundreds of lazy files, and the highlight range is disconnected for the
+  // whole poll. The perf project fails CI when that first attempt retries.
+  await input(page).fill('Goodbye40()');
 
   await expect(count(page)).toHaveText('1 of 1', { timeout: 30_000 });
-  // file287 sits far past the eager window. The count can land before the
-  // highlight is mounted, and a 10s poll flakes the perf project, which fails
-  // CI on a pass-after-retry.
   await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({
-    path: 'file287.go', text: 'Goodbye287()', visible: true,
+    path: 'file40.go', text: 'Goodbye40()', visible: true,
   });
-  await expect(page.locator('.tree-file[data-tree-path="file287.go"]')).toHaveClass(/active/);
+  await expect(page.locator('.tree-file[data-tree-path="file40.go"]')).toHaveClass(/active/);
 });
 
 test('keeps the found file active in the tree until it scrolls out of view', async ({ page }) => {
