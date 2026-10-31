@@ -3,16 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
-import { clearAllComments, loadPage, mdSection, fileItem, sessionCwd } from './helpers';
-
-// The rounds below arrive over SSE; rendering can finish before the event
-// stream connects on a busy runner, so also wait for /api/events.
-async function loadPageWithEvents(page: Page) {
-  const connected = page.waitForResponse(response =>
-    new URL(response.url()).pathname === '/api/events' && response.ok());
-  await loadPage(page);
-  await connected;
-}
+import { clearAllComments, loadPage, loadPageWithEvents, mdSection, fileItem, sessionCwd } from './helpers';
 
 // Drop any change-flash so the next navigation has to add its own.
 async function clearFlash(page: Page) {

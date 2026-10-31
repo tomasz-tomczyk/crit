@@ -550,6 +550,14 @@ body {
   background: var(--crit-green);
 }
 .toast.toast-success .toast-btn-filled:hover { filter: brightness(1.1); }
+.toast.toast-info {
+  align-self: center;
+  background: var(--crit-bg-elevated);
+  border: 1px solid var(--crit-border);
+  color: var(--crit-fg-secondary);
+}
+.toast.toast-info .toast-btn-filled { background: var(--crit-brand); }
+.toast.toast-info .toast-btn-filled:hover { filter: brightness(1.1); }
 .toast-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .btn-success {
