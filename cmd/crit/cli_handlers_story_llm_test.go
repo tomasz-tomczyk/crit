@@ -726,7 +726,7 @@ func TestPostStoryToDaemon_ErrorOnNon2xx(t *testing.T) {
 // does NOT spawn a new daemon. It opens #story only when nothing is already
 // connected and --no-open is unset — the same check as resume and spawn.
 func TestPostIngest_NotifiesRunningDaemon(t *testing.T) {
-	setupStoryRepoLLM(t)
+	repoDir, _ := setupStoryRepoLLM(t)
 
 	origAlive := storyDaemonAlive
 	origStart := storyStartDaemon
@@ -755,7 +755,18 @@ func TestPostIngest_NotifiesRunningDaemon(t *testing.T) {
 		storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
 		openBrowser = func(u, _ string) { openedURL = u }
 
+		oldStderr := os.Stderr
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stderr = w
+		t.Cleanup(func() { os.Stderr = oldStderr })
+
 		postIngest(storyFlags{}, sessionStoryStub())
+		w.Close()
+		os.Stderr = oldStderr
+		logged, _ := io.ReadAll(r)
 
 		if !posted {
 			t.Error("expected story to be POSTed to the running daemon")
@@ -765,6 +776,13 @@ func TestPostIngest_NotifiesRunningDaemon(t *testing.T) {
 		}
 		if !strings.Contains(openedURL, entry.BaseURL()) {
 			t.Fatalf("opened URL %q must target the running daemon %s", openedURL, entry.BaseURL())
+		}
+		msg := string(logged)
+		if !strings.Contains(msg, "Updated the open review at "+entry.BaseURL()) {
+			t.Fatalf("status line = %q, want the review URL", msg)
+		}
+		if strings.Contains(msg, "#story") {
+			t.Fatalf("status line must stay the review URL without #story, got %q", msg)
 		}
 	})
 
@@ -803,6 +821,92 @@ func TestPostIngest_NotifiesRunningDaemon(t *testing.T) {
 			t.Error("a failed post must not open the browser")
 		}
 	})
+
+	t.Run("config no_open suppresses the browser", func(t *testing.T) {
+		path := filepath.Join(repoDir, ".crit.config.json")
+		if err := os.WriteFile(path, []byte("{\n  \"no_open\": true\n}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Remove(path) })
+
+		var opened bool
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { return nil }
+		storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+		openBrowser = func(string, string) { opened = true }
+
+		postIngest(storyFlags{}, sessionStoryStub())
+		if opened {
+			t.Error("config no_open must suppress the browser when a daemon is already running")
+		}
+	})
+
+	t.Run("health without browser_clients does not open", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/health" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"ok"}`)
+		}))
+		t.Cleanup(srv.Close)
+		live := sessionEntryFromURL(t, srv.URL)
+		storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return live, true }
+		t.Cleanup(func() {
+			storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return entry, true }
+		})
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { return nil }
+		storyDaemonHasBrowser = daemon.DaemonHasBrowser
+		var opened bool
+		openBrowser = func(string, string) { opened = true }
+
+		postIngest(storyFlags{}, sessionStoryStub())
+		if opened {
+			t.Error("a health payload without browser_clients must be treated as already connected")
+		}
+	})
+
+	t.Run("health browser_clients false opens #story", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/health" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"ok","browser_clients":false}`)
+		}))
+		t.Cleanup(srv.Close)
+		live := sessionEntryFromURL(t, srv.URL)
+		storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return live, true }
+		t.Cleanup(func() {
+			storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return entry, true }
+		})
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { return nil }
+		storyDaemonHasBrowser = daemon.DaemonHasBrowser
+		var openedURL string
+		openBrowser = func(u, _ string) { openedURL = u }
+
+		postIngest(storyFlags{}, sessionStoryStub())
+		if !strings.HasSuffix(openedURL, "#story") {
+			t.Fatalf("explicit browser_clients false must open #story, got %q", openedURL)
+		}
+		if !strings.Contains(openedURL, live.BaseURL()) {
+			t.Fatalf("opened URL %q must target the running daemon %s", openedURL, live.BaseURL())
+		}
+	})
+}
+
+func sessionEntryFromURL(t *testing.T, raw string) daemon.SessionEntry {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return daemon.SessionEntry{Host: u.Hostname(), Port: port}
 }
 
 // TestPostIngest_SpawnsWhenNoDaemon verifies the no-daemon branch spawns a
