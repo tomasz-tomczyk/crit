@@ -162,7 +162,10 @@
     function renderCount() {
       if (!query) count.textContent = '';
       else if (matches.length === 0) count.textContent = loadRun ? 'Searching…' : 'No results';
-      else count.textContent = (current + 1) + ' of ' + matches.length + (matches.length >= MAX_MATCHES ? '+' : '') + (loadRun ? '…' : '');
+      // Once a match is available, its count is actionable even while the
+      // background scan hydrates the remaining lazy files. A suffix here made
+      // a ready result look incomplete for the duration of that scan.
+      else count.textContent = (current + 1) + ' of ' + matches.length + (matches.length >= MAX_MATCHES ? '+' : '');
       bar.classList.toggle('crit-find-empty', !!query && matches.length === 0 && !loadRun);
     }
 
