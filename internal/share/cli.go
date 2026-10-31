@@ -424,6 +424,17 @@ func resolveOperationTarget(cfg config.Config, explicit string, explicitSet bool
 	base := cj.ShareBaseURL
 	if base == "" {
 		if !explicitSet {
+			targets, resolveErr := config.ResolveShareTargets(cfg)
+			if resolveErr != nil {
+				return config.ShareTarget{}, resolveErr
+			}
+			if inferred, ok := config.InferShareBaseURL(cj.ShareURL, targets); ok {
+				if target, found, findErr := config.FindShareTarget(cfg, inferred); findErr != nil {
+					return config.ShareTarget{}, findErr
+				} else if found {
+					return target, nil
+				}
+			}
 			return config.ShareTarget{}, errors.New("cannot identify the originating Crit instance; re-add or confirm its base URL with --share-url")
 		}
 		selected, configured, selectErr := config.FindShareTarget(cfg, explicit)

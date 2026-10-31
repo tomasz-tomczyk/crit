@@ -188,12 +188,63 @@ func TestTargetForRequestLegacyReviewDoesNotUseDefault(t *testing.T) {
 	s.projectDir = sess.RepoRoot
 	sess.SetSharedTarget("https://a.example/r/tok", "", "del")
 
-	if _, err := s.targetForRequest(""); err == nil || !strings.Contains(err.Error(), "cannot identify") {
-		t.Fatalf("expected unidentified origin, got %v", err)
+	got, err := s.targetForRequest("")
+	if err != nil || got.URL != "https://a.example" {
+		t.Fatalf("legacy review got=%#v err=%v, want https://a.example", got, err)
 	}
-	got, err := s.targetForRequest("https://a.example")
+	got, err = s.targetForRequest("https://a.example")
 	if err != nil || got.URL != "https://a.example" {
 		t.Fatalf("explicit confirmation got=%#v err=%v", got, err)
+	}
+
+	// A review URL that cannot be inferred still uses the configured default,
+	// matching v0.23.1 rather than failing the request.
+	sess.SetSharedTarget("https://nope.example/reviews/tok", "", "del")
+	got, err = s.targetForRequest("")
+	if err != nil || got.URL != "https://b.example" {
+		t.Fatalf("unmatched legacy review got=%#v err=%v, want default https://b.example", got, err)
+	}
+}
+
+func TestGetConfigLegacyReviewShareURL(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(`{"share_targets":[{"url":"https://a.example"},{"url":"https://b.example","default":true}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, sess := newTestServer(t)
+	s.configConfigured = true
+	s.projectDir = sess.RepoRoot
+	sess.SetSharedTarget("https://a.example/r/tok", "", "del")
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["share_url"] != "https://a.example" {
+		t.Fatalf("share_url=%v, want https://a.example", body["share_url"])
+	}
+	if _, ok := body["share_target_warning"]; ok {
+		t.Fatalf("share_target_warning=%v", body["share_target_warning"])
+	}
+
+	sess.SetSharedTarget("https://nope.example/reviews/tok", "", "del")
+	rr = httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unmatched status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body = map[string]any{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["share_url"] != "https://b.example" {
+		t.Fatalf("unmatched share_url=%v, want default https://b.example", body["share_url"])
 	}
 }
 
