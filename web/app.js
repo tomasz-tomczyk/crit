@@ -391,6 +391,7 @@
   let promptTrustConfig = { project_prompts_untrusted: false };
 
   let uiState = 'reviewing';
+  let waitingOpenedAt = 0;
   let waitingNotApproved = false;
   let hiddenUnresolved = 0;
   let pendingUpdates = [];
@@ -7284,6 +7285,7 @@
         document.getElementById('tipSection').style.display = '';
         startTipRotation();
         waitingOverlay.classList.add('active');
+        waitingOpenedAt = Date.now();
         break;
     }
   }
@@ -7291,11 +7293,21 @@
   // ===== General Comment Button (in panel header) =====
 
   // ===== Finish Review =====
+  // One finish at a time: a double or triple click on Finish Review would
+  // otherwise post /api/finish once per click before the first answer arrives.
+  let finishInFlight = false;
+  const finishDedup = {
+    busy: function () { return finishInFlight; },
+    set: function () { finishInFlight = true; },
+    clear: function () { finishInFlight = false; },
+  };
+
   // The DOM/clipboard/animation logic lives in crit.shared.runFinishReview;
   // this thin wrapper preserves the app.js-specific waitingNotApproved flag
   // and uiState transition (live-mode wires its own state machine).
   async function doFinishReview() {
     return await window.crit.shared.runFinishReview({
+      dedup: finishDedup,
       checkConsent: function () {
         return window.crit.shared.ensureProjectPromptTrust(promptTrustConfig).then(function (ok) {
           if (ok) {
@@ -7400,8 +7412,11 @@
     setUIState('reviewing');
   });
 
+  // The backdrop opens where Finish Review was, so the rest of a double or
+  // triple click lands on it. Ignore backdrop clicks for a moment after the
+  // dialog opens; a later click still goes back to editing.
   document.getElementById('waitingOverlay').addEventListener('click', function(e) {
-    if (e.target === this) setUIState('reviewing');
+    if (e.target === this && Date.now() - waitingOpenedAt > 1000) setUIState('reviewing');
   });
 
   document.getElementById('waitingClipboard').addEventListener('click', async function() {

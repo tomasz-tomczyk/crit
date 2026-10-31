@@ -41,6 +41,41 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(copyBtn).not.toHaveClass(/copied/);
   });
 
+  test('a triple click on Finish Review finishes once', async ({ page, request }) => {
+    await addComment(request, await getTestFilePath(request), 1, 'Triple click test');
+    await loadPage(page);
+    let finishes = 0;
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === '/api/finish' && r.method() === 'POST') finishes++;
+    });
+
+    const box = (await page.locator('#finishBtn').boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { clickCount: 3 });
+
+    await expect(page.locator('#waitingOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#finishBtn')).toHaveText('Waiting...');
+    expect(finishes).toBe(1);
+  });
+
+  test('a click on the backdrop just after Finish keeps the waiting dialog open', async ({ page, request }) => {
+    await addComment(request, await getTestFilePath(request), 1, 'Backdrop test');
+    await loadPage(page);
+    const overlay = page.locator('#waitingOverlay');
+
+    // The backdrop opens where the button was, so a late extra click lands on it.
+    const box = (await page.locator('#finishBtn').boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(overlay).toHaveClass(/active/);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(overlay).toHaveClass(/active/);
+    await expect(page.locator('#finishBtn')).toHaveText('Waiting...');
+
+    // A deliberate backdrop click later still goes back to editing.
+    await page.waitForTimeout(1_200);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(overlay).not.toHaveClass(/active/);
+  });
+
   test('round-complete SSE exits waiting state in file mode', async ({ page, request }) => {
     await addComment(request, await getTestFilePath(request), 1, 'SSE test');
     await loadPage(page);
