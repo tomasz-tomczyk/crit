@@ -1007,14 +1007,17 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 		// (proxy_auth popup path passes local_only=1 after the relay DELETE).
 		localOnly := r.URL.Query().Get("local_only") == "1"
 		if !localOnly {
-			if target, targetErr := s.targetForRequest(""); targetErr == nil {
-				if _, dt := s.session.Load().GetShareState(); dt != "" {
-					if err := share.UnpublishFromWeb(target.URL, dt, target.Auth.Token); err != nil {
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusBadGateway)
-						json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-						return
-					}
+			target, targetErr := s.targetForRequest("")
+			if targetErr != nil {
+				http.Error(w, targetErr.Error(), http.StatusBadRequest)
+				return
+			}
+			if _, dt := s.session.Load().GetShareState(); dt != "" {
+				if err := share.UnpublishFromWeb(target.URL, dt, target.Auth.Token); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+					return
 				}
 			}
 		}

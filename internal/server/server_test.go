@@ -1669,14 +1669,24 @@ func TestDeleteShareURL(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	if w.Code != 204 {
-		t.Errorf("status = %d, want 204", w.Code)
+	if w.Code == http.StatusNoContent {
+		t.Fatalf("status = 204; target resolution failure must not clear share state")
 	}
-	if session.GetSharedURL() != "" {
-		t.Errorf("hostedURL should be cleared")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
 	}
-	if session.GetDeleteToken() != "" {
-		t.Errorf("deleteToken should be cleared")
+	if url, token := session.GetShareState(); url != "https://crit.md/r/abc" || token != "sometoken1234567890123" {
+		t.Fatalf("share state = %q %q, want URL and delete token kept", url, token)
+	}
+
+	req = httptest.NewRequest("DELETE", "/api/share-url?local_only=1", nil)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("local_only status = %d, want 204", w.Code)
+	}
+	if url, token := session.GetShareState(); url != "" || token != "" {
+		t.Fatalf("local_only share state = %q %q, want cleared", url, token)
 	}
 }
 

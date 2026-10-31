@@ -1685,8 +1685,15 @@ func TestResolveOperationTargetNewShareAndBoundConflicts(t *testing.T) {
 	if _, err := resolveOperationTarget(cfg, "https://b.example", true, cj, true); err == nil {
 		t.Fatal("expected bound/explicit mismatch to fail")
 	}
-	if _, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://a.example/r/tok"}, true); err == nil || !strings.Contains(err.Error(), "cannot identify") {
-		t.Fatalf("legacy review without share_base_url must not guess a target, got %v", err)
+	got, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://a.example/r/tok"}, true)
+	if err != nil || got.URL != "https://a.example" {
+		t.Fatalf("legacy review matching a deployment got=%#v err=%v, want https://a.example", got, err)
+	}
+	if _, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://legacy.example.com/unknown/r/review-token"}, true); err == nil || !strings.Contains(err.Error(), "cannot identify") {
+		t.Fatalf("uninferable legacy review must keep the explicit error, got %v", err)
+	}
+	if _, err := resolveOperationTarget(cfg, "", false, session.CritJSON{ShareURL: "https://other.example/r/tok"}, true); err == nil || !strings.Contains(err.Error(), "cannot identify") {
+		t.Fatalf("inferred base that is not configured must not fall through to the default, got %v", err)
 	}
 }
 

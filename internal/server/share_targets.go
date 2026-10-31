@@ -67,10 +67,13 @@ func (s *Server) targetForRequest(requested string) (config.ShareTarget, error) 
 	}
 	sess := s.session.Load()
 	bound := ""
-	legacyUnbound := false
 	if sess != nil && sess.GetSharedURL() != "" {
 		bound = sess.GetShareBaseURL()
-		legacyUnbound = bound == ""
+		if bound == "" {
+			if inferred, ok := config.InferShareBaseURL(sess.GetSharedURL(), targets); ok {
+				bound = inferred
+			}
+		}
 	}
 	if requested != "" {
 		canonical, err := config.CanonicalShareURL(requested)
@@ -86,9 +89,6 @@ func (s *Server) targetForRequest(requested string) (config.ShareTarget, error) 
 			}
 		}
 		return config.ShareTarget{}, fmt.Errorf("unknown share target %s", canonical)
-	}
-	if legacyUnbound {
-		return config.ShareTarget{}, fmt.Errorf("cannot identify the originating Crit instance; confirm its base URL")
 	}
 	if len(targets) == 0 {
 		return config.ShareTarget{}, fmt.Errorf("sharing is disabled")

@@ -729,6 +729,48 @@ func TestHandleShareReshare_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleShareURL_DeleteTargetErrorKeepsToken(t *testing.T) {
+	remoteHits := 0
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remoteHits++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer critWeb.Close()
+
+	s, sess := newShareTestServer(t, critWeb.URL, true)
+	// Bound base is no longer one of the server's configured targets.
+	sess.SetSharedTarget("https://a.example/r/tok", "https://a.example", "delete-tok")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/share-url", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code == http.StatusNoContent {
+		t.Fatal("status = 204; unresolved target must not clear share state")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
+	}
+	if url, token := sess.GetShareState(); url != "https://a.example/r/tok" || token != "delete-tok" {
+		t.Fatalf("share state = %q %q, want URL and delete token kept", url, token)
+	}
+	if remoteHits != 0 {
+		t.Fatalf("remote hits = %d, want 0", remoteHits)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/share-url?local_only=1", nil)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("local_only status = %d, want 204", w.Code)
+	}
+	if url, token := sess.GetShareState(); url != "" || token != "" {
+		t.Fatalf("local_only share state = %q %q, want cleared", url, token)
+	}
+	if remoteHits != 0 {
+		t.Fatalf("local_only remote hits = %d, want 0", remoteHits)
+	}
+}
+
 func TestHandleShareURL_DeleteUnpublishesRemotely(t *testing.T) {
 	var gotMethod, gotPath, gotAuth string
 	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
