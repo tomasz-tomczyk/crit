@@ -162,7 +162,10 @@
     function renderCount() {
       if (!query) count.textContent = '';
       else if (matches.length === 0) count.textContent = loadRun ? 'Searching…' : 'No results';
-      else count.textContent = (current + 1) + ' of ' + matches.length + (matches.length >= MAX_MATCHES ? '+' : '') + (loadRun ? '…' : '');
+      // Once a match is available, its count is actionable even while the
+      // background scan hydrates the remaining lazy files. A suffix here made
+      // a ready result look incomplete for the duration of that scan.
+      else count.textContent = (current + 1) + ' of ' + matches.length + (matches.length >= MAX_MATCHES ? '+' : '');
       bar.classList.toggle('crit-find-empty', !!query && matches.length === 0 && !loadRun);
     }
 
@@ -278,12 +281,24 @@
       const seq = ++revealSeq;
       const isCurrent = function() { return open && seq === revealSeq; };
       Promise.resolve(opts.reveal(m, isCurrent)).then(function() {
-        // The row renders on a later frame; poll until it is mounted.
+        // The row renders on a later frame. Lazy search can still be loading
+        // the target file when the first 60 frames have elapsed, so wait for
+        // that load run to settle before giving up on the current highlight.
         let frames = 0;
+        let waitingForLoad = false;
         (function poll() {
           if (!isCurrent()) return;
           const range = syncHighlights();
           if (range) { scrollRangeIntoView(range); return; }
+          if (loadRun && !waitingForLoad) {
+            waitingForLoad = true;
+            loadRun.then(function() {
+              waitingForLoad = false;
+              frames = 0;
+              requestAnimationFrame(poll);
+            });
+            return;
+          }
           if (++frames < 60) requestAnimationFrame(poll);
         })();
       });
