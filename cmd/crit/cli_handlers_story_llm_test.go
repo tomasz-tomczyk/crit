@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -722,7 +723,8 @@ func TestPostStoryToDaemon_ErrorOnNon2xx(t *testing.T) {
 
 // TestPostIngest_NotifiesRunningDaemon verifies the decision logic: when a
 // daemon is alive for the session key, postIngest POSTs the story to it and
-// does NOT spawn a new daemon or open a browser.
+// does NOT spawn a new daemon. It opens #story only when nothing is already
+// connected and --no-open is unset — the same check as resume and spawn.
 func TestPostIngest_NotifiesRunningDaemon(t *testing.T) {
 	setupStoryRepoLLM(t)
 
@@ -730,34 +732,77 @@ func TestPostIngest_NotifiesRunningDaemon(t *testing.T) {
 	origStart := storyStartDaemon
 	origPost := storyPostStory
 	origOpen := openBrowser
+	origHasBrowser := storyDaemonHasBrowser
 	t.Cleanup(func() {
 		storyDaemonAlive = origAlive
 		storyStartDaemon = origStart
 		storyPostStory = origPost
 		openBrowser = origOpen
+		storyDaemonHasBrowser = origHasBrowser
 	})
 
-	var posted bool
-	var spawned bool
-	var opened bool
-	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) {
-		return daemon.SessionEntry{Port: 12345}, true
-	}
-	storyPostStory = func(daemon.SessionEntry, *session.Story) error { posted = true; return nil }
-	storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) { spawned = true; return daemon.SessionEntry{}, nil }
-	openBrowser = func(string, string) { opened = true }
-
-	postIngest(storyFlags{}, sessionStoryStub())
-
-	if !posted {
-		t.Error("expected story to be POSTed to the running daemon")
-	}
-	if spawned {
+	entry := daemon.SessionEntry{Port: 12345}
+	storyDaemonAlive = func(string) (daemon.SessionEntry, bool) { return entry, true }
+	storyStartDaemon = func(string, []string) (daemon.SessionEntry, error) {
 		t.Error("must NOT spawn a daemon when one is already running")
+		return daemon.SessionEntry{}, nil
 	}
-	if opened {
-		t.Error("must NOT open the browser when a daemon is already running")
-	}
+
+	t.Run("no connected browser opens #story", func(t *testing.T) {
+		var posted bool
+		var openedURL string
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { posted = true; return nil }
+		storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+		openBrowser = func(u, _ string) { openedURL = u }
+
+		postIngest(storyFlags{}, sessionStoryStub())
+
+		if !posted {
+			t.Error("expected story to be POSTed to the running daemon")
+		}
+		if !strings.HasSuffix(openedURL, "#story") {
+			t.Fatalf("running daemon with no browser must open #story, got %q", openedURL)
+		}
+		if !strings.Contains(openedURL, entry.BaseURL()) {
+			t.Fatalf("opened URL %q must target the running daemon %s", openedURL, entry.BaseURL())
+		}
+	})
+
+	t.Run("connected browser does not open another tab", func(t *testing.T) {
+		var opened bool
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { return nil }
+		storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return true }
+		openBrowser = func(string, string) { opened = true }
+
+		postIngest(storyFlags{}, sessionStoryStub())
+		if opened {
+			t.Error("must NOT open a tab when a browser is already connected")
+		}
+	})
+
+	t.Run("--no-open suppresses the browser", func(t *testing.T) {
+		var opened bool
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { return nil }
+		storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+		openBrowser = func(string, string) { opened = true }
+
+		postIngest(storyFlags{noOpen: true}, sessionStoryStub())
+		if opened {
+			t.Error("--no-open must suppress the browser when a daemon is already running")
+		}
+	})
+
+	t.Run("post failure does not open the browser", func(t *testing.T) {
+		var opened bool
+		storyPostStory = func(daemon.SessionEntry, *session.Story) error { return errors.New("post failed") }
+		storyDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+		openBrowser = func(string, string) { opened = true }
+
+		postIngest(storyFlags{}, sessionStoryStub())
+		if opened {
+			t.Error("a failed post must not open the browser")
+		}
+	})
 }
 
 // TestPostIngest_SpawnsWhenNoDaemon verifies the no-daemon branch spawns a
