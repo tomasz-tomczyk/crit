@@ -812,11 +812,12 @@ func storyReviewSessionKey(f storyFlags) (key, cwd string, err error) {
 
 // postIngest connects the freshly-saved story to a review surface (§4.1). If a
 // daemon for this session key is already running, it POSTs the story so the
-// open page live-updates via the story-updated SSE event. Otherwise it spawns
-// the daemon detached (same path as first-run `crit`) and opens the browser at
-// the story view, respecting --no-open / config. Any failure is logged, not
-// fatal: the story is already on disk, so the next `crit story`/`crit` picks it
-// up.
+// open page live-updates via the story-updated SSE event, then opens #story
+// when nothing is already connected (same check as resume and spawn). Otherwise
+// it spawns the daemon detached (same path as first-run `crit`) and opens the
+// browser at the story view, respecting --no-open / config. Any failure is
+// logged, not fatal: the story is already on disk, so the next `crit story`/`crit`
+// picks it up.
 func postIngest(f storyFlags, st *session.Story) {
 	key, cwd, err := storyReviewSessionKey(f)
 	if err != nil {
@@ -830,6 +831,9 @@ func postIngest(f storyFlags, st *session.Story) {
 			return
 		}
 		fmt.Fprintf(os.Stderr, "Updated the open review at %s\n", entry.BaseURL())
+		if !storyNoOpen(f, cwd) && !storyDaemonHasBrowser(entry) {
+			openBrowser(entry.BaseURL()+storyURLFragment, config.LoadConfig(cwd).OpenCmd)
+		}
 		return
 	}
 
