@@ -7459,17 +7459,23 @@
     const conn = window.crit.sse.createSSE('/api/events', {
       'file-changed': async function() {
       try {
-        // Reset action tracking for new round
-        userActedThisRound = false;
-
         // Clear commit filter on round-complete
         clearCommitPins();
 
         // Re-fetch everything on file-changed (round complete), keeping each
-        // file's view state. The round's own content supersedes any
-        // files-changed toast, including one raised during the fetch.
-        // false: a newer fetch (a Reload) already took over the page data.
-        await refetchReviewFiles();
+        // file's view state. false: a newer fetch (a Reload, or a later
+        // round) already took over the page data and reviewPreviousContent.
+        // Stop before the form reset and redraw. A second pass would
+        // snapshot the winner's DOM, then remap those lines through the
+        // winner's previous content and jump the reader.
+        if (!await refetchReviewFiles()) return;
+
+        // This handler still owns the outcome. Reset the round, and dismiss
+        // the files-changed toast — including one raised during the fetch —
+        // because this round's content supersedes it. A lost handler returns
+        // above, so it cannot clear an action the winner is keeping or
+        // dismiss a toast the winner just showed.
+        userActedThisRound = false;
         dismissToast('files-changed');
 
         activeForms = [];
@@ -7718,24 +7724,43 @@
 
   // ===== Toast System =====
   function showToast(id, type, content, opts) {
-    dismissToast(id);
     const container = document.getElementById('toastContainer');
+    // A toast mid-exit keeps its id until animationend. Drop every node
+    // with this id before inserting, so the replacement is the only one
+    // and Dismiss cannot hit a fading sibling.
+    const toastId = 'toast-' + id;
+    for (let i = container.children.length - 1; i >= 0; i--) {
+      if (container.children[i].id === toastId) container.children[i].remove();
+    }
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;
-    el.id = 'toast-' + id;
+    el.id = toastId;
     el.innerHTML = content;
     container.appendChild(el);
     if (opts && opts.autoDismiss) {
-      setTimeout(function() { dismissToast(id); }, 4000);
+      // Dismiss this node, not whatever later reuses the id.
+      setTimeout(function() { dismissToast(id, el); }, 4000);
     }
     return el;
   }
 
-  function dismissToast(id) {
-    const el = document.getElementById('toast-' + id);
-    if (!el) return;
-    el.classList.add('toast-out');
-    el.addEventListener('animationend', function() { el.remove(); }, { once: true });
+  function dismissToast(id, target) {
+    const pending = [];
+    if (target) {
+      pending.push(target);
+    } else {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+      const toastId = 'toast-' + id;
+      for (let i = 0; i < container.children.length; i++) {
+        if (container.children[i].id === toastId) pending.push(container.children[i]);
+      }
+    }
+    for (let i = 0; i < pending.length; i++) {
+      const el = pending[i];
+      el.classList.add('toast-out');
+      el.addEventListener('animationend', function() { el.remove(); }, { once: true });
+    }
   }
 
   // Re-fetch the session and every file, keeping each file's view state
@@ -7873,7 +7898,9 @@
   // Event delegation for toast dismiss buttons (replaces inline onclick)
   document.getElementById('toastContainer').addEventListener('click', function(e) {
     const btn = e.target.closest('[data-dismiss-toast]');
-    if (btn) dismissToast(btn.dataset.dismissToast);
+    // Dismiss the toast that was clicked. getElementById would return the
+    // first node when a duplicate id is still leaving.
+    if (btn) dismissToast(btn.dataset.dismissToast, btn.closest('.toast'));
   });
 
   // ===== Table of Contents =====
