@@ -3,7 +3,6 @@ package session
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -76,16 +75,8 @@ func hintMissingIntegrationsFor(cwd, home string) {
 	}
 }
 
-func installDaemonSignalHandler(pid int) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, daemon.TerminationSignals()...)
-	go func() {
-		<-sigCh
-		if proc, err := os.FindProcess(pid); err == nil {
-			_ = daemon.TerminateProcess(proc)
-		}
-		os.Exit(0)
-	}()
+func installDaemonSignalHandler(entry daemon.SessionEntry) {
+	daemon.StopOnSignal(entry, daemon.TerminationSignals()...)
 }
 
 // terminateDaemonProcess, waitForDaemonExit and approvalSignalGrace are seams

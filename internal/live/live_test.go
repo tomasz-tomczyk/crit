@@ -587,8 +587,10 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 				return false
 			}
 			signalHandlerInstalled := false
-			installLiveDaemonSignalHandler = func(int) {
+			var gotSignals []os.Signal
+			installLiveDaemonSignalHandler = func(_ daemon.SessionEntry, sigs ...os.Signal) {
 				signalHandlerInstalled = true
+				gotSignals = sigs
 			}
 			browserOpenCalls := 0
 			launchLiveBrowser = func(string, string) {
@@ -599,6 +601,9 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 
 			if !signalHandlerInstalled {
 				t.Fatal("daemon signal handler was not installed")
+			}
+			if !reflect.DeepEqual(gotSignals, daemon.TerminationSignals()) {
+				t.Fatalf("signals = %v, want %v", gotSignals, daemon.TerminationSignals())
 			}
 			if !clientRan {
 				t.Fatal("review client did not run")
