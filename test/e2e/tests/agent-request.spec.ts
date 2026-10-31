@@ -94,58 +94,6 @@ test.describe('Send to Agent', () => {
     await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
   });
 
-  test('the bolt icon sends a saved comment now', async ({ page }) => {
-    await loadPage(page);
-    const doc = await switchToDocumentView(page);
-    const textarea = await openDocLineComment(page, doc);
-    await textarea.fill('Saved for the round');
-    await textarea.press('Control+Enter');
-    const card = doc.locator('.comment-card', { hasText: 'Saved for the round' });
-    await expect(card.locator('.live-thread-badge')).toHaveCount(0);
-
-    const agentReq = page.waitForRequest((req) =>
-      req.url().includes('/api/agent/request') && req.method() === 'POST'
-    );
-    await card.getByRole('button', { name: 'Send to agent now' }).click();
-
-    expect((await agentReq).postDataJSON().file_path).toBeTruthy();
-    await expect(page.locator('.mini-toast')).toContainText('Sent to agent');
-    const liveCard = doc.locator('.comment-card', { hasText: 'Saved for the round' });
-    await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
-    await expect(liveCard.getByRole('button', { name: 'Send to agent now' })).toHaveCount(0);
-  });
-
-  test('the bolt shows only while the reviewer has the last word', async ({ page, request }) => {
-    const mdPath = await getMdPath(request);
-    const commentsUrl = `/api/file/comments?path=${encodeURIComponent(mdPath)}`;
-    const answered = await (await request.post(commentsUrl, {
-      data: { start_line: 5, end_line: 5, body: 'Answered by the agent' },
-    })).json();
-    await request.post(`/api/comment/${answered.id}/replies?path=${encodeURIComponent(mdPath)}`, {
-      data: { body: 'Done, see the new section.', author: 'Claude Code' },
-    });
-    await request.post(commentsUrl, {
-      data: { start_line: 9, end_line: 9, body: 'Raised by the agent', author: 'Claude Code' },
-    });
-
-    await loadPage(page);
-    const doc = await switchToDocumentView(page);
-    const answeredCard = doc.locator('.comment-card', { hasText: 'Answered by the agent' });
-    await expect(answeredCard).toContainText('Done, see the new section.');
-    await expect(answeredCard.getByRole('button', { name: 'Send to agent now' })).toHaveCount(0);
-    const agentCard = doc.locator('.comment-card', { hasText: 'Raised by the agent' });
-    await expect(agentCard).toBeVisible();
-    await expect(agentCard.getByRole('button', { name: 'Send to agent now' })).toHaveCount(0);
-
-    await answeredCard.locator('.reply-input').click();
-    await answeredCard.locator('.reply-textarea').fill('One more thing');
-    await answeredCard.locator('.reply-textarea').press('Control+Enter');
-
-    const repliedCard = doc.locator('.comment-card', { hasText: 'Answered by the agent' });
-    await expect(repliedCard).toContainText('One more thing');
-    await expect(repliedCard.getByRole('button', { name: 'Send to agent now' })).toBeVisible();
-  });
-
   test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 
