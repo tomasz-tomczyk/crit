@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -956,13 +957,13 @@ func waitDaemonReady(base string) error {
 	}
 }
 
-// storyDaemonArgs strips story-only flags from the scope args so the spawned
-// daemon runs a plain review over the same diff scope. The scope args are
-// already free of story-only flags (parseStoryFlags separates them), so this
-// is currently a passthrough — kept as a seam in case the daemon needs a
-// dedicated story flag later.
+// storyDaemonArgs builds the spawned daemon's args: the scope args (already
+// free of story-only flags, which parseStoryFlags separates) plus --no-open.
+// The story CLI owns the browser open — it opens the #story view and honours
+// --no-open / config — so the daemon must never open its own tab at the
+// review root.
 func storyDaemonArgs(scopeArgs []string) []string {
-	return scopeArgs
+	return append(slices.Clone(scopeArgs), "--no-open")
 }
 
 // storyNoOpen reports whether the browser must NOT be opened: the CLI/config
