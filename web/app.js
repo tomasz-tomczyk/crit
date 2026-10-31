@@ -6741,6 +6741,8 @@
             console.error('Error sending reply to agent:', err);
             pendingAgentRequests.delete(commentId);
             showMiniToast('Failed to send to agent');
+            if (filePath) renderFileByPath(filePath);
+            else renderReviewConversation();
           });
         }
 

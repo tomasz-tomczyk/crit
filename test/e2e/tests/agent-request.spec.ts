@@ -94,6 +94,34 @@ test.describe('Send to Agent', () => {
     await expect(liveCard.locator('.live-thread-badge')).toBeVisible();
   });
 
+  test('a failed Send now in a reply frees the reply box', async ({ page }) => {
+    // Hold the agent request until the saved reply has redrawn the thread as
+    // waiting, then fail it as a server with no agent left does.
+    let failAgentRequest!: () => void;
+    const agentRequestHeld = new Promise<void>((resolve) => { failAgentRequest = resolve; });
+    await page.route('**/api/agent/request', async (route) => {
+      await agentRequestHeld;
+      await route.fulfill({ status: 400, body: 'no agent' });
+    });
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+    const textarea = await openDocLineComment(page, doc);
+    await textarea.fill('Saved first, sent later');
+    await textarea.press('Control+Enter');
+    const card = doc.locator('.comment-card', { hasText: 'Saved first, sent later' });
+    await card.locator('.reply-input').click();
+    await card.locator('.reply-textarea').fill('Please look at this now');
+    await card.locator('.reply-form .btn-agent').click();
+    await expect(card).toContainText('Please look at this now');
+    await expect(card.locator('.reply-input')).toHaveAttribute('placeholder', /^Waiting for @/);
+
+    failAgentRequest();
+
+    await expect(page.locator('.mini-toast')).toContainText('Failed to send to agent');
+    await expect(card.locator('.reply-input')).toHaveAttribute('placeholder', 'Write a reply…');
+    await expect(card.locator('.reply-input')).toBeEnabled();
+  });
+
   test('POST /api/agent/request returns 202 and echoes the comment', async ({ request }) => {
     const mdPath = await getMdPath(request);
 
