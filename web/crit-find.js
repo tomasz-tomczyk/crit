@@ -278,12 +278,24 @@
       const seq = ++revealSeq;
       const isCurrent = function() { return open && seq === revealSeq; };
       Promise.resolve(opts.reveal(m, isCurrent)).then(function() {
-        // The row renders on a later frame; poll until it is mounted.
+        // The row renders on a later frame. Lazy search can still be loading
+        // the target file when the first 60 frames have elapsed, so wait for
+        // that load run to settle before giving up on the current highlight.
         let frames = 0;
+        let waitingForLoad = false;
         (function poll() {
           if (!isCurrent()) return;
           const range = syncHighlights();
           if (range) { scrollRangeIntoView(range); return; }
+          if (loadRun && !waitingForLoad) {
+            waitingForLoad = true;
+            loadRun.then(function() {
+              waitingForLoad = false;
+              frames = 0;
+              requestAnimationFrame(poll);
+            });
+            return;
+          }
           if (++frames < 60) requestAnimationFrame(poll);
         })();
       });
