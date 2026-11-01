@@ -453,6 +453,63 @@ body {
 .theme-toggle:hover,
 .ft-toggle:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
 
+/* Read aloud: the speaker shows waves when idle and an X while reading. */
+#readAloudToggle .read-aloud-stop { display: none; }
+#readAloudToggle.active { color: var(--crit-brand); background: var(--crit-brand-subtle); }
+#readAloudToggle.active .read-aloud-wave { display: none; }
+#readAloudToggle.active .read-aloud-stop { display: inline; }
+
+.read-aloud-bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  max-width: calc(100vw - 32px);
+  background: var(--crit-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 10px;
+  box-shadow: var(--crit-shadow);
+  color: var(--crit-editor-fg-muted);
+  font-size: 12px;
+}
+.read-aloud-bar[hidden] { display: none; }
+.read-aloud-bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 5px;
+  cursor: pointer;
+  color: inherit;
+}
+.read-aloud-bar-btn:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
+.read-aloud-bar svg { width: 14px; height: 14px; display: block; flex-shrink: 0; }
+.read-aloud-bar-play { color: var(--crit-brand); }
+.read-aloud-bar .read-aloud-icon-play { display: none; }
+.read-aloud-bar.paused .read-aloud-icon-play { display: block; }
+.read-aloud-bar.paused .read-aloud-icon-pause { display: none; }
+.read-aloud-seek { width: 180px; min-width: 60px; flex-shrink: 1; accent-color: var(--crit-brand); }
+.read-aloud-volume { width: 70px; accent-color: var(--crit-brand); }
+.read-aloud-pos { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+.read-aloud-rate {
+  background: var(--crit-editor-bg);
+  color: var(--crit-editor-fg);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .read-aloud-volume, .read-aloud-volume-icon, .read-aloud-pos { display: none; }
+}
+
 /* ===== Toast Notifications ===== */
 .toast-container {
   position: fixed;
@@ -3791,7 +3848,7 @@ html[data-theme="light"] .updates-agent-icon-light { display: block !important; 
   .pr-toggle-btn .pr-toggle-number { display: none; }
 }
 @media (max-width: 600px) {
-  .toc, #tocToggle { display: none !important; }
+  .toc, #tocToggle, #readAloudToggle { display: none !important; }
   .comments-panel, .pr-panel { display: none !important; }
   .header { padding: 10px 14px; }
   .header-context { display: none; }

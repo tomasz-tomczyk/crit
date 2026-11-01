@@ -57,6 +57,7 @@
     { label: 'View', shortcuts: [
       { id: 'toggle_file_tree', binding: 'b', action: 'Toggle sidebar (file tree / story chapters)', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_comments', binding: 'Shift+C', action: 'Toggle comments panel', modes: CODE_REVIEW_ONLY },
+      { id: 'read_aloud', binding: 'Shift+L', action: 'Read the document aloud (again to stop)', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_toc', binding: 't', action: 'Toggle table of contents', mode: 'file mode', modes: CODE_REVIEW_ONLY },
       { id: 'toggle_resolved', binding: 'h', action: 'Toggle hide resolved', modes: CODE_REVIEW_ONLY },
       { binding: 'Cmd/Ctrl+F', action: 'Find in diff (press again for the browser\'s find)', modes: CODE_REVIEW_ONLY, fixed: true },
