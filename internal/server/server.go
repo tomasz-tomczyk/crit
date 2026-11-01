@@ -1620,7 +1620,7 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		return 0, 0, err
 	}
 	if !share.FetchHasUpdates(fetched) {
-		sess.SyncCommentsFromDisk()
+		sess.ReloadCommentsFromDisk()
 		return 0, 0, nil
 	}
 	rekeyPulledPreviewComments(sess, fetched.NewComments)
@@ -1746,7 +1746,7 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 	if len(newComments) == 0 && len(replyUpdates) == 0 {
 		// Comments may already be on disk from a prior pull while memory is
 		// still stale (e.g. pendingWrite blocked the file watcher).
-		sess.SyncCommentsFromDisk()
+		sess.ReloadCommentsFromDisk()
 		writeJSON(w, map[string]any{"merged": 0, "replies_updated": 0})
 		return
 	}
