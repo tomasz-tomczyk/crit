@@ -228,6 +228,9 @@
       el.lineHeight = num(raw.lineHeight, FONTS[el.fontFamily].lineHeight);
       el.textAlign = raw.textAlign === 'center' || raw.textAlign === 'right' ? raw.textAlign : 'left';
       el.containerId = str(raw.containerId, null);
+      // How far along its arrow a label was dragged, as a fraction of the
+      // arrow's length; null keeps it in the middle (placeArrowLabels).
+      el.labelPosition = typeof raw.labelPosition === 'number' && isFinite(raw.labelPosition) ? raw.labelPosition : null;
       var lines = el.text.split('\n');
       // Hand-written scenes may omit the size Excalidraw measures.
       if (!el.width) el.width = Math.max.apply(null, lines.map(function (l) { return l.length; })) * el.fontSize * 0.55;
@@ -876,24 +879,121 @@
   // lines, samples of the smooth curve for curved ones.
   function linePoints(el, gen) {
     if (!el.roundness || el.elbowed || el.points.length < 3) return el.points;
-    var ops = gen.curve(el.points.map(function (p) { return [p[0], p[1]]; }),
-      { roughness: 0, disableMultiStroke: true, preserveVertices: true, seed: 1 }).sets[0].ops;
     var out = [];
-    ops.forEach(function (op) {
-      if (op.op === 'move') { out.push([op.data[0], op.data[1]]); return; }
-      if (op.op !== 'bcurveTo') return;
-      var p0 = out[out.length - 1];
-      var d = op.data;
-      for (var t = 1; t <= 8; t++) {
-        var s = t / 8;
-        var k = 1 - s;
-        out.push([
-          k * k * k * p0[0] + 3 * k * k * s * d[0] + 3 * k * s * s * d[2] + s * s * s * d[4],
-          k * k * k * p0[1] + 3 * k * k * s * d[1] + 3 * k * s * s * d[3] + s * s * s * d[5],
-        ]);
-      }
+    curveSegments(el, gen, 8).forEach(function (segment, i) {
+      out = out.concat(i ? segment.slice(1) : segment);
     });
     return out.length ? out : el.points;
+  }
+
+  // A curved line's Bezier segments, each sampled `samples` times, in the
+  // line's own coordinates: rough.js's smooth curve through its points, as
+  // Excalidraw draws it.
+  function curveSegments(el, gen, samples) {
+    var ops = gen.curve(el.points.map(function (p) { return [p[0], p[1]]; }),
+      { roughness: 0, disableMultiStroke: true, preserveVertices: true, seed: 1 }).sets[0].ops;
+    var segments = [];
+    var from = null;
+    ops.forEach(function (op) {
+      var d = op.data;
+      if (op.op === 'move') { from = [d[0], d[1]]; return; }
+      if (op.op !== 'bcurveTo' || !from) return;
+      var segment = [from];
+      for (var t = 1; t <= samples; t++) {
+        var s = t / samples;
+        var k = 1 - s;
+        segment.push([
+          k * k * k * from[0] + 3 * k * k * s * d[0] + 3 * k * s * s * d[2] + s * s * s * d[4],
+          k * k * k * from[1] + 3 * k * k * s * d[1] + 3 * k * s * s * d[3] + s * s * s * d[5],
+        ]);
+      }
+      segments.push(segment);
+      from = segment[samples];
+    });
+    return segments;
+  }
+
+  // --- arrow labels -------------------------------------------------------------
+
+  // An arrow's path, segment by segment, each as points along it in the
+  // arrow's own coordinates: what Excalidraw measures a label's place along
+  // (getLinearElementPathSegments). Elbow arrows count their unrounded path,
+  // as there. A curve is sampled finely enough that lengths along it are off
+  // by well under a pixel.
+  function pathSegments(el, gen) {
+    if (el.roundness && !el.elbowed && el.points.length >= 3) return curveSegments(el, gen, 64);
+    return el.points.slice(1).map(function (p, i) { return [el.points[i], p]; });
+  }
+
+  function polylineLength(points) {
+    var length = 0;
+    for (var i = 1; i < points.length; i++) {
+      length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+    }
+    return length;
+  }
+
+  // The point `distance` along a polyline, clamped to its ends
+  function pointAlong(points, distance) {
+    for (var i = 1; i < points.length; i++) {
+      var a = points[i - 1];
+      var b = points[i];
+      var length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (distance <= length || i === points.length - 1) {
+        var t = length ? clamp(distance / length, 0, 1) : 0;
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      }
+      distance -= length;
+    }
+    return points[0];
+  }
+
+  // The scene point Excalidraw centers an arrow's label on
+  // (LinearElementEditor.getBoundTextElementPosition): `labelPosition` of
+  // the way along the arrow once the label has been dragged, else the
+  // middle point, or the middle of the middle segment for an even count.
+  function arrowLabelCenter(arrow, label, gen) {
+    var segments = pathSegments(arrow, gen);
+    if (!segments.length) return null;
+    var n = arrow.points.length;
+    var p;
+    if (label.labelPosition !== null) {
+      var lengths = segments.map(polylineLength);
+      var target = clamp(label.labelPosition, 0, 1) * lengths.reduce(function (sum, l) { return sum + l; }, 0);
+      for (var i = 0; i < segments.length; i++) {
+        if (target <= lengths[i] || i === segments.length - 1) {
+          p = pointAlong(segments[i], target);
+          break;
+        }
+        target -= lengths[i];
+      }
+    } else if (n % 2 === 1) {
+      p = arrow.points[(n - 1) / 2];
+    } else {
+      var middle = segments[Math.min(n / 2 - 1, segments.length - 1)];
+      p = pointAlong(middle, polylineLength(middle) / 2);
+    }
+    var b = localBox(arrow);
+    p = rotate(p, [(b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2], arrow.angle);
+    return [arrow.x + p[0], arrow.y + p[1]];
+  }
+
+  // An arrow label's own x and y aren't kept in step with its arrow:
+  // Excalidraw derives them each time it draws. A scene saved after its
+  // arrows moved, or written by hand or by an agent, can leave them
+  // anywhere, so each label goes where the editor draws it.
+  function placeArrowLabels(elements, gen) {
+    var arrows = {};
+    elements.forEach(function (el) {
+      if (el.type === 'arrow' && el.points.length >= 2) arrows[el.id] = el;
+    });
+    elements.forEach(function (el) {
+      var arrow = el.type === 'text' && el.containerId ? arrows[el.containerId] : null;
+      var center = arrow && arrowLabelCenter(arrow, el, gen);
+      if (!center) return;
+      el.x = center[0] - el.width / 2;
+      el.y = center[1] - el.height / 2;
+    });
   }
 
   function lineHitArea(el, points) {
@@ -1287,6 +1387,7 @@
   // With `anchors`, each element's hit area also gets an id, its Excalidraw
   // id and a label, for preview mode to pin comments to.
   function drawScene(scene, rough, theme, freehand, anchors) {
+    placeArrowLabels(scene.elements, rough.generator());
     var b = sceneBounds(scene.elements);
     var width = Math.ceil(b.maxX - b.minX + PADDING * 2);
     var height = Math.ceil(b.maxY - b.minY + PADDING * 2);
@@ -1551,6 +1652,7 @@
       anchorFor: anchorFor,
       parseScene: parseScene,
       sceneBounds: sceneBounds,
+      placeArrowLabels: placeArrowLabels,
       elementSpans: elementSpans,
       drawScene: drawScene,
       renderScene: renderScene,
