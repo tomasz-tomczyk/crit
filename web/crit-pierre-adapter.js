@@ -98,6 +98,7 @@
     leex: 'html',
     svg: 'xml',
     gradle: 'groovy',
+    excalidraw: 'json',
   };
 
   // Template and sample suffixes that wrap another file type: `main.py.tmpl`,

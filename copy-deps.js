@@ -14,6 +14,9 @@ cpSync("node_modules/dompurify/dist/purify.min.js", `${dest}/dompurify.min.js`);
 // mermaid
 cpSync("node_modules/mermaid/dist/mermaid.min.js", `${dest}/mermaid.min.js`);
 
+// rough.js — draws Excalidraw scenes (crit-renderer-excalidraw.js)
+cpSync("node_modules/roughjs/bundled/rough.js", `${dest}/rough.min.js`);
+
 // @sanity/diff-match-patch — ESM-only, bundle to IIFE with esbuild
 // Expose makeDiff, cleanupSemantic, and constants as window.DiffMatchPatch
 const dmpEntry = `${dest}/_dmp-entry.js`;
@@ -24,6 +27,19 @@ window.DiffMatchPatch = {makeDiff, cleanupSemantic, DIFF_DELETE, DIFF_EQUAL, DIF
 execSync(`npx --no-install esbuild ${dmpEntry} --bundle --format=iife --minify --outfile=${dest}/diff-match-patch.min.js`, { stdio: 'inherit' });
 // Clean up temporary entry file
 unlinkSync(dmpEntry);
+
+// perfect-freehand, @excalidraw/laser-pointer and points-on-curve — Excalidraw's
+// freedraw stroke outlines and fill simplification (crit-renderer-excalidraw.js).
+// ESM-only, bundle to IIFE exposed as window.CritFreehand.
+const freehandEntry = `${dest}/_freehand-entry.js`;
+writeFileSync(freehandEntry, `\
+import {getStroke} from 'perfect-freehand';
+import {LaserPointer} from '@excalidraw/laser-pointer';
+import {simplify} from 'points-on-curve';
+window.CritFreehand = {getStroke, LaserPointer, simplify};
+`);
+execSync(`npx --no-install esbuild ${freehandEntry} --bundle --format=iife --minify --outfile=${dest}/freehand.min.js`, { stdio: 'inherit' });
+unlinkSync(freehandEntry);
 
 // @pierre/diffs + Shiki — split ESM bundle, gzipped, in web/pierre/.
 await buildPierre();

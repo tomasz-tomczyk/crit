@@ -56,6 +56,7 @@ All custom JS uses the IIFE + dual-export pattern:
 | `crit-diagram-overlay.js` | `window.crit.diagramOverlay` | Fullscreen pan/zoom view for rendered SVG output |
 | `crit-find.js` | `window.crit.find` | Find bar for the review list (Cmd/Ctrl+F): searches the file model, highlights matches in Pierre's shadow roots |
 | `crit-renderer-mermaid.js` | (registers `mermaid` twice) | Built-in Mermaid renderer: a fence registration for ```` ```mermaid ````, a file registration for `*.mermaid` / `*.mmd` |
+| `crit-renderer-excalidraw.js` | (registers `excalidraw` twice) | Built-in Excalidraw renderer: draws scenes with rough.js, freedraw with perfect-freehand / laser-pointer (`freehand.min.js`), text in Excalidraw's fonts (`web/fonts/excalidraw`), sticky notes and current arrowheads, dark theme per color; a fence registration for ```` ```excalidraw ````, a file registration for `*.excalidraw` / `*.excalidraw.json` (click an element to comment on its JSON lines) |
 | `crit-code-highlight.js` | `window.crit.codeHighlight` | Shiki highlighting for fenced code (comments, documents) via Pierre's worker pool |
 | `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff for the rendered markdown diff (files mode rounds) |
 | `crit-pierre-adapter.js` | `window.crit.pierreAdapter` | Pure mapping: Crit hunks/comments/forms → Pierre diffs, annotations, themes |
