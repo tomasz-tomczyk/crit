@@ -51,6 +51,29 @@ test('finds and reveals a match in a lazy, off-screen file', async ({ page }) =>
   await expect(page.locator('.tree-file[data-tree-path="file40.go"]')).toHaveClass(/active/);
 });
 
+test('a match found while the highlight workers start stays on screen when they fail', async ({ page }) => {
+  // Never answer the worker script, so the workers miss their 5s start limit
+  // and the page falls back to rendering without them, building a new list.
+  await page.route('**/pierre/pierre-worker.js', () => {});
+  let fellBack = false;
+  page.on('console', (m) => {
+    if (m.text().includes('Highlight workers unavailable')) fellBack = true;
+  });
+  await loadPage(page);
+  await openFind(page);
+  await input(page).fill('Goodbye130()');
+  // "1 of 1" (not "0 of 1") means find has jumped to the match.
+  await expect(count(page)).toHaveText(/^1 of 1/, { timeout: 30_000 });
+  // On a runner too slow to find it within those 5s, the jump comes after
+  // the new list and there is nothing to test.
+  test.skip(fellBack, 'the fallback came before the match was found');
+
+  await expect.poll(() => fellBack, { timeout: 20_000 }).toBe(true);
+  await expect.poll(() => currentMatch(page), { timeout: 10_000 }).toMatchObject({
+    path: 'file130.go', text: 'Goodbye130()', visible: true,
+  });
+});
+
 test('keeps the found file active in the tree until it scrolls out of view', async ({ page }) => {
   const treeRow = (path: string) => page.locator(`.tree-file[data-tree-path="${path}"]`);
   const scrollList = (by: number) => page.locator('#filesContainer').evaluate(async (el, by) => {

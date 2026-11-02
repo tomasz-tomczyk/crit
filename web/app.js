@@ -2351,6 +2351,9 @@
             disposePierreView();
             renderAllFiles();
             if (storyActive()) renderStory();
+            // A find jump made while the workers were starting went to the
+            // old view; make it again in the new one.
+            critFind.revealCurrent();
           });
         },
       });
