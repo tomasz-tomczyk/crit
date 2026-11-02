@@ -2,6 +2,9 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
+	"html"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,6 +31,10 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	baseDir := filepath.Dir(sess.Origin)
 
 	if reqPath == "" || reqPath == "/" {
+		if isPreviewExcalidrawPath(sess.Origin) {
+			s.servePreviewExcalidraw(w, sess.Origin)
+			return
+		}
 		s.servePreviewHTML(w, sess.Origin)
 		return
 	}
@@ -61,13 +68,53 @@ func isPreviewHTMLPath(path string) bool {
 	return ext == ".html" || ext == ".htm"
 }
 
+// isPreviewExcalidrawPath reports whether the previewed file is an Excalidraw
+// scene (same rule as preview.isExcalidrawPath).
+func isPreviewExcalidrawPath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".excalidraw") || strings.HasSuffix(lower, ".excalidraw.json")
+}
+
 func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 	body, err := os.ReadFile(filePath)
 	if err != nil {
 		http.Error(w, "failed to read preview file", http.StatusInternalServerError)
 		return
 	}
+	writePreviewPage(w, body)
+}
 
+// servePreviewExcalidraw serves an Excalidraw scene as a canvas page: the
+// embedded excalidraw-canvas.html with the scene inlined, which
+// crit-renderer-excalidraw.js draws element by element, so the agent's hover
+// box and pins work on the drawing like on any previewed page.
+func (s *Server) servePreviewExcalidraw(w http.ResponseWriter, filePath string) {
+	scene, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "failed to read preview file", http.StatusInternalServerError)
+		return
+	}
+	page, err := fs.ReadFile(s.assets, "excalidraw-canvas.html")
+	if err != nil {
+		http.Error(w, "missing excalidraw-canvas.html", http.StatusInternalServerError)
+		return
+	}
+	// The scene goes in as a JSON string. json.Marshal escapes <, > and &, so
+	// the file cannot close the <script> element it sits in.
+	sceneJSON, err := json.Marshal(string(scene))
+	if err != nil {
+		http.Error(w, "failed to encode scene", http.StatusInternalServerError)
+		return
+	}
+	body := strings.NewReplacer(
+		"{{TITLE}}", html.EscapeString(filepath.Base(filePath)),
+		"{{SCENE}}", string(sceneJSON),
+	).Replace(string(page))
+	writePreviewPage(w, []byte(body))
+}
+
+// writePreviewPage writes a preview page with the agent scripts injected.
+func writePreviewPage(w http.ResponseWriter, body []byte) {
 	var sb strings.Builder
 	for _, f := range AgentScriptFiles {
 		sb.WriteString(`<script src="/`)

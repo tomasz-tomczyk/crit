@@ -498,11 +498,18 @@
     { key: 'fit',     label: 'Fit',     w: 0,    h: 0 },
   ];
 
+  // A previewed Excalidraw scene is a canvas page: it fills the pane (Fit)
+  // and leaves the saved viewport of other previews alone.
+  function isCanvasPreview() {
+    var files = state.isPreview && state.session && state.session.files;
+    return !!(files && files.length && /\.excalidraw(\.json)?$/i.test(files[0].path));
+  }
+
   function applyViewport(vp, opts) {
     state.viewport = { w: vp.w, h: vp.h, key: vp.key };
     // Persist viewport key in crit-settings cookie. Skip 'custom'
     // (drag-resize) so the next session restarts at the nearest preset.
-    if (vp.key && vp.key !== 'custom' && shared && shared.setSetting) {
+    if (vp.key && vp.key !== 'custom' && !isCanvasPreview() && shared && shared.setSetting) {
       try { shared.setSetting('live_viewport', vp.key); } catch (_) { /* noop */ }
     }
     var paneRect = els.pane.getBoundingClientRect();
@@ -557,7 +564,8 @@
       if (vp) applyViewport(vp);
     });
     // Hydrate persisted viewport (desktop default).
-    var savedKey = (shared && shared.getSetting) ? shared.getSetting('live_viewport', 'desktop') : 'desktop';
+    var savedKey = isCanvasPreview() ? 'fit'
+      : (shared && shared.getSetting) ? shared.getSetting('live_viewport', 'desktop') : 'desktop';
     var initial = VIEWPORTS.find(function (v) { return v.key === savedKey; })
       || VIEWPORTS.find(function (v) { return v.key === 'desktop'; });
     applyViewport(initial);

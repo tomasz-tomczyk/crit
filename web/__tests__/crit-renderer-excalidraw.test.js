@@ -365,6 +365,30 @@ test('the sticky note footer shows its creation date, with the year when not thi
   assert.equal(excalidraw.stickyNoteFooter(note(null), now), null);
 });
 
+test('preview pins name an element by its kind and the words on it', () => {
+  const els = excalidraw.parseScene(scene([
+    { id: 'box', type: 'rectangle', x: 0, y: 0, width: 100, height: 50 },
+    { id: 'box-label', type: 'text', x: 0, y: 0, text: 'Auth\nservice', containerId: 'box' },
+    { id: 'db', type: 'ellipse', x: 200, y: 0, width: 100, height: 50 },
+    { id: 'db-label', type: 'text', x: 0, y: 0, text: 'Orders DB', containerId: 'db' },
+    { id: 'call', type: 'arrow', x: 100, y: 25, points: [[0, 0], [100, 0]], startBinding: { elementId: 'box' }, endBinding: { elementId: 'db' } },
+    { id: 'named', type: 'arrow', x: 100, y: 25, points: [[0, 0], [100, 0]] },
+    { id: 'named-label', type: 'text', x: 0, y: 0, text: 'yes', containerId: 'named' },
+    { id: 'loose', type: 'arrow', x: 0, y: 0, points: [[0, 0], [10, 0]] },
+    { id: 'note', type: 'stickynote', x: 0, y: 0, width: 200, height: 200 },
+    { id: 'f', type: 'frame', x: 0, y: 0, width: 10, height: 10, name: 'Checkout' },
+  ])).elements;
+  const labels = { box: 'Auth service', db: 'Orders DB', named: 'yes' };
+  const by = id => els.find(e => e.id === id);
+  assert.equal(excalidraw.describe(by('box'), labels), 'rectangle "Auth service"');
+  assert.equal(excalidraw.describe(by('box-label'), labels), 'text "Auth service"');
+  assert.equal(excalidraw.describe(by('call'), labels), 'arrow from "Auth service" to "Orders DB"');
+  assert.equal(excalidraw.describe(by('named'), labels), 'arrow "yes"');
+  assert.equal(excalidraw.describe(by('loose'), labels), 'arrow');
+  assert.equal(excalidraw.describe(by('note'), labels), 'sticky note');
+  assert.equal(excalidraw.describe(by('f'), labels), 'frame "Checkout"');
+});
+
 test('a line\'s hit area is a band with a box even when the line is flat', () => {
   const d = excalidraw.bandPath([[0, 0], [100, 0]], 6);
   const nums = d.match(/-?\d+(\.\d+)?/g).map(Number);
@@ -374,6 +398,60 @@ test('a line\'s hit area is a band with a box even when the line is flat', () =>
   // one quad per segment, a square for a lone point
   assert.equal((excalidraw.bandPath([[0, 0], [50, 0], [50, 40]], 6).match(/Z/g) || []).length, 2);
   assert.match(excalidraw.bandPath([[5, 5]], 6), /^M -1 -1 h 12 v 12 h -12 Z$/);
+});
+
+// Just enough DOM for drawScene: elements keep their attributes in the order
+// they were set, like the real thing, and serialize like outerHTML.
+function fakeDocument() {
+  const doc = {};
+  // createElementNS(ns, tag) or createElement(tag): the tag comes last.
+  doc.createElementNS = doc.createElement = (...args) => {
+    const tag = args[args.length - 1];
+    const attrs = new Map();
+    const node = {
+      tagName: tag, ownerDocument: doc, children: [], style: {}, textContent: '',
+      setAttribute(k, v) { attrs.set(k, String(v)); },
+      getAttribute(k) { return attrs.has(k) ? attrs.get(k) : null; },
+      hasAttribute(k) { return attrs.has(k); },
+      removeAttribute(k) { attrs.delete(k); },
+      appendChild(child) { node.children.push(child); return child; },
+      get lastChild() { return node.children[node.children.length - 1] || null; },
+      get outerHTML() { return '<' + tag + [...attrs].map(([k, v]) => ` ${k}="${v}"`).join('') + '>'; },
+      all() { return [node].concat(...node.children.map(c => c.all())); },
+    };
+    return node;
+  };
+  return doc;
+}
+
+test('in preview mode each element\'s hit area is an anchor named after it', () => {
+  const pts = Array.from({ length: 200 }, (_, i) => [i * 2, Math.round(20 * Math.sin(i / 7))]);
+  const s = excalidraw.parseScene(scene([
+    { id: 'box', type: 'rectangle', x: 0, y: 0, width: 120, height: 60 },
+    { id: 'box-label', type: 'text', x: 10, y: 20, width: 100, height: 25, text: 'Auth service', containerId: 'box' },
+    { id: 'note', type: 'text', x: 0, y: 100, width: 80, height: 25, text: 'loose note' },
+    { id: 'scribble', type: 'freedraw', x: 0, y: 150, points: pts, simulatePressure: true },
+  ]));
+  const saved = global.document;
+  global.document = fakeDocument();
+  try {
+    const svg = excalidraw.drawScene(s, loadRough(), 'light', loadFreehand(), true);
+    const byId = id => svg.all().find(n => n.getAttribute('id') === id);
+    assert.equal(svg.getAttribute('pointer-events'), 'none', 'only hit areas take the pointer');
+    assert.equal(svg.children[0].hasAttribute('id'), false, 'the empty canvas is no anchor');
+    assert.equal(byId('excalidraw-box').getAttribute('aria-label'), 'rectangle "Auth service"');
+    assert.equal(byId('excalidraw-box').getAttribute('data-excalidraw-id'), 'box');
+    assert.equal(byId('excalidraw-note').getAttribute('aria-label'), 'text "loose note"');
+    assert.equal(byId('excalidraw-box-label'), undefined, 'a shape\'s label is part of the shape');
+    const label = svg.all().find(n => n.hasAttribute('data-excalidraw-hit') && n.getAttribute('pointer-events') === 'none');
+    assert.ok(label, 'the label lets the pointer through to its shape');
+    // A long stroke's anchor keeps its identity inside the 2 KB the agent stores.
+    const html = byId('excalidraw-scribble').outerHTML;
+    assert.ok(html.slice(0, 2048).includes('data-excalidraw-id="scribble"'), html.slice(0, 200));
+    assert.ok(html.indexOf(' d="') > html.indexOf(' aria-label='), 'geometry comes after identity');
+  } finally {
+    global.document = saved;
+  }
 });
 
 test('Source view highlights .excalidraw files as JSON', () => {

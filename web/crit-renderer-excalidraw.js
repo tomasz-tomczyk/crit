@@ -8,6 +8,8 @@
 // element's seed and Excalidraw's stroke options, and freedraw through
 // perfect-freehand and Excalidraw's laser-pointer, so they come out as in the
 // editor. Text uses Excalidraw's fonts (web/fonts/excalidraw) and layout.
+// Preview mode draws a whole scene as a canvas page through
+// window.crit.excalidraw.renderScene (crit-excalidraw-canvas.js).
 // Dependencies: window.crit.renderers (when present). rough.min.js (window.rough),
 // freehand.min.js (window.CritFreehand) and the fonts are not part of the
 // page: the first render that needs them loads them, so reviews without a
@@ -63,8 +65,8 @@
   // (<Family>/index.ts there). The browser fetches a subset only when text
   // uses a character in its range.
   var FONT_DIR = 'fonts/excalidraw/';
-  // Crit's assets sit next to this script, so the libraries and fonts load
-  // from where it was loaded, whatever the page's own path.
+  // Crit's assets sit next to this script: the review page and the preview
+  // canvas page (under /preview-content) both load it from the root.
   var ASSET_BASE = (function () {
     var script = typeof document !== 'undefined' && document.currentScript;
     return script && script.src ? script.src.replace(/[^/]*$/, '') : '';
@@ -262,6 +264,7 @@
     return {
       elements: elements,
       background: str(appState.viewBackgroundColor, '#ffffff'),
+      gridSize: num(appState.gridSize, 0) || 20,
       files: data.files && typeof data.files === 'object' ? data.files : {},
     };
   }
@@ -846,7 +849,9 @@
 
   // Path data for a band `half` wide either side of a polyline: one quad per
   // segment, all wound the same way so they union, and long enough to cover
-  // the joins, so a click near a thin line or arrow still lands on it.
+  // the joins, so a click near a thin line or arrow still lands on it. Its
+  // box is never flat, unlike a horizontal line's, so a highlight drawn from
+  // it shows.
   function bandPath(points, half) {
     var r = function (v) { return Math.round(v * 10) / 10; };
     var d = [];
@@ -1245,10 +1250,43 @@
 
   var renderSeq = 0;
 
+  function lines(text) {
+    return String(text || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+  }
+
+  var KIND_NAMES = { stickynote: 'sticky note', freedraw: 'freehand stroke', embeddable: 'embed', iframe: 'embed', magicframe: 'frame' };
+
+  // How a comment names an element: its kind and the words on it, or for a
+  // line or arrow without a label, the labels of what it connects.
+  function describe(el, labels) {
+    var quoted = function (words) { return words ? ' "' + words + '"' : ''; };
+    var kind = KIND_NAMES[el.type] || el.type;
+    if (el.type === 'text') return kind + quoted(lines(el.text).join(' '));
+    if (el.type === 'frame' || el.type === 'magicframe') return kind + quoted(el.name);
+    if (labels[el.id]) return kind + quoted(labels[el.id]);
+    if (el.type === 'arrow' || el.type === 'line') {
+      var from = el.startId && labels[el.startId];
+      var to = el.endId && labels[el.endId];
+      return kind + (from ? ' from' + quoted(from) : '') + (to ? ' to' + quoted(to) : '');
+    }
+    return kind;
+  }
+
+  // An id for an element's hit area: its Excalidraw id, made a valid CSS id
+  // and unique in the scene. A pin's selector is then #excalidraw-<id>.
+  function anchorId(el, used) {
+    var id = 'excalidraw-' + el.id.replace(/[^A-Za-z0-9_-]/g, '_');
+    while (used[id]) id += '_';
+    used[id] = true;
+    return id;
+  }
+
   // The scene as an <svg> with its background, PADDING around the elements.
   // Each element is a <g data-excalidraw-index> holding what draws it.
   // freehand (window.CritFreehand) is needed only for freedraw elements.
-  function drawScene(scene, rough, theme, freehand) {
+  // With `anchors`, each element's hit area also gets an id, its Excalidraw
+  // id and a label, for preview mode to pin comments to.
+  function drawScene(scene, rough, theme, freehand, anchors) {
     var b = sceneBounds(scene.elements);
     var width = Math.ceil(b.maxX - b.minX + PADDING * 2);
     var height = Math.ceil(b.maxY - b.minY + PADDING * 2);
@@ -1258,6 +1296,10 @@
     });
     var dark = theme === 'dark';
     svg.appendChild(svgEl('rect', { width: width, height: height, fill: scene.background === 'transparent' ? 'none' : paint(scene.background, dark) }));
+    // Only hit areas take the pointer, so it lands on an element's anchor,
+    // never on a stroke poking past one; empty space falls through to the
+    // page (the canvas page treats that as the empty canvas).
+    if (anchors) svg.setAttribute('pointer-events', 'none');
     var c = {
       rs: rough.svg(svg),
       freehand: freehand,
@@ -1268,8 +1310,13 @@
       idPrefix: 'crit-excalidraw-' + (++renderSeq) + '-',
       arrowIds: {},
     };
+    var labels = {};
+    var used = {};
+    var ids = {};
     scene.elements.forEach(function (el) {
+      ids[el.id] = true;
       if (el.type === 'arrow') c.arrowIds[el.id] = true;
+      if (el.type === 'text' && el.containerId) labels[el.containerId] = lines(el.text).join(' ');
     });
     scene.elements.forEach(function (el) {
       var box = localBox(el);
@@ -1280,6 +1327,26 @@
       var g = svgEl('g', { 'data-excalidraw-index': el.index, transform: transform });
       if (el.opacity < 100) g.setAttribute('opacity', Math.max(0, el.opacity) / 100);
       DRAW[el.type](g, el, c);
+      var hit = g.lastChild;
+      if (anchors && hit && hit.hasAttribute('data-excalidraw-hit')) {
+        if (el.type === 'text' && ids[el.containerId] && !c.arrowIds[el.containerId]) {
+          // A shape's label is part of the shape, as in Excalidraw: the
+          // pointer goes through it to the shape's own hit area.
+          hit.setAttribute('pointer-events', 'none');
+        } else {
+          // Identity before geometry: a pin keeps the element's outerHTML
+          // cut to 2 KB, and a long outline would push these out of it.
+          var geometry = ['d', 'points'].filter(function (k) { return hit.hasAttribute(k); }).map(function (k) {
+            var value = hit.getAttribute(k);
+            hit.removeAttribute(k);
+            return [k, value];
+          });
+          hit.setAttribute('id', anchorId(el, used));
+          hit.setAttribute('data-excalidraw-id', el.id);
+          hit.setAttribute('aria-label', describe(el, labels));
+          geometry.forEach(function (kv) { hit.setAttribute(kv[0], kv[1]); });
+        }
+      }
       svg.appendChild(g);
     });
     return svg;
@@ -1365,19 +1432,35 @@
     ]);
   }
 
-  // Draw a scene as an <svg> once rough.js, freehand.min.js (for freedraw)
-  // and the fonts its text uses are loaded. Parses first, so a source that
-  // is not a scene throws without a download.
-  function render(source, ctx) {
+  // Draw a scene: resolves to { svg, background, origin, gridSize }: the
+  // canvas color as painted, the scene point at the drawing's top-left
+  // corner, and the scene's grid size. opts: theme ('light' | 'dark'), anchors (see drawScene), and
+  // waitForFonts (default true; false draws at once and lets the fonts swap
+  // in, so with the libraries already loaded the promise settles in the
+  // current task). Parses first, so a source that is not a scene throws
+  // without a download.
+  function renderScene(source, opts) {
+    var o = opts || {};
     var scene = parseScene(source);
     var freedraw = scene.elements.some(function (el) { return el.type === 'freedraw'; });
+    var fonts = loadFonts(scene);
     return Promise.all([
       loadRough(),
       freedraw ? loadFreehand() : null,
-      loadFonts(scene),
+      o.waitForFonts === false ? null : fonts,
     ]).then(function (libs) {
-      return drawScene(scene, libs[0], ctx.theme, libs[1]);
+      var b = sceneBounds(scene.elements);
+      return {
+        svg: drawScene(scene, libs[0], o.theme, libs[1], !!o.anchors),
+        background: paint(scene.background, o.theme === 'dark'),
+        origin: { x: b.minX - PADDING, y: b.minY - PADDING },
+        gridSize: scene.gridSize,
+      };
     });
+  }
+
+  function render(source, ctx) {
+    return renderScene(source, { theme: ctx.theme }).then(function (out) { return out.svg; });
   }
 
   // --- anchors ----------------------------------------------------------------
@@ -1453,9 +1536,13 @@
     zoomable: true,
   };
 
-  if (typeof window !== 'undefined' && window.crit && window.crit.renderers) {
-    window.crit.renderers.register(fence);
-    window.crit.renderers.register(file);
+  if (typeof window !== 'undefined') {
+    window.crit = window.crit || {};
+    window.crit.excalidraw = { renderScene: renderScene };
+    if (window.crit.renderers) {
+      window.crit.renderers.register(fence);
+      window.crit.renderers.register(file);
+    }
   }
   if (typeof module === 'object' && module.exports) {
     module.exports = {
@@ -1466,6 +1553,8 @@
       sceneBounds: sceneBounds,
       elementSpans: elementSpans,
       drawScene: drawScene,
+      renderScene: renderScene,
+      describe: describe,
       bandPath: bandPath,
       freedrawOutline: freedrawOutline,
       linearShapes: linearShapes,
