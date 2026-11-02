@@ -108,6 +108,44 @@ func TestGetSessionInfoScoped_AllKeepsRevertedCommentedFileAsOrphan(t *testing.T
 	}
 }
 
+// A commented file that leaves the branch (the commit that added it is
+// amended) must stay listed under "branch" as an orphan, so its comments can
+// still be resolved. A commented file with only uncommitted changes is not in
+// the branch diff and has not left the review, so "branch" must not list it.
+func TestGetSessionInfoScoped_BranchKeepsCommentedFileThatLeftTheBranch(t *testing.T) {
+	dir := newAllScopeRepo(t)
+	writeFile(t, filepath.Join(dir, "added.go"), "package sample\n\nfunc added() {}\n")
+	gitT(t, dir, "add", "added.go")
+	gitT(t, dir, "commit", "-m", "add added.go")
+	writeFile(t, filepath.Join(dir, "app.go"), strings.Replace(allScopeSample, "\"base\"", "\"edited\"", 1))
+	chdirForTest(t, dir)
+	sess := startAllScopeSession(t)
+
+	if _, ok := sess.AddComment("added.go", 3, 3, "", "drop this file", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on added.go failed")
+	}
+	if _, ok := sess.AddComment("app.go", 7, 7, "", "uncommitted edit", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on app.go failed")
+	}
+
+	gitT(t, dir, "rm", "-q", "added.go")
+	sess.WriteFiles()
+	gitT(t, dir, "commit", "--amend", "--allow-empty", "-m", "nothing added")
+	sess.handleRoundCompleteGit()
+
+	info := sess.GetSessionInfoScoped("branch", "")
+	fi, ok := fileInfoByPath(info, "added.go")
+	if !ok || !fi.Orphaned || fi.CommentCount != 1 {
+		t.Errorf("added.go = %+v (listed=%v), want an orphaned row with 1 comment", fi, ok)
+	}
+	if info.HiddenUnresolved != 1 {
+		t.Errorf("HiddenUnresolved = %d, want 1 (only the app.go comment is off the branch list)", info.HiddenUnresolved)
+	}
+	if fi, ok := fileInfoByPath(info, "app.go"); ok {
+		t.Errorf("app.go has only uncommitted changes and must not be listed under branch, got %+v", fi)
+	}
+}
+
 // jj and Sapling only implement "branch" in FileDiffScoped; scope "all" must
 // still produce stats and hunks.
 func TestGetSessionInfoScoped_AllWorksWithoutScopedDiffSupport(t *testing.T) {
