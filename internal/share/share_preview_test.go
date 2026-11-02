@@ -2,6 +2,7 @@ package share
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
+
+// `crit share --preview arch.excalidraw` stops with the reason before
+// anything is uploaded.
+func TestPostPreviewShare_RefusesExcalidrawScene(t *testing.T) {
+	scene := filepath.Join(t.TempDir(), "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("crit-web was called: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	_, err := postPreviewShare(scene, srv.URL, "", "", "")
+	if !errors.Is(err, session.ErrSceneShareUnsupported) || err.Error() != session.ErrSceneShareUnsupported.Error() {
+		t.Fatalf("err = %v, want just %q", err, session.ErrSceneShareUnsupported)
+	}
+}
 
 // TestParseShareFlagsPreview verifies the --preview flag is parsed into the
 // shareFlags.preview field and does not consume positional file arguments.

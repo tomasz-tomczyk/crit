@@ -1,13 +1,59 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
+
+// Sharing a canvas preview stops before anything reaches crit-web, on the
+// direct Share path and on the proxy-auth relay, with a JSON reason the
+// Share button's toast shows.
+func TestShare_ExcalidrawCanvasPreviewIsRefused(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("crit-web was called: %s %s", r.Method, r.URL.Path)
+	}))
+	defer critWeb.Close()
+
+	sess := &Session{
+		Mode: "files", ReviewType: "preview", RepoRoot: dir, OutputDir: dir, Origin: scene, ReviewRound: 1,
+		Files: []*FileEntry{{Path: "arch.excalidraw", AbsPath: scene, FileType: "code", Content: `{"elements":[]}`}},
+	}
+	sess.InitTestChannels()
+	s, err := NewServer(sess, frontendFS, critWeb.URL, false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.authMu.Lock()
+	s.cfg.ShareConsented = true
+	s.authMu.Unlock()
+
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPost, "/api/share"},
+		{http.MethodGet, "/api/share/preview-payload"},
+	} {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest(route.method, route.path, nil))
+		var body map[string]string
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if w.Code != http.StatusBadRequest || body["error"] != session.ErrSceneShareUnsupported.Error() {
+			t.Errorf("%s %s = %d %s, want 400 with the reason", route.method, route.path, w.Code, w.Body.String())
+		}
+	}
+}
 
 func newPreviewContentTestServer(t *testing.T, htmlFile string) *Server {
 	t.Helper()

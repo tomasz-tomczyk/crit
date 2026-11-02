@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 // handlePreviewContent serves the previewed HTML file and its sibling assets.
@@ -31,7 +33,7 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	baseDir := filepath.Dir(sess.Origin)
 
 	if reqPath == "" || reqPath == "/" {
-		if isPreviewExcalidrawPath(sess.Origin) {
+		if session.IsExcalidrawScene(sess.Origin) {
 			s.servePreviewExcalidraw(w, sess.Origin)
 			return
 		}
@@ -66,13 +68,6 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 func isPreviewHTMLPath(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".html" || ext == ".htm"
-}
-
-// isPreviewExcalidrawPath reports whether the previewed file is an Excalidraw
-// scene (same rule as preview.isExcalidrawPath).
-func isPreviewExcalidrawPath(path string) bool {
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".excalidraw") || strings.HasSuffix(lower, ".excalidraw.json")
 }
 
 func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {

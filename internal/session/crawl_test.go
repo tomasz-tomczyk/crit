@@ -1,11 +1,42 @@
 package session
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestIsExcalidrawScene(t *testing.T) {
+	for path, want := range map[string]bool{
+		"arch.excalidraw":         true,
+		"docs/Arch.EXCALIDRAW":    true,
+		"arch.excalidraw.json":    true,
+		"arch.Excalidraw.JSON":    true,
+		"arch.json":               false,
+		"excalidraw.html":         false,
+		"arch.excalidraw.md":      false,
+		"notes/excalidraw/a.html": false,
+	} {
+		if got := IsExcalidrawScene(path); got != want {
+			t.Errorf("IsExcalidrawScene(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// crit-web can't show a canvas preview yet; crawling one would publish the
+// scene's JSON as the page.
+func TestCrawlPreview_RefusesExcalidrawScene(t *testing.T) {
+	scene := filepath.Join(t.TempDir(), "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := CrawlPreview(scene, "arch.excalidraw")
+	if !errors.Is(err, ErrSceneShareUnsupported) || files != nil {
+		t.Fatalf("CrawlPreview = %v, %v; want ErrSceneShareUnsupported", files, err)
+	}
+}
 
 func TestCrawlHTMLFile(t *testing.T) {
 	dir := t.TempDir()
