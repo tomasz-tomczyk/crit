@@ -78,7 +78,9 @@ scene opens it in preview mode, like an HTML file, as a canvas page:
 
 The scene must be passed alone: with other files, it opens in the review
 list with the Diagram / Source toggle above, where comments attach to the
-scene's JSON lines. Sharing a canvas preview to crit-web is not supported.
+scene's JSON lines. crit-web can't show a canvas preview yet, so the Share
+button and `crit share --preview` refuse one with that reason
+(`session.ErrSceneShareUnsupported`).
 
 Supported: rectangles, diamonds, ellipses, lines, arrows (straight, curved
 and elbow, with every arrowhead, including the ER cardinality markers), text,

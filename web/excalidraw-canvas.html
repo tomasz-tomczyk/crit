@@ -16,6 +16,7 @@
     --island-hover: #f1f0ff;
     --island-selected-bg: #e0dfff;
     --island-selected-fg: #4a47b1;
+    --island-focus: #6965db;
     --island-shadow: 0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.08), 0 7px 14px rgb(0 0 0 / 0.05);
     --canvas-error: #c92a2a;
   }
@@ -26,6 +27,7 @@
     --island-hover: #2e2d39;
     --island-selected-bg: #403e6a;
     --island-selected-fg: #e0dfff;
+    --island-focus: #a8a5ff;
     --island-shadow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 1px 3px rgb(0 0 0 / 0.3), 0 7px 14px rgb(0 0 0 / 0.25);
     --canvas-error: #ff8787;
   }
@@ -97,7 +99,7 @@
   }
   .crit-island button:hover { background: var(--island-hover); }
   .crit-island button[aria-pressed="true"] { color: var(--island-selected-fg); background: var(--island-selected-bg); }
-  .crit-island button:focus-visible { outline: 2px solid #6965db; outline-offset: -2px; }
+  .crit-island button:focus-visible { outline: 2px solid var(--island-focus); outline-offset: -2px; }
   .crit-island svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   #crit-canvas-zoom { min-width: 52px; font-variant-numeric: tabular-nums; }
   :root[data-canvas-theme="dark"] .crit-icon-moon, :root:not([data-canvas-theme="dark"]) .crit-icon-sun { display: none; }
