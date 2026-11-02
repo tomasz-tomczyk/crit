@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/browser"
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 // PreviewSessionKey returns the session key for preview mode.
@@ -31,7 +31,7 @@ func LooksLikePreviewArgs(args []string) bool {
 		return false
 	}
 	ext := filepath.Ext(args[0])
-	if ext != ".html" && ext != ".htm" && !isExcalidrawPath(args[0]) {
+	if ext != ".html" && ext != ".htm" && !session.IsExcalidrawScene(args[0]) {
 		return false
 	}
 	info, err := os.Stat(args[0])
@@ -39,13 +39,6 @@ func LooksLikePreviewArgs(args []string) bool {
 		return false
 	}
 	return !info.IsDir()
-}
-
-// isExcalidrawPath reports whether path names an Excalidraw scene. The
-// server's preview handler keeps the same rule (isPreviewExcalidrawPath).
-func isExcalidrawPath(path string) bool {
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".excalidraw") || strings.HasSuffix(lower, ".excalidraw.json")
 }
 
 func connectToPreviewDaemon(key string, noOpen bool, openCmd string, quiet bool) bool {
