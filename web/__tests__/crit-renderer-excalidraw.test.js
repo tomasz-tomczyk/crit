@@ -132,6 +132,48 @@ test('sceneBounds spans arrow points, rotated boxes and frame names', () => {
   assert.equal(excalidraw.sceneBounds(excalidraw.parseScene(scene([frame])).elements).minY, 76);
 });
 
+test('an arrow\'s label is centered where Excalidraw draws it, not at its saved x and y', () => {
+  const gen = loadRough().generator();
+  // The label's center after placement, for an arrow with these fields.
+  const centerOn = (fields, labelFields) => {
+    const elements = excalidraw.parseScene(scene([
+      Object.assign({ id: 'a', type: 'arrow', x: 10, y: 20 }, fields),
+      Object.assign({ id: 'l', type: 'text', x: -500, y: -500, width: 40, height: 20, text: 'yes', containerId: 'a' }, labelFields),
+    ])).elements;
+    excalidraw.placeArrowLabels(elements, gen);
+    const label = elements[1];
+    return [label.x + label.width / 2, label.y + label.height / 2];
+  };
+  const near = (actual, expected) => assert.ok(
+    Math.abs(actual[0] - expected[0]) < 0.5 && Math.abs(actual[1] - expected[1]) < 0.5,
+    JSON.stringify(actual) + ' is not near ' + JSON.stringify(expected));
+
+  // An even count: the middle of the middle segment.
+  near(centerOn({ points: [[0, 0], [100, 40]] }), [60, 40]);
+  // An odd count: the middle point.
+  near(centerOn({ points: [[0, 0], [100, 0], [100, 100]] }), [110, 20]);
+  // Dragged along the arrow: a fraction of its whole length, here 50 of 200.
+  near(centerOn({ points: [[0, 0], [100, 0], [100, 100]] }, { labelPosition: 0.25 }), [60, 20]);
+  near(centerOn({ points: [[0, 0], [100, 0], [100, 100]] }, { labelPosition: 0.75 }), [110, 70]);
+  // A curved arrow: half the length of rough.js's middle curve, which bulges
+  // right; (105.59, 49.27) by dense integration. The chord's middle would be
+  // (100, 50), the curve's t = 0.5 point (106.25, 43.75).
+  near(centerOn({ points: [[0, 0], [100, 0], [100, 100], [100, 200]], roundness: { type: 2 } }), [115.59, 69.27]);
+  // An elbow arrow: the middle of its unrounded middle run.
+  near(centerOn({ points: [[0, 0], [0, 50], [100, 50], [100, 100]], elbowed: true, roundness: null }), [60, 70]);
+  // Turned with the arrow, about the middle of its points.
+  near(centerOn({ points: [[0, 0], [100, 0], [100, 100]], angle: Math.PI }), [10, 120]);
+
+  // A label in a shape, or on an arrow with no length, keeps its place.
+  const elements = excalidraw.parseScene(scene([
+    box, label,
+    { id: 'dot', type: 'arrow', x: 0, y: 0, points: [[0, 0]] },
+    { id: 'dot-label', type: 'text', x: 5, y: 6, width: 40, height: 20, text: 'x', containerId: 'dot' },
+  ])).elements;
+  excalidraw.placeArrowLabels(elements, gen);
+  assert.deepEqual(elements.filter(el => el.type === 'text').map(el => [el.x, el.y]), [[20, 32], [5, 6]]);
+});
+
 test('elementSpans finds each element\'s lines in a pretty-printed scene', () => {
   const src = scene([box, label, arrow], { appState: { viewBackgroundColor: '#fff' }, files: {} });
   const lines = src.split('\n');
