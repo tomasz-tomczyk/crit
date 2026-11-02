@@ -56,6 +56,30 @@ the rest of the review keeps working.
   font subset load when the first scene needs them.
 - **Expand** opens the scene fullscreen, with pan and zoom.
 
+### A scene on its own: the canvas
+
+`crit arch.excalidraw` (or `crit preview arch.excalidraw`) with a single
+scene opens it in preview mode, like an HTML file, as a canvas page:
+
+- It works like Excalidraw's canvas: infinite, with a dotted grid and no
+  scrollbars, filling the preview (it opens on the Fit viewport). The wheel
+  or a trackpad pans in any direction; Ctrl/Cmd + wheel or a pinch zooms at
+  the pointer; dragging pans. Space + drag, a middle-button drag and the hand
+  tool (`H`) always pan. The islands at the bottom left zoom (`+`, `-`, `0`
+  for 100%), fit the scene (`1`), toggle the hand tool and the grid, and
+  switch the canvas between light and dark.
+- In Comment mode, hovering outlines the element under the pointer and a
+  click pins a comment to it; a drag pans instead. A shape and its label are
+  one element, as in Excalidraw; an arrow's label is its own. The empty
+  canvas takes no pins: use a review comment for the diagram as a whole.
+- A pin is stored with the selector `#excalidraw-<element id>` and a name
+  such as `rectangle "Auth service"` or `arrow from "Auth service" to
+  "Orders DB"`, so the agent can find the element in the scene's JSON.
+
+The scene must be passed alone: with other files, it opens in the review
+list with the Diagram / Source toggle above, where comments attach to the
+scene's JSON lines. Sharing a canvas preview to crit-web is not supported.
+
 Supported: rectangles, diamonds, ellipses, lines, arrows (straight, curved
 and elbow, with every arrowhead, including the ER cardinality markers), text,
 sticky notes (paper, shadow and creation date), frames, freedraw and embedded

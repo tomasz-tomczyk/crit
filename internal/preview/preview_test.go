@@ -42,9 +42,15 @@ func TestLooksLikePreviewArgs(t *testing.T) {
 	htmlFile := filepath.Join(dir, "test.html")
 	htmFile := filepath.Join(dir, "test.htm")
 	mdFile := filepath.Join(dir, "test.md")
+	sceneFile := filepath.Join(dir, "arch.excalidraw")
+	sceneJSONFile := filepath.Join(dir, "Arch.Excalidraw.json")
+	plainJSONFile := filepath.Join(dir, "arch.json")
 	writeTestFile(t, htmlFile, "<html></html>")
 	writeTestFile(t, htmFile, "<html></html>")
 	writeTestFile(t, mdFile, "# hello")
+	writeTestFile(t, sceneFile, `{"elements":[]}`)
+	writeTestFile(t, sceneJSONFile, `{"elements":[]}`)
+	writeTestFile(t, plainJSONFile, `{}`)
 	if err := os.Mkdir(filepath.Join(dir, "dir.html"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +63,10 @@ func TestLooksLikePreviewArgs(t *testing.T) {
 		{name: "html", args: []string{htmlFile}, want: true},
 		{name: "htm", args: []string{htmFile}, want: true},
 		{name: "non-html extension", args: []string{mdFile}, want: false},
+		{name: "excalidraw scene", args: []string{sceneFile}, want: true},
+		{name: "excalidraw.json scene, any case", args: []string{sceneJSONFile}, want: true},
+		{name: "plain json", args: []string{plainJSONFile}, want: false},
+		{name: "excalidraw with another file", args: []string{sceneFile, mdFile}, want: false},
 		{name: "directory", args: []string{filepath.Join(dir, "dir.html")}, want: false},
 		{name: "missing", args: []string{filepath.Join(dir, "nonexistent.html")}, want: false},
 		{name: "multiple files", args: []string{htmlFile, htmFile}, want: false},

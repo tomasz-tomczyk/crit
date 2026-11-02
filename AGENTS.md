@@ -43,7 +43,7 @@ crit/
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
-16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`); built-in excalidraw (`crit-renderer-excalidraw.js`) covers ```` ```excalidraw ````, `*.excalidraw`, `*.excalidraw.json`, drawing with `rough.min.js` and `freehand.min.js` (freedraw) in Excalidraw's fonts (`web/fonts/excalidraw`, copied from the Excalidraw repo; `SHA256SUMS` + `LICENSES.txt` there), all loaded on first use. New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
+16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`); built-in excalidraw (`crit-renderer-excalidraw.js`) covers ```` ```excalidraw ````, `*.excalidraw`, `*.excalidraw.json`, drawing with `rough.min.js` and `freehand.min.js` (freedraw) in Excalidraw's fonts; a lone scene opens in preview mode as a canvas page (`excalidraw-canvas.html` + `crit-excalidraw-canvas.js`, served by `servePreviewExcalidraw`) where the agent's hover box and pins work per element (`#excalidraw-<id>`) (`web/fonts/excalidraw`, copied from the Excalidraw repo; `SHA256SUMS` + `LICENSES.txt` there), all loaded on first use. New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
 17. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
 
 <important if="you are writing a plan, design doc, or implementation proposal, or about to commit">
@@ -73,7 +73,7 @@ crit                          # Review git changes (starts daemon, blocks for fe
 crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
 crit review [...]             # Explicit review invocation (same as default)
 crit live <url>               # Review a running web app in live mode (also: crit <url>)
-crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
+crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>); an Excalidraw scene (crit <file.excalidraw>) previews as a canvas
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit resume [--list | <id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)

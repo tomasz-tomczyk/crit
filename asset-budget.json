@@ -46,8 +46,8 @@
   "globs": [
     {
       "pattern": "web/crit-*.js",
-      "gzipBytes": 150000,
-      "note": "shared renderer/comment/diff modules; recalibrated after moving Mermaid and fullscreen controls out of app.js into the renderer registry (~108 KB gzip), then after the built-in Excalidraw renderer (~136 KB gzip); catches module sprawl"
+      "gzipBytes": 155000,
+      "note": "shared renderer/comment/diff modules; recalibrated after moving Mermaid and fullscreen controls out of app.js into the renderer registry (~108 KB gzip), then after the built-in Excalidraw renderer (~136 KB gzip) and its preview canvas (~142 KB gzip); catches module sprawl"
     }
   ],
   "totalJsGzipBytes": 2300000,
