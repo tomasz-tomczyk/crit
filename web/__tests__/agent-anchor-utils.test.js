@@ -185,6 +185,17 @@ test('verifyTagChain returns false on mismatch', () => {
   assert.equal(u.verifyTagChain(h2, ['MAIN', 'SECTION', 'H2']), false);
 });
 
+test('verifyTagChain matches SVG elements, whose tagName stays lowercase', () => {
+  // tagChainFor records "RECT"; an SVG <rect> in an HTML page reports "rect".
+  const body = { tagName: 'BODY', parentElement: null };
+  const svg = { tagName: 'svg', parentElement: body };
+  const g = { tagName: 'g', parentElement: svg };
+  const rect = { tagName: 'rect', parentElement: g };
+  assert.equal(u.verifyTagChain(rect, ['RECT']), true);
+  assert.equal(u.verifyTagChain(rect, ['SVG', 'G', 'RECT']), true);
+  assert.equal(u.verifyTagChain(rect, ['G', 'PATH']), false);
+});
+
 test('verifyTagChain returns false when chain longer than ancestry', () => {
   const body = { tagName: 'BODY', parentElement: null };
   const h2 = { tagName: 'H2', parentElement: body };
