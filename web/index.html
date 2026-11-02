@@ -483,11 +483,12 @@
       // Shiki highlighting for fenced code (comments, documents), then line-block
       // building (buildLineBlocks). Both must load before app.js.
       var chl = document.createElement('script'); chl.src = 'crit-code-highlight.js'; chl.async = false; document.body.appendChild(chl);
-      // Pluggable renderers (registry, fullscreen overlay, built-in mermaid).
-      // Must load before crit-line-blocks.js and app.js.
+      // Pluggable renderers (registry, fullscreen overlay, built-in mermaid
+      // and excalidraw). Must load before crit-line-blocks.js and app.js.
       var rg = document.createElement('script'); rg.src = 'crit-renderers.js'; rg.async = false; document.body.appendChild(rg);
       var dov = document.createElement('script'); dov.src = 'crit-diagram-overlay.js'; dov.async = false; document.body.appendChild(dov);
       var rm = document.createElement('script'); rm.src = 'crit-renderer-mermaid.js'; rm.async = false; document.body.appendChild(rm);
+      var rx = document.createElement('script'); rx.src = 'crit-renderer-excalidraw.js'; rx.async = false; document.body.appendChild(rx);
       var lb = document.createElement('script'); lb.src = 'crit-line-blocks.js'; lb.async = false; document.body.appendChild(lb);
       // Word-level diff computation (pure functions). Must load before app.js.
       var df = document.createElement('script'); df.src = 'crit-diff-renderer.js'; df.async = false; document.body.appendChild(df);

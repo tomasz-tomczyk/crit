@@ -17,7 +17,7 @@ items, and the scroll, focus and styling contracts that hold it together.
 | Comment threads, forms, outdated block, placeholders | Crit elements as Pierre annotations |
 | Rendered markdown (Document view) | Crit's line-block document (`renderDocumentView`), hosted as an annotation |
 | Fenced code in comments and documents | Shiki via Pierre's worker pool (`crit-code-highlight.js`) |
-| Diagrams and other rendered views (` ```mermaid ` fences, `*.mmd` files in the `<label>` view) | Pluggable renderers (`crit-renderers.js`, `crit-renderer-mermaid.js`), inside Crit's line-block document; see [renderers.md](renderers.md) |
+| Diagrams and other rendered views (` ```mermaid ` fences, `*.mmd` and `*.excalidraw` files in the `<label>` view) | Pluggable renderers (`crit-renderers.js`, `crit-renderer-mermaid.js`, `crit-renderer-excalidraw.js`), inside Crit's line-block document; see [renderers.md](renderers.md) |
 | Keyboard (j/k, visual range, `c`), comment nav, tree jumps | Crit, calling CodeView's scroll/selection APIs |
 | Session, API, comment model, sidebar, settings, live mode | Crit |
 
@@ -35,6 +35,7 @@ There is no second diff engine and no highlight.js.
 | `web/crit-code-highlight.js` | Shiki for fenced code outside Pierre surfaces (prime/lines/upgrade). |
 | `web/crit-renderers.js` | Pluggable renderer registry: fence and file registrations, render targets (source kept as a `<pre>` fallback), theme-stamped re-render, a small output cache (renderer + theme + source) so document rebuilds swap in the previous output at once, `anchorFor` clicks. See [renderers.md](renderers.md). |
 | `web/crit-renderer-mermaid.js` | Built-in Mermaid renderer (fences, `*.mermaid` / `*.mmd`). Loads `mermaid.min.js` on the first diagram, so reviews without one never fetch it. |
+| `web/crit-renderer-excalidraw.js` | Built-in Excalidraw renderer (fences, `*.excalidraw` / `*.excalidraw.json`). Draws scene JSON as SVG with rough.js (`rough.min.js`), freedraw with perfect-freehand / laser-pointer (`freehand.min.js`) and text in Excalidraw's fonts (`web/fonts/excalidraw`), each loaded when a scene first needs it; `anchorFor` maps a clicked element to its JSON object's lines. |
 | `web/crit-diagram-overlay.js` | Fullscreen pan/zoom view for `zoomable` renderers' SVG output (Expand). Drag, wheel or pinch; arrow keys pan, `+` / `-` zoom, `0` fits. |
 | `web/crit-find.js` | `window.crit.find.createFind(opts)`: the find bar (Cmd/Ctrl+F). Searches Crit's file model, since Pierre only mounts rows near the viewport; loads lazy files in the background, jumps through `opts.reveal`, and marks matches with the CSS Custom Highlight API. Esc closes it from the bar, or from the review list when no menu or overlay takes the key first. |
 | `web/app.js` (Pierre section) | Lifecycle (`ensurePierreView`, `renderPierreFiles`, `refreshPierreFile`, `disposePierreView`), annotation builders, keyboard, jumps, selection, quote highlights, line tints, touch. |

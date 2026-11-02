@@ -42,8 +42,20 @@ export const vendoredAssets = [
     kind: "copy",
   },
   {
+    path: "web/rough.min.js",
+    sources: ["roughjs"],
+    packagePath: "bundled/rough.js",
+    kind: "copy",
+  },
+  {
     path: "web/diff-match-patch.min.js",
     sources: ["@sanity/diff-match-patch", "esbuild"],
+    packagePath: "-",
+    kind: "generated",
+  },
+  {
+    path: "web/freehand.min.js",
+    sources: ["perfect-freehand", "@excalidraw/laser-pointer", "points-on-curve", "esbuild"],
     packagePath: "-",
     kind: "generated",
   },

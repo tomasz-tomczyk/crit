@@ -7,9 +7,16 @@
 # kind=copy: byte-identical to the path inside the npm tarball.
 # kind=generated: deterministically built by copy-deps.js (web/pierre via scripts/build-pierre.mjs) from the listed packages.
 #
+# web/fonts/excalidraw (not npm-sourced) holds byte-for-byte copies of Excalidraw's
+# fonts from github.com/excalidraw/excalidraw packages/excalidraw/fonts at b7de45e8;
+# its SHA256SUMS is checked by web/__tests__/crit-renderer-excalidraw.test.js and
+# its LICENSES.txt carries the font licenses.
+#
 # sha256 path npm-sources path-in-package kind
 cd37898f9782adf54820c413191b5691803f0f137c799d6edcfd38523b4c2c31 web/dompurify.min.js dompurify@3.4.17 dist/purify.min.js copy
 391f2aa638e75e6c7859d0a5c5650ef0956722a45998f17e05b83bc655778e1e web/markdown-it.min.js markdown-it@15.0.3 dist/browser/markdown-it.umd.min.js copy
 a8a6a6f805b074a8261a2825c86f99c8054acb3b35f50bb7e24a4f9f2c3c3b9f web/mermaid.min.js mermaid@12.2.0 dist/mermaid.min.js copy
+6853af8619532f3939b156cd16824d2e14f31e71d3df306ad5558eeafacab194 web/rough.min.js roughjs@4.6.6 bundled/rough.js copy
 85535fef664d09befcafe5d45eb2fcaa83d84eb91058c68aa8f5e2a58aefc662 web/diff-match-patch.min.js @sanity/diff-match-patch@3.2.1,esbuild@0.28.2 - generated
+1739e570ccb51e8e1d40c7defb325241f326cbb2b2c70ecbe1c94ed32d5a5baf web/freehand.min.js perfect-freehand@1.2.0,@excalidraw/laser-pointer@1.3.2,points-on-curve@1.0.1,esbuild@0.28.2 - generated
 fc6e1a5a0d4a30fbe4ded6315ed0a8df503c72a622ec633704bf539012120765 web/pierre @pierre/diffs@1.5.2,shiki@4.5.0,@shikijs/themes@4.5.0,esbuild@0.28.2 - generated

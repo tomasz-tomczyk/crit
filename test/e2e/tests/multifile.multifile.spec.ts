@@ -58,12 +58,12 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('file tree lists all files including directory contents, with nested names and count', async ({ page, request }) => {
-    // 7 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, lib/utils.ex, lib/config.ex
-    await expect(page.locator('.tree-file')).toHaveCount(7);
+    // 8 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, flow.excalidraw, lib/utils.ex, lib/config.ex
+    await expect(page.locator('.tree-file')).toHaveCount(8);
     // lib/utils.ex and lib/config.ex appear by name
     await expect(page.locator('.tree-file-name', { hasText: 'utils.ex' })).toBeVisible();
     await expect(page.locator('.tree-file-name', { hasText: 'config.ex' })).toBeVisible();
-    await expect(page.locator('#fileTreeStats')).toContainText('7');
+    await expect(page.locator('#fileTreeStats')).toContainText('8');
     // The session is a files-mode session.
     const session = await (await request.get('/api/session')).json();
     expect(session.mode).toBe('files');
@@ -79,7 +79,7 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
-    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd lib/
+    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd flow.excalidraw lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
     await expect(page.locator('.pierre-file-header').first()).toBeVisible();
     expect(await listOrder(page)).toEqual([
@@ -88,6 +88,7 @@ test.describe('Multi-File Mode — Loading', () => {
       'handler.ex',
       'flow.mmd',
       'seq.mmd',
+      'flow.excalidraw',
       'lib/config.ex',
       'lib/utils.ex',
     ]);

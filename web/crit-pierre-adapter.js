@@ -98,6 +98,7 @@
     leex: 'html',
     svg: 'xml',
     gradle: 'groovy',
+    excalidraw: 'json',
   };
 
   function languageOverride(path) {
