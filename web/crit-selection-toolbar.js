@@ -164,6 +164,11 @@
   //                  at and the data for onComment, or null if not commentable
   //   onComment(data) called when the button is clicked
   //   placement()    one of PLACEMENTS, read each time the bar shows
+  //   pinned()       [{ text, title, emoji, shortcut, display }]: one button per pinned
+  //                  comment template before Comment, read each time the bar
+  //                  shows; `display` is emoji, text or both
+  //   showShortcuts() false to hide the keys on every button, Comment's too
+  //   onPinned(data, item) called when a pinned button is clicked
   function create(options) {
     const opts = options || {};
     const doc = opts.document || document;
@@ -196,8 +201,73 @@
     hint.className = 'crit-selection-toolbar-shortcut';
     hint.setAttribute('aria-hidden', 'true');
     button.appendChild(hint);
+    // Pinned templates come first: they are the shortest path, one click.
+    const pinnedGroup = doc.createElement('span');
+    pinnedGroup.className = 'crit-selection-toolbar-pinned';
+    pinnedGroup.hidden = true;
+    bar.appendChild(pinnedGroup);
     bar.appendChild(button);
     doc.body.appendChild(bar);
+
+    function showShortcuts() {
+      return opts.showShortcuts ? opts.showShortcuts() !== false : true;
+    }
+
+    function appendKeys(parent, binding) {
+      shortcutParts(binding).forEach(function(part) {
+        const kbd = doc.createElement('kbd');
+        kbd.textContent = part;
+        parent.appendChild(kbd);
+      });
+    }
+
+    // One button per pinned template, showing what its `display` asks for; its
+    // text whenever it has no emoji, so no button is empty. Like Comment, a
+    // press keeps the selection and the focus.
+    function renderPinned() {
+      const items = opts.pinned ? opts.pinned() : [];
+      const keys = showShortcuts();
+      pinnedGroup.textContent = '';
+      items.forEach(function(item) {
+        const pin = doc.createElement('button');
+        pin.type = 'button';
+        pin.className = 'crit-selection-toolbar-btn crit-selection-toolbar-pin';
+        const withEmoji = item.display !== 'text' && !!item.emoji;
+        if (withEmoji) {
+          const emoji = doc.createElement('span');
+          emoji.className = 'crit-selection-toolbar-pin-emoji';
+          emoji.setAttribute('aria-hidden', 'true');
+          emoji.textContent = item.emoji;
+          pin.appendChild(emoji);
+        }
+        if (item.display !== 'emoji' || !withEmoji) {
+          const text = doc.createElement('span');
+          text.className = 'crit-selection-toolbar-pin-text';
+          text.textContent = item.title || item.text;
+          pin.appendChild(text);
+        }
+        if (item.shortcut) {
+          pin.setAttribute('aria-keyshortcuts', shortcutParts(item.shortcut).join('+'));
+          if (keys) {
+            const hintKeys = doc.createElement('span');
+            hintKeys.className = 'crit-selection-toolbar-shortcut';
+            hintKeys.setAttribute('aria-hidden', 'true');
+            appendKeys(hintKeys, item.shortcut);
+            pin.appendChild(hintKeys);
+          }
+        }
+        pin.title = item.text;
+        pin.setAttribute('aria-label', 'Comment "' + (item.title || item.text) + '"');
+        pin.addEventListener('mousedown', function(e) { e.preventDefault(); });
+        pin.addEventListener('click', function() {
+          const current = payload;
+          hide();
+          if (current && opts.onPinned) opts.onPinned(current, item);
+        });
+        pinnedGroup.appendChild(pin);
+      });
+      pinnedGroup.hidden = items.length === 0;
+    }
 
     function snapshot() {
       return selectionSnapshot(doc.getSelection(), opts.shadowRoots ? opts.shadowRoots() : []);
@@ -258,24 +328,22 @@
     function onViewportChange() { hide(); }
 
     function renderShortcut() {
-      const parts = shortcutParts(opts.shortcut ? opts.shortcut() : '');
+      const binding = opts.shortcut ? opts.shortcut() : '';
+      const parts = shortcutParts(binding);
       hint.textContent = '';
-      parts.forEach(function(part) {
-        const kbd = doc.createElement('kbd');
-        kbd.textContent = part;
-        hint.appendChild(kbd);
-      });
-      hint.hidden = parts.length === 0;
+      appendKeys(hint, binding);
+      hint.hidden = parts.length === 0 || !showShortcuts();
       if (parts.length) button.setAttribute('aria-keyshortcuts', parts.join('+'));
       else button.removeAttribute('aria-keyshortcuts');
     }
 
     // Show the bar for `range` (a live Range over the selection); `data` is
-    // handed back to onComment when the button is clicked.
+    // handed back to onComment or onPinned when a button is clicked.
     function show(range, data) {
       payload = data;
       shown = snapshot();
       renderShortcut();
+      renderPinned();
       bar.style.visibility = 'hidden';
       bar.hidden = false;
       const pos = computeToolbarPosition(
