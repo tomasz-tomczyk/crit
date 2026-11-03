@@ -225,6 +225,15 @@ test('open template bars redraw after a change, without a reload', () => {
   assert.deepEqual(chipLabels(bar), ['No', 'Accepted']);
 });
 
+test('a chip carries an edit button only when onEdit is given', () => {
+  var sb = makeSandbox();
+  var withEdit = sb.api.buildTemplateBar({ onInsert: function () {}, onEdit: function () {} });
+  var without = sb.api.buildTemplateBar({ onInsert: function () {} });
+  var hasEdit = function (chip) { return chip.children.some(function (c) { return c.className === 'template-chip-edit'; }); };
+  assert.equal(hasEdit(withEdit.children[0]), true);
+  assert.equal(hasEdit(without.children[0]), false);
+});
+
 test('CommonJS module.exports matches window.crit.commentTemplates', () => {
   var sb = makeSandbox();
   assert.strictEqual(sb.mod.exports, sb.win.crit.commentTemplates);
