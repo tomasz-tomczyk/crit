@@ -9093,11 +9093,11 @@
   });
 
   // ===== Read Aloud =====
-  // Speaks the markdown documents block by block with the browser's speech
-  // synthesis, starting at the first block in view and highlighting the block
-  // being read. While reading, a player bar pauses, seeks by block and sets
-  // speed and volume, and clicking a block's text seeks to it. Clicking the
-  // header button again stops.
+  // Speaks the markdown documents sentence by sentence with the browser's
+  // speech synthesis, starting at the first block in view and highlighting the
+  // block being read. While reading, a player bar pauses (resuming at the
+  // current word), seeks by sentence and sets speed and volume, and clicking
+  // the text seeks to the clicked word. Clicking the header button again stops.
   const readAloudBtn = document.getElementById('readAloudToggle');
   const readAloudSupported = window.crit.readAloud.isSupported(window);
   let readAloudReader = null;
@@ -9165,6 +9165,25 @@
       if (el.getBoundingClientRect().bottom > top) return el;
     }
     return null;
+  }
+
+  // Character offset of a click in a block's text, measured on whitespace-
+  // normalized text the way segment offsets are; 0 when the caret can't be found.
+  function readAloudClickOffset(e, content) {
+    let node = null;
+    let offset = 0;
+    if (document.caretPositionFromPoint) {
+      const caret = document.caretPositionFromPoint(e.clientX, e.clientY);
+      if (caret) { node = caret.offsetNode; offset = caret.offset; }
+    } else if (document.caretRangeFromPoint) {
+      const caret = document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (caret) { node = caret.startContainer; offset = caret.startOffset; }
+    }
+    if (!node || !content.contains(node)) return 0;
+    const prefix = document.createRange();
+    prefix.setStart(content, 0);
+    prefix.setEnd(node, offset);
+    return window.crit.readAloud.normalizeText(prefix.toString()).length;
   }
 
   function startReadAloud() {
@@ -9256,7 +9275,9 @@
       if (!block) return;
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
-      readAloudReader.seek(window.crit.readAloud.indexAtLine(readAloudSegments, block.dataset.filePath, Number(block.dataset.startLine)));
+      const pos = window.crit.readAloud.positionAt(readAloudSegments, block.dataset.filePath,
+        Number(block.dataset.startLine), readAloudClickOffset(e, content));
+      readAloudReader.seek(pos.index, pos.charIndex);
     });
     // Speech keeps going after the tab navigates away in some browsers.
     window.addEventListener('pagehide', function() { readAloudReader.stop(); });
