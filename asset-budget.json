@@ -46,8 +46,8 @@
   "globs": [
     {
       "pattern": "web/crit-*.js",
-      "gzipBytes": 125000,
-      "note": "shared renderer/comment/diff modules; recalibrated after moving Mermaid and fullscreen controls out of app.js into the renderer registry (~108 KB gzip); catches module sprawl"
+      "gzipBytes": 150000,
+      "note": "shared renderer/comment/diff modules; recalibrated after moving Mermaid and fullscreen controls out of app.js into the renderer registry (~108 KB gzip), then for the selection toolbar and pinned comment templates (~129 KB gzip); catches module sprawl"
     }
   ],
   "totalJsGzipBytes": 2300000,
