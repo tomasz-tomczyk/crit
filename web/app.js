@@ -9140,9 +9140,21 @@
         renderShortcutsPane();
       },
       onTabSwitch: function (tab) { settingsPanelTab = tab; },
-      onClose: function () { settingsPanelOpen = false; },
+      onClose: function () { settingsPanelOpen = false; refreshTemplateBars(); },
     });
     return settingsCtl;
+  }
+
+  // Settings may have reordered, edited or removed templates: redraw the
+  // template bars of the forms already on the page, Pierre's shadow roots too.
+  function refreshTemplateBars() {
+    const roots = [document].concat(Array.from(document.querySelectorAll('diffs-container'))
+      .map(function(host) { return host.shadowRoot; }).filter(Boolean));
+    roots.forEach(function(root) {
+      root.querySelectorAll('.comment-template-bar').forEach(function(bar) {
+        if (typeof bar._populate === 'function') bar._populate();
+      });
+    });
   }
 
   function loadCodeFonts(cfg) {
@@ -9198,6 +9210,7 @@
       announceCopy: announceCopy,
       escape: escapeHtml,
       selectionToolbar: window.crit.selectionToolbar,
+      commentTemplates: window.crit.commentTemplates,
       themePalettes: window.crit.palettes,
       paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
       onRendererSettingChange: async function(key, value) {
