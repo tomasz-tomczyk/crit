@@ -2261,6 +2261,9 @@ textarea.drag-active {
   line-height: 1;
 }
 .template-chip-delete:hover { color: var(--crit-red); }
+.template-chip-emoji { flex-shrink: 0; }
+/* Pinned templates lead the bar and keep a brand border. */
+.template-chip--pinned { border-color: var(--crit-brand); }
 
 .template-chip:hover {
   border-color: var(--crit-brand);
