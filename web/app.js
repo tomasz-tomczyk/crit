@@ -9240,6 +9240,7 @@
       syncPendingUpdateButtons: syncPendingUpdateButtons,
       announceCopy: announceCopy,
       escape: escapeHtml,
+      selectionToolbar: window.crit.selectionToolbar,
       themePalettes: window.crit.palettes,
       paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
       onRendererSettingChange: async function(key, value) {
@@ -9724,6 +9725,11 @@
   // ===== Selection toolbar =====
   // A Comment button above a mouse selection that `c` could comment on. It
   // opens nothing by itself, so selecting to copy or to read stays as it was.
+  // Settings > Selection toolbar places it or turns it off.
+  function selectionToolbarPlacement() {
+    return getSetting('selectionToolbar', 'top-center');
+  }
+
   window.crit.selectionToolbar.create({
     label: 'Comment',
     ariaLabel: 'Comment on selection',
@@ -9734,7 +9740,8 @@
       return Array.from(document.querySelectorAll('diffs-container'))
         .map(function(host) { return host.shadowRoot; }).filter(Boolean);
     },
-    enabled: function() { return !settingsPanelOpen; },
+    enabled: function() { return !settingsPanelOpen && selectionToolbarPlacement() !== 'off'; },
+    placement: selectionToolbarPlacement,
     resolve: function(selection) {
       const resolved = resolveSelectionComment(selection);
       return resolved && { range: resolved.range, data: resolved.form };

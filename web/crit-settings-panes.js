@@ -646,6 +646,22 @@
 
     html += '</div>'; // close settings-display-group
 
+    // ---------- Selection toolbar ----------
+    // Where the bar shows around a selection, or off.
+    if (hooks.selectionToolbar) {
+      var toolbarPlacement = getSetting('selectionToolbar', 'top-center');
+      html += '<div class="settings-section-label">Selection toolbar</div>';
+      html += '<div class="settings-display-group">';
+      html += '<div class="settings-display-row">';
+      html += '<label class="settings-display-label" for="selectionToolbarSelect">Position</label>';
+      html += '<select class="settings-select" id="selectionToolbarSelect">';
+      hooks.selectionToolbar.PLACEMENT_OPTIONS.forEach(function (o) {
+        html += '<option value="' + o.id + '"' + (o.id === toolbarPlacement ? ' selected' : '') + '>' + o.name + '</option>';
+      });
+      html += '</select></div>';
+      html += '</div>';
+    }
+
     // ---------- Configuration ----------
     var anyConfigCard = show.account || show.agent || show.share;
     if (anyConfigCard) {
@@ -834,6 +850,14 @@
         }).finally(function() { select.disabled = false; });
       });
     });
+
+    // Read by the selection toolbar each time it shows: no reload needed.
+    var toolbarSelect = pane.querySelector('#selectionToolbarSelect');
+    if (toolbarSelect) {
+      toolbarSelect.addEventListener('change', function () {
+        setSetting('selectionToolbar', toolbarSelect.value);
+      });
+    }
     wireConfigCardActions(pane, hooks);
   }
 
