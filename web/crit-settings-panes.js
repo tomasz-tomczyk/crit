@@ -685,6 +685,13 @@
       html += '</div>';
     }
 
+    // ---------- Comment templates ----------
+    // Rows are built as DOM after the pane renders (commentTemplates.renderSettingsList).
+    if (hooks.commentTemplates) {
+      html += '<div class="settings-section-label">Comment templates</div>';
+      html += '<div class="settings-templates" id="settingsTemplates"></div>';
+    }
+
     // ---------- Configuration ----------
     var anyConfigCard = show.account || show.agent || show.share || (show.customCSS && !!cfg.custom_css_path);
     if (anyConfigCard) {
@@ -917,6 +924,9 @@
       shortcutsToggle.addEventListener('change', function () {
         setSetting('selectionToolbarShortcuts', shortcutsToggle.checked);
       });
+    }
+    if (hooks.commentTemplates) {
+      hooks.commentTemplates.renderSettingsList(pane.querySelector('#settingsTemplates'));
     }
     wireConfigCardActions(pane, hooks);
   }

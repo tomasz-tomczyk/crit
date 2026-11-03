@@ -672,6 +672,163 @@
     });
   }
 
+  // Lucide "pencil" (ISC) at the Settings list size.
+  var LIST_EDIT_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>' +
+    '<path d="m15 5 4 4"/></svg>';
+
+  // Lucide "grip-vertical" (ISC), the drag handle of a template row.
+  var GRIP_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/>' +
+    '<circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>';
+
+  // One summary row per comment template (handle, emoji, title or text,
+  // shortcut, pin mark, edit), then "New template": the Comment templates
+  // section of both settings panels. Editing, deleting and creating go
+  // through the template dialog.
+  // The handle reorders: drag it onto another row, or press Up / Down on it.
+  function renderSettingsList(container, focusHandle) {
+    if (!container) return;
+    function redraw() { renderSettingsList(container); }
+    var dragFrom = -1;
+    function clearDropMarks() {
+      container.querySelectorAll('.is-drop-before, .is-drop-after').forEach(function (el) {
+        el.classList.remove('is-drop-before', 'is-drop-after');
+      });
+    }
+    function dropsAfter(row, e) {
+      var rect = row.getBoundingClientRect();
+      return e.clientY > rect.top + rect.height / 2;
+    }
+    container.textContent = '';
+    var items = getTemplateItems();
+    items.forEach(function (item) {
+      var label = templateLabel(item);
+      var row = document.createElement('div');
+      row.className = 'settings-template-row';
+
+      // A span, not a <button>: Firefox does not start a drag from a button.
+      var handle = document.createElement('span');
+      handle.className = 'settings-template-handle';
+      handle.setAttribute('role', 'button');
+      handle.tabIndex = 0;
+      handle.innerHTML = GRIP_ICON;
+      handle.title = 'Drag to reorder (or Up / Down)';
+      handle.setAttribute('aria-label', 'Move "' + label + '", ' + (item.index + 1) + ' of ' + items.length);
+      // Only a drag from the handle moves a row: a click elsewhere stays a click.
+      handle.addEventListener('pointerdown', function () { row.draggable = true; });
+      handle.addEventListener('pointerup', function () { row.draggable = false; });
+      handle.addEventListener('keydown', function (e) {
+        var to = e.key === 'ArrowUp' ? item.index - 1 : e.key === 'ArrowDown' ? item.index + 1 : -1;
+        if (to < 0 || to >= items.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        moveTemplate(item.index, to);
+        renderSettingsList(container, to);
+      });
+      row.appendChild(handle);
+      row.addEventListener('dragstart', function (e) {
+        if (!row.draggable) { e.preventDefault(); return; }
+        dragFrom = item.index;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(item.index));
+        row.classList.add('is-dragging');
+      });
+      row.addEventListener('dragend', function () {
+        row.draggable = false;
+        row.classList.remove('is-dragging');
+        clearDropMarks();
+        dragFrom = -1;
+      });
+      row.addEventListener('dragover', function (e) {
+        if (dragFrom < 0) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        clearDropMarks();
+        row.classList.add(dropsAfter(row, e) ? 'is-drop-after' : 'is-drop-before');
+      });
+      row.addEventListener('drop', function (e) {
+        if (dragFrom < 0) return;
+        e.preventDefault();
+        var to = item.index + (dropsAfter(row, e) ? 1 : 0);
+        if (dragFrom < to) to -= 1;
+        moveTemplate(dragFrom, to);
+        redraw();
+      });
+
+      var emoji = document.createElement('span');
+      emoji.className = 'settings-template-emoji';
+      emoji.setAttribute('aria-hidden', 'true');
+      emoji.textContent = item.emoji;
+      row.appendChild(emoji);
+
+      var text = document.createElement('span');
+      text.className = 'settings-template-label';
+      text.title = item.text;
+      var name = document.createElement('span');
+      name.className = 'settings-template-name';
+      name.textContent = label;
+      text.appendChild(name);
+      if (item.title) {
+        var body = document.createElement('span');
+        body.className = 'settings-template-body';
+        body.textContent = item.text;
+        text.appendChild(body);
+      }
+      row.appendChild(text);
+
+      if (item.shortcut) {
+        var keys = document.createElement('span');
+        keys.className = 'template-shortcut';
+        item.shortcut.split('+').forEach(function (part, i) {
+          if (i > 0) keys.appendChild(document.createTextNode('+'));
+          var kbd = document.createElement('kbd');
+          kbd.textContent = part;
+          keys.appendChild(kbd);
+        });
+        row.appendChild(keys);
+      }
+      if (item.pinned) {
+        var pinned = document.createElement('span');
+        pinned.className = 'settings-template-pinned';
+        pinned.textContent = 'Pinned';
+        row.appendChild(pinned);
+      }
+
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'settings-template-action';
+      edit.innerHTML = LIST_EDIT_ICON;
+      edit.title = 'Edit template';
+      edit.setAttribute('aria-label', 'Edit "' + label + '"');
+      edit.addEventListener('click', function () {
+        openTemplateDialog({ item: item, onSaved: redraw, onClose: function () { edit.focus(); } });
+      });
+      row.appendChild(edit);
+      container.appendChild(row);
+    });
+
+    if (focusHandle !== undefined) {
+      var moved = container.querySelectorAll('.settings-template-handle')[focusHandle];
+      if (moved) moved.focus();
+    }
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn btn-sm settings-template-new';
+    add.textContent = '+ New template';
+    add.addEventListener('click', function () {
+      openTemplateDialog({ onSaved: redraw, onClose: function () { add.focus(); } });
+    });
+    container.appendChild(add);
+
+    var hint = document.createElement('p');
+    hint.className = 'settings-template-hint';
+    hint.textContent = 'Pinned templates show in the selection toolbar: one click comments the selection with the template text.';
+    container.appendChild(hint);
+  }
+
   // --- Public API ---
 
   var api = {
@@ -691,6 +848,7 @@
     buildDisplayPicker: buildDisplayPicker,
     openTemplateDialog: openTemplateDialog,
     templateLabel: templateLabel,
+    renderSettingsList: renderSettingsList,
   };
 
   ns.commentTemplates = api;
