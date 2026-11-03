@@ -4740,7 +4740,8 @@
         textarea.selectionStart = textarea.selectionEnd = start + text.length;
         textarea.focus();
         textarea.dispatchEvent(new Event('input'));
-      }
+      },
+      onEdit: function(item) { showTemplateDialog(textarea, item); },
     });
 
     const saveTemplateBtn = document.createElement('button');
@@ -4748,7 +4749,7 @@
     saveTemplateBtn.textContent = '+ Template';
     saveTemplateBtn.addEventListener('click', function(e) {
       e.preventDefault();
-      showSaveTemplateDialog(textarea, templateBar);
+      showTemplateDialog(textarea, null);
     });
 
     const suggestBtn = document.createElement('button');
@@ -4766,63 +4767,19 @@
     form.insertBefore(templateBar, form.querySelector('textarea'));
   }
 
-  function showSaveTemplateDialog(textarea, templateBar) {
+  // "+ Template" (create from the form's text) and a chip's edit button open
+  // the shared template dialog; every template bar redraws once it saves.
+  function showTemplateDialog(textarea, item) {
     const text = textarea.value.trim();
-    if (!text) {
+    if (!item && !text) {
       textarea.focus();
       return;
     }
-    const overlay = document.createElement('div');
-    overlay.className = 'save-template-overlay active';
-
-    const dialog = document.createElement('div');
-    dialog.className = 'save-template-dialog';
-
-    const title = document.createElement('h3');
-    title.textContent = 'Save as template';
-    dialog.appendChild(title);
-
-    const desc = document.createElement('p');
-    desc.textContent = 'Edit the template text, then save.';
-    dialog.appendChild(desc);
-
-    const input = document.createElement('textarea');
-    input.className = 'save-template-input';
-    input.value = text;
-    input.rows = 3;
-    dialog.appendChild(input);
-
-    const btns = document.createElement('div');
-    btns.className = 'save-template-actions';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-sm';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function() { overlay.remove(); textarea.focus(); });
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn btn-sm btn-primary';
-    saveBtn.textContent = 'Save';
-    saveBtn.addEventListener('click', function() {
-      const val = input.value.trim();
-      if (!val) return;
-      templateBar._saveNew(val);
-      overlay.remove();
-      textarea.focus();
+    window.crit.commentTemplates.openTemplateDialog({
+      item: item,
+      text: text,
+      onClose: function() { textarea.focus(); },
     });
-
-    btns.appendChild(cancelBtn);
-    btns.appendChild(saveBtn);
-    dialog.appendChild(btns);
-
-    bindSubmitCancelKeys(input, function() { saveBtn.click(); }, function() { cancelBtn.click(); }, { stopPropagation: false });
-
-    overlay.appendChild(dialog);
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) { overlay.remove(); textarea.focus(); }
-    });
-    document.body.appendChild(overlay);
-    requestAnimationFrame(function() { input.focus(); input.select(); });
   }
 
   // ===== File Picker Autocomplete =====
@@ -9337,6 +9294,7 @@
     if (settingsPanelOpen) return;
 
     const shortcutRegistry = window.crit && window.crit.shortcuts;
+    if (handleTemplateShortcut(e, shortcutRegistry)) return;
     const shortcutAction = shortcutRegistry ? shortcutRegistry.actionForEvent(e, 'code-review') : '';
     if (!shortcutAction && (e.metaKey || e.ctrlKey || e.altKey)) return;
     const interactive = e.target && e.target.closest && e.target.closest(
@@ -9737,6 +9695,23 @@
   async function submitPinnedTemplate(form, text) {
     const created = await submitComment(text, Object.assign({}, form, { formKey: 'pinned:' + Date.now() }));
     if (!created) window.crit.shared.showToast('Could not save the comment. Try again.', { kind: 'error' });
+  }
+
+  // A template's own shortcut comments the current selection with it, mouse
+  // or keyboard selection alike, as `c` opens the form there. Without a
+  // commentable selection the key goes on to crit's keymap.
+  function handleTemplateShortcut(e, registry) {
+    const templates = window.crit.commentTemplates;
+    if (!registry || !templates) return false;
+    const item = templates.findByShortcut(registry.eventToBinding(e));
+    if (!item) return false;
+    const selection = window.getSelection();
+    const resolved = selection ? resolveSelectionComment(selection) : null;
+    if (!resolved) return false;
+    e.preventDefault();
+    selection.removeAllRanges();
+    submitPinnedTemplate(resolved.form, item.text);
+    return true;
   }
 
   window.crit.selectionToolbar.create({

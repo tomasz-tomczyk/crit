@@ -2252,16 +2252,13 @@ textarea.drag-active {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.template-chip-delete {
-  display: inline;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--crit-editor-fg-muted);
-  flex-shrink: 0;
-  line-height: 1;
-}
-.template-chip-delete:hover { color: var(--crit-red); }
 .template-chip-emoji { flex-shrink: 0; }
+.template-chip-edit {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--crit-editor-fg-muted);
+}
+.template-chip-edit:hover { color: var(--crit-brand); }
 /* Pinned templates lead the bar and keep a brand border. */
 .template-chip--pinned { border-color: var(--crit-brand); }
 
@@ -2404,6 +2401,87 @@ textarea.drag-active {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+/* Template dialog, edit mode: "Delete template", confirmed in place. */
+.save-template-delete-zone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+}
+.save-template-delete { color: var(--crit-red); }
+/* Template dialog: title (with its note) and text fields, then the options. */
+.save-template-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+}
+.save-template-field-name { font-weight: 500; }
+.save-template-title {
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--crit-editor-fg);
+  background: var(--crit-editor-bg);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+}
+.save-template-title:focus {
+  outline: none;
+  border-color: var(--crit-brand);
+}
+.save-template-dialog .save-template-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+}
+/* Emoji, shortcut, toolbar button and pin of a template. */
+.save-template-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+}
+.save-template-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.save-template-option--row { flex-basis: 100%; }
+/* Toolbar button choice, under the pin it depends on. */
+.save-template-option--sub { padding-left: 22px; }
+.save-template-option[hidden] { display: none; }
+.save-template-emoji {
+  width: 44px;
+  padding: 4px 6px;
+  font: inherit;
+  text-align: center;
+  color: var(--crit-editor-fg);
+  background: var(--crit-editor-bg);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+}
+.save-template-emoji:focus {
+  outline: none;
+  border-color: var(--crit-brand);
+}
+/* Template shortcut buttons (form dialog and Settings), kbd like Settings > Shortcuts. */
+.template-shortcut kbd {
+  padding: 0 5px;
+  font-family: var(--crit-font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--crit-fg-secondary);
+  background: var(--crit-bg-elevated);
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-sm);
 }
 
 
@@ -3127,6 +3205,19 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 /* Width pill: 3 equal-width text buttons */
 .settings-pill--width .settings-pill-indicator { width: 33.333%; }
 .settings-pill--width .settings-pill-btn { padding: 6px 0; width: 72px; text-align: center; }
+
+/* Template toolbar button pill (dialog and Settings): Emoji, Text, Emoji + Text */
+.template-display {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  flex: 0 0 auto;
+}
+.template-display .settings-pill-indicator { width: 33.333%; }
+.template-display .settings-pill-btn { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.template-display .settings-pill-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* Config cards */
 .config-cards {
