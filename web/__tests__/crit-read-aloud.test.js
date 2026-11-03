@@ -55,6 +55,33 @@ test('segmentsFromBlocks announces code and diagrams once instead of reading the
   assert.deepEqual(segments.map((s) => s.text), ['Code block.', 'Diagram.']);
 });
 
+test('segmentsFromBlocks reads a table row cell by cell', () => {
+  const row = '<tr><td>Auth method</td><td>OAuth, API keys</td><td></td><td>Simple. Rotates keys</td></tr>';
+  const segments = readAloud.segmentsFromBlocks('plan.md', [
+    { startLine: 4, endLine: 4, html: '<table>' + row + '</table>', nativeRowHtml: row, tableId: 'table-3' },
+  ], strip);
+  assert.deepEqual(segments.map((s) => [s.text, s.cell, s.offset]), [
+    ['Auth method', 0, 0],
+    ['OAuth, API keys', 1, 0],
+    ['Simple.', 3, 0],
+    ['Rotates keys', 3, 8],
+  ]);
+});
+
+test('positionAt seeks within the clicked table cell', () => {
+  const segments = [
+    { filePath: 'a.md', startLine: 4, endLine: 4, text: 'Auth method', offset: 0, cell: 0 },
+    { filePath: 'a.md', startLine: 4, endLine: 4, text: 'OAuth, API keys', offset: 0, cell: 1 },
+    { filePath: 'a.md', startLine: 4, endLine: 4, text: 'Simple.', offset: 0, cell: 3 },
+    { filePath: 'a.md', startLine: 4, endLine: 4, text: 'Rotates keys', offset: 8, cell: 3 },
+  ];
+  assert.deepEqual(readAloud.positionAt(segments, 'a.md', 4, 7, 1), { index: 1, charIndex: 7 });
+  assert.deepEqual(readAloud.positionAt(segments, 'a.md', 4, 9, 3), { index: 3, charIndex: 0 });
+  assert.deepEqual(readAloud.positionAt(segments, 'a.md', 4, 17, 3), { index: 3, charIndex: 8 });
+  // An empty cell falls back to the row's first cell.
+  assert.deepEqual(readAloud.positionAt(segments, 'a.md', 4, 0, 2), { index: 0, charIndex: 0 });
+});
+
 test('startIndexFor finds the first segment at or after the line in that file', () => {
   const segments = [
     { filePath: 'a.md', startLine: 1, endLine: 1 },

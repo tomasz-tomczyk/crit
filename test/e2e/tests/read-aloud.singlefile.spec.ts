@@ -138,7 +138,8 @@ test.describe('Read aloud — Single File Mode', () => {
     const texts = (await spoken(page)).map(s => s.text);
     expect(texts).toContain('Code block.');
     expect(texts.join('\n')).not.toContain('func authMiddleware');
-    expect(texts).toContain('Auth method OAuth, API keys, JWT API keys Simplest for M2M');
+    const row = texts.indexOf('Auth method');
+    expect(texts.slice(row, row + 4)).toEqual(['Auth method', 'OAuth, API keys, JWT', 'API keys', 'Simplest for M2M']);
     expect(texts[texts.length - 1]).toContain('Week 3');
   });
 
@@ -250,5 +251,26 @@ test.describe('Read aloud — Single File Mode', () => {
     await expect.poll(async () => (await lastSpoken(page))?.text).toBe('phase 1 of the auth system.');
     await clickWord(page, 'server');
     await expect.poll(async () => (await lastSpoken(page))?.text).toBe('server.');
+  });
+
+  test('table cells are sought, highlighted and stepped through one by one', async ({ page }) => {
+    // The cell of the row containing `text` at `column` (0-based content cell).
+    const cell = (text: string, column: number) =>
+      block(page, text).locator(':scope > .line-content').nth(column);
+    const shadow = (text: string, column: number) =>
+      cell(text, column).evaluate(el => getComputedStyle(el).boxShadow);
+
+    await page.locator('#readAloudToggle').click();
+    await expect.poll(async () => (await lastSpoken(page))?.text).toBe('Authentication Plan');
+    await clickWord(page, 'Database');
+    await expect.poll(async () => (await lastSpoken(page))?.text).toBe('Database');
+    await expect.poll(() => shadow('Key storage', 2)).not.toBe('none');
+    expect(await shadow('Key storage', 0)).toBe('none');
+
+    await clickWord(page, 'rotation');
+    await expect.poll(async () => (await lastSpoken(page))?.text).toBe('rotation');
+    await page.locator('#readAloudNext').click();
+    await expect.poll(async () => (await lastSpoken(page))?.text).toBe('Header format');
+    await expect.poll(() => shadow('Header format', 0)).not.toBe('none');
   });
 });

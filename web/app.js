@@ -9144,7 +9144,13 @@
   function onReadAloudSegment(segment, index) {
     showReadAloudPosition(index);
     const selector = '.line-block[data-file-path="' + CSS.escape(segment.filePath) + '"][data-start-line="' + segment.startLine + '"]';
-    readAloudStyle.textContent = selector + ' { background: var(--crit-brand-subtle); box-shadow: inset 2px 0 0 var(--crit-brand); }';
+    // A table row's cells paint their own background, so they are tinted
+    // instead of the row, and the cell being read (they follow the gutter
+    // cell) carries the accent bar.
+    const tinted = segment.cell === undefined ? selector : selector + ' > .line-content';
+    const marked = segment.cell === undefined ? selector : selector + ' > .line-content:nth-child(' + (segment.cell + 2) + ')';
+    readAloudStyle.textContent = tinted + ' { background: var(--crit-brand-subtle); }\n' +
+      marked + ' { box-shadow: inset 2px 0 0 var(--crit-brand); }';
     const el = document.querySelector('#filesContainer ' + selector);
     if (el) {
       const rect = el.getBoundingClientRect();
@@ -9275,8 +9281,12 @@
       if (!block) return;
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
+      // In a table row each cell is its own .line-content.
+      const cell = block.tagName === 'TR'
+        ? Array.prototype.indexOf.call(block.querySelectorAll(':scope > .line-content'), content)
+        : 0;
       const pos = window.crit.readAloud.positionAt(readAloudSegments, block.dataset.filePath,
-        Number(block.dataset.startLine), readAloudClickOffset(e, content));
+        Number(block.dataset.startLine), readAloudClickOffset(e, content), cell);
       readAloudReader.seek(pos.index, pos.charIndex);
     });
     // Speech keeps going after the tab navigates away in some browsers.

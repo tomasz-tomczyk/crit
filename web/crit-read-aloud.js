@@ -84,9 +84,23 @@
     return String(text || '').replace(/\s+/g, ' ').replace(/^ /, '');
   }
 
+  function blockText(html, toText) {
+    return normalizeText(toText(String(html || '').replace(BREAKING_TAGS, '$& '))).trim();
+  }
+
+  // Inner HTML of each <td>/<th> of a table row, in order.
+  function tableCells(rowHtml) {
+    var cells = [];
+    var re = /<(td|th)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    var match;
+    while ((match = re.exec(String(rowHtml || '')))) cells.push(match[2]);
+    return cells;
+  }
+
   // Turn one file's line blocks into the segments to speak: a block's text is
   // split into sentences, each its own segment with `offset` = its position
-  // in the block's text. Code is announced once ("Code block.") rather than
+  // in the block's text. A table row is split per cell first: its segments
+  // carry `cell` (the cell's index in the row) and offsets within the cell. Code is announced once ("Code block.") rather than
   // read line by line, and diagrams likewise.
   function segmentsFromBlocks(filePath, blocks, htmlToText) {
     var toText = htmlToText || defaultHtmlToText;
@@ -100,8 +114,21 @@
       } else if (hasClass(block, 'code-line')) {
         if (!hasClass(block, 'code-first')) continue;
         chunks = [{ text: 'Code block.', offset: 0 }];
+      } else if (block.tableId) {
+        // A table row is read cell by cell, so each cell can be sought to.
+        var cells = tableCells(block.nativeRowHtml || block.html);
+        for (var c = 0; c < cells.length; c++) {
+          var cellChunks = splitChunks(blockText(cells[c], toText));
+          for (var k = 0; k < cellChunks.length; k++) {
+            segments.push({
+              filePath: filePath, startLine: block.startLine, endLine: block.endLine,
+              text: cellChunks[k].text, offset: cellChunks[k].offset, cell: c,
+            });
+          }
+        }
+        continue;
       } else {
-        chunks = splitChunks(normalizeText(toText(String(block.html || '').replace(BREAKING_TAGS, '$& '))).trim());
+        chunks = splitChunks(blockText(block.html, toText));
       }
       for (var j = 0; j < chunks.length; j++) {
         segments.push({
@@ -123,10 +150,11 @@
   }
 
   // Where to read from for a click at character `offset` of the block at
-  // (filePath, line): { index, charIndex } — the segment holding that offset
-  // and the start of the word in it. A line inside a code block lands on its
-  // "Code block." announcement. Falls back to startIndexFor.
-  function positionAt(segments, filePath, line, offset) {
+  // (filePath, line) — of cell `cell` when the block is a table row:
+  // { index, charIndex }, the segment holding that offset and the start of
+  // the word in it. A line inside a code block lands on its "Code block."
+  // announcement. Falls back to startIndexFor.
+  function positionAt(segments, filePath, line, offset, cell) {
     var blockLine = null;
     for (var i = 0; i < segments.length; i++) {
       if (segments[i].filePath !== filePath) continue;
@@ -136,11 +164,20 @@
     if (blockLine === null) return { index: startIndexFor(segments, filePath, line), charIndex: 0 };
     var at = Math.max(0, offset || 0);
     var found = -1;
+    var inCell = false;
     for (var k = 0; k < segments.length; k++) {
       var s = segments[k];
       if (s.filePath !== filePath || s.startLine !== blockLine) continue;
-      if (found === -1 || (s.offset || 0) <= at) found = k;
+      // In a table row, only the clicked cell's segments match; an empty cell
+      // falls back to the row's first segment.
+      var sameCell = s.cell == null || s.cell === (cell || 0);
+      if (found === -1) found = k;
+      if (sameCell && (!inCell || (s.offset || 0) <= at)) {
+        found = k;
+        inCell = true;
+      }
     }
+    if (!inCell) return { index: found, charIndex: 0 };
     var segment = segments[found];
     var within = at - (segment.offset || 0);
     if (within <= 0 || within >= segment.text.length) return { index: found, charIndex: 0 };
