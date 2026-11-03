@@ -9723,11 +9723,20 @@
   }
 
   // ===== Selection toolbar =====
-  // A Comment button above a mouse selection that `c` could comment on. It
-  // opens nothing by itself, so selecting to copy or to read stays as it was.
-  // Settings > Selection toolbar places it or turns it off.
+  // A Comment button above a mouse selection that `c` could comment on, then
+  // one button per pinned comment template. It opens nothing by itself, so
+  // selecting to copy or to read stays as it was. Settings > Selection
+  // toolbar places it or turns it off.
   function selectionToolbarPlacement() {
     return getSetting('selectionToolbar', 'top-center');
+  }
+
+  // A pinned template comments the resolved selection in one click, as `c`
+  // then typing the template would. The key is the comment's own, so no open
+  // form or draft is touched.
+  async function submitPinnedTemplate(form, text) {
+    const created = await submitComment(text, Object.assign({}, form, { formKey: 'pinned:' + Date.now() }));
+    if (!created) window.crit.shared.showToast('Could not save the comment. Try again.', { kind: 'error' });
   }
 
   window.crit.selectionToolbar.create({
@@ -9742,6 +9751,8 @@
     },
     enabled: function() { return !settingsPanelOpen && selectionToolbarPlacement() !== 'off'; },
     placement: selectionToolbarPlacement,
+    showShortcuts: function() { return getSetting('selectionToolbarShortcuts', true) !== false; },
+    pinned: function() { return window.crit.commentTemplates.getPinnedTemplates(); },
     resolve: function(selection) {
       const resolved = resolveSelectionComment(selection);
       return resolved && { range: resolved.range, data: resolved.form };
@@ -9752,6 +9763,11 @@
       const selection = window.getSelection();
       if (selection) selection.removeAllRanges();
       openForm(form);
+    },
+    onPinned: function(form, item) {
+      const selection = window.getSelection();
+      if (selection) selection.removeAllRanges();
+      submitPinnedTemplate(form, item.text);
     },
   });
 

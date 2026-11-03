@@ -6966,6 +6966,29 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
 .crit-selection-toolbar-icon svg { width: 14px; height: 14px; }
 .crit-selection-toolbar-shortcut { display: inline-flex; gap: 2px; }
 .crit-selection-toolbar-shortcut[hidden] { display: none; }
+/* Pinned comment templates, before Comment: emoji, text and shortcut as set. */
+.crit-selection-toolbar-pinned {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 3px;
+  padding-right: 3px;
+  border-right: 1px solid var(--crit-border);
+}
+.crit-selection-toolbar-pinned[hidden] { display: none; }
+.crit-selection-toolbar-pin {
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 6px;
+}
+.crit-selection-toolbar-pin-emoji { font-size: 15px; line-height: 1; }
+/* A template text is cut short to keep the bar narrow. */
+.crit-selection-toolbar-pin-text {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .crit-selection-toolbar-shortcut kbd {
   padding: 0 5px;
   font-family: var(--crit-font-mono);

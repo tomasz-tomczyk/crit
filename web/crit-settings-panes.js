@@ -647,9 +647,11 @@
     html += '</div>'; // close settings-display-group
 
     // ---------- Selection toolbar ----------
-    // Where the bar shows around a selection, or off.
+    // Where the bar shows around a selection (or off), and whether its buttons
+    // show their shortcut; what each pinned template shows is set per template.
     if (hooks.selectionToolbar) {
       var toolbarPlacement = getSetting('selectionToolbar', 'top-center');
+      var toolbarShortcuts = getSetting('selectionToolbarShortcuts', true) !== false;
       html += '<div class="settings-section-label">Selection toolbar</div>';
       html += '<div class="settings-display-group">';
       html += '<div class="settings-display-row">';
@@ -659,6 +661,13 @@
         html += '<option value="' + o.id + '"' + (o.id === toolbarPlacement ? ' selected' : '') + '>' + o.name + '</option>';
       });
       html += '</select></div>';
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Show shortcuts</span>';
+      html += '<label class="comments-panel-switch">';
+      html += '<input type="checkbox" id="toolbarShortcutsToggle" aria-label="Show shortcuts in the selection toolbar"' + (toolbarShortcuts ? ' checked' : '') + '>';
+      html += '<span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span>';
+      html += '</label>';
+      html += '</div>';
       html += '</div>';
     }
 
@@ -856,6 +865,12 @@
     if (toolbarSelect) {
       toolbarSelect.addEventListener('change', function () {
         setSetting('selectionToolbar', toolbarSelect.value);
+      });
+    }
+    var shortcutsToggle = pane.querySelector('#toolbarShortcutsToggle');
+    if (shortcutsToggle) {
+      shortcutsToggle.addEventListener('change', function () {
+        setSetting('selectionToolbarShortcuts', shortcutsToggle.checked);
       });
     }
     wireConfigCardActions(pane, hooks);
