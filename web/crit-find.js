@@ -416,6 +416,11 @@
         search(true);
         loadPending();
       },
+      // Call when the list was rebuilt from scratch (the page's fallback when
+      // the highlight workers don't start): jump to the current match again.
+      revealCurrent: function() {
+        if (open && current >= 0) go(current);
+      },
       isOpen: function() { return open; },
       // Call from the page's Esc handling; true when it closed the bar.
       closeFromEscape: closeFromEscape,

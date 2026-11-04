@@ -37,18 +37,62 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('finds and reveals a match in a lazy, off-screen file', async ({ page }) => {
+  // The list is in path order (file1, file10, file100, ...), so file40.go is
+  // at index 235 and find loads most lazy files before it reaches the match.
+  // On a slow runner that alone can take most of the default 30s.
+  test.slow();
   await loadPage(page);
   await openFind(page);
-  // Just past the eager window (25). A match as deep as file287 waits on
-  // hundreds of lazy files, and the highlight range is disconnected for the
-  // whole poll. The perf project fails CI when that first attempt retries.
   await input(page).fill('Goodbye40()');
 
-  await expect(count(page)).toHaveText('1 of 1', { timeout: 30_000 });
-  await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({
+  // Wait for the jump, not for a plain "1 of 1": that only shows once every
+  // lazy file has been searched ("1 of 1…" until then).
+  await expect.poll(() => currentMatch(page), { timeout: 60_000 }).toMatchObject({
     path: 'file40.go', text: 'Goodbye40()', visible: true,
   });
+  await expect(count(page)).toHaveText(/^1 of 1/);
   await expect(page.locator('.tree-file[data-tree-path="file40.go"]')).toHaveClass(/active/);
+});
+
+test('a match found while the highlight workers start stays on screen when they fail', async ({ page }) => {
+  // Never answer the worker script, so the workers miss their 5s start limit
+  // and the page falls back to rendering without them, building a new list.
+  // Track fallback in-page so the jump-vs-fallback race is checked atomically
+  // (a Node-side flag read after toHaveText can miss a jump that already happened).
+  await page.addInitScript(() => {
+    const w = window as unknown as { __critWorkerFellBack?: boolean; __critJumpedBeforeFallback?: boolean };
+    w.__critWorkerFellBack = false;
+    w.__critJumpedBeforeFallback = false;
+    const warn = console.warn.bind(console);
+    console.warn = (...args: unknown[]) => {
+      if (String(args[0] ?? '').includes('Highlight workers unavailable')) {
+        // Snapshot the count in the same turn as the fallback warn — a later
+        // Playwright poll can miss a jump that already happened on the old list.
+        const text = document.querySelector('.crit-find-count')?.textContent ?? '';
+        if (/^1 of 1/.test(text)) w.__critJumpedBeforeFallback = true;
+        w.__critWorkerFellBack = true;
+      }
+      warn(...args);
+    };
+  });
+  await page.route('**/pierre/pierre-worker.js', () => {});
+  await loadPage(page);
+  await openFind(page);
+  await input(page).fill('Goodbye130()');
+  // Wait for the fallback. Skip when find had not jumped yet — the jump would
+  // land on the new list and there is nothing to test.
+  await expect.poll(
+    () => page.evaluate(() => !!(window as unknown as { __critWorkerFellBack?: boolean }).__critWorkerFellBack),
+    { timeout: 30_000 },
+  ).toBe(true);
+  const jumpedBefore = await page.evaluate(
+    () => !!(window as unknown as { __critJumpedBeforeFallback?: boolean }).__critJumpedBeforeFallback,
+  );
+  test.skip(!jumpedBefore, 'the fallback came before the match was found');
+
+  await expect.poll(() => currentMatch(page), { timeout: 10_000 }).toMatchObject({
+    path: 'file130.go', text: 'Goodbye130()', visible: true,
+  });
 });
 
 test('keeps the found file active in the tree until it scrolls out of view', async ({ page }) => {
