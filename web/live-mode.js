@@ -1413,7 +1413,13 @@
     actions.appendChild(cancelBtn);
     replyEl.appendChild(actions);
 
-    function close() { refreshPanel(); }
+    // Restore the reply here: the panel keeps a card with an open editor, and
+    // an unchanged card is not rebuilt.
+    function close() {
+      actions.remove();
+      ta.replaceWith(bodyEl);
+      refreshPanel();
+    }
     cancelBtn.addEventListener('click', function (ev) { ev.stopPropagation(); close(); });
     saveBtn.addEventListener('click', async function (ev) {
       ev.stopPropagation();
@@ -1433,10 +1439,12 @@
         return;
       }
       // Optimistic local update — comment-changed SSE refreshes canonical state.
-      if (Array.isArray(c.replies)) {
-        for (var i = 0; i < c.replies.length; i++) {
-          if (c.replies[i] && c.replies[i].id === replyId) {
-            c.replies[i].body = newBody;
+      // Look the comment up again: a refresh during the edit replaces c.
+      var current = findCommentById(commentId) || c;
+      if (Array.isArray(current.replies)) {
+        for (var i = 0; i < current.replies.length; i++) {
+          if (current.replies[i] && current.replies[i].id === replyId) {
+            current.replies[i].body = newBody;
             break;
           }
         }
