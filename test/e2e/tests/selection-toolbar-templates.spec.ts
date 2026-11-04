@@ -5,8 +5,9 @@ import {
 } from './helpers';
 
 // Pinned comment templates sit in the selection toolbar, before Comment: one
-// click comments the selection with the template text. Settings place the
-// toolbar or turn it off, and say whether buttons show their shortcut.
+// click comments the selection with the template text. Settings turn the
+// toolbar on or off and, under Advanced, place it, style its Comment button,
+// and hide its shortcuts or its templates.
 
 function toolbar(page: Page) {
   return page.locator('.crit-selection-toolbar');
@@ -50,6 +51,8 @@ test.describe('Selection toolbar templates (git mode)', () => {
   });
 
   test('each template shows its emoji, its title or text, or both', async ({ page }) => {
+    // Keys aside (Accepted and Rejected come with Alt+P and Alt+C).
+    await setSetting(page, 'selectionToolbarShortcuts', false);
     await page.evaluate(() => {
       const t = window.crit.commentTemplates;
       t.getTemplateItems();
@@ -59,6 +62,14 @@ test.describe('Selection toolbar templates (git mode)', () => {
     });
     await selectInBlock(page, partialBlock(section));
     await expect(toolbar(page).locator('.crit-selection-toolbar-pin')).toHaveText(['👍', 'No', '🧪Ask for tests']);
+  });
+
+  test('Alt+P comments the selection with 👍 Accepted out of the box', async ({ page, request }) => {
+    await selectInBlock(page, partialBlock(section));
+    await expect(toolbar(page).locator('.crit-selection-toolbar-pin').first().locator('kbd')).toHaveText(['Alt', 'p']);
+    await page.keyboard.press('Alt+p');
+    await expect(section.locator('.comment-card', { hasText: 'Accepted' })).toBeVisible();
+    expect((await savedComments(page, request)).filter(c => c.body === 'Accepted')).toHaveLength(1);
   });
 
   test('a template shortcut comments the selection; without a selection it does nothing', async ({ page, request }) => {
@@ -86,7 +97,7 @@ test.describe('Selection toolbar templates (git mode)', () => {
     await expect(toolbar(page).locator('kbd:visible')).toHaveCount(0);
   });
 
-  test('top-left aligns on the selection start, bottom-right sits under its end, off hides the toolbar', async ({ page }) => {
+  test('top-left aligns on the selection start, bottom-right and bottom-center sit under it, off hides the toolbar', async ({ page }) => {
     const selectionEdges = () => page.evaluate(() => {
       const rects = Array.from(window.getSelection()!.getRangeAt(0).getClientRects()).filter(r => r.width > 0);
       return { left: rects[0].left, right: rects[rects.length - 1].right, bottom: rects[rects.length - 1].bottom };
@@ -112,7 +123,22 @@ test.describe('Selection toolbar templates (git mode)', () => {
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.getSelection()!.removeAllRanges());
 
-    await setSetting(page, 'selectionToolbar', 'off');
+    await setSetting(page, 'selectionToolbar', 'bottom-center');
+    await selectInBlock(page, partialBlock(section));
+    await expect(toolbar(page)).toBeVisible();
+    box = (await toolbar(page).boundingBox())!;
+    const last = await page.evaluate(() => {
+      const rects = Array.from(window.getSelection()!.getRangeAt(0).getClientRects()).filter(r => r.width > 0);
+      const r = rects[rects.length - 1];
+      return { middle: (r.left + r.right) / 2, bottom: r.bottom };
+    });
+    await expect(toolbar(page)).toHaveAttribute('data-placement', 'below');
+    expect(Math.abs(box.x + box.width / 2 - last.middle)).toBeLessThan(2);
+    expect(box.y).toBeGreaterThanOrEqual(last.bottom);
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.getSelection()!.removeAllRanges());
+
+    await setSetting(page, 'selectionToolbarEnabled', false);
     await selectInBlock(page, partialBlock(section));
     await nextFrames(page);
     await expect(toolbar(page)).toBeHidden();
@@ -152,19 +178,68 @@ test.describe('Selection toolbar templates (git mode)', () => {
     await expect(toolbar(page)).toHaveAttribute('data-placement', 'below');
   });
 
-  test('Settings set the placement and the shortcut display', async ({ page }) => {
+  test('Settings: the toolbar switch, then Advanced with position, style, hidden shortcuts and templates', async ({ page }) => {
     await page.locator('#settingsToggle').click();
+    const advanced = page.locator('#toolbarAdvanced');
+    await expect(page.locator('#toolbarEnabledToggle')).toBeChecked();
+    await expect(advanced).toBeVisible();
+    await expect(advanced).not.toHaveAttribute('open', '');
+    await advanced.locator('summary').click();
+
     const placement = page.locator('#selectionToolbarSelect');
-    await expect(placement).toHaveValue('top-center');
-    await placement.selectOption('bottom-right');
-    // The switch input is visually hidden: click its label.
-    await page.locator('label.comments-panel-switch:has(#toolbarShortcutsToggle)').click();
+    await expect(placement).toHaveValue('top-cursor');
+    await expect(placement.locator('option[value="off"]')).toHaveCount(0);
+    await placement.selectOption('bottom-center');
+    await page.locator('[data-toolbar-style="icon"]').click();
+    // The Hide switches start off, like "Hide resolved comments". Their
+    // inputs are visually hidden: click the labels.
     await expect(page.locator('#toolbarShortcutsToggle')).not.toBeChecked();
+    await expect(page.locator('#toolbarTemplatesToggle')).not.toBeChecked();
+    await expect(page.locator('#toolbarTemplatesCount')).toHaveText('One-click comments beside Comment · 2 in the toolbar');
+    await page.locator('label.comments-panel-switch:has(#toolbarShortcutsToggle)').click();
+    await page.locator('label.comments-panel-switch:has(#toolbarTemplatesToggle)').click();
     await page.locator('#settingsClose').click();
     const settings = await page.evaluate(() => ({
       placement: window.crit.shared.getSetting('selectionToolbar', null),
+      style: window.crit.shared.getSetting('selectionToolbarButtonStyle', null),
       shortcuts: window.crit.shared.getSetting('selectionToolbarShortcuts', null),
+      templates: window.crit.shared.getSetting('selectionToolbarTemplates', null),
     }));
-    expect(settings).toEqual({ placement: 'bottom-right', shortcuts: false });
+    expect(settings).toEqual({ placement: 'bottom-center', style: 'icon', shortcuts: false, templates: false });
+
+    // Only Comment, as its icon, with no key.
+    await selectInBlock(page, partialBlock(section));
+    const buttons = toolbar(page).locator('button:visible');
+    await expect(buttons).toHaveCount(1);
+    await expect(buttons.first()).toHaveAccessibleName('Comment on selection');
+    await expect(buttons.first().locator('.crit-selection-toolbar-add')).toBeVisible();
+    await expect(buttons.first().getByText('Comment', { exact: true })).toBeHidden();
+    await expect(toolbar(page).locator('kbd:visible')).toHaveCount(0);
+  });
+
+  test('Settings: toolbar off hides Advanced, and Manage opens the Comment templates tab', async ({ page }) => {
+    await page.locator('#settingsToggle').click();
+    await page.locator('#toolbarAdvanced summary').click();
+    await page.locator('#manageTemplatesBtn').click();
+    await expect(page.locator('#templatesPane')).toBeVisible();
+    await page.locator('#tab-settings').click();
+    await page.locator('label.comments-panel-switch:has(#toolbarEnabledToggle)').click();
+    await expect(page.locator('#toolbarAdvanced')).toBeHidden();
+    await page.locator('#settingsClose').click();
+    expect(await page.evaluate(() => window.crit.shared.getSetting('selectionToolbarEnabled', null))).toBe(false);
+  });
+
+  test('a stored Off position becomes the toolbar switch, off', async ({ page }) => {
+    await setSetting(page, 'selectionToolbar', 'off');
+    await page.reload();
+    section = await switchToDocumentView(page);
+    const settings = await page.evaluate(() => ({
+      enabled: window.crit.shared.getSetting('selectionToolbarEnabled', null),
+      placement: window.crit.shared.getSetting('selectionToolbar', null),
+    }));
+    expect(settings).toEqual({ enabled: false, placement: 'top-cursor' });
+    await selectInBlock(page, partialBlock(section));
+    await nextFrames(page);
+    await expect(toolbar(page)).toBeHidden();
   });
 });

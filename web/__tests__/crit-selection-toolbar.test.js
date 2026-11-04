@@ -112,7 +112,15 @@ test('the *-cursor placements follow the selection direction', () => {
   assert.equal(resolvePlacement('bottom-cursor', false), 'bottom-right');
   assert.equal(resolvePlacement('bottom-cursor', true), 'bottom-left');
   assert.equal(resolvePlacement('bottom-left', false), 'bottom-left');
-  assert.equal(resolvePlacement('unknown', false), 'top-center');
+  assert.equal(resolvePlacement('top-center', true), 'top-center');
+});
+
+test('the default placement is top, closest to the cursor, for unknown values too', () => {
+  const { resolvePlacement, DEFAULT_PLACEMENT } = toolbar;
+  assert.equal(DEFAULT_PLACEMENT, 'top-cursor');
+  assert.equal(resolvePlacement('unknown', false), 'top-right');
+  assert.equal(resolvePlacement('off', true), 'top-left');
+  assert.equal(resolvePlacement(undefined, false), 'top-right');
 });
 
 test('reads the selection direction, natively or from its anchor and focus', () => {
@@ -128,7 +136,34 @@ test('reads the selection direction, natively or from its anchor and focus', () 
 });
 
 test('exposes the placements a reader can choose', () => {
-  assert.deepEqual(toolbar.PLACEMENTS, ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-right', 'top-cursor', 'bottom-cursor']);
+  assert.deepEqual(toolbar.PLACEMENTS, ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'top-cursor', 'bottom-cursor']);
+});
+
+test('Settings lists the placements by the cursor first, and no Off', () => {
+  assert.deepEqual(toolbar.PLACEMENT_OPTIONS.map((o) => o.id), [
+    'top-cursor', 'bottom-cursor', 'top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right',
+  ]);
+  assert.equal(toolbar.PLACEMENT_OPTIONS[0].id, toolbar.DEFAULT_PLACEMENT);
+  assert.deepEqual(toolbar.PLACEMENT_OPTIONS.map((o) => o.id).sort(), toolbar.PLACEMENTS.slice().sort());
+});
+
+test('the Comment button styles are Icon, Text and Both', () => {
+  assert.deepEqual(toolbar.BUTTON_STYLES.map((o) => [o.id, o.name]), [['icon', 'Icon'], ['text', 'Text'], ['both', 'Both']]);
+});
+
+test('bottom-center centres the toolbar below the last line', () => {
+  const anchor = { top: 100, left: 60, width: 200, bottom: 138, lastTop: 120, lastLeft: 20, lastRight: 300, lastBottom: 138 };
+  const pos = computeToolbarPosition(anchor, size, viewport, 50, 'bottom-center');
+  assert.equal(pos.placement, 'below');
+  assert.equal(pos.top, 138 + 8);
+  assert.equal(pos.left, (20 + 300) / 2 - 60);
+});
+
+test('bottom-center flips above the last line near the bottom of the viewport', () => {
+  const anchor = { top: 700, left: 60, width: 200, bottom: 780, lastTop: 762, lastLeft: 60, lastRight: 300, lastBottom: 780 };
+  const pos = computeToolbarPosition(anchor, size, viewport, 50, 'bottom-center');
+  assert.equal(pos.placement, 'above');
+  assert.equal(pos.top, 762 - 8 - 34);
 });
 
 test('flips below the last line of a multi-line selection', () => {

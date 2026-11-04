@@ -4939,7 +4939,7 @@
         textarea.focus();
         textarea.dispatchEvent(new Event('input'));
       },
-      onEdit: function(item) { showTemplateDialog(textarea, item); },
+      onEdit: function(item) { openSettingsPanel('templates', { expand: item.index }); },
     });
 
     const saveTemplateBtn = document.createElement('button');
@@ -4947,7 +4947,7 @@
     saveTemplateBtn.textContent = '+ Template';
     saveTemplateBtn.addEventListener('click', function(e) {
       e.preventDefault();
-      showTemplateDialog(textarea, null);
+      openSettingsPanel('templates', { expand: 'new', text: textarea.value.trim() });
     });
 
     const suggestBtn = document.createElement('button');
@@ -4963,21 +4963,6 @@
 
     actions.insertBefore(leftGroup, actions.firstChild);
     form.insertBefore(templateBar, form.querySelector('textarea'));
-  }
-
-  // "+ Template" (create from the form's text) and a chip's edit button open
-  // the shared template dialog; every template bar redraws once it saves.
-  function showTemplateDialog(textarea, item) {
-    const text = textarea.value.trim();
-    if (!item && !text) {
-      textarea.focus();
-      return;
-    }
-    window.crit.commentTemplates.openTemplateDialog({
-      item: item,
-      text: text,
-      onClose: function() { textarea.focus(); },
-    });
   }
 
   // ===== File Picker Autocomplete =====
@@ -9731,6 +9716,7 @@
           loadCodeFonts(cachedConfig);
         }
         renderShortcutsPane();
+        renderTemplatesPane();
       },
       onTabSwitch: function (tab) { settingsPanelTab = tab; },
       onClose: function () { settingsPanelOpen = false; refreshTemplateBars(); },
@@ -9770,11 +9756,13 @@
       if (codeFontsRequest === request) codeFontsRequest = null;
     });
   }
-  function openSettingsPanel(tab) {
+  // paneOptions reach the Comment templates tab: { expand: index | 'new', text }.
+  function openSettingsPanel(tab, paneOptions) {
     settingsPanelTab = tab || 'settings';
     settingsPanelOpen = true;
     const ctl = getSettingsCtl();
     if (ctl) ctl.open(settingsPanelTab);
+    if (paneOptions && settingsPanelTab === 'templates') renderTemplatesPane(paneOptions);
   }
 
   function applyHideResolved() {
@@ -9804,6 +9792,10 @@
       escape: escapeHtml,
       selectionToolbar: window.crit.selectionToolbar,
       commentTemplates: window.crit.commentTemplates,
+      openCommentTemplates: function () {
+        const ctl = getSettingsCtl();
+        if (ctl) ctl.switchTab('templates');
+      },
       themePalettes: window.crit.palettes,
       paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
       onRendererSettingChange: async function(key, value) {
@@ -9854,7 +9846,17 @@
   function renderShortcutsPane() {
     const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderShortcutsPane) {
-      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), { mode: 'code-review' });
+      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), {
+        mode: 'code-review',
+        templates: window.crit.commentTemplates,
+      });
+    }
+  }
+
+  function renderTemplatesPane(options) {
+    const shared = window.crit && window.crit.settingsPanes;
+    if (shared && shared.renderTemplatesPane) {
+      shared.renderTemplatesPane(document.getElementById('templatesPane'), window.crit.commentTemplates, options);
     }
   }
 
@@ -10297,7 +10299,12 @@
   // selecting to copy or to read stays as it was. Settings > Selection
   // toolbar places it or turns it off.
   function selectionToolbarPlacement() {
-    return getSetting('selectionToolbar', 'top-center');
+    return getSetting('selectionToolbar', window.crit.selectionToolbar.DEFAULT_PLACEMENT);
+  }
+  // Off was a position before it became the "Enable selection toolbar" switch.
+  if (selectionToolbarPlacement() === 'off') {
+    setSetting('selectionToolbarEnabled', false);
+    setSetting('selectionToolbar', window.crit.selectionToolbar.DEFAULT_PLACEMENT);
   }
 
   // A pinned template comments the resolved selection in one click, as `c`
@@ -10328,17 +10335,21 @@
   window.crit.selectionToolbar.create({
     label: 'Comment',
     ariaLabel: 'Comment on selection',
-    icon: ICON_COMMENT,
+    // The blue "+" of the line gutter: the same action, the same mark.
+    icon: '<span class="crit-selection-toolbar-add">+</span>',
     shortcut: function() { return window.crit.shortcuts ? window.crit.shortcuts.getBinding('comment') : ''; },
     topBoundary: selectionToolbarTopBoundary,
     shadowRoots: function() {
       return Array.from(document.querySelectorAll('diffs-container'))
         .map(function(host) { return host.shadowRoot; }).filter(Boolean);
     },
-    enabled: function() { return !settingsPanelOpen && selectionToolbarPlacement() !== 'off'; },
+    enabled: function() { return !settingsPanelOpen && getSetting('selectionToolbarEnabled', true) !== false; },
     placement: selectionToolbarPlacement,
+    buttonStyle: function() { return getSetting('selectionToolbarButtonStyle', 'both'); },
     showShortcuts: function() { return getSetting('selectionToolbarShortcuts', true) !== false; },
-    pinned: function() { return window.crit.commentTemplates.getPinnedTemplates(); },
+    pinned: function() {
+      return getSetting('selectionToolbarTemplates', true) !== false ? window.crit.commentTemplates.getPinnedTemplates() : [];
+    },
     resolve: function(selection) {
       const resolved = resolveSelectionComment(selection);
       return resolved && { range: resolved.range, data: resolved.form };

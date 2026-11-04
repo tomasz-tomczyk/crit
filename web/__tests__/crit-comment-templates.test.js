@@ -87,13 +87,33 @@ test('saveTemplates + getTemplates roundtrip through the cookie', () => {
   assert.deepEqual(sb.api.getTemplates(), ['Fix typo', 'LGTM']);
 });
 
-test('first use seeds Accepted and Rejected, pinned with their emoji', () => {
+test('first use seeds Accepted and Rejected, pinned with their emoji and Alt+P / Alt+C', () => {
   var sb = makeSandbox();
   var items = sb.api.getTemplateItems();
-  assert.deepEqual(items.map(function (i) { return [i.text, i.emoji, i.pinned, i.display]; }), [
-    ['Accepted', '👍', true, 'emoji'],
-    ['Rejected', '👎', true, 'emoji'],
+  assert.deepEqual(items.map(function (i) { return [i.text, i.emoji, i.pinned, i.display, i.shortcut]; }), [
+    ['Accepted', '👍', true, 'emoji', 'Alt+p'],
+    ['Rejected', '👎', true, 'emoji', 'Alt+c'],
   ]);
+  assert.equal(sb.api.findByShortcut('Alt+p').text, 'Accepted');
+});
+
+test('onChange listeners run after every change, once each', () => {
+  var sb = makeSandbox();
+  var calls = 0;
+  function listener() { calls += 1; }
+  sb.api.onChange(listener);
+  sb.api.onChange(listener);
+  sb.api.addTemplate('Nice!');
+  sb.api.updateTemplate(0, { pinned: false });
+  sb.api.moveTemplate(0, 1);
+  sb.api.removeTemplate(0);
+  assert.equal(calls, 4);
+});
+
+test('the template dialog is gone: templates are edited in the Settings tab', () => {
+  var sb = makeSandbox();
+  assert.equal(sb.api.openTemplateDialog, undefined);
+  assert.equal(typeof sb.api.renderSettingsList, 'function');
 });
 
 test('seeding keeps saved templates and the crit-templates shape (texts only)', () => {

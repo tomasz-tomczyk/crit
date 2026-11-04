@@ -49,7 +49,7 @@ test.describe('Selection toolbar (git mode)', () => {
       await expect(bar).toBeVisible();
       await expect(bar).toHaveAttribute('role', 'toolbar');
       await expect(commentButton(page)).toHaveAttribute('aria-keyshortcuts', 'c');
-      await expect(bar.locator('kbd')).toHaveText('c');
+      await expect(commentButton(page).locator('kbd')).toHaveText('c');
 
       // Above the selection, or below it when the sticky chrome leaves no room.
       const barBox = (await bar.boundingBox())!;

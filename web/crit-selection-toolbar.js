@@ -17,34 +17,45 @@
   // Positions a reader can choose for the bar (Settings > Selection toolbar).
   // The *-cursor ones follow the selection's direction: the bar goes to the
   // side where the selection ended, where the pointer was let go.
-  const PLACEMENTS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-right', 'top-cursor', 'bottom-cursor'];
+  const PLACEMENTS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'top-cursor', 'bottom-cursor'];
+  // Where the bar shows when the reader has not chosen: by the pointer.
+  const DEFAULT_PLACEMENT = 'top-cursor';
   // The choices of Settings > Selection toolbar > Position, in menu order.
   const PLACEMENT_OPTIONS = [
+    { id: 'top-cursor', name: 'Top, closest to the cursor' },
+    { id: 'bottom-cursor', name: 'Bottom, closest to the cursor' },
     { id: 'top-left', name: 'Top left' },
     { id: 'top-center', name: 'Top center' },
     { id: 'top-right', name: 'Top right' },
     { id: 'bottom-left', name: 'Bottom left' },
+    { id: 'bottom-center', name: 'Bottom center' },
     { id: 'bottom-right', name: 'Bottom right' },
-    { id: 'top-cursor', name: 'Top, closest to the cursor' },
-    { id: 'bottom-cursor', name: 'Bottom, closest to the cursor' },
-    { id: 'off', name: 'Off' },
+  ];
+  // What the Comment button shows (Settings > Selection toolbar > Button style).
+  const BUTTON_STYLES = [
+    { id: 'icon', name: 'Icon' },
+    { id: 'text', name: 'Text' },
+    { id: 'both', name: 'Both' },
   ];
 
   // The corner a *-cursor placement means for a selection made forwards (left
-  // to right) or backwards; other placements are their own corner.
+  // to right) or backwards; other placements are their own corner, and an
+  // unknown one is the default.
   function resolvePlacement(placement, backward) {
-    if (placement === 'top-cursor') return backward ? 'top-left' : 'top-right';
-    if (placement === 'bottom-cursor') return backward ? 'bottom-left' : 'bottom-right';
-    return PLACEMENTS.indexOf(placement) === -1 ? 'top-center' : placement;
+    const chosen = PLACEMENTS.indexOf(placement) === -1 ? DEFAULT_PLACEMENT : placement;
+    if (chosen === 'top-cursor') return backward ? 'top-left' : 'top-right';
+    if (chosen === 'bottom-cursor') return backward ? 'bottom-left' : 'bottom-right';
+    return chosen;
   }
 
   // Viewport position of a toolbar of `size` ({width, height}) for an
   // `anchor` (see anchorRect), kept inside the viewport and under
   // `topBoundary` (sticky headers). `placement` (resolved, see
   // resolvePlacement) picks the corner the bar starts from:
-  //   top-center (default)  centred above the first line;
+  //   top-center            centred above the first line;
   //   top-left / top-right  above the first line, from its start / its end;
-  //   bottom-left / -right  below the last line, from its start / its end.
+  //   bottom-left / -right  below the last line, from its start / its end;
+  //   bottom-center         centred below the last line.
   // A top bar goes below the whole selection when the space above is too
   // short, a bottom bar above the last line when the space below is.
   function computeToolbarPosition(anchor, size, viewport, topBoundary, placement) {
@@ -55,7 +66,7 @@
     let side = 'above';
     let top;
     let left;
-    if (placement === 'bottom-left' || placement === 'bottom-right') {
+    if (placement === 'bottom-left' || placement === 'bottom-center' || placement === 'bottom-right') {
       const lastTop = anchor.lastTop === undefined ? anchor.top : anchor.lastTop;
       const lastBottom = anchor.lastBottom === undefined ? anchor.bottom : anchor.lastBottom;
       side = 'below';
@@ -64,8 +75,11 @@
         side = 'above';
         top = lastTop - GAP - size.height;
       }
-      if (placement === 'bottom-left') left = anchor.lastLeft === undefined ? anchor.left : anchor.lastLeft;
-      else left = anchor.lastRight === undefined ? firstRight : anchor.lastRight;
+      const lastLeft = anchor.lastLeft === undefined ? anchor.left : anchor.lastLeft;
+      const lastRight = anchor.lastRight === undefined ? firstRight : anchor.lastRight;
+      if (placement === 'bottom-left') left = lastLeft;
+      else if (placement === 'bottom-right') left = lastRight;
+      else left = (lastLeft + lastRight) / 2 - size.width / 2;
     } else {
       top = anchor.top - GAP - size.height;
       if (top < minTop) {
@@ -168,6 +182,8 @@
   //                  comment template before Comment, read each time the bar
   //                  shows; `display` is emoji, text or both
   //   showShortcuts() false to hide the keys on every button, Comment's too
+  //   buttonStyle()  one of BUTTON_STYLES, what the Comment button shows; read
+  //                  each time the bar shows (an icon-less button keeps its text)
   //   onPinned(data, item) called when a pinned button is clicked
   function create(options) {
     const opts = options || {};
@@ -187,8 +203,9 @@
     button.type = 'button';
     button.className = 'crit-selection-toolbar-btn';
     button.setAttribute('aria-label', opts.ariaLabel || 'Comment on selection');
+    let icon = null;
     if (opts.icon) {
-      const icon = doc.createElement('span');
+      icon = doc.createElement('span');
       icon.className = 'crit-selection-toolbar-icon';
       icon.setAttribute('aria-hidden', 'true');
       icon.innerHTML = opts.icon;
@@ -327,6 +344,13 @@
     }
     function onViewportChange() { hide(); }
 
+    function renderButtonStyle() {
+      const style = opts.buttonStyle ? opts.buttonStyle() : 'both';
+      if (icon) icon.hidden = style === 'text';
+      label.hidden = style === 'icon' && !!icon;
+      button.classList.toggle('crit-selection-toolbar-btn--icon', style === 'icon' && !!icon);
+    }
+
     function renderShortcut() {
       const binding = opts.shortcut ? opts.shortcut() : '';
       const parts = shortcutParts(binding);
@@ -342,6 +366,7 @@
     function show(range, data) {
       payload = data;
       shown = snapshot();
+      renderButtonStyle();
       renderShortcut();
       renderPinned();
       bar.style.visibility = 'hidden';
@@ -351,7 +376,7 @@
         { width: bar.offsetWidth, height: bar.offsetHeight },
         { width: win.innerWidth, height: win.innerHeight },
         opts.topBoundary ? opts.topBoundary() : 0,
-        resolvePlacement(opts.placement ? opts.placement() : 'top-center', isBackward(doc.getSelection()))
+        resolvePlacement(opts.placement ? opts.placement() : DEFAULT_PLACEMENT, isBackward(doc.getSelection()))
       );
       bar.style.top = pos.top + 'px';
       bar.style.left = pos.left + 'px';
@@ -401,6 +426,8 @@
   const api = {
     PLACEMENTS: PLACEMENTS,
     PLACEMENT_OPTIONS: PLACEMENT_OPTIONS,
+    DEFAULT_PLACEMENT: DEFAULT_PLACEMENT,
+    BUTTON_STYLES: BUTTON_STYLES,
     resolvePlacement: resolvePlacement,
     isBackward: isBackward,
     create: create,
