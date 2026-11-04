@@ -5399,7 +5399,7 @@ html[data-theme="light"] .toggle-btn.active {
   gap: 4px;
 }
 .btn-agent:hover {
-  background: var(--crit-live-badge-bg);
+  background: var(--crit-live-hover-bg);
   color: var(--crit-live-fg);
 }
 .btn-agent:disabled {
@@ -5426,10 +5426,18 @@ html[data-theme="light"] .toggle-btn.active {
 /* Orange, not green: a live thread goes straight to the agent. */
 /* A palette's orange role need not be orange (Tokyo Night maps it to
    blue-grey), so palettes get the same fixed orange as theme.css. Kept out of
-   crit-palette.css, which crit-web copies and does not use for this. */
+   crit-palette.css, which crit-web copies and does not use for this.
+   Both values are this far from the card so 10px badge text stays readable on
+   a palette's tinted card header; the dark badge has no tint for the same reason. */
 :root[data-crit-palette] {
-  --crit-live-fg: light-dark(#bc4c00, #ff9e64);
-  --crit-live-badge-bg: light-dark(rgba(188, 76, 0, 0.1), rgba(255, 158, 100, 0.14));
+  --crit-live-fg: #7a2e00;
+  --crit-live-badge-bg: rgba(122, 46, 0, 0.1);
+  --crit-live-hover-bg: rgba(122, 46, 0, 0.1);
+}
+:root[data-crit-palette][data-crit-mode="dark"] {
+  --crit-live-fg: #ffb68c;
+  --crit-live-badge-bg: transparent;
+  --crit-live-hover-bg: rgba(255, 182, 140, 0.14);
 }
 .live-thread-badge {
   font-size: 10px;
