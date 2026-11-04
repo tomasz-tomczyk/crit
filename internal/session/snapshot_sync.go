@@ -200,7 +200,9 @@ func remapCommentsToContent(comments []Comment, oldContent, newContent string) (
 			continue
 		}
 		start, end, drifted := remapCommentPosition(c, lineMap, newLines, newLineCount)
-		if c.Anchor == "" {
+		// Without an anchor, remap cannot newly clear drift. Keep the prior
+		// flag unless the quote check just marked it Drifted.
+		if c.Anchor == "" && !drifted {
 			drifted = c.Drifted
 		}
 		if start != c.StartLine || end != c.EndLine || drifted != c.Drifted {

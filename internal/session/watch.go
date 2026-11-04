@@ -1142,9 +1142,10 @@ func remapLines(lineMap map[int]int, oldStart, oldEnd, maxLine int) (int, int) {
 }
 
 // remapCommentPosition maps a line comment onto new content: LCS line mapping
-// first, then anchor verification to correct the position. Drifted reports
-// that the anchor text was not found where the mapping put it; it is false for
-// a comment without an anchor.
+// first, then anchor verification to correct the position. Drifted is true when
+// the anchor is not found where the mapping put it, or when a quoted comment's
+// quote is no longer on its lines. With neither anchor nor quote it is false
+// (callers that must keep a prior Drifted flag do so themselves).
 func remapCommentPosition(c Comment, lineMap map[int]int, newLines []string, newLineCount int) (start, end int, drifted bool) {
 	start, end = remapLines(lineMap, c.StartLine, c.EndLine, newLineCount)
 	if c.Anchor != "" {
@@ -1154,7 +1155,7 @@ func remapCommentPosition(c Comment, lineMap map[int]int, newLines []string, new
 	}
 	// The anchor check tolerates small edits to the line, but a comment on
 	// selected text is about its quote: once the quoted words are gone from
-	// its lines (its highlight finds nothing), the comment is Drifted.
+	// its lines, the comment is Drifted (approximates the browser highlight).
 	if !drifted && c.Quote != "" && !quoteOnLines(newLines, start, end, c.Quote) {
 		drifted = true
 	}
@@ -1188,9 +1189,10 @@ func normalizeQuoteText(s string) string {
 }
 
 // quoteOnLines reports whether quote is still on lines start..end (1-based,
-// inclusive), compared as normalizeQuoteText does. It mirrors the browser's
-// quote highlight, which needs the exact words: a comment is Drifted exactly
-// when its highlight would find nothing.
+// inclusive), compared as normalizeQuoteText does. That approximates the
+// browser highlight (exact words after whitespace collapse): punctuation-only
+// edits are ignored here, and source markup the page does not show (list
+// markers, HTML entities, reference-link ids) can still disagree.
 func quoteOnLines(lines []string, start, end int, quote string) bool {
 	if start < 1 || end > len(lines) || start > end {
 		return true

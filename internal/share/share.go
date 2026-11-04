@@ -706,6 +706,11 @@ func fetchWebCommentsFromTarget(shareURL, shareBaseURL string, localIDs map[stri
 
 // carriedPlacement reports a local comment whose shared copy has moved or
 // been marked drifted. The local id is the external_id the CLI sent.
+//
+// crit-web's carry-forward is still anchor-only, so a quoted comment the CLI
+// marked Drifted can come back undrifted. Keep the local quote-drift flag
+// until web gains the same check (OR in web Drifted; never clear local
+// Drifted for a comment that still has a Quote).
 func carriedPlacement(wc WebComment, locals map[string]session.Comment) (session.Comment, bool) {
 	if wc.ExternalID == "" || locals == nil {
 		return session.Comment{}, false
@@ -714,13 +719,17 @@ func carriedPlacement(wc WebComment, locals map[string]session.Comment) (session
 	if !ok {
 		return session.Comment{}, false
 	}
-	if local.StartLine == wc.StartLine && local.EndLine == wc.EndLine && local.Anchor == wc.Anchor && local.Drifted == wc.Drifted {
+	drifted := wc.Drifted
+	if local.Quote != "" {
+		drifted = local.Drifted || wc.Drifted
+	}
+	if local.StartLine == wc.StartLine && local.EndLine == wc.EndLine && local.Anchor == wc.Anchor && local.Drifted == drifted {
 		return session.Comment{}, false
 	}
 	local.StartLine = wc.StartLine
 	local.EndLine = wc.EndLine
 	local.Anchor = wc.Anchor
-	local.Drifted = wc.Drifted
+	local.Drifted = drifted
 	return local, true
 }
 

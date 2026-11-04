@@ -2022,3 +2022,39 @@ func TestCarryForward_QuoteChangedMarksDrifted(t *testing.T) {
 		t.Errorf("whole-line comment: Drifted=%v line=%d, want Drifted=false line 3", c.Drifted, c.StartLine)
 	}
 }
+
+// Git-mode mid-round remap must mark quote drift the same way round complete does.
+func TestRemapCommentsToContent_QuoteChangedMarksDrifted(t *testing.T) {
+	oldContent := "# Plan\n\nThe brown fox jumps over the lazy dog near the old river bank.\n"
+	newContent := "# Plan\n\nThe red fox jumps over the lazy dog near the old river bank.\n"
+	comments := []Comment{{
+		ID: "c_quote", StartLine: 3, EndLine: 3, Body: "Which fox?", Quote: "The brown fox",
+		Anchor: "The brown fox jumps over the lazy dog near the old river bank.",
+		Scope:  "line",
+	}}
+	got, moved := remapCommentsToContent(comments, oldContent, newContent)
+	if !moved {
+		t.Fatal("expected moved=true when quote drift flips")
+	}
+	if !got[0].Drifted || got[0].StartLine != 3 {
+		t.Errorf("Drifted=%v line=%d, want Drifted=true line 3", got[0].Drifted, got[0].StartLine)
+	}
+}
+
+// Without an anchor, remap must still keep the quote-drift result (not the
+// prior Drifted=false).
+func TestRemapCommentsToContent_QuoteChangedWithoutAnchorMarksDrifted(t *testing.T) {
+	oldContent := "# Plan\n\nThe brown fox jumps over the lazy dog near the old river bank.\n"
+	newContent := "# Plan\n\nThe red fox jumps over the lazy dog near the old river bank.\n"
+	comments := []Comment{{
+		ID: "c_quote", StartLine: 3, EndLine: 3, Body: "Which fox?", Quote: "The brown fox",
+		Scope: "line",
+	}}
+	got, moved := remapCommentsToContent(comments, oldContent, newContent)
+	if !moved {
+		t.Fatal("expected moved=true when quote drift flips")
+	}
+	if !got[0].Drifted {
+		t.Errorf("anchorless quoted comment: Drifted=false, want true after quote words change")
+	}
+}

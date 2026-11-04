@@ -401,3 +401,36 @@ func TestUpdateShareState_RecordsLinesOnlyWhenSent(t *testing.T) {
 		t.Fatalf("after sent update = %+v", got.SharedLines)
 	}
 }
+
+// crit-web's carry-forward is anchor-only, so a web Drifted=false must not
+// clear a local quote-only Drifted=true when lines and anchor are unchanged.
+func TestCarriedPlacement_DoesNotClearLocalQuoteDrift(t *testing.T) {
+	local := session.Comment{
+		ID: "c1", Body: "Which fox?", StartLine: 3, EndLine: 3,
+		Anchor: "The red fox jumps.", Quote: "The brown fox", Drifted: true,
+	}
+	wc := WebComment{
+		ExternalID: "c1", StartLine: 3, EndLine: 3,
+		Anchor: "The red fox jumps.", Drifted: false,
+	}
+	got, ok := carriedPlacement(wc, map[string]session.Comment{"c1": local})
+	if ok {
+		t.Fatalf("web undrifted same placement cleared local quote-drift: %+v", got)
+	}
+}
+
+// Whole-line (no quote) drift from the web still clears or sets local Drifted.
+func TestCarriedPlacement_ClearsDriftWithoutQuote(t *testing.T) {
+	local := session.Comment{
+		ID: "c1", Body: "Expand this", StartLine: 5, EndLine: 5,
+		Anchor: "Step 1", Drifted: true,
+	}
+	wc := WebComment{
+		ExternalID: "c1", StartLine: 5, EndLine: 5,
+		Anchor: "Step 1", Drifted: false,
+	}
+	got, ok := carriedPlacement(wc, map[string]session.Comment{"c1": local})
+	if !ok || got.Drifted {
+		t.Fatalf("want web undrift to clear whole-line Drifted, got ok=%v Drifted=%v", ok, got.Drifted)
+	}
+}
