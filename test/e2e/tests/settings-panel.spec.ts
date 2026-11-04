@@ -71,7 +71,9 @@ test.describe('Settings Panel', () => {
     // View (the Live group is filtered out; Story shortcuts carry a "story mode"
     // badge and always render, like the "file mode"/"vcs mode" badged entries).
     const pane = page.locator('.settings-pane[data-pane="shortcuts"]');
-    await expect(pane.locator('.shortcuts-group-label')).toHaveCount(5);
+    // Crit's five groups, then the comment templates that have a key (Alt+P, Alt+C).
+    await expect(pane.locator('.shortcuts-group-label')).toHaveCount(6);
+    await expect(pane.locator('.shortcuts-group-label').last()).toHaveText('Comment templates');
     await expect(pane.locator('.shortcuts-group-label').first()).toHaveText('Navigation');
     await expect(pane.locator('.shortcuts-group-label').nth(3)).toHaveText('Story');
 

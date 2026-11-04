@@ -4784,7 +4784,8 @@
         textarea.selectionStart = textarea.selectionEnd = start + text.length;
         textarea.focus();
         textarea.dispatchEvent(new Event('input'));
-      }
+      },
+      onEdit: function(item) { openSettingsPanel('templates', { expand: item.index }); },
     });
 
     const saveTemplateBtn = document.createElement('button');
@@ -4792,7 +4793,7 @@
     saveTemplateBtn.textContent = '+ Template';
     saveTemplateBtn.addEventListener('click', function(e) {
       e.preventDefault();
-      showSaveTemplateDialog(textarea, templateBar);
+      openSettingsPanel('templates', { expand: 'new', text: textarea.value.trim() });
     });
 
     const suggestBtn = document.createElement('button');
@@ -4808,65 +4809,6 @@
 
     actions.insertBefore(leftGroup, actions.firstChild);
     form.insertBefore(templateBar, form.querySelector('textarea'));
-  }
-
-  function showSaveTemplateDialog(textarea, templateBar) {
-    const text = textarea.value.trim();
-    if (!text) {
-      textarea.focus();
-      return;
-    }
-    const overlay = document.createElement('div');
-    overlay.className = 'save-template-overlay active';
-
-    const dialog = document.createElement('div');
-    dialog.className = 'save-template-dialog';
-
-    const title = document.createElement('h3');
-    title.textContent = 'Save as template';
-    dialog.appendChild(title);
-
-    const desc = document.createElement('p');
-    desc.textContent = 'Edit the template text, then save.';
-    dialog.appendChild(desc);
-
-    const input = document.createElement('textarea');
-    input.className = 'save-template-input';
-    input.value = text;
-    input.rows = 3;
-    dialog.appendChild(input);
-
-    const btns = document.createElement('div');
-    btns.className = 'save-template-actions';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-sm';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function() { overlay.remove(); textarea.focus(); });
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn btn-sm btn-primary';
-    saveBtn.textContent = 'Save';
-    saveBtn.addEventListener('click', function() {
-      const val = input.value.trim();
-      if (!val) return;
-      templateBar._saveNew(val);
-      overlay.remove();
-      textarea.focus();
-    });
-
-    btns.appendChild(cancelBtn);
-    btns.appendChild(saveBtn);
-    dialog.appendChild(btns);
-
-    bindSubmitCancelKeys(input, function() { saveBtn.click(); }, function() { cancelBtn.click(); }, { stopPropagation: false });
-
-    overlay.appendChild(dialog);
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) { overlay.remove(); textarea.focus(); }
-    });
-    document.body.appendChild(overlay);
-    requestAnimationFrame(function() { input.focus(); input.select(); });
   }
 
   // ===== File Picker Autocomplete =====
@@ -9359,11 +9301,24 @@
           loadCodeFonts(cachedConfig);
         }
         renderShortcutsPane();
+        renderTemplatesPane();
       },
       onTabSwitch: function (tab) { settingsPanelTab = tab; },
-      onClose: function () { settingsPanelOpen = false; },
+      onClose: function () { settingsPanelOpen = false; refreshTemplateBars(); },
     });
     return settingsCtl;
+  }
+
+  // Settings may have reordered, edited or removed templates: redraw the
+  // template bars of the forms already on the page, Pierre's shadow roots too.
+  function refreshTemplateBars() {
+    const roots = [document].concat(Array.from(document.querySelectorAll('diffs-container'))
+      .map(function(host) { return host.shadowRoot; }).filter(Boolean));
+    roots.forEach(function(root) {
+      root.querySelectorAll('.comment-template-bar').forEach(function(bar) {
+        if (typeof bar._populate === 'function') bar._populate();
+      });
+    });
   }
 
   function loadCodeFonts(cfg) {
@@ -9386,11 +9341,13 @@
       if (codeFontsRequest === request) codeFontsRequest = null;
     });
   }
-  function openSettingsPanel(tab) {
+  // paneOptions reach the Comment templates tab: { expand: index | 'new', text }.
+  function openSettingsPanel(tab, paneOptions) {
     settingsPanelTab = tab || 'settings';
     settingsPanelOpen = true;
     const ctl = getSettingsCtl();
     if (ctl) ctl.open(settingsPanelTab);
+    if (paneOptions && settingsPanelTab === 'templates') renderTemplatesPane(paneOptions);
   }
 
   function applyHideResolved() {
@@ -9418,6 +9375,12 @@
       syncPendingUpdateButtons: syncPendingUpdateButtons,
       announceCopy: announceCopy,
       escape: escapeHtml,
+      selectionToolbar: window.crit.selectionToolbar,
+      commentTemplates: window.crit.commentTemplates,
+      openCommentTemplates: function () {
+        const ctl = getSettingsCtl();
+        if (ctl) ctl.switchTab('templates');
+      },
       themePalettes: window.crit.palettes,
       paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
       onRendererSettingChange: async function(key, value) {
@@ -9468,7 +9431,17 @@
   function renderShortcutsPane() {
     const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderShortcutsPane) {
-      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), { mode: 'code-review' });
+      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), {
+        mode: 'code-review',
+        templates: window.crit.commentTemplates,
+      });
+    }
+  }
+
+  function renderTemplatesPane(options) {
+    const shared = window.crit && window.crit.settingsPanes;
+    if (shared && shared.renderTemplatesPane) {
+      shared.renderTemplatesPane(document.getElementById('templatesPane'), window.crit.commentTemplates, options);
     }
   }
 
@@ -9514,6 +9487,7 @@
     if (settingsPanelOpen) return;
 
     const shortcutRegistry = window.crit && window.crit.shortcuts;
+    if (handleTemplateShortcut(e, shortcutRegistry)) return;
     const shortcutAction = shortcutRegistry ? shortcutRegistry.actionForEvent(e, 'code-review') : '';
     if (!shortcutAction && (e.metaKey || e.ctrlKey || e.altKey)) return;
     const interactive = e.target && e.target.closest && e.target.closest(
@@ -9773,23 +9747,27 @@
 
   // ===== Select-to-Comment helper =====
   // Selection alone never opens the form — copying text stays unhindered.
-  // The user presses `c` after selecting to comment on the selection.
-  // Returns true if a form was opened from an active selection.
-  function tryOpenFormFromSelection() {
-    const selection = window.getSelection();
+  // The user presses `c` after selecting, or clicks Comment on the selection
+  // toolbar, to comment on the selection.
+
+  // Resolves a selection into the form `c` would open, without touching the
+  // selection: { form, range } with openForm's arguments and a live Range
+  // over the selected text, or null when the selection is not commentable.
+  function resolveSelectionComment(selection) {
     // Code lines (Pierre shadow roots, list or story); otherwise the light
     // DOM path below (rendered markdown documents).
     const sel = window.crit.pierreDOM.pierreSelectionForComment(selection);
     if (sel) {
-      selection.removeAllRanges();
-      openForm({
-        filePath: sel.filePath, afterBlockIndex: null, startLine: sel.startLine, endLine: sel.endLine,
-        editingId: null, side: sel.side || undefined, quote: sel.quote, quoteOffset: sel.quoteOffset,
-      });
-      return true;
+      return {
+        range: sel.range,
+        form: {
+          filePath: sel.filePath, afterBlockIndex: null, startLine: sel.startLine, endLine: sel.endLine,
+          editingId: null, side: sel.side || undefined, quote: sel.quote, quoteOffset: sel.quoteOffset,
+        },
+      };
     }
     const range = getLineRangeFromSelection(selection);
-    if (!range) return false;
+    if (!range) return null;
 
     // Capture the selected text for the quote field.
     // If the selection covers the full text of the line range, skip the quote.
@@ -9801,22 +9779,29 @@
         // Strip diff gutter markers (+/-) from the start of each line
         selectedText = selectedText.replace(/^[+\-]/gm, '').trim();
 
+        // Blocks overlapping the line range, ordered by the first selected
+        // line they hold, then document order. One pass over the blocks: this
+        // runs on every mouse selection (selection toolbar), and plans can
+        // hold thousands of blocks.
+        const blocks = [];
+        document.querySelectorAll('.line-block[data-file-path]').forEach(function(el, index) {
+          if (el.dataset.filePath !== range.filePath) return;
+          const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
+          if (s <= range.endLine && endLn >= range.startLine) {
+            blocks.push({ el: el, first: Math.max(s, range.startLine), index: index });
+          }
+        });
+        blocks.sort(function(a, b) { return a.first - b.first || a.index - b.index; });
         let fullText = '';
         const contentEls = [];
-        for (let ln = range.startLine; ln <= range.endLine; ln++) {
-          document.querySelectorAll('.line-block[data-file-path]').forEach(function(el) {
-            if (el.dataset.filePath !== range.filePath) return;
-            const s = parseInt(el.dataset.startLine), endLn = parseInt(el.dataset.endLine);
-            if (s <= ln && endLn >= ln) {
-              el.querySelectorAll('.line-content').forEach(function(content) {
-                if (contentEls.indexOf(content) === -1) {
-                  fullText += (fullText ? '\n' : '') + content.textContent.trim();
-                  contentEls.push(content);
-                }
-              });
+        blocks.forEach(function(block) {
+          block.el.querySelectorAll('.line-content').forEach(function(content) {
+            if (contentEls.indexOf(content) === -1) {
+              fullText += (fullText ? '\n' : '') + content.textContent.trim();
+              contentEls.push(content);
             }
           });
-        }
+        });
         // Prefer text clipped to side-filtered contentEls so unified del+add
         // selections don't pollute the quote with the opposite side.
         const clipped = selectedTextWithinElements(selection, contentEls);
@@ -9864,17 +9849,115 @@
       }
     } catch { /* quote is a nice-to-have, don't break form opening */ }
 
+    return {
+      range: selection.getRangeAt(0),
+      form: {
+        filePath: range.filePath,
+        afterBlockIndex: range.afterBlockIndex,
+        startLine: range.startLine,
+        endLine: range.endLine,
+        editingId: null,
+        quote: quote,
+        quoteOffset: quoteOffset
+      },
+    };
+  }
+
+  // Returns true if a form was opened from an active selection.
+  function tryOpenFormFromSelection() {
+    const selection = window.getSelection();
+    const resolved = resolveSelectionComment(selection);
+    if (!resolved) return false;
     selection.removeAllRanges();
-    openForm({
-      filePath: range.filePath,
-      afterBlockIndex: range.afterBlockIndex,
-      startLine: range.startLine,
-      endLine: range.endLine,
-      editingId: null,
-      quote: quote,
-      quoteOffset: quoteOffset
-    });
+    openForm(resolved.form);
     return true;
+  }
+
+  // ===== Selection toolbar =====
+  // A Comment button above a mouse selection that `c` could comment on, then
+  // one button per pinned comment template. It opens nothing by itself, so
+  // selecting to copy or to read stays as it was. Settings > Selection
+  // toolbar places it or turns it off.
+  function selectionToolbarPlacement() {
+    return getSetting('selectionToolbar', window.crit.selectionToolbar.DEFAULT_PLACEMENT);
+  }
+  // Off was a position before it became the "Enable selection toolbar" switch.
+  if (selectionToolbarPlacement() === 'off') {
+    setSetting('selectionToolbarEnabled', false);
+    setSetting('selectionToolbar', window.crit.selectionToolbar.DEFAULT_PLACEMENT);
+  }
+
+  // A pinned template comments the resolved selection in one click, as `c`
+  // then typing the template would. The key is the comment's own, so no open
+  // form or draft is touched.
+  async function submitPinnedTemplate(form, text) {
+    const created = await submitComment(text, Object.assign({}, form, { formKey: 'pinned:' + Date.now() }));
+    if (!created) window.crit.shared.showToast('Could not save the comment. Try again.', { kind: 'error' });
+  }
+
+  // A template's own shortcut comments the current selection with it, mouse
+  // or keyboard selection alike, as `c` opens the form there. Without a
+  // commentable selection the key goes on to crit's keymap.
+  function handleTemplateShortcut(e, registry) {
+    const templates = window.crit.commentTemplates;
+    if (!registry || !templates) return false;
+    const item = templates.findByShortcut(registry.eventToBinding(e));
+    if (!item) return false;
+    const selection = window.getSelection();
+    const resolved = selection ? resolveSelectionComment(selection) : null;
+    if (!resolved) return false;
+    e.preventDefault();
+    selection.removeAllRanges();
+    submitPinnedTemplate(resolved.form, item.text);
+    return true;
+  }
+
+  window.crit.selectionToolbar.create({
+    label: 'Comment',
+    ariaLabel: 'Comment on selection',
+    // The blue "+" of the line gutter: the same action, the same mark.
+    icon: '<span class="crit-selection-toolbar-add">+</span>',
+    shortcut: function() { return window.crit.shortcuts ? window.crit.shortcuts.getBinding('comment') : ''; },
+    topBoundary: selectionToolbarTopBoundary,
+    shadowRoots: function() {
+      return Array.from(document.querySelectorAll('diffs-container'))
+        .map(function(host) { return host.shadowRoot; }).filter(Boolean);
+    },
+    enabled: function() { return !settingsPanelOpen && getSetting('selectionToolbarEnabled', true) !== false; },
+    placement: selectionToolbarPlacement,
+    buttonStyle: function() { return getSetting('selectionToolbarButtonStyle', 'both'); },
+    showShortcuts: function() { return getSetting('selectionToolbarShortcuts', true) !== false; },
+    pinned: function() {
+      return getSetting('selectionToolbarTemplates', true) !== false ? window.crit.commentTemplates.getPinnedTemplates() : [];
+    },
+    resolve: function(selection) {
+      const resolved = resolveSelectionComment(selection);
+      return resolved && { range: resolved.range, data: resolved.form };
+    },
+    onComment: function(form) {
+      // The form resolved when the bar appeared: Pierre may have replaced the
+      // selected nodes since, but the lines and the quote still hold.
+      const selection = window.getSelection();
+      if (selection) selection.removeAllRanges();
+      openForm(form);
+    },
+    onPinned: function(form, item) {
+      const selection = window.getSelection();
+      if (selection) selection.removeAllRanges();
+      submitPinnedTemplate(form, item.text);
+    },
+  });
+
+  // Bottom of the chrome stuck to the top of the viewport (page header and a
+  // stuck file header), which the toolbar must not cover.
+  function selectionToolbarTopBoundary() {
+    const header = document.querySelector('.header');
+    let bottom = header ? header.getBoundingClientRect().bottom : 0;
+    document.querySelectorAll('.file-header').forEach(function(el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.height > 0 && rect.top <= bottom + 1 && rect.bottom > bottom) bottom = rect.bottom;
+    });
+    return bottom;
   }
 
   // ===== Stack breadcrumb + working-tree pill =====

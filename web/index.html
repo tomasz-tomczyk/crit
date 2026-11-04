@@ -275,6 +275,7 @@
   <div class="settings-dialog">
     <div class="settings-tabs" role="tablist" aria-label="Settings sections">
       <button class="settings-tab active" data-tab="settings" role="tab" aria-selected="true" aria-controls="settingsPane" id="tab-settings">Settings</button>
+      <button class="settings-tab" data-tab="templates" role="tab" aria-selected="false" aria-controls="templatesPane" id="tab-templates">Comment templates</button>
       <button class="settings-tab" data-tab="shortcuts" role="tab" aria-selected="false" aria-controls="shortcutsPane" id="tab-shortcuts">Shortcuts</button>
       <button class="settings-tab" data-tab="updates" role="tab" aria-selected="false" aria-controls="updatesPane" id="tab-updates">Updates</button>
       <button class="settings-tab" data-tab="about" role="tab" aria-selected="false" aria-controls="aboutPane" id="tab-about">About</button>
@@ -282,6 +283,7 @@
     </div>
     <div class="settings-content">
       <div class="settings-pane active" data-pane="settings" id="settingsPane" role="tabpanel" aria-labelledby="tab-settings"></div>
+      <div class="settings-pane" data-pane="templates" id="templatesPane" role="tabpanel" aria-labelledby="tab-templates"></div>
       <div class="settings-pane" data-pane="shortcuts" id="shortcutsPane" role="tabpanel" aria-labelledby="tab-shortcuts"></div>
       <div class="settings-pane" data-pane="updates" id="updatesPane" role="tabpanel" aria-labelledby="tab-updates"></div>
       <div class="settings-pane" data-pane="about" id="aboutPane" role="tabpanel" aria-labelledby="tab-about"></div>
@@ -514,6 +516,8 @@
       var pd = document.createElement('script'); pd.src = 'crit-pierre-dom.js'; pd.async = false; document.body.appendChild(pd);
       // Find in the review list (Cmd/Ctrl+F over Pierre's virtualized rows).
       var fd = document.createElement('script'); fd.src = 'crit-find.js'; fd.async = false; document.body.appendChild(fd);
+      // Comment button above a mouse selection (window.crit.selectionToolbar). Must load before app.js.
+      var st = document.createElement('script'); st.src = 'crit-selection-toolbar.js'; st.async = false; document.body.appendChild(st);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();
