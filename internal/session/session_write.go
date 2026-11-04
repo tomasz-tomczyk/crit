@@ -698,18 +698,6 @@ func (s *Session) SyncCommentsFromDisk() bool {
 	return changed
 }
 
-// ReloadCommentsFromDisk reloads the complete review snapshot without first
-// writing in-memory state. Callers must flush pending writes before using it;
-// this avoids overwriting an external update that memory has not observed yet.
-func (s *Session) ReloadCommentsFromDisk() bool {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.loadCritJSONLocked()
-	return true
-}
-
 // ApplyReviewFileUpdate saves pending in-memory changes, runs update (a
 // read-modify-write of review.json by other code, such as a hosted comment
 // merge), then reloads comments from disk. writeMu is held throughout, so a
