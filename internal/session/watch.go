@@ -133,11 +133,18 @@ func (s *Session) RefreshFileList() {
 	s.mu.Lock()
 	for _, u := range built.updates {
 		u.entry.Status = u.status
+		// A phantom that reappears in the live change list is no longer
+		// orphaned — Branch scope (and other Orphaned readers) must not
+		// keep treating it as "left the review".
+		u.entry.Orphaned = false
 		if u.oldPath != "" {
 			u.entry.OldPath = u.oldPath
 		}
 		if u.newPath != "" {
 			u.entry.Path = u.newPath
+			u.entry.AbsPath = u.absPath
+		} else if u.absPath != "" && u.entry.AbsPath == "" {
+			// Phantoms are created without AbsPath; fill it in on reuse.
 			u.entry.AbsPath = u.absPath
 		}
 	}
@@ -178,7 +185,9 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 	for i, fc := range changes {
 		absPath := filepath.Join(repoRoot, fc.Path)
 		if f, ok := existing[fc.Path]; ok {
-			out.updates = append(out.updates, fileListUpdate{entry: f, status: fc.Status, oldPath: fc.OldPath})
+			out.updates = append(out.updates, fileListUpdate{
+				entry: f, status: fc.Status, oldPath: fc.OldPath, absPath: absPath,
+			})
 			out.files = append(out.files, f)
 			delete(existing, fc.Path)
 			if fc.OldPath != "" {

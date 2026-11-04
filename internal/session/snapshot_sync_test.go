@@ -108,6 +108,122 @@ func TestGetSessionInfoScoped_AllKeepsRevertedCommentedFileAsOrphan(t *testing.T
 	}
 }
 
+// A commented file that leaves the branch (the commit that added it is
+// amended) must stay listed under "branch" as an orphan, so its comments can
+// still be resolved. A commented file with only uncommitted changes is not in
+// the branch diff and has not left the review, so "branch" must not list it.
+func TestGetSessionInfoScoped_BranchKeepsCommentedFileThatLeftTheBranch(t *testing.T) {
+	dir := newAllScopeRepo(t)
+	writeFile(t, filepath.Join(dir, "added.go"), "package sample\n\nfunc added() {}\n")
+	gitT(t, dir, "add", "added.go")
+	gitT(t, dir, "commit", "-m", "add added.go")
+	writeFile(t, filepath.Join(dir, "app.go"), strings.Replace(allScopeSample, "\"base\"", "\"edited\"", 1))
+	chdirForTest(t, dir)
+	sess := startAllScopeSession(t)
+
+	if _, ok := sess.AddComment("added.go", 3, 3, "", "drop this file", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on added.go failed")
+	}
+	if _, ok := sess.AddComment("app.go", 7, 7, "", "uncommitted edit", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on app.go failed")
+	}
+
+	gitT(t, dir, "rm", "-q", "added.go")
+	sess.WriteFiles()
+	gitT(t, dir, "commit", "--amend", "--allow-empty", "-m", "nothing added")
+	sess.handleRoundCompleteGit()
+
+	info := sess.GetSessionInfoScoped("branch", "")
+	fi, ok := fileInfoByPath(info, "added.go")
+	if !ok || !fi.Orphaned || fi.CommentCount != 1 {
+		t.Errorf("added.go = %+v (listed=%v), want an orphaned row with 1 comment", fi, ok)
+	}
+	if info.HiddenUnresolved != 1 {
+		t.Errorf("HiddenUnresolved = %d, want 1 (only the app.go comment is off the branch list)", info.HiddenUnresolved)
+	}
+	if fi, ok := fileInfoByPath(info, "app.go"); ok {
+		t.Errorf("app.go has only uncommitted changes and must not be listed under branch, got %+v", fi)
+	}
+}
+
+// An orphaned phantom that comes back as an uncommitted file must clear
+// Orphaned on refresh, so Branch does not keep listing it as a removed row.
+func TestGetSessionInfoScoped_BranchDropsOrphanThatReturnedUncommitted(t *testing.T) {
+	dir := newAllScopeRepo(t)
+	writeFile(t, filepath.Join(dir, "added.go"), "package sample\n\nfunc added() {}\n")
+	gitT(t, dir, "add", "added.go")
+	gitT(t, dir, "commit", "-m", "add added.go")
+	chdirForTest(t, dir)
+	sess := startAllScopeSession(t)
+
+	if _, ok := sess.AddComment("added.go", 3, 3, "", "drop this file", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on added.go failed")
+	}
+
+	gitT(t, dir, "rm", "-q", "added.go")
+	sess.WriteFiles()
+	gitT(t, dir, "commit", "--amend", "--allow-empty", "-m", "nothing added")
+	sess.handleRoundCompleteGit()
+
+	info := sess.GetSessionInfoScoped("branch", "")
+	if fi, ok := fileInfoByPath(info, "added.go"); !ok || !fi.Orphaned {
+		t.Fatalf("precondition: added.go should be an orphaned Branch row, got %+v (listed=%v)", fi, ok)
+	}
+
+	// File returns, but only as an uncommitted (untracked) edit — not on the branch.
+	writeFile(t, filepath.Join(dir, "added.go"), "package sample\n\nfunc added() {}\n")
+	sess.RefreshFileList()
+
+	sess.mu.RLock()
+	var returned *FileEntry
+	for _, f := range sess.Files {
+		if f.Path == "added.go" {
+			returned = f
+			break
+		}
+	}
+	sess.mu.RUnlock()
+	if returned == nil {
+		t.Fatal("added.go missing from session after RefreshFileList")
+	}
+	if returned.Orphaned {
+		t.Error("added.go still Orphaned after reappearing in the live change list")
+	}
+	if returned.AbsPath == "" {
+		t.Error("added.go AbsPath still empty after reuse; content loads would fail")
+	}
+
+	info = sess.GetSessionInfoScoped("branch", "")
+	if fi, ok := fileInfoByPath(info, "added.go"); ok {
+		t.Errorf("added.go is uncommitted-only again and must not be listed under branch, got %+v", fi)
+	}
+}
+
+// Branch keeps every review orphan (left the review entirely), not only files
+// that were once on the branch — so a deleted untracked file with comments
+// stays resolvable there too.
+func TestGetSessionInfoScoped_BranchKeepsOrphanedUntrackedFile(t *testing.T) {
+	dir := newAllScopeRepo(t)
+	writeFile(t, filepath.Join(dir, "scratch.go"), "package sample\n\nfunc scratch() {}\n")
+	chdirForTest(t, dir)
+	sess := startAllScopeSession(t)
+
+	if _, ok := sess.AddComment("scratch.go", 3, 3, "", "untracked note", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on scratch.go failed")
+	}
+	if err := os.Remove(filepath.Join(dir, "scratch.go")); err != nil {
+		t.Fatal(err)
+	}
+	sess.WriteFiles()
+	sess.handleRoundCompleteGit()
+
+	info := sess.GetSessionInfoScoped("branch", "")
+	fi, ok := fileInfoByPath(info, "scratch.go")
+	if !ok || !fi.Orphaned || fi.CommentCount != 1 {
+		t.Errorf("scratch.go = %+v (listed=%v), want an orphaned Branch row with 1 comment", fi, ok)
+	}
+}
+
 // jj and Sapling only implement "branch" in FileDiffScoped; scope "all" must
 // still produce stats and hunks.
 func TestGetSessionInfoScoped_AllWorksWithoutScopedDiffSupport(t *testing.T) {
