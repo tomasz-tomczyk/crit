@@ -5819,8 +5819,6 @@ func TestHandleMergeComments_DedupStillSyncsSession(t *testing.T) {
 		ReviewRound: 1,
 		Files:       []*FileEntry{{Path: "plan.md", AbsPath: filePath}},
 	}
-	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
-
 	writeCritJSONForTest(t, dir, CritJSON{
 		Files: map[string]CritJSONFile{
 			"plan.md": {Comments: []Comment{{
@@ -5833,6 +5831,12 @@ func TestHandleMergeComments_DedupStillSyncsSession(t *testing.T) {
 	} else {
 		sess.SetLastCritJSONMtimeForTest(info.ModTime())
 	}
+
+	// After the fixture is on disk: this schedules a debounced write, and the
+	// fixture save takes no review lock. A write that read review.json just
+	// before the save would replace the fixture with its own copy, without the
+	// comment.
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
 
 	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
