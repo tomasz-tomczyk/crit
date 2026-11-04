@@ -146,6 +146,37 @@ test.describe('live-mode reply edit / delete — parity with code-review', () =>
     await expect(page.locator('#commentsPanelBody .reply-body').filter({ hasText: 'Edited reply body' })).toBeVisible();
   });
 
+  // A panel refresh rebuilds a card whose comment changed. The inline reply
+  // editor lives only in the DOM, so a rebuild used to discard it and its text.
+  test('a panel refresh keeps an open reply editor and its text', async ({ page, request }) => {
+    await seedPinWithReply(page, 'Original reply');
+    const replyRow = page.locator('#commentsPanelBody .crit-live-comment-replies .crit-live-comment-reply').first();
+    await replyRow.locator('.crit-live-reply-edit').dispatchEvent('click');
+    const editTa = page.locator('textarea.crit-live-reply-edit-textarea');
+    await editTa.fill('Half-written edit');
+
+    const row = page.locator('#commentsPanelBody .crit-live-comment-row').first();
+    const pinId = await row.getAttribute('data-comment-id');
+    const refreshed = page.waitForResponse((r) => r.url().includes('/api/file/comments'));
+    await expect(await request.post(`/api/comment/${pinId}/replies?path=${encodeURIComponent('/')}`, {
+      data: { body: 'Reply from elsewhere', author: 'agent' },
+    })).toBeOK();
+    await refreshed;
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+
+    await expect(editTa).toHaveValue('Half-written edit');
+  });
+
+  test('Cancel closes the reply editor and restores the reply', async ({ page }) => {
+    await seedPinWithReply(page, 'Kept reply');
+    const replyRow = page.locator('#commentsPanelBody .crit-live-comment-replies .crit-live-comment-reply').first();
+    await replyRow.locator('.crit-live-reply-edit').dispatchEvent('click');
+    await page.locator('textarea.crit-live-reply-edit-textarea').fill('Discarded');
+    await replyRow.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.locator('textarea.crit-live-reply-edit-textarea')).toHaveCount(0);
+    await expect(page.locator('#commentsPanelBody .reply-body').filter({ hasText: 'Kept reply' })).toBeVisible();
+  });
+
   test('clicking the reply Delete button removes the reply', async ({ page }) => {
     await seedPinWithReply(page, 'Doomed reply');
     const repliesContainer = page.locator('#commentsPanelBody .crit-live-comment-replies');

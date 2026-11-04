@@ -213,7 +213,9 @@ for f in "$PWLOGS"/*.log; do
     cat "$f"
   elif grep -q "flaky" "$f"; then
     echo "=== $name (passed, flaky on first attempt) ==="
-    tail -5 "$f"
+    # Keep the error: a flake that recovers leaves no other trace, since test
+    # results are only uploaded when the job fails.
+    sed -n '/^ *1) \[/,$p' "$f"
   else
     echo "=== $name ==="
     tail -5 "$f"

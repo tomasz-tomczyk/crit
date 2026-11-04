@@ -32,8 +32,17 @@ async function openFind(page: Page) {
   await expect(input(page)).toBeFocused();
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
   await clearAllComments(request);
+  // A slow runner can miss the 5s worker start limit, and the list rebuilt by
+  // that fallback can lose a find jump. Log it, so a failure here shows whether
+  // the fallback ran and when.
+  const start = Date.now();
+  page.on('console', (m) => {
+    if (m.text().includes('Highlight workers unavailable')) {
+      console.log(`highlight worker fallback ${Date.now() - start}ms into: ${test.info().title}`);
+    }
+  });
 });
 
 test('finds and reveals a match in a lazy, off-screen file', async ({ page }) => {
