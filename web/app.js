@@ -6743,6 +6743,7 @@
             showMiniToast('Failed to send to agent');
             if (filePath) renderFileByPath(filePath);
             else renderReviewConversation();
+            renderCommentsPanel();
           });
         }
 
@@ -9498,7 +9499,7 @@
   function renderShortcutsPane() {
     const shared = window.crit && window.crit.settingsPanes;
     if (shared && shared.renderShortcutsPane) {
-      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), { mode: 'code-review' });
+      shared.renderShortcutsPane(document.getElementById('shortcutsPane'), { mode: 'code-review', agentEnabled: agentEnabled });
     }
   }
 
