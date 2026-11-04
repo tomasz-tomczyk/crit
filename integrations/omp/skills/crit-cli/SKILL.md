@@ -126,6 +126,8 @@ path without a line means file; file/path plus line means line.
 ```bash
 crit pull [number-or-url]
 crit push --dry-run [number-or-url]
+crit push --viewed [number-or-url]
+crit pull --viewed [number-or-url]
 crit push --event comment [-m '<body>'] [number-or-url]
 crit push --event approve [number-or-url]
 crit push --event request-changes [number-or-url]

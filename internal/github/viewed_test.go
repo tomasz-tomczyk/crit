@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/forge"
+	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
@@ -48,6 +49,29 @@ func TestPlanViewedPush(t *testing.T) {
 			got := planViewedPush(map[string]session.ViewedFile{"a.go": tt.entry}, pr, remote, tt.stale)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMergeRemoteViewed_ReplacesTickFromAnotherRevision(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry session.ViewedFile
+		want  int
+	}{
+		{"old head", session.ViewedFile{Viewed: true, HeadSHA: "old", ChangeNumber: 7}, 1},
+		{"another pr", session.ViewedFile{Viewed: true, HeadSHA: "head", ChangeNumber: 8}, 1},
+		{"not pinned", session.ViewedFile{Viewed: true}, 1},
+		{"current", session.ViewedFile{Viewed: true, HeadSHA: "head", ChangeNumber: 7}, 0},
+		{"untick on old head", session.ViewedFile{HeadSHA: "old", ChangeNumber: 7}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cj := session.CritJSON{ViewedFiles: map[string]session.ViewedFile{"a.go": tt.entry}}
+			remote := prViewedState{headSHA: "head", files: map[string]string{"a.go": "VIEWED"}}
+			if got := mergeRemoteViewed(&cj, 7, remote); got != tt.want {
+				t.Fatalf("added %d, want %d", got, tt.want)
 			}
 		})
 	}
@@ -131,7 +155,7 @@ func TestCompareChangedFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			installViewedFakeGH(t, tt.body)
-			paths, ok := compareChangedFiles(forge.ChangeID{Number: 7}, "old", "new")
+			paths, ok := compareChangedFiles(forge.ChangeID{Number: 7, Project: "acme/widget"}, "old", "new")
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -154,7 +178,7 @@ func TestBuildViewedPushPlan_ComparesEachRevisionOnce(t *testing.T) {
 	remote := prViewedState{headSHA: "head", files: map[string]string{
 		"changed.go": "DISMISSED", "same.go": "UNVIEWED", "current.go": "UNVIEWED",
 	}}
-	got := buildViewedPushPlan(forge.ChangeID{Number: 7}, cj, remote)
+	got := buildViewedPushPlan(forge.ChangeID{Number: 7, Project: "acme/widget"}, cj, remote)
 	want := viewedPushPlan{mark: []string{"current.go", "same.go"}, stale: []string{"changed.go"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
@@ -204,5 +228,83 @@ func TestViewedFlags(t *testing.T) {
 	pullArgs, err := githubPullArgs(forge.PullRequest{Viewed: true, ChangeSpec: "7"})
 	if err != nil || !reflect.DeepEqual(pullArgs, []string{"--viewed", "7"}) {
 		t.Fatalf("pull args: %v, %v", pullArgs, err)
+	}
+}
+
+const viewedCLIFakeGH = `case "$*" in
+  "auth status"*) exit 0 ;;
+  version*) echo "gh version 2.60.0 (2024-01-01)" ;;
+  "repo view"*) echo '{"owner":{"login":"acme"},"name":"widget"}' ;;
+  *markFileAsViewed*) echo '{"data":{"m0":{"clientMutationId":null}}}' ;;
+  *viewerViewedState*) echo '{"data":{"repository":{"pullRequest":{"id":"PR_1","headRefOid":"head","files":{"pageInfo":{"hasNextPage":false},"nodes":[{"path":"local.go","viewerViewedState":"UNVIEWED"},{"path":"remote.go","viewerViewedState":"VIEWED"}]}}}}}' ;;
+  *reviewThreads*) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' ;;
+  api\ repos/*/pulls/*) echo '[[]]' ;;
+  *) echo '{}' ;;
+esac`
+
+// viewedOnlyReview saves a review holding one mark and no comments.
+func viewedOnlyReview(t *testing.T) (dir, critPath string) {
+	t.Helper()
+	dir = t.TempDir()
+	t.Chdir(dir)
+	critPath, err := review.ResolveCommandReviewPathWithSession("", dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cj := session.CritJSON{ReviewRound: 1, Files: map[string]session.CritJSONFile{}, ViewedFiles: map[string]session.ViewedFile{
+		"local.go": {Viewed: true, HeadSHA: "head", ChangeNumber: 7},
+	}}
+	if err := session.SaveCritJSON(critPath, cj); err != nil {
+		t.Fatal(err)
+	}
+	return dir, critPath
+}
+
+func TestRunPush_ViewedOnlyReview(t *testing.T) {
+	log := installViewedFakeGH(t, viewedCLIFakeGH)
+	dir, _ := viewedOnlyReview(t)
+	if err := RunPush([]string{"--viewed", "--output", dir, "7"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(log)
+	if !strings.Contains(string(data), "markFileAsViewed") || !strings.Contains(string(data), "p0=local.go") {
+		t.Fatalf("mark not pushed:\n%s", data)
+	}
+}
+
+func TestRunPush_WithoutViewedFlagLeavesGitHubAlone(t *testing.T) {
+	log := installViewedFakeGH(t, viewedCLIFakeGH)
+	dir, _ := viewedOnlyReview(t)
+	if err := RunPush([]string{"--output", dir, "7"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(log)
+	if strings.Contains(string(data), "ViewedState") || strings.Contains(string(data), "markFileAsViewed") {
+		t.Fatalf("viewed sync must be opt-in:\n%s", data)
+	}
+}
+
+func TestRunPush_ViewedDryRunDoesNotMutate(t *testing.T) {
+	log := installViewedFakeGH(t, viewedCLIFakeGH)
+	dir, _ := viewedOnlyReview(t)
+	if err := RunPush([]string{"--viewed", "--dry-run", "--output", dir, "7"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(log)
+	if strings.Contains(string(data), "markFileAsViewed") {
+		t.Fatalf("dry run mutated GitHub:\n%s", data)
+	}
+}
+
+func TestRunPull_ViewedSavesWithoutComments(t *testing.T) {
+	installViewedFakeGH(t, viewedCLIFakeGH)
+	dir, critPath := viewedOnlyReview(t)
+	if err := RunPull([]string{"--viewed", "--output", dir, "7"}); err != nil {
+		t.Fatal(err)
+	}
+	cj := readCritJSONForPull(critPath)
+	want := session.ViewedFile{Viewed: true, HeadSHA: "head", ChangeNumber: 7}
+	if cj.ViewedFiles["remote.go"] != want {
+		t.Fatalf("got %+v", cj.ViewedFiles)
 	}
 }

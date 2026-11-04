@@ -276,7 +276,7 @@ crit push --viewed --dry-run   # preview what would change
 crit pull --viewed             # bring in files ticked on GitHub
 ```
 
-Push skips files that changed since you viewed them, files marked by `auto_viewed_patterns`, and marks made outside the PR's own diff. Unticking a file in Crit unticks it on GitHub. Pull only adds files you have not marked or unticked in Crit; an open review page shows them after a reload. GitLab has no equivalent, so `--viewed` is an error there.
+Push skips files that changed since you viewed them, files marked by `auto_viewed_patterns`, and marks made outside the PR's own diff. Unticking a file in Crit unticks it on GitHub. Your marks stay available after you finish a review, so you can push them afterwards. Pull adds GitHub's ticks but keeps any file you unticked in Crit; an open review page shows them after a reload. GitLab has no equivalent, so `--viewed` is an error there.
 
 GitLab inline comments are published as a single review using Draft Notes. `request-changes` requires GitLab support for the `reviewer_state=requested_changes` bulk-publish option; Crit reports an error instead of silently downgrading the outcome. Pulling again imports replies, edits, deletes, and discussion resolution without duplicating local comments.
 

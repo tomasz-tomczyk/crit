@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -105,7 +106,7 @@ func TestSetViewedFiles_PinsToFocus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := viewedTestSession(t)
 			s.Focus = tt.focus
-			if err := s.SetViewedFiles([]ViewedUpdate{{Path: "main.go", Viewed: true}}); err != nil {
+			if err := s.SetViewedFiles([]ViewedUpdate{{Path: "main.go", Viewed: true, HeadSHA: tt.wantHead}}); err != nil {
 				t.Fatal(err)
 			}
 			got, err := s.ViewedFiles()
@@ -148,5 +149,104 @@ func TestMergeCritJSON3_KeepsViewedFilesFromOtherWriter(t *testing.T) {
 	}
 	if !merged.ViewedFiles["main.go"].Viewed {
 		t.Fatalf("a forge push must not drop marks saved meanwhile: %+v", merged.ViewedFiles)
+	}
+}
+
+func TestSetViewedFiles_OtherRevisionStaysLocal(t *testing.T) {
+	s := viewedTestSession(t)
+	s.Focus = Focus{Kind: FocusRange, ChangeNumber: 7, HeadSHA: "new"}
+	// The page still shows the old head: the focus moved before its reload.
+	if err := s.SetViewedFiles([]ViewedUpdate{{Path: "main.go", Viewed: true, HeadSHA: "old"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ViewedFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := got["main.go"]; !e.Viewed || e.HeadSHA != "" || e.ChangeNumber != 0 {
+		t.Fatalf("a mark on another revision must not be pinned to the focus: %+v", e)
+	}
+}
+
+func TestSetViewedFiles_AfterExternalDeletion(t *testing.T) {
+	s := viewedTestSession(t)
+	if err := s.SetViewedFiles([]ViewedUpdate{{Path: "main.go", Viewed: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(ReviewPathsFor(s.critJSONPath()).Review); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetViewedFiles([]ViewedUpdate{{Path: "plan.md", Viewed: true}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ViewedFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got["plan.md"].Viewed {
+		t.Fatalf("mark dropped after the review was deleted: %+v", got)
+	}
+}
+
+func TestCleanupOnApproval_KeepsPushableMarksOnly(t *testing.T) {
+	identity := filepath.Join(t.TempDir(), "review")
+	cj := CritJSON{
+		Branch:      "feature",
+		ReviewRound: 3,
+		ShareURL:    "https://crit.example/r/abc",
+		Files: map[string]CritJSONFile{"a.go": {Status: "modified", Comments: []Comment{{
+			ID: "c1", Body: "done", Resolved: true,
+		}}}},
+		ViewedFiles: map[string]ViewedFile{
+			"pinned.go": {Viewed: true, HeadSHA: "head", ChangeNumber: 7},
+			"untick.go": {Viewed: false, HeadSHA: "head", ChangeNumber: 7},
+			"auto.go":   {Viewed: true, Auto: true, HeadSHA: "head", ChangeNumber: 7},
+			"local.go":  {Viewed: true},
+		},
+	}
+	if err := SaveCritJSON(identity, cj); err != nil {
+		t.Fatal(err)
+	}
+	snapshots := ReviewPathsFor(identity).Snapshots
+	if err := os.WriteFile(snapshots, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanupOnApproval(true, identity, true)
+
+	data, err := os.ReadFile(ReviewPathsFor(identity).Review)
+	if err != nil {
+		t.Fatalf("pushable marks must outlive approval: %v", err)
+	}
+	var got CritJSON
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ViewedFiles) != 2 || !got.ViewedFiles["pinned.go"].Viewed {
+		t.Fatalf("marks: %+v", got.ViewedFiles)
+	}
+	if _, kept := got.ViewedFiles["untick.go"]; !kept {
+		t.Fatal("an untick is pushable too")
+	}
+	if len(got.Files) != 0 || got.ShareURL != "" || got.ReviewRound != 1 || got.Branch != "feature" {
+		t.Fatalf("approval must still clear the review: %+v", got)
+	}
+	if _, err := os.Stat(snapshots); !os.IsNotExist(err) {
+		t.Fatalf("approval must still clear round snapshots: %v", err)
+	}
+}
+
+func TestCleanupOnApproval_RemovesReviewWithoutPushableMarks(t *testing.T) {
+	identity := filepath.Join(t.TempDir(), "review")
+	cj := CritJSON{Files: map[string]CritJSONFile{}, ViewedFiles: map[string]ViewedFile{
+		"auto.go":  {Viewed: true, Auto: true, HeadSHA: "head", ChangeNumber: 7},
+		"local.go": {Viewed: true},
+	}}
+	if err := SaveCritJSON(identity, cj); err != nil {
+		t.Fatal(err)
+	}
+	cleanupOnApproval(true, identity, true)
+	if _, err := os.Stat(identity); !os.IsNotExist(err) {
+		t.Fatalf("review should be gone: %v", err)
 	}
 }

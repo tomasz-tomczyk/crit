@@ -23,12 +23,14 @@ type ViewedFile struct {
 	ChangeNumber int    `json:"change_number,omitempty"`
 }
 
-// ViewedUpdate is one mark sent by the review page.
+// ViewedUpdate is one mark sent by the review page. HeadSHA is the revision
+// the page was showing, which can trail the focus for a moment after it moves.
 type ViewedUpdate struct {
 	Path     string `json:"path"`
 	Viewed   bool   `json:"viewed"`
 	Auto     bool   `json:"auto"`
 	FileHash string `json:"file_hash"`
+	HeadSHA  string `json:"head_sha"`
 }
 
 // viewedFocusRef returns the PR revision a mark made in f applies to. A
@@ -76,20 +78,58 @@ func (s *Session) SetViewedFiles(updates []ViewedUpdate) error {
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	// Acknowledge a deleted review before the lock recreates its folder, or
+	// writeReviewFile would see the deletion and drop this mark.
+	s.handleExternalDeletion(critPath)
 	return WithReviewWriteLock(critPath, func() error {
 		return s.writeReviewFile(critPath, func(cj *CritJSON) {
 			if cj.ViewedFiles == nil {
 				cj.ViewedFiles = make(map[string]ViewedFile, len(updates))
 			}
 			for _, u := range updates {
-				cj.ViewedFiles[u.Path] = ViewedFile{
-					Viewed:       u.Viewed,
-					Auto:         u.Auto && u.Viewed,
-					FileHash:     u.FileHash,
-					HeadSHA:      headSHA,
-					ChangeNumber: changeNumber,
+				mark := ViewedFile{Viewed: u.Viewed, Auto: u.Auto && u.Viewed, FileHash: u.FileHash}
+				// A mark made on any other revision stays local: pinning it
+				// to this head would claim a version nobody saw.
+				if u.HeadSHA == headSHA {
+					mark.HeadSHA, mark.ChangeNumber = headSHA, changeNumber
 				}
+				cj.ViewedFiles[u.Path] = mark
 			}
 		})
 	})
+}
+
+// pushableViewedReview returns a review holding only the marks `crit push
+// --viewed` could still send, or nil if there are none. Approval removes the
+// review, and finishing is the natural moment before that push, so these
+// marks outlive it. Comments and rounds do not.
+func pushableViewedReview(reviewPath string) *CritJSON {
+	data, err := ReadFileShared(ReviewPathsFor(reviewPath).Review)
+	if err != nil {
+		return nil
+	}
+	var cj CritJSON
+	if json.Unmarshal(data, &cj) != nil {
+		return nil
+	}
+	marks := make(map[string]ViewedFile)
+	for path, mark := range cj.ViewedFiles {
+		if !mark.Auto && mark.HeadSHA != "" {
+			marks[path] = mark
+		}
+	}
+	if len(marks) == 0 {
+		return nil
+	}
+	return &CritJSON{
+		Branch:          cj.Branch,
+		BaseRef:         cj.BaseRef,
+		UpdatedAt:       cj.UpdatedAt,
+		ReviewRound:     1,
+		CliArgs:         cj.CliArgs,
+		CWD:             cj.CWD,
+		ActiveDiffScope: cj.ActiveDiffScope,
+		Files:           map[string]CritJSONFile{},
+		ViewedFiles:     marks,
+	}
 }

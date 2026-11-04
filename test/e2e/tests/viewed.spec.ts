@@ -4,12 +4,12 @@ import { execSync } from 'child_process';
 import {
   clearAllComments, loadPage, clearFocus, fileHeader, fileItem, focusedFile, focusedRows, hoverLine, pressUntil,
   hoveredFile, reviewScroller, revealFile, treePaths, waitForScrollStable,
-  readFixtureState, resetViewedMarks, roundComplete, switchToDocumentView,
+  readFixtureState, roundComplete, switchToDocumentView,
 } from './helpers';
 
 // Viewed marks live in the review file as well as per-origin localStorage, so
-// a fresh browser context is not enough: loadFreshReview also unticks what
-// earlier tests saved on the shared server.
+// a fresh browser context is not enough: clearAllComments removes the review
+// folder, marks included, and every describe here calls it in beforeEach.
 
 // Pierre items have no <details>: a collapsed file is a header with the
 // `collapsed` class and no code rows in its shadow root.
@@ -33,7 +33,6 @@ async function expectExpanded(page: Page, filePath: string) {
 
 // Load the review with no persisted viewed state and no keyboard focus.
 async function loadFreshReview(page: Page) {
-  await resetViewedMarks(page.request);
   await page.goto('/');
   await page.evaluate(() => {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -470,6 +469,10 @@ test.describe('Collapse/Expand All — Git Mode', () => {
 });
 
 test.describe('Viewed marks in the review file', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearAllComments(request);
+  });
+
   async function savedMarks(request: APIRequestContext) {
     const response = await request.get('/api/viewed');
     await expect(response).toBeOK();
@@ -513,6 +516,28 @@ test.describe('Viewed marks in the review file', () => {
 
     await clearViewedStorage(page);
     await loadPage(page);
+    await revealFile(page, filePath);
+    await expect(viewedBox(page, filePath)).not.toBeChecked();
+  });
+
+  test('a toggle over a saved mark survives a scope reload', async ({ page, request }) => {
+    await loadFreshReview(page);
+    const [filePath] = await treePaths(page);
+    await revealFile(page, filePath);
+    await viewedBox(page, filePath).check();
+    await expect.poll(async () => (await savedMarks(request))[filePath]?.viewed).toBe(true);
+
+    await loadPage(page);
+    await revealFile(page, filePath);
+    await expect(viewedBox(page, filePath)).toBeChecked();
+    await viewedBox(page, filePath).uncheck();
+    await expect.poll(async () => (await savedMarks(request))[filePath]?.viewed).toBe(false);
+
+    const scopeButton = (scope: string) => page.locator(`#scopeToggle .toggle-btn[data-scope="${scope}"]`);
+    await scopeButton('branch').click();
+    await expect(scopeButton('branch')).toHaveClass(/active/);
+    await scopeButton('all').click();
+    await expect(scopeButton('all')).toHaveClass(/active/);
     await revealFile(page, filePath);
     await expect(viewedBox(page, filePath)).not.toBeChecked();
   });

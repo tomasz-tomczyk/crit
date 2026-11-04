@@ -175,7 +175,13 @@ func cleanupOnApproval(approved bool, reviewPath string, cleanupEnabled bool) {
 	if !(approved && cleanupEnabled && reviewPath != "") {
 		return
 	}
-	_ = removeStaleReviewPath(reviewPath)
+	kept := pushableViewedReview(reviewPath)
+	if !removeStaleReviewPath(reviewPath) || kept == nil {
+		return
+	}
+	if err := SaveCritJSON(reviewPath, *kept); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not keep viewed files after approval: %v\n", err)
+	}
 }
 
 func dirArgs(paths []string) []string {

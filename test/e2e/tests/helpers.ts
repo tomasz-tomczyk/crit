@@ -20,16 +20,6 @@ export async function clearAllComments(request: APIRequestContext) {
   await expect(response).toBeOK();
 }
 
-/** Unticks every mark in the review file, which outlives a browser context. */
-export async function resetViewedMarks(request: APIRequestContext) {
-  const response = await request.get('/api/viewed');
-  await expect(response).toBeOK();
-  const marks = (await response.json()).files as Record<string, { viewed: boolean }>;
-  const files = Object.keys(marks).filter(path => marks[path].viewed).map(path => ({ path, viewed: false }));
-  if (!files.length) return;
-  await expect(await request.put('/api/viewed', { data: { files } })).toBeOK();
-}
-
 /** Commit picker rows excluding the virtual working-tree entry. */
 export function realCommitItems(page: Page): Locator {
   return page.locator('#commitDropdownList .commit-picker-item:not(.is-virtual)');

@@ -109,10 +109,14 @@ func fetchPRViewedState(id forge.ChangeID) (prViewedState, error) {
 // force-push it can miss changes, so anything but ahead or identical is
 // refused.
 func compareChangedFiles(id forge.ChangeID, from, to string) (paths map[string]struct{}, ok bool) {
-	out, err := exec.Command("gh", ghAPIArgs(id,
-		fmt.Sprintf("repos/{owner}/{repo}/compare/%s...%s", from, to),
+	owner, name, err := resolveRepoOwnerName(id)
+	if err != nil {
+		return nil, false
+	}
+	out, err := exec.Command("gh", "api",
+		fmt.Sprintf("repos/%s/%s/compare/%s...%s", owner, name, from, to),
 		"--jq", `{status, files: [.files[]? | {filename, previous_filename}]}`,
-	)...).Output()
+	).Output()
 	if err != nil {
 		return nil, false
 	}
@@ -298,15 +302,17 @@ func pushViewedFiles(ctx pushContext) error {
 }
 
 // mergeRemoteViewed adds GitHub's viewed files to cj and returns how many it
-// added. It only fills gaps: any local entry, including an explicit untick,
-// is a newer decision than a tick left on GitHub.
+// added. GitHub's tick applies to the PR's current head, so it replaces a
+// local tick pinned anywhere else. A local untick stays: it is a decision
+// that has not been pushed yet.
 func mergeRemoteViewed(cj *session.CritJSON, prNumber int, remote prViewedState) int {
 	added := 0
 	for path, state := range remote.files {
 		if state != ghViewed {
 			continue
 		}
-		if _, exists := cj.ViewedFiles[path]; exists {
+		if e, exists := cj.ViewedFiles[path]; exists &&
+			(!e.Viewed || (e.HeadSHA == remote.headSHA && e.ChangeNumber == prNumber)) {
 			continue
 		}
 		if cj.ViewedFiles == nil {

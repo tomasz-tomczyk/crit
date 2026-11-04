@@ -153,6 +153,8 @@ Always relay the full output (URL, QR) directly in your response — don't make 
 ```bash
 crit pull [number|url]                                   # Fetch PR/MR comments
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review as PR review
+crit push --viewed [pr]                                  # Also tick files marked viewed on the GitHub PR
+crit pull --viewed [pr]                                  # Also fetch files ticked viewed on the GitHub PR
 ```
 
 Requires `gh` CLI. `--event`: `comment` (default), `approve`, `request-changes`.

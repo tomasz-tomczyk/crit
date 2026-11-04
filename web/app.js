@@ -369,7 +369,8 @@
   let authUserName = '';   // read by the tip-rotation block; share flow gets its own copy
   let configAuthor = '';
   let autoViewedPatterns = [];  // config auto_viewed_patterns; applied once per launch (issue #658)
-  let serverViewed = {};  // path -> mark saved in the review file, as of page load
+  let serverViewed = {};  // path -> mark saved in the review file
+  let serverViewedLoaded = false;
   let viewedPersistChain = Promise.resolve();  // keeps saves in click order
   let defaultMarkdownView = '';  // config default_markdown_view; 'document' inits markdown to document view in git mode (issue #926)
 
@@ -883,7 +884,8 @@
       }
     }
     saveViewedState();
-    persistViewedFiles(marked, true);
+    // Without the saved marks an untick cannot be told apart from no mark.
+    if (serverViewedLoaded) persistViewedFiles(marked, true);
     try { localStorage.setItem(autoViewedMarkerKey(), '1'); } catch {}
   }
 
@@ -936,9 +938,13 @@
   // must not read as the reviewer unticking it.
   function persistViewedFiles(list, auto) {
     if (!list.length) return;
-    const body = JSON.stringify({ files: list.map(function(f) {
-      return { path: f.path, viewed: !!f.viewed, auto: !!auto, file_hash: f.fileHash || '' };
-    }) });
+    const headSHA = (session.focus && session.focus.head_sha) || '';
+    const marks = list.map(function(f) {
+      return { path: f.path, viewed: !!f.viewed, auto: !!auto, file_hash: f.fileHash || '', head_sha: headSHA };
+    });
+    // restoreViewedState runs again on scope reloads and must see this mark.
+    marks.forEach(function(mark) { serverViewed[mark.path] = mark; });
+    const body = JSON.stringify({ files: marks });
     viewedPersistChain = viewedPersistChain.then(function() {
       return fetch('/api/viewed', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: body });
     }).then(function(res) {
@@ -951,7 +957,10 @@
   async function loadServerViewed() {
     try {
       const res = await fetch('/api/viewed');
-      if (res.ok) serverViewed = (await res.json()).files || {};
+      if (res.ok) {
+        serverViewed = (await res.json()).files || {};
+        serverViewedLoaded = true;
+      }
     } catch { /* localStorage still restores this origin's marks */ }
   }
 
@@ -961,6 +970,15 @@
     if (mark.file_hash && file.fileHash) return mark.file_hash === file.fileHash;
     const head = session.focus && session.focus.head_sha;
     return !mark.head_sha || !head || mark.head_sha === head;
+  }
+
+  // A lazy file has no hash until it loads, so its mark is only checked here.
+  function recheckViewedMark(file) {
+    const mark = serverViewed[file.path];
+    if (!file.viewed || !mark || viewedMarkIsCurrent(mark, file)) return;
+    file.viewed = false;
+    updateViewedCount();
+    updateTreeViewedState();
   }
 
   function restoreViewedState() {
@@ -2349,7 +2367,11 @@
         return ensurePreviousLineBlocks(loaded).then(function() { return loaded; });
       });
     },
-    changed: updateTreeCommentBadges,
+    changed: function(path) {
+      updateTreeCommentBadges(path);
+      const file = getFileByPath(path);
+      if (file) recheckViewedMark(file);
+    },
   });
   const loadPierreFile = pierreLoader.load;
 
@@ -10775,6 +10797,7 @@
       file.tocItems = loaded.tocItems;
       file.fileHash = loaded.fileHash;
       file.lazy = false;
+      recheckViewedMark(file);
       reconcileStoryViewed(file);
       updateViewedCount();
       updateTreeViewedState();
