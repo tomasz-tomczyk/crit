@@ -37,17 +37,20 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('finds and reveals a match in a lazy, off-screen file', async ({ page }) => {
+  // The list is in path order (file1, file10, file100, ...), so file40.go is
+  // at index 235 and find loads most lazy files before it reaches the match.
+  // On a slow runner that alone can take most of the default 30s.
+  test.slow();
   await loadPage(page);
   await openFind(page);
-  // Just past the eager window (25). A match as deep as file287 waits on
-  // hundreds of lazy files, and the highlight range is disconnected for the
-  // whole poll. The perf project fails CI when that first attempt retries.
   await input(page).fill('Goodbye40()');
 
-  await expect(count(page)).toHaveText('1 of 1', { timeout: 30_000 });
-  await expect.poll(() => currentMatch(page), { timeout: 30_000 }).toMatchObject({
+  // Wait for the jump, not for a plain "1 of 1": that only shows once every
+  // lazy file has been searched ("1 of 1…" until then).
+  await expect.poll(() => currentMatch(page), { timeout: 60_000 }).toMatchObject({
     path: 'file40.go', text: 'Goodbye40()', visible: true,
   });
+  await expect(count(page)).toHaveText(/^1 of 1/);
   await expect(page.locator('.tree-file[data-tree-path="file40.go"]')).toHaveClass(/active/);
 });
 
