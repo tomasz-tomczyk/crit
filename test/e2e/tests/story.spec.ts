@@ -178,7 +178,9 @@ async function ingestStoryCLI(critBin: string, fixtureDir: string, fakeHome: str
   // instead resume the existing one.
   const refreshFlag = opts.refresh ? ' --refresh' : '';
   try {
-    execSync(`"${critBin}" story --story-file "${storyFile}"${refreshFlag}`, execOptsFor(fixtureDir, fakeHome));
+    // --no-open: with no page connected yet, `crit story` would open the
+    // story view in the machine's real browser.
+    execSync(`"${critBin}" story --no-open --story-file "${storyFile}"${refreshFlag}`, execOptsFor(fixtureDir, fakeHome));
   } finally {
     fs.rmSync(storyFile, { force: true });
   }
