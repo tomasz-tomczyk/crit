@@ -4,12 +4,12 @@ import { execSync } from 'child_process';
 import {
   clearAllComments, loadPage, clearFocus, fileHeader, fileItem, focusedFile, focusedRows, hoverLine, pressUntil,
   hoveredFile, reviewScroller, revealFile, treePaths, waitForScrollStable,
-  readFixtureState, roundComplete, switchToDocumentView,
+  readFixtureState, resetViewedMarks, roundComplete, switchToDocumentView,
 } from './helpers';
 
-// Viewed state lives in per-origin localStorage (app.js viewedStorageKey), and
-// every Playwright test gets a fresh browser context, so no test starts with
-// a file already marked viewed.
+// Viewed marks live in the review file as well as per-origin localStorage, so
+// a fresh browser context is not enough: loadFreshReview also unticks what
+// earlier tests saved on the shared server.
 
 // Pierre items have no <details>: a collapsed file is a header with the
 // `collapsed` class and no code rows in its shadow root.
@@ -33,6 +33,7 @@ async function expectExpanded(page: Page, filePath: string) {
 
 // Load the review with no persisted viewed state and no keyboard focus.
 async function loadFreshReview(page: Page) {
+  await resetViewedMarks(page.request);
   await page.goto('/');
   await page.evaluate(() => {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -465,5 +466,68 @@ test.describe('Collapse/Expand All — Git Mode', () => {
       await revealFile(page, p);
       await expect(fileHeader(page, p)).not.toHaveClass(/\bcollapsed\b/);
     }
+  });
+});
+
+test.describe('Viewed marks in the review file', () => {
+  async function savedMarks(request: APIRequestContext) {
+    const response = await request.get('/api/viewed');
+    await expect(response).toBeOK();
+    return (await response.json()).files as Record<string, { viewed: boolean; auto?: boolean; file_hash?: string }>;
+  }
+
+  async function clearViewedStorage(page: Page) {
+    await page.evaluate(() => {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('crit-viewed-')) localStorage.removeItem(key);
+      }
+    });
+  }
+
+  test('a tick survives losing localStorage, as a new port would', async ({ page, request }) => {
+    await loadFreshReview(page);
+    const [filePath] = await treePaths(page);
+    await revealFile(page, filePath);
+
+    const saved = page.waitForResponse(r => new URL(r.url()).pathname === '/api/viewed' && r.request().method() === 'PUT');
+    await viewedBox(page, filePath).check();
+    expect((await saved).status()).toBe(204);
+    expect((await savedMarks(request))[filePath].viewed).toBe(true);
+
+    await clearViewedStorage(page);
+    await loadPage(page);
+    await revealFile(page, filePath);
+    await expect(viewedBox(page, filePath)).toBeChecked();
+  });
+
+  test('an untick is saved and survives losing localStorage', async ({ page, request }) => {
+    await loadFreshReview(page);
+    const [filePath] = await treePaths(page);
+    await revealFile(page, filePath);
+    await viewedBox(page, filePath).check();
+    await expect.poll(async () => (await savedMarks(request))[filePath]?.viewed).toBe(true);
+
+    await viewedBox(page, filePath).uncheck();
+    await expect.poll(async () => (await savedMarks(request))[filePath]?.viewed).toBe(false);
+
+    await clearViewedStorage(page);
+    await loadPage(page);
+    await revealFile(page, filePath);
+    await expect(viewedBox(page, filePath)).not.toBeChecked();
+  });
+
+  test('a mark on other content is not restored', async ({ page, request }) => {
+    await loadFreshReview(page);
+    const [filePath] = await treePaths(page);
+    const put = await request.put('/api/viewed', {
+      data: { files: [{ path: filePath, viewed: true, file_hash: 'sha256:other-content' }] },
+    });
+    expect(put.status()).toBe(204);
+
+    await clearViewedStorage(page);
+    await loadPage(page);
+    await revealFile(page, filePath);
+    await expect(viewedBox(page, filePath)).not.toBeChecked();
   });
 });

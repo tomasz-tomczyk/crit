@@ -91,6 +91,7 @@ type PullRequest struct {
 	ChangeSpec string
 	OutputDir  string
 	SessionID  string
+	Viewed     bool     // also sync viewed files (GitHub only)
 	Args       []string // compatibility path for direct provider callers
 }
 
@@ -102,6 +103,7 @@ type PushRequest struct {
 	DryRun     bool
 	Message    string
 	Event      string
+	Viewed     bool     // also sync viewed files (GitHub only)
 	Args       []string // compatibility path for direct provider callers
 }
 

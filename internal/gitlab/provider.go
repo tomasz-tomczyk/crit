@@ -3,6 +3,7 @@ package gitlab
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -188,12 +189,20 @@ func (p Provider) ListOpen(ctx context.Context, repo forge.RepoContext) ([]forge
 	return result, nil
 }
 
+var errViewedUnsupported = errors.New("--viewed is only supported for GitHub pull requests")
+
 func (p Provider) Pull(ctx context.Context, request forge.PullRequest) (forge.PullResult, error) {
+	if request.Viewed {
+		return forge.PullResult{}, errViewedUnsupported
+	}
 	request.Repo = p.repo(request.Repo)
 	return runPull(ctx, request)
 }
 
 func (p Provider) Push(ctx context.Context, request forge.PushRequest) (forge.PushResult, error) {
+	if request.Viewed {
+		return forge.PushResult{}, errViewedUnsupported
+	}
 	request.Repo = p.repo(request.Repo)
 	return runPush(ctx, request)
 }

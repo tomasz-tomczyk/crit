@@ -23,14 +23,14 @@ type pushFlags struct {
 	configuredOutput string
 	sessionID        string
 	eventFlag        string
+	viewed           bool
 }
 
 func parsePushFlags(args []string) (pushFlags, error) {
 	var f pushFlags
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "--dry-run" {
-			f.dryRun = true
+		if setPushBoolFlag(&f, arg) {
 			continue
 		}
 		if arg == "--message" || arg == "-m" {
@@ -72,13 +72,25 @@ func parsePushFlags(args []string) (pushFlags, error) {
 	return f, nil
 }
 
+func setPushBoolFlag(f *pushFlags, arg string) bool {
+	switch arg {
+	case "--dry-run":
+		f.dryRun = true
+	case "--viewed":
+		f.viewed = true
+	default:
+		return false
+	}
+	return true
+}
+
 func setPushSpec(f *pushFlags, arg string) error {
 	if f.spec != "" {
-		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 	if _, err := ParsePRSpec(arg); err != nil {
-		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 	f.spec = arg
@@ -492,10 +504,16 @@ func RunPush(args []string) error {
 
 	if ctx.flags.dryRun {
 		runPushDryRun(ctx, b)
+		if ctx.flags.viewed {
+			return printViewedDryRun(ctx)
+		}
 		return nil
 	}
 	if code := RunPushLive(ctx, b); code != 0 {
 		return clicmd.ExitError{Code: code, Err: errors.New("push failed")}
+	}
+	if ctx.flags.viewed {
+		return pushViewedFiles(ctx)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -187,5 +188,14 @@ func TestProviderPullAndPushValidateCompatibilityArgs(t *testing.T) {
 	}
 	if _, err := p.Push(context.Background(), forge.PushRequest{Args: []string{"--event", "invalid", "1"}}); err == nil {
 		t.Fatal("Push unexpectedly accepted invalid event")
+	}
+}
+
+func TestViewedIsRejectedOnGitLab(t *testing.T) {
+	if _, err := (Provider{}).Push(context.Background(), forge.PushRequest{Viewed: true}); !errors.Is(err, errViewedUnsupported) {
+		t.Fatalf("push: %v", err)
+	}
+	if _, err := (Provider{}).Pull(context.Background(), forge.PullRequest{Viewed: true}); !errors.Is(err, errViewedUnsupported) {
+		t.Fatalf("pull: %v", err)
 	}
 }
