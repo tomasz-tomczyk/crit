@@ -178,10 +178,11 @@
   //                  at and the data for onComment, or null if not commentable
   //   onComment(data) called when the button is clicked
   //   placement()    one of PLACEMENTS, read each time the bar shows
-  //   pinned()       [{ text, title, emoji, shortcut, display }]: one button per pinned
+  //   pinned()       [{ text, title, emoji, shortcut, hideShortcut, display }]: one button per pinned
   //                  comment template before Comment, read each time the bar
   //                  shows; `display` is emoji, text or both
-  //   showShortcuts() false to hide the keys on every button, Comment's too
+  //   showShortcuts() false to hide Comment's key; a template hides its own
+  //                  through `hideShortcut`
   //   buttonStyle()  one of BUTTON_STYLES, what the Comment button shows; read
   //                  each time the bar shows (an icon-less button keeps its text)
   //   onPinned(data, item) called when a pinned button is clicked
@@ -243,7 +244,6 @@
     // press keeps the selection and the focus.
     function renderPinned() {
       const items = opts.pinned ? opts.pinned() : [];
-      const keys = showShortcuts();
       pinnedGroup.textContent = '';
       items.forEach(function(item) {
         const pin = doc.createElement('button');
@@ -265,7 +265,7 @@
         }
         if (item.shortcut) {
           pin.setAttribute('aria-keyshortcuts', shortcutParts(item.shortcut).join('+'));
-          if (keys) {
+          if (!item.hideShortcut) {
             const hintKeys = doc.createElement('span');
             hintKeys.className = 'crit-selection-toolbar-shortcut';
             hintKeys.setAttribute('aria-hidden', 'true');

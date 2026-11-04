@@ -629,7 +629,7 @@ test('renderSettingsTab: Selection toolbar has its switch, then Advanced with po
     [['icon', 'Icon'], ['text', 'Text'], ['both', 'Both']]);
   assert.match(html, /class="settings-pill-btn active" data-toolbar-style="both"/);
   // Hide switches, off by default like "Hide resolved comments".
-  assert.match(html, />Hide shortcuts</);
+  assert.match(html, />Hide Comment shortcut</);
   assert.match(html, />Hide comment templates</);
   assert.doesNotMatch(html, /id="toolbarShortcutsToggle"[^>]* checked/);
   assert.doesNotMatch(html, /id="toolbarTemplatesToggle"[^>]* checked/);

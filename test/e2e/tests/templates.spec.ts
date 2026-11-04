@@ -193,6 +193,27 @@ test.describe('Comment Templates — Git Mode', () => {
     await expect(chips(page).locator('.template-chip-label')).toHaveText(['Rejected', 'Out of scope', 'Accepted']);
   });
 
+  test('Hide shortcut in selection toolbar shows for a template with a key in the toolbar', async ({ page }) => {
+    await openTemplatesTab(page);
+    await rows(page).nth(0).locator('.settings-template-action').click();
+    const keyLine = editor(page).locator('.settings-template-line', { hasText: 'Hide shortcut in selection toolbar' });
+    await expect(keyLine).toBeVisible();
+    await hideSwitchLabel(page).click();
+    await expect(keyLine).toBeHidden();
+    await hideSwitchLabel(page).click();
+    const shortcut = editor(page).locator('.template-shortcut');
+    await shortcut.click();
+    await page.keyboard.press('Backspace');
+    await expect(keyLine).toBeHidden();
+    await shortcut.click();
+    await page.keyboard.press('Alt+p');
+    await expect(keyLine).toBeVisible();
+    await keyLine.locator('label.comments-panel-switch').click();
+    await editor(page).locator('button', { hasText: 'Save' }).click();
+    const accepted = await page.evaluate(() => window.crit.commentTemplates.getTemplateItems()[0]);
+    expect(accepted).toMatchObject({ shortcut: 'Alt+p', hideShortcut: true });
+  });
+
   test('Hide from selection toolbar is locked while the toolbar hides comment templates', async ({ page }) => {
     await page.evaluate(() => window.crit.shared.setSetting('selectionToolbarTemplates', false));
     await openTemplatesTab(page);

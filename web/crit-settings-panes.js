@@ -768,9 +768,9 @@
       html += '<div class="settings-display-row">';
       // Hide switches, off by default like "Hide resolved comments": the
       // stored settings keep saying what shows.
-      html += '<span class="settings-display-label">Hide shortcuts'
-        + '<span class="settings-display-hint">No shortcut badges on toolbar buttons, like <kbd>c</kbd> on Comment.</span></span>';
-      html += switchHTML('toolbarShortcutsToggle', 'Hide shortcuts in the selection toolbar', !toolbarShortcuts);
+      html += '<span class="settings-display-label">Hide Comment shortcut'
+        + '<span class="settings-display-hint">No <kbd>c</kbd> badge on the Comment button. Each comment template sets its own.</span></span>';
+      html += switchHTML('toolbarShortcutsToggle', 'Hide the Comment shortcut in the selection toolbar', !toolbarShortcuts);
       html += '</div>';
       if (hooks.commentTemplates) {
         html += '<div class="settings-display-row">';

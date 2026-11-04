@@ -51,12 +51,12 @@ test.describe('Selection toolbar templates (git mode)', () => {
   });
 
   test('each template shows its emoji, its title or text, or both', async ({ page }) => {
-    // Keys aside (Accepted and Rejected come with Alt+P and Alt+C).
-    await setSetting(page, 'selectionToolbarShortcuts', false);
     await page.evaluate(() => {
       const t = window.crit.commentTemplates;
       t.getTemplateItems();
-      t.updateTemplate(1, { display: 'text', title: 'No' });
+      // Keys aside: Accepted and Rejected come with Alt+P and Alt+C.
+      t.updateTemplate(0, { hideShortcut: true });
+      t.updateTemplate(1, { display: 'text', title: 'No', hideShortcut: true });
       t.addTemplate('Please add a unit test for this branch.', { title: 'Ask for tests', emoji: '🧪', display: 'both', pinned: true });
       t.addTemplate('Not pinned', { emoji: '🙈' });
     });
@@ -90,11 +90,21 @@ test.describe('Selection toolbar templates (git mode)', () => {
     expect((await savedComments(page, request)).filter(c => c.body === 'Accepted')).toHaveLength(1);
   });
 
-  test('Toolbar shortcuts off hides every key, Comment\'s too', async ({ page }) => {
+  test('Hide Comment shortcut hides c only; each template hides its own key', async ({ page }) => {
     await setSetting(page, 'selectionToolbarShortcuts', false);
+    await page.evaluate(() => {
+      const t = window.crit.commentTemplates;
+      t.getTemplateItems();
+      t.updateTemplate(1, { hideShortcut: true });
+    });
     await selectInBlock(page, partialBlock(section));
     await expect(toolbar(page)).toBeVisible();
-    await expect(toolbar(page).locator('kbd:visible')).toHaveCount(0);
+    await expect(toolbar(page).getByRole('button', { name: 'Comment on selection' }).locator('kbd:visible')).toHaveCount(0);
+    const pins = toolbar(page).locator('.crit-selection-toolbar-pin');
+    await expect(pins.nth(0).locator('kbd')).toHaveText(['Alt', 'p']);
+    await expect(pins.nth(1).locator('kbd')).toHaveCount(0);
+    // A hidden key still comments.
+    await expect(pins.nth(1)).toHaveAttribute('aria-keyshortcuts', 'Alt+c');
   });
 
   test('top-left aligns on the selection start, bottom-right and bottom-center sit under it, off hides the toolbar', async ({ page }) => {
@@ -207,7 +217,7 @@ test.describe('Selection toolbar templates (git mode)', () => {
     }));
     expect(settings).toEqual({ placement: 'bottom-center', style: 'icon', shortcuts: false, templates: false });
 
-    // Only Comment, as its icon, with no key.
+    // Only Comment, as its icon, without its key.
     await selectInBlock(page, partialBlock(section));
     const buttons = toolbar(page).locator('button:visible');
     await expect(buttons).toHaveCount(1);

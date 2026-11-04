@@ -202,6 +202,7 @@
         shortcut: typeof entry.shortcut === 'string' ? entry.shortcut : '',
         display: cleanDisplay(entry.display),
         pinned: !!entry.pinned,
+        hideShortcut: !!entry.hideShortcut,
       };
     });
   }
@@ -243,6 +244,7 @@
     if ('shortcut' in changes) entry.shortcut = typeof changes.shortcut === 'string' ? changes.shortcut : '';
     if ('display' in changes) entry.display = cleanDisplay(changes.display);
     if ('pinned' in changes) entry.pinned = !!changes.pinned;
+    if ('hideShortcut' in changes) entry.hideShortcut = !!changes.hideShortcut;
     return entry;
   }
 
@@ -662,8 +664,26 @@
     displayLine.hidden = hide.input.checked;
     hide.input.addEventListener('change', function () { displayLine.hidden = hide.input.checked; });
     card.appendChild(displayLine);
-    var shortcutInput = buildShortcutInput({ value: item ? item.shortcut : '', index: item ? item.index : -1 });
+    // Whether the toolbar button shows its key: only asked of a template that
+    // has a shortcut and shows in the toolbar; the choice is kept otherwise.
+    var hideKey = buildSwitch(item ? item.hideShortcut : false, 'Hide the shortcut in the selection toolbar');
+    var hideKeyLine = editorLine('Hide shortcut in selection toolbar', hideKey);
+    var shortcutInput = buildShortcutInput({
+      value: item ? item.shortcut : '',
+      index: item ? item.index : -1,
+      onChange: function () { syncHideKeyLine(); },
+    });
+    function syncHideKeyLine() { hideKeyLine.hidden = !shortcutInput.getValue() || hide.input.checked; }
+    hide.input.addEventListener('change', syncHideKeyLine);
+    if (blocked) {
+      hideKey.input.disabled = true;
+      hideKeyLine.classList.add('is-disabled');
+      hideKeyLine.title = blocked;
+      hideKey.input.setAttribute('aria-description', blocked);
+    }
+    syncHideKeyLine();
     card.appendChild(editorLine('Shortcut', shortcutInput));
+    card.appendChild(hideKeyLine);
 
     var actions = document.createElement('div');
     actions.className = 'settings-template-actions';
@@ -697,6 +717,7 @@
         shortcut: shortcutInput.getValue(),
         display: displayPicker.getValue(),
         pinned: !hide.input.checked,
+        hideShortcut: hideKey.input.checked,
       };
       var saved = item ? updateTemplate(item.index, Object.assign({ text: value }, changes)) : addTemplate(value, changes);
       if (!saved) return;
