@@ -12,7 +12,9 @@ Reads benchstat output (from `benchstat old.txt new.txt` where both files are
   - allocs/op: ANY significant increase on a real benchmark row. Allocs are
     deterministic (unlike ns/op on shared runners), so 0 -> N allocs/op
     always means a heap escape worth a look. Note benchstat prints 0 -> N
-    as `+Inf%`, which counts.
+    as `+Inf%`, which counts. The exception is NOISY_ALLOC_BENCHES: these do
+    file I/O and wobble by a few allocs per op between runs, so they gate at
+    NOISY_ALLOC_PCT instead.
 
 Geomean summary rows are never gated — they amplify one noisy bench into a
 package-wide fail (and float rounding can invent +0.02% allocs deltas).
@@ -31,6 +33,10 @@ import re
 import sys
 
 TIME_THRESHOLD_PCT = 20.0
+# I/O-bound benches whose allocs/op is not exact (677 -> 679, or +0.01% at
+# 13.25k), yet benchstat calls that significant because the spread is tiny.
+NOISY_ALLOC_BENCHES = ("ReviewSaveLoad",)
+NOISY_ALLOC_PCT = 1.0
 # Skip time/op gating when either side's reported variance is this high.
 # Matches the ±N% annotations benchstat prints next to each mean.
 VARIANCE_SKIP_PCT = 25.0
@@ -63,6 +69,13 @@ def delta_pct(line: str) -> float | None:
     if re.search(r"\+Inf%", line, re.IGNORECASE):
         return float("inf")
     return None
+
+
+def alloc_threshold(line: str) -> float:
+    """Return the smallest allocs/op delta percent that fails this row."""
+    if line.lstrip().startswith(NOISY_ALLOC_BENCHES):
+        return NOISY_ALLOC_PCT
+    return sys.float_info.min
 
 
 def max_variance_pct(line: str) -> float | None:
@@ -134,7 +147,7 @@ def main() -> int:
                 skipped_noisy.append(line.rstrip())
                 continue
             time_regs.append(line.rstrip())
-        elif table == "alloc" and pct > 0:
+        elif table == "alloc" and pct >= alloc_threshold(line):
             alloc_regs.append(line.rstrip())
         elif table == "mem" and pct > 0:
             mem_warn.append(line.rstrip())
