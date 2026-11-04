@@ -57,21 +57,39 @@ test('finds and reveals a match in a lazy, off-screen file', async ({ page }) =>
 test('a match found while the highlight workers start stays on screen when they fail', async ({ page }) => {
   // Never answer the worker script, so the workers miss their 5s start limit
   // and the page falls back to rendering without them, building a new list.
-  await page.route('**/pierre/pierre-worker.js', () => {});
-  let fellBack = false;
-  page.on('console', (m) => {
-    if (m.text().includes('Highlight workers unavailable')) fellBack = true;
+  // Track fallback in-page so the jump-vs-fallback race is checked atomically
+  // (a Node-side flag read after toHaveText can miss a jump that already happened).
+  await page.addInitScript(() => {
+    const w = window as unknown as { __critWorkerFellBack?: boolean; __critJumpedBeforeFallback?: boolean };
+    w.__critWorkerFellBack = false;
+    w.__critJumpedBeforeFallback = false;
+    const warn = console.warn.bind(console);
+    console.warn = (...args: unknown[]) => {
+      if (String(args[0] ?? '').includes('Highlight workers unavailable')) {
+        // Snapshot the count in the same turn as the fallback warn — a later
+        // Playwright poll can miss a jump that already happened on the old list.
+        const text = document.querySelector('.crit-find-count')?.textContent ?? '';
+        if (/^1 of 1/.test(text)) w.__critJumpedBeforeFallback = true;
+        w.__critWorkerFellBack = true;
+      }
+      warn(...args);
+    };
   });
+  await page.route('**/pierre/pierre-worker.js', () => {});
   await loadPage(page);
   await openFind(page);
   await input(page).fill('Goodbye130()');
-  // "1 of 1" (not "0 of 1") means find has jumped to the match.
-  await expect(count(page)).toHaveText(/^1 of 1/, { timeout: 30_000 });
-  // On a runner too slow to find it within those 5s, the jump comes after
-  // the new list and there is nothing to test.
-  test.skip(fellBack, 'the fallback came before the match was found');
+  // Wait for the fallback. Skip when find had not jumped yet — the jump would
+  // land on the new list and there is nothing to test.
+  await expect.poll(
+    () => page.evaluate(() => !!(window as unknown as { __critWorkerFellBack?: boolean }).__critWorkerFellBack),
+    { timeout: 30_000 },
+  ).toBe(true);
+  const jumpedBefore = await page.evaluate(
+    () => !!(window as unknown as { __critJumpedBeforeFallback?: boolean }).__critJumpedBeforeFallback,
+  );
+  test.skip(!jumpedBefore, 'the fallback came before the match was found');
 
-  await expect.poll(() => fellBack, { timeout: 20_000 }).toBe(true);
   await expect.poll(() => currentMatch(page), { timeout: 10_000 }).toMatchObject({
     path: 'file130.go', text: 'Goodbye130()', visible: true,
   });
