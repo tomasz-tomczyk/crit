@@ -97,6 +97,17 @@ test('first use seeds Accepted and Rejected, pinned with their emoji and Alt+P /
   assert.equal(sb.api.findByShortcut('Alt+p').text, 'Accepted');
 });
 
+test('a template can hide its shortcut from the toolbar, and keeps the shortcut', () => {
+  var sb = makeSandbox();
+  sb.api.getTemplateItems();
+  assert.equal(sb.api.getTemplateItems()[0].hideShortcut, false);
+  sb.api.updateTemplate(0, { hideShortcut: true });
+  var accepted = sb.api.getTemplateItems()[0];
+  assert.equal(accepted.hideShortcut, true);
+  assert.equal(accepted.shortcut, 'Alt+p');
+  assert.equal(sb.api.findByShortcut('Alt+p').text, 'Accepted');
+});
+
 test('onChange listeners run after every change, once each', () => {
   var sb = makeSandbox();
   var calls = 0;
