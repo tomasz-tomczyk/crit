@@ -91,5 +91,16 @@ STATE_FILE="$(e2e_state_file "$PORT")"
   echo "RANGE_HEAD_AFTER=$D_SHA"
 } > "$STATE_FILE"
 
+# Keep the real gh out of the picker. /api/picker waits on `gh`, which took over
+# 10s on Windows CI for the first caller, and the fixture has no PRs to list.
+# The stack comes from local branches. gh.cmd is for Windows, where exec.LookPath
+# does not find a file without an extension.
+GH_STUB_DIR=$(mktemp -d)
+e2e_cleanup_add "$GH_STUB_DIR"
+printf '#!/bin/sh\nexit 1\n' > "$GH_STUB_DIR/gh"
+chmod +x "$GH_STUB_DIR/gh"
+printf '@exit /b 1\r\n' > "$GH_STUB_DIR/gh.cmd"
+export PATH="$GH_STUB_DIR:$PATH"
+
 # Boot crit in range mode A..B.
 e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --range "$A_SHA..$B_SHA"
