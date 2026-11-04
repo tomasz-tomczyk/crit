@@ -47,14 +47,29 @@
     toast: function (message) {
       if (ns.shared && ns.shared.showToast) ns.shared.showToast(message, { kind: 'error' });
     },
+    // Why a template cannot be shown in the selection toolbar right now (the
+    // toolbar or its templates are off in Settings), or '' when it can.
+    toolbarBlocked: function () {
+      var shared = ns.shared;
+      if (!shared || !shared.getSetting) return '';
+      if (shared.getSetting('selectionToolbarEnabled', true) === false) {
+        return 'Turn on "Enable selection toolbar" in Settings > Selection toolbar first.';
+      }
+      if (shared.getSetting('selectionToolbarTemplates', true) === false) {
+        return 'Turn off "Hide comment templates" in Settings > Selection toolbar > Advanced first.';
+      }
+      return '';
+    },
   };
 
   // options: storage { get(key), set(key, value) } (string values),
-  // shortcuts { eventToBinding(event), refusal(binding) }, toast(message).
+  // shortcuts { eventToBinding(event), refusal(binding) }, toast(message),
+  // toolbarBlocked() (why templates cannot show in the selection toolbar, or '').
   function configure(options) {
     if (options.storage) env.storage = options.storage;
     if (options.shortcuts) env.shortcuts = options.shortcuts;
     if (options.toast) env.toast = options.toast;
+    if (options.toolbarBlocked) env.toolbarBlocked = options.toolbarBlocked;
   }
 
   var META_KEY = 'crit-template-meta';
@@ -63,22 +78,25 @@
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>' +
     '<path d="m15 5 4 4"/></svg>';
-  // Pinned once on first use; a default the user removes or unpins stays so.
+  // Pinned once on first use; a default the user removes, unpins or rebinds
+  // stays so. Alt+P for "pro", Alt+C for "con".
   var DEFAULT_TEMPLATES = [
-    { text: 'Accepted', emoji: '👍', pinned: true, display: 'emoji' },
-    { text: 'Rejected', emoji: '👎', pinned: true, display: 'emoji' },
+    { text: 'Accepted', emoji: '👍', pinned: true, display: 'emoji', shortcut: 'Alt+p' },
+    { text: 'Rejected', emoji: '👎', pinned: true, display: 'emoji', shortcut: 'Alt+c' },
   ];
   // What a template's toolbar button shows; `emoji` falls back to the text
   // when the template has no emoji.
   var DISPLAYS = [
-    { id: 'emoji', name: 'Emoji' },
+    { id: 'emoji', name: 'Icon' },
     { id: 'text', name: 'Text' },
-    { id: 'both', name: 'Emoji + Text' },
+    { id: 'both', name: 'Both' },
   ];
 
   // Template bars of comment forms, held weakly: a closed form's bar goes
   // with it, while a form Pierre keeps aside (scrolled away) still updates.
   var bars = new Set();
+  // Hosts' change listeners (onChange): Settings counts, the Shortcuts list.
+  var listeners = [];
 
   // Redraws every template bar after a change, so open forms follow without
   // a reload (the selection toolbar reads the templates each time it shows).
@@ -88,6 +106,11 @@
       if (bar) bar._populate();
       else bars.delete(ref);
     });
+    listeners.forEach(function (fn) { fn(); });
+  }
+
+  function onChange(fn) {
+    if (listeners.indexOf(fn) === -1) listeners.push(fn);
   }
 
   // --- CRUD ---
@@ -138,7 +161,7 @@
     DEFAULT_TEMPLATES.forEach(function (d) {
       if (templates.indexOf(d.text) === -1) templates.push(d.text);
       if (!Object.prototype.hasOwnProperty.call(meta.items, d.text)) {
-        meta.items[d.text] = { emoji: d.emoji, pinned: d.pinned, display: d.display };
+        meta.items[d.text] = { emoji: d.emoji, pinned: d.pinned, display: d.display, shortcut: d.shortcut };
       }
     });
     meta.seeded = true;
@@ -483,22 +506,22 @@
     return button;
   }
 
-  // "Delete template", which turns into "Delete this template? Keep / Delete"
-  // on click: only the second, distinct button deletes, and Keep takes the
-  // focus so a reflex Enter deletes nothing.
+  // "Delete", which turns into "Delete this template? Keep / Delete" on
+  // click: only the second, distinct button deletes, and Keep takes the focus
+  // so a reflex Enter deletes nothing.
   function buildDeleteControl(onDelete) {
     var zone = document.createElement('div');
-    zone.className = 'save-template-delete-zone';
+    zone.className = 'settings-template-delete-zone';
     function ask() {
       zone.textContent = '';
       var question = document.createElement('span');
-      question.className = 'save-template-delete-question';
+      question.className = 'settings-template-delete-question';
       question.textContent = 'Delete this template?';
       var keep = document.createElement('button');
       keep.type = 'button';
       keep.className = 'btn btn-sm';
       keep.textContent = 'Keep';
-      keep.addEventListener('click', idle);
+      keep.addEventListener('click', function () { idle(); zone.querySelector('button').focus(); });
       var confirm = document.createElement('button');
       confirm.type = 'button';
       confirm.className = 'btn btn-sm btn-danger';
@@ -513,8 +536,8 @@
       zone.textContent = '';
       var start = document.createElement('button');
       start.type = 'button';
-      start.className = 'btn btn-sm save-template-delete';
-      start.textContent = 'Delete template';
+      start.className = 'settings-template-delete';
+      start.textContent = 'Delete';
       start.addEventListener('click', ask);
       zone.appendChild(start);
     }
@@ -526,92 +549,132 @@
     var wrap = document.createElement('label');
     wrap.className = className;
     var name = document.createElement('span');
-    name.className = 'save-template-field-name';
+    name.className = 'settings-template-field-name';
     name.textContent = labelText;
     wrap.appendChild(name);
     wrap.appendChild(control);
     return wrap;
   }
 
-  // The one dialog that creates a template ("Save as template", from
-  // opts.text) or edits opts.item ("Edit template"): title, text, emoji,
-  // shortcut, what its toolbar button shows, and its pin; editing also offers
-  // "Delete template", confirmed in the dialog before anything is removed.
-  // Ctrl/Cmd+Enter saves, Esc cancels without closing what lies under the
-  // dialog (Settings). Options: item, text, onSaved() (after a save or a
-  // delete), onClose() (after save, delete or cancel).
-  function openTemplateDialog(opts) {
-    var item = opts.item || null;
-    var overlay = document.createElement('div');
-    overlay.className = 'save-template-overlay active';
-    var dialog = document.createElement('div');
-    dialog.className = 'save-template-dialog';
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-label', item ? 'Edit template' : 'Save as template');
+  // A Settings switch (the comments panel's) around a checkbox.
+  function buildSwitch(checked, ariaLabel) {
+    var wrap = document.createElement('label');
+    wrap.className = 'comments-panel-switch';
+    var input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !!checked;
+    input.setAttribute('aria-label', ariaLabel);
+    var track = document.createElement('span');
+    track.className = 'comments-panel-switch-track';
+    var thumb = document.createElement('span');
+    thumb.className = 'comments-panel-switch-thumb';
+    track.appendChild(thumb);
+    wrap.appendChild(input);
+    wrap.appendChild(track);
+    wrap.input = input;
+    return wrap;
+  }
 
-    var heading = document.createElement('h3');
-    heading.textContent = item ? 'Edit template' : 'Save as template';
-    dialog.appendChild(heading);
+  // A labelled line of the editor: name on the left, control on the right.
+  function editorLine(labelText, control, className) {
+    var line = document.createElement('div');
+    line.className = 'settings-template-line' + (className ? ' ' + className : '');
+    var name = document.createElement('span');
+    name.className = 'settings-template-line-name';
+    name.textContent = labelText;
+    line.appendChild(name);
+    line.appendChild(control);
+    return line;
+  }
 
-    var titleInput = document.createElement('input');
-    titleInput.type = 'text';
-    titleInput.className = 'save-template-title';
-    titleInput.maxLength = 60;
-    titleInput.placeholder = 'Short name for the toolbar';
-    titleInput.setAttribute('autocomplete', 'off');
-    titleInput.value = item ? item.title : '';
-    dialog.appendChild(field('save-template-field', 'Title', titleInput));
-    var note = document.createElement('p');
-    note.className = 'save-template-note';
-    note.textContent = 'Optional. Shown in the selection toolbar and on the template chip; without a title, the template text is used.';
-    dialog.appendChild(note);
+  function appendKeys(parent, binding) {
+    binding.split('+').forEach(function (part, i) {
+      if (i > 0) parent.appendChild(document.createTextNode('+'));
+      var kbd = document.createElement('kbd');
+      kbd.textContent = part;
+      parent.appendChild(kbd);
+    });
+  }
 
-    var input = document.createElement('textarea');
-    input.className = 'save-template-input';
-    input.rows = 3;
-    input.value = item ? item.text : (opts.text || '');
-    dialog.appendChild(field('save-template-field', 'Template text', input));
+  // The editor a row unfolds into, or a new template's (item null, starting
+  // from `text`): emoji, name, the text it posts, its toolbar button and its
+  // key, then Delete (existing templates), Cancel and Save. Ctrl/Cmd+Enter
+  // saves; Esc cancels without closing Settings. done(savedIndex) runs after a
+  // save, a delete or a cancel (savedIndex is -1 unless saved).
+  function buildEditor(item, text, done) {
+    var card = document.createElement('div');
+    card.className = 'settings-template-editor';
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', item ? 'Edit "' + templateLabel(item) + '"' : 'New template');
 
-    var options = document.createElement('div');
-    options.className = 'save-template-options';
+    var head = document.createElement('div');
+    head.className = 'settings-template-editor-head';
+    head.textContent = item ? (item.emoji ? item.emoji + ' ' : '') + templateLabel(item) : 'New template';
+    card.appendChild(head);
+
+    var identity = document.createElement('div');
+    identity.className = 'settings-template-identity';
     var emojiInput = document.createElement('input');
     emojiInput.type = 'text';
-    emojiInput.className = 'save-template-emoji';
+    emojiInput.className = 'settings-template-emoji-input';
     emojiInput.maxLength = 16;
     emojiInput.spellcheck = false;
     emojiInput.setAttribute('autocomplete', 'off');
     emojiInput.value = item ? item.emoji : '';
-    options.appendChild(field('save-template-option', 'Emoji', emojiInput));
-    var shortcutOption = document.createElement('span');
-    shortcutOption.className = 'save-template-option';
-    shortcutOption.appendChild(document.createTextNode('Shortcut'));
-    var shortcutInput = buildShortcutInput({ value: item ? item.shortcut : '', index: item ? item.index : -1 });
-    shortcutOption.appendChild(shortcutInput);
-    options.appendChild(shortcutOption);
-    var pinLabel = document.createElement('label');
-    pinLabel.className = 'save-template-option save-template-option--row';
-    var pinInput = document.createElement('input');
-    pinInput.type = 'checkbox';
-    pinInput.checked = !!(item && item.pinned);
-    pinLabel.appendChild(pinInput);
-    pinLabel.appendChild(document.createTextNode('Pin to the selection toolbar'));
-    options.appendChild(pinLabel);
-    // What the toolbar button shows only matters for a pinned template: shown
-    // under the pin, while it is checked. The choice is kept while hidden.
-    var displayOption = document.createElement('span');
-    displayOption.className = 'save-template-option save-template-option--row save-template-option--sub';
-    displayOption.appendChild(document.createTextNode('Toolbar button'));
+    identity.appendChild(field('settings-template-field settings-template-field--emoji', 'Emoji', emojiInput));
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'settings-template-name-input';
+    nameInput.maxLength = 60;
+    nameInput.setAttribute('autocomplete', 'off');
+    nameInput.value = item ? item.title : '';
+    identity.appendChild(field('settings-template-field settings-template-field--name', 'Name', nameInput));
+    card.appendChild(identity);
+    var note = document.createElement('p');
+    note.className = 'settings-template-note';
+    note.textContent = 'Optional name. Without one, the comment text shows on the toolbar button and the form chip.';
+    card.appendChild(note);
+
+    var textInput = document.createElement('textarea');
+    textInput.className = 'settings-template-text-input';
+    textInput.rows = 3;
+    textInput.value = item ? item.text : (text || '');
+    card.appendChild(field('settings-template-field', 'Posts as comment', textInput));
+
+    // A Hide switch, off by default, like "Hide resolved comments": checked
+    // means the template stays out of the toolbar (not pinned).
+    var hide = buildSwitch(item ? !item.pinned : false, 'Hide from the selection toolbar');
+    var pinLine = editorLine('Hide from selection toolbar', hide);
+    // Off while the toolbar or its templates are off: the switch keeps its
+    // value, and its tooltip says what to turn on.
+    var blocked = env.toolbarBlocked();
+    if (blocked) {
+      hide.input.disabled = true;
+      pinLine.classList.add('is-disabled');
+      pinLine.title = blocked;
+      hide.input.setAttribute('aria-description', blocked);
+    }
+    card.appendChild(pinLine);
+    // What the toolbar button shows only matters when it shows: kept while hidden.
     var displayPicker = buildDisplayPicker({ value: item ? item.display : 'emoji', hasEmoji: !!emojiInput.value.trim() });
     emojiInput.addEventListener('input', function () { displayPicker.setHasEmoji(!!emojiInput.value.trim()); });
-    displayOption.appendChild(displayPicker);
-    displayOption.hidden = !pinInput.checked;
-    pinInput.addEventListener('change', function () { displayOption.hidden = !pinInput.checked; });
-    options.appendChild(displayOption);
-    dialog.appendChild(options);
+    var displayLine = editorLine('Button shows', displayPicker);
+    displayLine.hidden = hide.input.checked;
+    hide.input.addEventListener('change', function () { displayLine.hidden = hide.input.checked; });
+    card.appendChild(displayLine);
+    var shortcutInput = buildShortcutInput({ value: item ? item.shortcut : '', index: item ? item.index : -1 });
+    card.appendChild(editorLine('Shortcut', shortcutInput));
 
     var actions = document.createElement('div');
-    actions.className = 'save-template-actions';
+    actions.className = 'settings-template-actions';
+    if (item) {
+      actions.appendChild(buildDeleteControl(function () {
+        removeTemplate(item.index);
+        done(-1);
+      }));
+    }
+    var right = document.createElement('div');
+    right.className = 'settings-template-actions-end';
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'btn btn-sm';
@@ -620,56 +683,46 @@
     saveBtn.type = 'button';
     saveBtn.className = 'btn btn-sm btn-primary';
     saveBtn.textContent = 'Save';
-    if (item) actions.appendChild(buildDeleteControl(function () {
-      removeTemplate(item.index);
-      overlay.remove();
-      if (opts.onSaved) opts.onSaved();
-      if (opts.onClose) opts.onClose();
-    }));
-    actions.appendChild(cancelBtn);
-    actions.appendChild(saveBtn);
-    dialog.appendChild(actions);
+    right.appendChild(cancelBtn);
+    right.appendChild(saveBtn);
+    actions.appendChild(right);
+    card.appendChild(actions);
 
-    function close() {
-      overlay.remove();
-      if (opts.onClose) opts.onClose();
-    }
     function save() {
-      var text = input.value.trim();
-      if (!text) { input.focus(); return; }
+      var value = textInput.value.trim();
+      if (!value) { textInput.focus(); return; }
       var changes = {
-        title: titleInput.value,
+        title: nameInput.value,
         emoji: emojiInput.value,
         shortcut: shortcutInput.getValue(),
         display: displayPicker.getValue(),
-        pinned: pinInput.checked,
+        pinned: !hide.input.checked,
       };
-      var saved = item ? updateTemplate(item.index, Object.assign({ text: text }, changes)) : addTemplate(text, changes);
+      var saved = item ? updateTemplate(item.index, Object.assign({ text: value }, changes)) : addTemplate(value, changes);
       if (!saved) return;
-      overlay.remove();
-      if (opts.onSaved) opts.onSaved();
-      if (opts.onClose) opts.onClose();
+      done(item ? item.index : getTemplates().length - 1);
     }
-    cancelBtn.addEventListener('click', close);
+    cancelBtn.addEventListener('click', function () { done(-1); });
     saveBtn.addEventListener('click', save);
-    dialog.addEventListener('keydown', function (e) {
+    card.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         e.stopPropagation();
         save();
-      } else if (e.key === 'Escape') {
+      } else if (e.key === '?' && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        // Typed text: Settings' "?" jumps to the Shortcuts tab otherwise.
+        e.stopPropagation();
+      } else if (e.key === 'Escape' && !e.defaultPrevented) {
         e.preventDefault();
         e.stopPropagation();
-        close();
+        done(-1);
       }
     });
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-    requestAnimationFrame(function () {
-      input.focus();
-      if (!item) input.select();
-    });
+    card.focusFirst = function () {
+      if (item) nameInput.focus();
+      else { textInput.focus(); textInput.select(); }
+    };
+    return card;
   }
 
   // Lucide "pencil" (ISC) at the Settings list size.
@@ -683,14 +736,18 @@
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/>' +
     '<circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>';
 
-  // One summary row per comment template (handle, emoji, title or text,
-  // shortcut, pin mark, edit), then "New template": the Comment templates
-  // section of both settings panels. Editing, deleting and creating go
-  // through the template dialog.
-  // The handle reorders: drag it onto another row, or press Up / Down on it.
-  function renderSettingsList(container, focusHandle) {
+  // The Comment templates tab: one row per template (handle, emoji, name and
+  // text, key, edit), then "+ Add template". The
+  // pencil unfolds a row into its editor, one at a time; "+ Add template"
+  // unfolds an empty one at the end. The handle reorders: drag it onto
+  // another row, or press Up / Down on it.
+  // Options: expand (an index, or 'new'), text (what a new template starts
+  // with), focusHandle / focusEdit (index of the control to focus).
+  function renderSettingsList(container, options) {
     if (!container) return;
-    function redraw() { renderSettingsList(container); }
+    var o = options || {};
+    var expand = o.expand === undefined ? null : o.expand;
+    function redraw(next) { renderSettingsList(container, next); }
     var dragFrom = -1;
     function clearDropMarks() {
       container.querySelectorAll('.is-drop-before, .is-drop-after').forEach(function (el) {
@@ -701,9 +758,18 @@
       var rect = row.getBoundingClientRect();
       return e.clientY > rect.top + rect.height / 2;
     }
+    function closeEditor(savedIndex) {
+      redraw({ focusEdit: savedIndex >= 0 ? savedIndex : (typeof expand === 'number' ? expand : undefined), focusAdd: expand === 'new' && savedIndex < 0 });
+    }
     container.textContent = '';
     var items = getTemplateItems();
+    var editor = null;
     items.forEach(function (item) {
+      if (expand === item.index) {
+        editor = buildEditor(item, '', closeEditor);
+        container.appendChild(editor);
+        return;
+      }
       var label = templateLabel(item);
       var row = document.createElement('div');
       row.className = 'settings-template-row';
@@ -725,7 +791,7 @@
         e.preventDefault();
         e.stopPropagation();
         moveTemplate(item.index, to);
-        renderSettingsList(container, to);
+        redraw({ focusHandle: to });
       });
       row.appendChild(handle);
       row.addEventListener('dragstart', function (e) {
@@ -754,7 +820,7 @@
         var to = item.index + (dropsAfter(row, e) ? 1 : 0);
         if (dragFrom < to) to -= 1;
         moveTemplate(dragFrom, to);
-        redraw();
+        redraw({ expand: expand === 'new' ? 'new' : undefined });
       });
 
       var emoji = document.createElement('span');
@@ -781,19 +847,8 @@
       if (item.shortcut) {
         var keys = document.createElement('span');
         keys.className = 'template-shortcut';
-        item.shortcut.split('+').forEach(function (part, i) {
-          if (i > 0) keys.appendChild(document.createTextNode('+'));
-          var kbd = document.createElement('kbd');
-          kbd.textContent = part;
-          keys.appendChild(kbd);
-        });
+        appendKeys(keys, item.shortcut);
         row.appendChild(keys);
-      }
-      if (item.pinned) {
-        var pinned = document.createElement('span');
-        pinned.className = 'settings-template-pinned';
-        pinned.textContent = 'Pinned';
-        row.appendChild(pinned);
       }
 
       var edit = document.createElement('button');
@@ -802,31 +857,38 @@
       edit.innerHTML = LIST_EDIT_ICON;
       edit.title = 'Edit template';
       edit.setAttribute('aria-label', 'Edit "' + label + '"');
-      edit.addEventListener('click', function () {
-        openTemplateDialog({ item: item, onSaved: redraw, onClose: function () { edit.focus(); } });
-      });
+      edit.addEventListener('click', function () { redraw({ expand: item.index }); });
       row.appendChild(edit);
       container.appendChild(row);
     });
 
-    if (focusHandle !== undefined) {
-      var moved = container.querySelectorAll('.settings-template-handle')[focusHandle];
-      if (moved) moved.focus();
+    if (expand === 'new') {
+      editor = buildEditor(null, o.text, closeEditor);
+      container.appendChild(editor);
     }
 
     var add = document.createElement('button');
     add.type = 'button';
-    add.className = 'btn btn-sm settings-template-new';
-    add.textContent = '+ New template';
-    add.addEventListener('click', function () {
-      openTemplateDialog({ onSaved: redraw, onClose: function () { add.focus(); } });
-    });
+    add.className = 'settings-template-new';
+    add.textContent = '+ Add template';
+    add.hidden = expand === 'new';
+    add.addEventListener('click', function () { redraw({ expand: 'new' }); });
     container.appendChild(add);
 
-    var hint = document.createElement('p');
-    hint.className = 'settings-template-hint';
-    hint.textContent = 'Pinned templates show in the selection toolbar: one click comments the selection with the template text.';
-    container.appendChild(hint);
+    if (editor) {
+      editor.scrollIntoView({ block: 'nearest' });
+      editor.focusFirst();
+    } else if (o.focusHandle !== undefined) {
+      var moved = container.querySelectorAll('.settings-template-handle')[o.focusHandle];
+      if (moved) moved.focus();
+    } else if (o.focusEdit !== undefined) {
+      var rows = container.querySelectorAll('.settings-template-row');
+      var target = rows[Math.min(o.focusEdit, rows.length - 1)];
+      var btn = target && target.querySelector('.settings-template-action');
+      if (btn) btn.focus();
+    } else if (o.focusAdd) {
+      add.focus();
+    }
   }
 
   // --- Public API ---
@@ -846,7 +908,7 @@
     buildTemplateBar: buildTemplateBar,
     buildShortcutInput: buildShortcutInput,
     buildDisplayPicker: buildDisplayPicker,
-    openTemplateDialog: openTemplateDialog,
+    onChange: onChange,
     templateLabel: templateLabel,
     renderSettingsList: renderSettingsList,
   };

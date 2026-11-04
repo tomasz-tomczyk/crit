@@ -2350,129 +2350,7 @@ textarea.drag-active {
   100% { background-color: transparent; box-shadow: 0 0 0 2px transparent; }
 }
 
-/* ===== Save Template Dialog ===== */
-.save-template-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: var(--crit-overlay-bg);
-  z-index: 500;
-  align-items: center;
-  justify-content: center;
-}
-.save-template-overlay.active { display: flex; }
-
-.save-template-dialog {
-  background: var(--crit-bg-card);
-  border: 1px solid var(--crit-border);
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 480px;
-  width: 90vw;
-  box-shadow: var(--crit-shadow);
-}
-.save-template-dialog h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  color: var(--crit-editor-fg);
-}
-.save-template-dialog p {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--crit-editor-fg-secondary);
-}
-.save-template-input {
-  width: 100%;
-  padding: 8px 10px;
-  font-family: var(--crit-font-body);
-  font-size: 13px;
-  border: 1px solid var(--crit-border);
-  border-radius: 6px;
-  background: var(--crit-editor-bg);
-  color: var(--crit-editor-fg);
-  resize: vertical;
-}
-.save-template-input:focus {
-  outline: none;
-  border-color: var(--crit-brand);
-}
-.save-template-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
-/* Template dialog, edit mode: "Delete template", confirmed in place. */
-.save-template-delete-zone {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: auto;
-  font-size: 13px;
-  color: var(--crit-editor-fg);
-}
-.save-template-delete { color: var(--crit-red); }
-/* Template dialog: title (with its note) and text fields, then the options. */
-.save-template-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 10px;
-  font-size: 13px;
-  color: var(--crit-editor-fg);
-}
-.save-template-field-name { font-weight: 500; }
-.save-template-title {
-  padding: 6px 10px;
-  font: inherit;
-  color: var(--crit-editor-fg);
-  background: var(--crit-editor-bg);
-  border: 1px solid var(--crit-border);
-  border-radius: 6px;
-}
-.save-template-title:focus {
-  outline: none;
-  border-color: var(--crit-brand);
-}
-.save-template-dialog .save-template-note {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--crit-editor-fg-muted);
-}
-/* Emoji, shortcut, toolbar button and pin of a template. */
-.save-template-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 18px;
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--crit-editor-fg);
-}
-.save-template-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.save-template-option--row { flex-basis: 100%; }
-/* Toolbar button choice, under the pin it depends on. */
-.save-template-option--sub { padding-left: 22px; }
-.save-template-option[hidden] { display: none; }
-.save-template-emoji {
-  width: 44px;
-  padding: 4px 6px;
-  font: inherit;
-  text-align: center;
-  color: var(--crit-editor-fg);
-  background: var(--crit-editor-bg);
-  border: 1px solid var(--crit-border);
-  border-radius: 6px;
-}
-.save-template-emoji:focus {
-  outline: none;
-  border-color: var(--crit-brand);
-}
-/* Template shortcut buttons (form dialog and Settings), kbd like Settings > Shortcuts. */
+/* Template shortcut buttons (template editor and rows), kbd like Settings > Shortcuts. */
 .template-shortcut kbd {
   padding: 0 5px;
   font-family: var(--crit-font-mono);
@@ -3058,6 +2936,59 @@ textarea.drag-active {
   font-weight: 500;
   color: var(--crit-editor-fg);
 }
+/* A short explanation under a row's label. */
+.settings-display-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--crit-editor-fg-muted);
+}
+.settings-display-hint kbd {
+  padding: 0 5px;
+  font-family: var(--crit-font-mono);
+  font-size: 11px;
+  border: 1px solid var(--crit-border);
+  border-radius: 4px;
+}
+.settings-display-controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+}
+/* Advanced: folded settings, indented under their section. */
+.settings-advanced[hidden] { display: none; }
+.settings-advanced-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--crit-editor-fg);
+  list-style: none;
+  cursor: pointer;
+}
+.settings-advanced-summary::-webkit-details-marker { display: none; }
+.settings-advanced-summary::after {
+  content: '';
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--crit-editor-fg-muted);
+  transition: transform 0.15s var(--crit-ease);
+}
+.settings-advanced[open] > .settings-advanced-summary::after { transform: rotate(90deg); }
+.settings-advanced-summary:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 2px;
+}
+.settings-advanced-body {
+  padding-left: 16px;
+  border-left: 2px solid var(--crit-border);
+}
 /* Secondary label for a row that qualifies the row above it (custom code font). */
 .settings-display-label--sub {
   font-size: 13px;
@@ -3106,7 +3037,7 @@ textarea.drag-active {
   border-color: var(--crit-red);
 }
 
-/* Comment templates section: one summary row per template, edited in the template dialog. */
+/* Comment templates tab: one summary row per template, unfolded in place to edit it. */
 .settings-templates {
   display: flex;
   flex-direction: column;
@@ -3162,14 +3093,8 @@ textarea.drag-active {
 }
 .settings-template-name { font-size: 13px; color: var(--crit-editor-fg); }
 .settings-template-body { font-size: 12px; color: var(--crit-editor-fg-muted); }
-.settings-template-pinned {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  font-size: 11px;
-  color: var(--crit-brand);
-  border: 1px solid var(--crit-brand);
-  border-radius: 9999px;
-}
+/* Settings > Shortcuts: a comment template's emoji before its action. */
+.shortcut-template-emoji { margin-right: 6px; }
 .settings-template-action {
   display: inline-flex;
   flex: 0 0 auto;
@@ -3193,12 +3118,122 @@ textarea.drag-active {
   outline: 2px solid var(--crit-brand);
   outline-offset: 1px;
 }
-.settings-template-new { align-self: flex-start; margin-top: 4px; }
-.settings-template-hint {
-  margin: 0;
+.settings-template-new {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--crit-brand);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.settings-template-new:hover { text-decoration: underline; }
+.settings-template-new[hidden] { display: none; }
+.settings-templates-intro {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--crit-editor-fg-secondary);
+}
+/* A template unfolded into its editor. */
+.settings-template-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--crit-brand);
+  border-radius: 8px;
+}
+.settings-template-editor-head {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--crit-editor-fg);
+}
+.settings-template-identity {
+  display: flex;
+  gap: 12px;
+}
+.settings-template-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+}
+.settings-template-field-name { font-weight: 500; }
+.settings-template-field--emoji { flex: 0 0 72px; min-width: 0; }
+.settings-template-field--name { flex: 1 1 auto; min-width: 0; }
+.settings-template-emoji-input,
+.settings-template-name-input { width: 100%; box-sizing: border-box; }
+.settings-template-emoji-input,
+.settings-template-name-input,
+.settings-template-text-input {
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--crit-editor-fg);
+  background: var(--crit-editor-bg);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+}
+.settings-template-emoji-input { text-align: center; }
+.settings-template-text-input { resize: vertical; }
+.settings-template-emoji-input:focus,
+.settings-template-name-input:focus,
+.settings-template-text-input:focus {
+  outline: none;
+  border-color: var(--crit-brand);
+}
+.settings-template-note {
+  margin: -4px 0 0;
   font-size: 12px;
   color: var(--crit-editor-fg-muted);
 }
+.settings-template-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+  border-top: 1px solid var(--crit-border);
+}
+.settings-template-line[hidden] { display: none; }
+.settings-template-line.is-disabled { color: var(--crit-editor-fg-muted); cursor: help; }
+.settings-template-line.is-disabled .comments-panel-switch { cursor: not-allowed; opacity: 0.5; }
+.settings-template-line-name { font-weight: 500; }
+.settings-template-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+}
+.settings-template-actions-end {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+/* Delete, confirmed in place. */
+.settings-template-delete-zone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+}
+.settings-template-delete {
+  padding: 4px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--crit-red);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.settings-template-delete:hover { text-decoration: underline; }
 
 /* Toggle switch (used in settings panel for hide-resolved). */
 .comments-panel-switch {
@@ -3300,7 +3335,11 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 .settings-pill--width .settings-pill-indicator { width: 33.333%; }
 .settings-pill--width .settings-pill-btn { padding: 6px 0; width: 72px; text-align: center; }
 
-/* Template toolbar button pill (dialog and Settings): Emoji, Text, Emoji + Text */
+/* Toolbar Comment button pill: 3 equal-width text buttons */
+.settings-pill--toolbar-style .settings-pill-indicator { width: 33.333%; }
+.settings-pill--toolbar-style .settings-pill-btn { padding: 6px 0; width: 88px; text-align: center; white-space: nowrap; }
+
+/* Template toolbar button pill (template editor): Icon, Text, Both */
 .template-display {
   display: inline-grid;
   grid-template-columns: repeat(3, 1fr);
@@ -7149,6 +7188,20 @@ button.file-header-chevron:focus-visible { outline: 2px solid var(--crit-brand);
 .crit-selection-toolbar-btn:focus-visible { outline: none; box-shadow: var(--crit-focus); }
 .crit-selection-toolbar-icon { display: inline-flex; color: var(--crit-fg-secondary); }
 .crit-selection-toolbar-icon svg { width: 14px; height: 14px; }
+/* Comment's icon: the "+" of the line gutter (.line-add), a size smaller. */
+.crit-selection-toolbar-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--crit-brand);
+  color: var(--crit-fg-on-brand);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
 .crit-selection-toolbar-shortcut { display: inline-flex; gap: 2px; }
 .crit-selection-toolbar-shortcut[hidden] { display: none; }
 /* Pinned comment templates, before Comment: emoji, text and shortcut as set. */

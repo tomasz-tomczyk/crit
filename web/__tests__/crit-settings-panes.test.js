@@ -600,3 +600,84 @@ test('renderShortcutsPane: defaults to code-review when no opts passed', () => {
   assert.match(pane.innerHTML, /<kbd>j<\/kbd>/);
   assert.doesNotMatch(pane.innerHTML, /Toggle pin mode/);
 });
+
+// --- Selection toolbar and comment templates ---
+
+function toolbarHooks(pinnedCount) {
+  const toolbar = require(path.join(__dirname, '..', 'crit-selection-toolbar.js'));
+  return Object.assign(paletteHooks(), {
+    selectionToolbar: toolbar,
+    commentTemplates: {
+      getPinnedTemplates: () => new Array(pinnedCount).fill({}),
+      onChange: () => {},
+    },
+  });
+}
+
+test('renderSettingsTab: Selection toolbar has its switch, then Advanced with position, style, shortcuts and templates', () => {
+  const { panes } = loadPanes();
+  const pane = makePane();
+  panes.renderSettingsTab(pane, { mode: 'code-review', cfg: {}, hooks: toolbarHooks(2) });
+  const html = pane.innerHTML;
+  assert.match(html, /id="toolbarEnabledToggle"[^>]* checked/);
+  assert.match(html, /<details class="settings-advanced" id="toolbarAdvanced">/);
+  const select = html.match(/<select[^>]*id="selectionToolbarSelect"[^>]*>([\s\S]*?)<\/select>/)[1];
+  assert.match(select, /^<option value="top-cursor" selected>Top, closest to the cursor<\/option><option value="bottom-cursor">/);
+  assert.match(select, /value="bottom-center"/);
+  assert.doesNotMatch(select, /value="off"/);
+  assert.deepEqual([...html.matchAll(/data-toolbar-style="([^"]+)">([^<]+)</g)].map((m) => [m[1], m[2]]),
+    [['icon', 'Icon'], ['text', 'Text'], ['both', 'Both']]);
+  assert.match(html, /class="settings-pill-btn active" data-toolbar-style="both"/);
+  // Hide switches, off by default like "Hide resolved comments".
+  assert.match(html, />Hide shortcuts</);
+  assert.match(html, />Hide comment templates</);
+  assert.doesNotMatch(html, /id="toolbarShortcutsToggle"[^>]* checked/);
+  assert.doesNotMatch(html, /id="toolbarTemplatesToggle"[^>]* checked/);
+  assert.match(html, /One-click comments beside Comment · 2 in the toolbar/);
+  assert.match(html, /id="manageTemplatesBtn">Manage comment templates</);
+  assert.doesNotMatch(html, /id="settingsTemplates"/);
+});
+
+test('renderSettingsTab: Advanced hides while the selection toolbar is off', () => {
+  const settings = { selectionToolbarEnabled: false, selectionToolbarButtonStyle: 'icon', selectionToolbarTemplates: false };
+  const { panes } = loadPanes('crit-settings=' + encodeURIComponent(JSON.stringify(settings)));
+  const pane = makePane();
+  panes.renderSettingsTab(pane, { mode: 'code-review', cfg: {}, hooks: toolbarHooks(0) });
+  const html = pane.innerHTML;
+  assert.doesNotMatch(html, /id="toolbarEnabledToggle"[^>]* checked/);
+  assert.match(html, /<details class="settings-advanced" id="toolbarAdvanced" hidden>/);
+  assert.match(html, /class="settings-pill-btn active" data-toolbar-style="icon"/);
+  assert.match(html, /id="toolbarTemplatesToggle"[^>]* checked/);
+});
+
+test('renderShortcutsPane: comment templates with a shortcut close the list', () => {
+  const { panes } = loadPanes();
+  const pane = makePane();
+  const templates = {
+    getTemplateItems: () => [
+      { index: 0, text: 'Accepted', title: '', emoji: '👍', shortcut: 'Alt+p' },
+      { index: 1, text: 'Nice', title: '', emoji: '', shortcut: '' },
+      { index: 2, text: 'Please add tests', title: 'Ask for tests', emoji: '🧪', shortcut: 'x' },
+    ],
+    templateLabel: (t) => t.title || t.text,
+    onChange: () => {},
+  };
+  panes.renderShortcutsPane(pane, { mode: 'code-review', templates: templates });
+  const html = pane.innerHTML;
+  const group = html.slice(html.lastIndexOf('shortcuts-group-label'));
+  assert.match(group, /^shortcuts-group-label">Comment templates</);
+  assert.deepEqual([...group.matchAll(/data-template-index="(\d+)"/g)].map((m) => m[1]), ['0', '2']);
+  assert.match(group, /<kbd>Alt<\/kbd>\+<kbd>p<\/kbd>/);
+  assert.match(group, /Comment the selection: Ask for tests/);
+  assert.match(group, /aria-label="Change the shortcut of the template Accepted"/);
+});
+
+test('renderShortcutsPane: no template group without templates that have a shortcut', () => {
+  const { panes } = loadPanes();
+  const pane = makePane();
+  panes.renderShortcutsPane(pane, {
+    mode: 'code-review',
+    templates: { getTemplateItems: () => [{ index: 0, text: 'Nice', shortcut: '' }], templateLabel: (t) => t.text, onChange: () => {} },
+  });
+  assert.doesNotMatch(pane.innerHTML, />Comment templates</);
+});
