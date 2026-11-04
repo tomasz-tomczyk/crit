@@ -66,6 +66,15 @@ test('eventToBinding supports modifier chords and readable special keys', () => 
   assert.equal(shortcuts.eventToBinding({ key: 'Shift', code: 'ShiftLeft', shiftKey: true }), '');
 });
 
+test('eventToBinding reads Alt+letter by its physical key (macOS Option glyphs)', () => {
+  const { shortcuts } = loadShortcuts();
+  assert.equal(shortcuts.eventToBinding({ key: 'π', code: 'KeyP', altKey: true }), 'Alt+p');
+  assert.equal(shortcuts.eventToBinding({ key: 'ç', code: 'KeyC', altKey: true }), 'Alt+c');
+  assert.equal(shortcuts.eventToBinding({ key: 'Π', code: 'KeyP', altKey: true, shiftKey: true }), 'Alt+Shift+P');
+  assert.equal(shortcuts.eventToBinding({ key: 'p', code: 'KeyP', altKey: true }), 'Alt+p');
+  assert.equal(shortcuts.eventToBinding({ key: 'Dead', code: 'KeyE', altKey: true }), 'Alt+e');
+});
+
 test('malformed and unknown persisted overrides are ignored', () => {
   const { shortcuts } = loadShortcuts({ shortcuts: { next_block: 7, unknown: 'x' } });
   assert.equal(shortcuts.getBinding('next_block'), 'j');

@@ -172,6 +172,11 @@
       };
       if (shiftedCodeKeys[ev.code]) key = shiftedCodeKeys[ev.code];
     }
+    // macOS Option turns a letter into another glyph (Option+P types π): read
+    // the physical key, so Alt+P is Alt+P on every system.
+    if (ev.altKey && !/^[a-zA-Z]$/.test(key) && /^Key[A-Z]$/.test(ev.code || '')) {
+      key = ev.code.slice(3);
+    }
     if (key.length === 1 && /^[a-zA-Z]$/.test(key)) {
       key = shift ? key.toUpperCase() : key.toLowerCase();
     }
