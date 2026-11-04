@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine, selectedRows, recordClassAdditions, classAdditions } from './helpers';
+import { clearAllComments, loadPage, goSection, jsSection, switchToDocumentView, openLineComment, hoverLine, diffLine, selectedRows, recordClassAdditions, classAdditions, fileHeader } from './helpers';
 
 // server.go line 5 (the added "log" import) and handler.js line 1 are
 // additions. The two files are far enough apart that CodeView never mounts
@@ -60,7 +60,7 @@ test.describe('Multi-Form Comments', () => {
     const flashes = () => classAdditions(page, 'comment-ref-flash');
 
     const goForm = await openGoForm(page);
-    await expect.poll(flashes).toHaveLength(1);
+    await expect.poll(flashes).toEqual(['server.go:5:5:']);
 
     // The same line again focuses the open form without a second flash.
     await goForm.locator('textarea').fill('keep me open');
@@ -68,11 +68,37 @@ test.describe('Multi-Form Comments', () => {
     await openGoForm(page);
     await expect(goForm.locator('textarea')).toBeFocused();
     await page.waitForTimeout(300);
-    expect(await flashes()).toHaveLength(1);
+    expect(await flashes()).toEqual(['server.go:5:5:']);
 
     // A form on another line is new and flashes.
     await openJsForm(page);
-    await expect.poll(flashes).toHaveLength(2);
+    await expect.poll(flashes).toEqual(['server.go:5:5:', 'handler.js:1:1:']);
+  });
+
+  test('a newly opened file-level form flashes once revealed', async ({ page }) => {
+    await recordClassAdditions(page, 'comment-ref-flash');
+    // Leave server.go, then open its file-level form from the tree reveal so
+    // pierreRevealForm may have to scroll/mount before the flash runs.
+    await jsSection(page);
+    const goSec = await goSection(page);
+    await fileHeader(page, 'server.go').locator('.file-comment-btn').click();
+    await expect.poll(() => classAdditions(page, 'comment-ref-flash')).toEqual(['server.go:file']);
+    await expect(goSec.locator('.comment-form[data-form-key="server.go:file"] textarea')).toBeFocused();
+  });
+
+  test('editing an existing comment does not flash the form', async ({ page, request }) => {
+    const created = await (await request.post('/api/file/comments?path=server.go', {
+      data: { body: 'seed for edit flash guard', start_line: 5, end_line: 5 },
+    })).json();
+    await loadPage(page);
+    await recordClassAdditions(page, 'comment-ref-flash');
+    const goSec = await goSection(page);
+    const card = goSec.locator(`.comment-card[data-comment-id="${created.id}"]`);
+    await expect(card).toBeVisible();
+    await card.locator('.comment-actions button[title="Edit"]').click();
+    await expect(goSec.locator('.comment-form textarea')).toHaveValue('seed for edit flash guard');
+    await page.waitForTimeout(300);
+    expect(await classAdditions(page, 'comment-ref-flash')).toEqual([]);
   });
 
   test('clicking same gutter line twice does not duplicate form', async ({ page }) => {
