@@ -20,12 +20,17 @@ type pullFlags struct {
 	outputDir        string
 	configuredOutput string
 	sessionID        string
+	viewed           bool
 }
 
 func parsePullFlags(args []string) (pullFlags, error) {
 	var f pullFlags
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--viewed" {
+			f.viewed = true
+			continue
+		}
 		if arg == "--output" || arg == "-o" {
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
@@ -45,11 +50,11 @@ func parsePullFlags(args []string) (pullFlags, error) {
 			continue
 		}
 		if f.spec != "" {
-			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [number|url]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--viewed] [--output <dir>] [number|url]\n")
 			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 		if _, err := ParsePRSpec(arg); err != nil {
-			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--output <dir>] [number|url]\n")
+			fmt.Fprintf(os.Stderr, "Usage: crit pull [--session <id>] [--viewed] [--output <dir>] [number|url]\n")
 			return f, clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 		}
 		f.spec = arg
@@ -120,6 +125,13 @@ func RunPull(args []string) error { //nolint:gocyclo
 		threadResolved = nil
 	}
 
+	var remoteViewed prViewedState
+	if f.viewed {
+		if remoteViewed, err = fetchPRViewedState(id); err != nil {
+			return err
+		}
+	}
+
 	critPath, err := review.ResolveCommandReviewPathWithSession(f.sessionID, f.outputDir, f.configuredOutput)
 	if err != nil {
 		return err
@@ -133,7 +145,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 
 	// Probe before taking the review lock: it makes an HTTP call to the daemon.
 	daemonFocus := session.ProbeDaemonFocus()
-	var added int
+	var added, viewedAdded int
 	err = session.WithReviewWriteLock(critPath, func() error {
 		cj := readCritJSONForPull(critPath)
 		if cj.Files == nil {
@@ -151,13 +163,19 @@ func RunPull(args []string) error { //nolint:gocyclo
 			return err
 		}
 		added = MergeGHCommentsScoped(&cj, ghComments, session.PullScopeFor(daemonFocus, &cj), threadResolved)
-		if added == 0 {
+		if f.viewed {
+			viewedAdded = mergeRemoteViewed(&cj, id.Number, remoteViewed)
+		}
+		if added == 0 && viewedAdded == 0 {
 			return nil
 		}
 		return review.SaveCritJSON(critPath, cj)
 	})
 	if err != nil {
 		return err
+	}
+	if f.viewed {
+		fmt.Printf("Pulled %d viewed files from PR #%d\n", viewedAdded, id.Number)
 	}
 	if added == 0 {
 		fmt.Printf("No new inline comments found on PR #%d\n", id.Number)

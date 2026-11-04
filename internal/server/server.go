@@ -211,6 +211,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
 	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
 	mux.HandleFunc("/api/files/comments", s.withReady(s.handleAllFileComments))
+	mux.HandleFunc("/api/viewed", s.withReady(s.handleViewed))
 	mux.HandleFunc("/api/story", s.withReady(s.handleStory))
 
 	// File-scoped endpoints (use ?path= query param)

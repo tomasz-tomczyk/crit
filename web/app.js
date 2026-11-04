@@ -369,6 +369,9 @@
   let authUserName = '';   // read by the tip-rotation block; share flow gets its own copy
   let configAuthor = '';
   let autoViewedPatterns = [];  // config auto_viewed_patterns; applied once per launch (issue #658)
+  let serverViewed = {};  // path -> mark saved in the review file
+  let serverViewedLoaded = false;
+  let viewedPersistChain = Promise.resolve();  // keeps saves in click order
   let defaultMarkdownView = '';  // config default_markdown_view; 'document' inits markdown to document view in git mode (issue #926)
 
   // Initial viewMode for a file. File mode always opens document view, or the
@@ -867,16 +870,22 @@
     try {
       if (localStorage.getItem(autoViewedMarkerKey())) return; // already applied this launch
     } catch { return; }
+    const marked = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       if (f.viewed) continue; // respect existing/restored viewed state
+      // The reviewer's own decision wins, including an untick.
+      if (serverViewed[f.path] && !serverViewed[f.path].auto) continue;
       if (globMatch.matchAny(f.path, patterns)) {
         f.viewed = true;
         delete f.viewedHunks;
         f.collapsed = true;
+        marked.push(f);
       }
     }
     saveViewedState();
+    // Without the saved marks an untick cannot be told apart from no mark.
+    if (serverViewedLoaded) persistViewedFiles(marked, true);
     try { localStorage.setItem(autoViewedMarkerKey(), '1'); } catch {}
   }
 
@@ -923,11 +932,61 @@
     try { localStorage.setItem('crit-viewed-hunks-' + viewedIdentityHash(), JSON.stringify(hunks)); } catch {}
   }
 
+  // Saves viewed marks to the review file, which outlives this origin's
+  // localStorage (the port changes each launch) and feeds `crit push --viewed`.
+  // Only explicit changes come here: a mark cleared because the file changed
+  // must not read as the reviewer unticking it.
+  function persistViewedFiles(list, auto) {
+    if (!list.length) return;
+    const headSHA = (session.focus && session.focus.head_sha) || '';
+    const marks = list.map(function(f) {
+      return { path: f.path, viewed: !!f.viewed, auto: !!auto, file_hash: f.fileHash || '', head_sha: headSHA };
+    });
+    // restoreViewedState runs again on scope reloads and must see this mark.
+    marks.forEach(function(mark) { serverViewed[mark.path] = mark; });
+    const body = JSON.stringify({ files: marks });
+    viewedPersistChain = viewedPersistChain.then(function() {
+      return fetch('/api/viewed', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: body });
+    }).then(function(res) {
+      if (!res.ok) console.error('Saving viewed files failed:', res.status);
+    }).catch(function(err) {
+      console.error('Saving viewed files failed:', err);
+    });
+  }
+
+  async function loadServerViewed() {
+    try {
+      const res = await fetch('/api/viewed');
+      if (res.ok) {
+        serverViewed = (await res.json()).files || {};
+        serverViewedLoaded = true;
+      }
+    } catch { /* localStorage still restores this origin's marks */ }
+  }
+
+  // Whether a saved mark still describes this file. Lazy files have no hash
+  // until they load, so the revision the mark was made on decides for them.
+  function viewedMarkIsCurrent(mark, file) {
+    if (mark.file_hash && file.fileHash) return mark.file_hash === file.fileHash;
+    const head = session.focus && session.focus.head_sha;
+    return !mark.head_sha || !head || mark.head_sha === head;
+  }
+
+  // A lazy file has no hash until it loads, so its mark is only checked here.
+  function recheckViewedMark(file) {
+    const mark = serverViewed[file.path];
+    if (!file.viewed || !mark || viewedMarkIsCurrent(mark, file)) return;
+    file.viewed = false;
+    updateViewedCount();
+    updateTreeViewedState();
+  }
+
   function restoreViewedState() {
     try {
       const data = JSON.parse(localStorage.getItem(viewedStorageKey()) || '{}');
       for (let i = 0; i < files.length; i++) {
-        files[i].viewed = !!data[files[i].path];
+        const mark = serverViewed[files[i].path];
+        files[i].viewed = mark ? mark.viewed && viewedMarkIsCurrent(mark, files[i]) : !!data[files[i].path];
         if (files[i].viewed) files[i].collapsed = true;
       }
     } catch {}
@@ -946,6 +1005,7 @@
     file.viewed = !file.viewed;
     delete file.viewedHunks;
     saveViewedState();
+    persistViewedFiles([file], false);
     updateViewedCount();
     updateTreeViewedState();
     // Both callers (the Pierre file header and the `a` shortcut) only run in
@@ -1259,6 +1319,7 @@
 
     files.sort(fileSortComparator);
 
+    await loadServerViewed();
     restoreViewedState();
     applyAutoViewedOnce(autoViewedPatterns);
     updateDiffModeToggle();
@@ -2306,7 +2367,11 @@
         return ensurePreviousLineBlocks(loaded).then(function() { return loaded; });
       });
     },
-    changed: updateTreeCommentBadges,
+    changed: function(path) {
+      updateTreeCommentBadges(path);
+      const file = getFileByPath(path);
+      if (file) recheckViewedMark(file);
+    },
   });
   const loadPierreFile = pierreLoader.load;
 
@@ -10611,7 +10676,11 @@
       else keys.delete(key);
     });
     file.viewedHunks = Array.from(keys);
+    const wasViewed = !!file.viewed;
     reconcileStoryViewed(file);
+    // Ticking part of a file changes nothing at file level, so it must not
+    // save an untick.
+    if (!!file.viewed !== wasViewed) persistViewedFiles([file], false);
   }
 
   // A group whose hunks are no longer in the diff (stale story) has nothing
@@ -10728,6 +10797,7 @@
       file.tocItems = loaded.tocItems;
       file.fileHash = loaded.fileHash;
       file.lazy = false;
+      recheckViewedMark(file);
       reconcileStoryViewed(file);
       updateViewedCount();
       updateTreeViewedState();

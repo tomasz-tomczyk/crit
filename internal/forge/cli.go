@@ -143,6 +143,8 @@ func parsePullRequest(args []string) (PullRequest, error) {
 	var request PullRequest
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--viewed":
+			request.Viewed = true
 		case "--output", "-o":
 			val, next, err := requireFlagValue(args, i)
 			if err != nil {
@@ -159,7 +161,7 @@ func parsePullRequest(args []string) (PullRequest, error) {
 			request.SessionID = id
 		default:
 			if request.ChangeSpec != "" {
-				return request, fmt.Errorf("usage: crit pull [--forge <provider>] [--session <id>] [--output <dir>] [number|url]")
+				return request, fmt.Errorf("usage: crit pull [--forge <provider>] [--session <id>] [--viewed] [--output <dir>] [number|url]")
 			}
 			request.ChangeSpec = args[i]
 		}
@@ -167,12 +169,25 @@ func parsePullRequest(args []string) (PullRequest, error) {
 	return request, nil
 }
 
+func setPushBoolFlag(request *PushRequest, arg string) bool {
+	switch arg {
+	case "--dry-run":
+		request.DryRun = true
+	case "--viewed":
+		request.Viewed = true
+	default:
+		return false
+	}
+	return true
+}
+
 func parsePushRequest(args []string) (PushRequest, error) {
 	request := PushRequest{Event: "comment"}
 	for i := 0; i < len(args); i++ {
+		if setPushBoolFlag(&request, args[i]) {
+			continue
+		}
 		switch args[i] {
-		case "--dry-run":
-			request.DryRun = true
 		case "--message", "-m":
 			val, next, err := requireFlagValue(args, i)
 			if err != nil {

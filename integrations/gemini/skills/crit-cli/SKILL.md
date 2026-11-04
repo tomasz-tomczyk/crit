@@ -192,6 +192,8 @@ crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Gemini' 'Up
 ```bash
 crit pull [number|url]                                   # Fetch PR/MR review comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [n]    # Post review comments to a PR/MR
+crit push --viewed [n]                                   # Also tick files marked viewed on the GitHub PR
+crit pull --viewed [n]                                   # Also fetch files ticked viewed on the GitHub PR
 crit pull --forge gitlab 42                              # Force GitLab when auto-detect is ambiguous
 ```
 

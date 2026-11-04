@@ -99,6 +99,17 @@ func TestParsePushRequest(t *testing.T) {
 	}
 }
 
+func TestParseViewedFlag(t *testing.T) {
+	push, err := parsePushRequest([]string{"--viewed", "--dry-run", "42"})
+	if err != nil || !push.Viewed || !push.DryRun || push.ChangeSpec != "42" {
+		t.Fatalf("push = %+v, err = %v", push, err)
+	}
+	pull, err := parsePullRequest([]string{"--viewed", "42"})
+	if err != nil || !pull.Viewed || pull.ChangeSpec != "42" {
+		t.Fatalf("pull = %+v, err = %v", pull, err)
+	}
+}
+
 func TestParsePushRequestSession(t *testing.T) {
 	request, err := parsePushRequest([]string{"--session", "bbbbbbbbbbbb", "--dry-run", "7"})
 	if err != nil {
