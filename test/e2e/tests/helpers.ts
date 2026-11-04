@@ -835,7 +835,14 @@ export async function recordClassAdditions(page: Page, className: string) {
         const after = next ? next.oldValue : el.getAttribute('class');
         if (!has(r.oldValue) && has(after)) {
           const card = el.closest('[data-comment-id]') as HTMLElement | null;
-          hits.push(el.dataset.commentId || card?.dataset.commentId || '');
+          const form = el.closest('[data-form-key]') as HTMLElement | null;
+          hits.push(
+            el.dataset.commentId
+            || card?.dataset.commentId
+            || el.dataset.formKey
+            || form?.dataset.formKey
+            || '',
+          );
         }
       });
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });

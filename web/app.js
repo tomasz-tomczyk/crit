@@ -2936,8 +2936,26 @@
   // at the top of a long file. Bring it into view, then focus it once Pierre
   // has mounted the annotation. Line forms use 'nearest', so a gutter click
   // on a visible line does not move the page.
-  function pierreRevealForm(form) {
-    if (!pierreView || !pierreViewActive() || !form) return;
+  // onRevealed(formEl) runs once the form is on screen (optional) — used to
+  // flash a newly opened form after scroll/mount, not in parallel with it.
+  function pierreRevealForm(form, onRevealed) {
+    if (!form) return;
+    const formEl = function() {
+      return document.querySelector('.comment-form[data-form-key="' + CSS.escape(form.formKey) + '"]');
+    };
+    const done = function(ta) {
+      if (onRevealed) onRevealed(ta ? ta.closest('.comment-form') : formEl());
+    };
+    if (!pierreView || !pierreViewActive()) {
+      if (onRevealed) {
+        whenMounted(function() {
+          const el = formEl();
+          const r = el && el.getBoundingClientRect();
+          return r && r.height > 0 ? el : null;
+        }, onRevealed);
+      }
+      return;
+    }
     const textarea = function() {
       return document.querySelector('#filesContainer .comment-form[data-form-key="' + CSS.escape(form.formKey) + '"] textarea');
     };
@@ -2946,12 +2964,14 @@
     const r = current && current.getBoundingClientRect();
     if (r && r.height > 0 && r.top >= root.top && r.bottom <= root.bottom) {
       current.focus({ preventScroll: true });
+      done(current);
       return; // already visible — don't move the page
     }
     if (r && r.height > 0) {
       // Mounted but partly off screen: move just enough to show it.
       current.scrollIntoView({ block: 'nearest' });
       current.focus({ preventScroll: true });
+      done(current);
       return;
     }
     // Not mounted yet: have Pierre bring its line (or file) into the list.
@@ -2968,6 +2988,7 @@
       }, function(ta) {
         if (byFile) ta.scrollIntoView({ block: 'nearest' });
         ta.focus({ preventScroll: true });
+        done(ta);
       });
     });
   }
@@ -4690,7 +4711,15 @@
     selectionEnd = newForm.endLine;
     renderFileByPath(newForm.filePath);
     focusCommentTextarea(newForm.formKey);
-    pierreRevealForm(newForm);
+    // Flash after reveal settles — a parallel whenMounted can expire while
+    // Pierre is still scrolling a file-level form into view.
+    pierreRevealForm(newForm, newForm.editingId ? null : flashNewCommentForm);
+  }
+
+  // A new form can open below an existing thread; flash it once it is on
+  // screen so it is easy to spot (same animation as a comment-ref jump).
+  function flashNewCommentForm(formEl) {
+    if (formEl) restartFlash(formEl, 'comment-ref-flash');
   }
 
   function openFileCommentForm(filePath) {
@@ -4714,7 +4743,7 @@
     addForm(newForm);
     renderFileByPath(filePath);
     focusCommentTextarea(newForm.formKey);
-    pierreRevealForm(newForm);
+    pierreRevealForm(newForm, flashNewCommentForm);
   }
 
   function createFileCommentForm(formObj) {
