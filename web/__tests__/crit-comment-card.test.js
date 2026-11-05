@@ -233,3 +233,21 @@ test('GitLab badge renders when comment.gitlab_note_id is set', () => {
   assert.equal(badges[0].textContent, 'GitLab');
   assert.equal(badges[0].attrs['aria-label'], 'Synced from GitLab');
 });
+
+test('a comment on selected text gets a quote mark before its line label', () => {
+  const quoted = card.buildCommentCard(
+    { id: 'q1', body: 'x', start_line: 5, end_line: 5, quote: 'API key', created_at: '2024-01-01T00:00:00Z' },
+    'plan.md',
+    { deps: baseDeps(), showLineRef: true }
+  );
+  const label = findByClass(quoted.card, 'comment-line-ref')[0];
+  assert.equal(label.children[0].className, 'comment-line-ref-quote', 'the mark comes before "Line 5"');
+  assert.equal(label.title, 'Comment on selected text');
+
+  const plain = card.buildCommentCard(
+    { id: 'q2', body: 'x', start_line: 5, end_line: 5, created_at: '2024-01-01T00:00:00Z' },
+    'plan.md',
+    { deps: baseDeps(), showLineRef: true }
+  );
+  assert.equal(findByClass(plain.card, 'comment-line-ref-quote').length, 0);
+});
