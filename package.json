@@ -21,6 +21,6 @@
     "esbuild": "0.28.2",
     "eslint": "10.14.0",
     "shiki": "4.5.0",
-    "stylelint": "17.16.0"
+    "stylelint": "18.0.0"
   }
 }
