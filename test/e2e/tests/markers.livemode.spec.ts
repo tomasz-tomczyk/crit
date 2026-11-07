@@ -40,6 +40,28 @@ test.describe('live-mode markers — rendering on current pathname', () => {
     await expect(getIframe(page).locator('.crit-live-marker')).toHaveCount(2);
     await expect(getIframe(page).locator('#crit-marker-root')).toBeAttached();
   });
+
+  test('a pin on an SVG element resolves to that element', async ({ page }) => {
+    // The stored tag chain is uppercase ("SVG", "RECT"), while SVG elements
+    // in an HTML page report lowercase tag names. The pin must still resolve
+    // (a marker element exists either way, so check the agent's verdict).
+    await waitForAgentReady(page);
+    await setIframeRoute(page, '/svg');
+    await expect(getIframe(page).locator('#svg-title')).toBeVisible();
+    await openPinComposerNoNav(page, '#svg-box');
+    await page.locator('.crit-live-composer-body').fill('Pin on an SVG rect');
+    await page.locator('.crit-live-composer-save').click();
+    await expect(page.locator('.crit-live-composer')).toHaveCount(0);
+
+    await expect(getIframe(page).locator('.crit-live-marker')).toHaveCount(1);
+    const statuses = () => page.evaluate(() => {
+      const log = (window as unknown as { __critLiveMessages?: { type: string; status?: string }[] })
+        .__critLiveMessages || [];
+      return log.filter((m) => m.type === 'pin-resolution-result').map((m) => m.status);
+    });
+    await expect.poll(statuses).toContain('resolved');
+    expect(await statuses()).not.toContain('drifted');
+  });
 });
 
 test.describe('live-mode markers — MutationObserver reposition', () => {

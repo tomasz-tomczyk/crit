@@ -142,7 +142,9 @@
     if (!el || !Array.isArray(chain) || chain.length === 0) return false;
     const ancestry = [];
     let cur = el;
-    while (cur) { ancestry.push(cur.tagName); cur = cur.parentElement || cur.parentNode || null; }
+    // Uppercased like tagChainFor: SVG elements in an HTML page keep their
+    // lowercase tagName ("rect"), so a pin on one would never resolve.
+    while (cur) { ancestry.push(cur.tagName && cur.tagName.toUpperCase()); cur = cur.parentElement || cur.parentNode || null; }
     if (ancestry.length < chain.length) return false;
     for (let i = 0; i < chain.length; i++) {
       const fromAncestry = ancestry[chain.length - 1 - i];
