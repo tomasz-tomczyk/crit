@@ -1124,6 +1124,22 @@ body.dragging { user-select: none; cursor: grabbing; }
   overflow-wrap: break-word;
 }
 
+/* Hebrew/Arabic (RTL) and mixed-script text: let the browser pick direction
+   per block from its first strong character. English-only blocks stay LTR. */
+.line-content,
+.comment-body,
+.comment-textarea,
+.comment-form textarea {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.line-content pre,
+.line-content code {
+  unicode-bidi: normal;
+  text-align: left;
+  direction: ltr;
+}
+
 /* ===== Markdown Styles ===== */
 /* Heading/paragraph top spacing lives on the .line-block row (see the
    .line-block:has(...) rules below), NOT as margin-top on the heading itself.
