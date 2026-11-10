@@ -24,6 +24,20 @@ func IsLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// RequestHost returns the host part of a request Host header, without the
+// port or IPv6 brackets.
+func RequestHost(hostport string) string {
+	host := hostport
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else {
+		// SplitHostPort fails when there's no port (e.g. "Host: [::1]").
+		// Strip IPv6 brackets so ParseIP can recognise the address.
+		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	}
+	return host
+}
+
 // NeedsUnauthenticatedNetworkAck reports whether the effective listen host or
 // advertised public URL implies network exposure of the unauthenticated API.
 func NeedsUnauthenticatedNetworkAck(host, publicURL string) bool {

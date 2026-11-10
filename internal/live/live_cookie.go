@@ -49,6 +49,24 @@ func resolveLiveCookies(flagCookies []string, flagCookieFile string, cfg config.
 	return joinCookieHeader(parts), nil
 }
 
+// checkLiveCookiesHost refuses upstream cookies when the daemon listens on a
+// non-loopback host. The proxy attaches them to every request it forwards,
+// so anyone who can reach the proxy port would use the reviewer's session.
+func checkLiveCookiesHost(host string, f liveCLIFlags, cfg config.Config) error {
+	if host == "" || config.IsLoopbackHost(host) {
+		return nil
+	}
+	if len(f.cookieFlags) > 0 || f.cookieFile != "" || f.cdpURL != "" ||
+		cfg.LiveCookie != "" || cfg.LiveCookieFile != "" || cfg.LiveCDPURL != "" {
+		return fmt.Errorf("refusing upstream cookies on non-loopback host %q.\n\n"+
+			"  The live proxy sends --cookie, --cookie-file and --cdp-url cookies (or their\n"+
+			"  live_cookie, live_cookie_file and live_cdp_url config keys) on every request,\n"+
+			"  so anyone who can reach the proxy port would be logged in as you.\n"+
+			"  Use a loopback --host, or drop the cookie options", host)
+	}
+	return nil
+}
+
 func resolveCookieFilePath(path, configDir string) string {
 	if path == "" || filepath.IsAbs(path) {
 		return path

@@ -270,6 +270,11 @@ func RunLive(args []string) {
 		return
 	}
 
+	if err := checkLiveCookiesHost(config.ResolveHost(f.host, cfg.Host), f, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	liveCookies, err := resolveLiveCookiesWithCDP(context.Background(), f.cookieFlags, f.cookieFile, f.cdpURL, cfg, cwd, f.origin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

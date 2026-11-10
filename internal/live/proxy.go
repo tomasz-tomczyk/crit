@@ -13,8 +13,11 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 // agentScriptFiles lists JS injected into live/preview iframes (order matters).
@@ -32,7 +35,8 @@ var agentScriptFiles = []string{
 // newLiveProxy builds a reverse proxy for a live-mode session.
 // upstreamOrigin is the target URL. Any path on it is the iframe's initial
 // route, loaded by the frontend.
-// apiPort is the API server's port, used to construct the agent script URL.
+// apiPort is the API server's port, used to construct the agent script URLs
+// on the host the browser used to reach the proxy.
 func newLiveProxy(upstreamOrigin string, apiPort int, upstreamCookies string) (http.Handler, error) {
 	target, err := url.Parse(upstreamOrigin)
 	if err != nil {
@@ -201,7 +205,14 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 			resp.Body = io.NopCloser(bytes.NewReader(body))
 			return nil
 		}
-		body, agentInjected := applyHTMLInjections(body, apiPort)
+		// SetXForwarded copied the browser's Host header into X-Forwarded-Host.
+		apiOrigin, ok := agentAPIOrigin(resp.Request.Header.Get("X-Forwarded-Host"), apiPort)
+		if !ok {
+			resp.Header.Set("X-Crit-Agent-Injection", "failed")
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			return nil
+		}
+		body, agentInjected := applyHTMLInjections(body, apiOrigin)
 		if !agentInjected {
 			resp.Header.Set("X-Crit-Agent-Injection", "failed")
 		}
@@ -214,8 +225,9 @@ func makeModifyResponse(apiPort int, upstream *url.URL) func(*http.Response) err
 // SW shim + route announcer right after the first <head ...>, then the
 // agent script bundle right before the LAST </body>. Returns the modified
 // body and whether the agent bundle was actually injected (caller sets
-// X-Crit-Agent-Injection: failed when false).
-func applyHTMLInjections(body []byte, apiPort int) ([]byte, bool) {
+// X-Crit-Agent-Injection: failed when false). apiOrigin must come from
+// agentAPIOrigin, which validates it.
+func applyHTMLInjections(body []byte, apiOrigin string) ([]byte, bool) {
 	// Match <head> / </body> against a comment-masked copy so literals
 	// inside <!-- ... --> don't misroute injections; indexes line up
 	// with the original because masking preserves length. Both lookups
@@ -225,7 +237,7 @@ func applyHTMLInjections(body []byte, apiPort int) ([]byte, bool) {
 	preamble := swShim + routeAnnouncerScript
 	var sb strings.Builder
 	for _, f := range agentScriptFiles {
-		fmt.Fprintf(&sb, `<script src="http://localhost:%d/%s"></script>`, apiPort, f)
+		fmt.Fprintf(&sb, `<script src="%s/%s"></script>`, apiOrigin, f)
 	}
 	tags := sb.String()
 
@@ -373,16 +385,15 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 	return nil
 }
 
-// rewriteCookies makes upstream Set-Cookie headers usable on the loopback
-// proxy origin. It strips three attributes:
+// rewriteCookies makes upstream Set-Cookie headers usable on the proxy
+// origin. It strips three attributes:
 //
 //   - Domain — drop entirely; let the cookie default to the proxy host. The
 //     upstream's host doesn't match the proxy's, so the original Domain would
 //     cause the browser to silently reject the cookie.
 //
-//   - Secure — drop. The proxy serves over plain http on 127.0.0.1; cookies
-//     marked Secure would be discarded. Safe because the proxy binds loopback
-//     only and is single-user; we never relay the cookie back upstream as
+//   - Secure — drop. The proxy serves over plain http; cookies marked Secure
+//     would be discarded. We never relay the cookie back upstream as
 //     Secure-stripped.
 //
 //   - SameSite=None — replace with SameSite=Lax. SameSite=None requires
@@ -390,7 +401,12 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 //     Downgrading to Lax is correct for a same-origin proxy: the cookie
 //     remains usable for top-level navigation in the iframe.
 //
-// Only safe because the proxy binds 127.0.0.1 and the daemon is per-user.
+// The proxy binds the daemon's listen host: loopback by default, or a
+// non-loopback --host acknowledged with --allow-unauthenticated-network.
+// On a non-loopback host the rewritten cookies cross the network in clear
+// text, and each browser that reaches the proxy keeps its own. crit live
+// refuses --cookie, --cookie-file and --cdp-url there, so the proxy never
+// attaches the reviewer's session to requests from anyone who can reach it.
 func rewriteCookies(resp *http.Response) {
 	cookies := resp.Header["Set-Cookie"]
 	if len(cookies) == 0 {
@@ -418,27 +434,76 @@ func rewriteCookies(resp *http.Response) {
 	resp.Header["Set-Cookie"] = out
 }
 
-// bindProxyServer creates a TCP listener on 127.0.0.1:(apiPort+1) and
-// returns (listener, *http.Server, error). The server is not yet started;
-// caller calls srv.Serve(ln).
-// BindProxyServer creates a TCP listener on 127.0.0.1:(apiPort+1) and returns a proxy server.
-func BindProxyServer(upstreamOrigin string, apiPort int, upstreamCookies string) (net.Listener, *http.Server, error) {
+// BindProxyServer creates a TCP listener on listenHost:(apiPort+1), the same
+// host as the API server (127.0.0.1 when empty), and returns a proxy server.
+// The server is not yet started; caller calls srv.Serve(ln).
+func BindProxyServer(listenHost, upstreamOrigin string, apiPort int, upstreamCookies string) (net.Listener, *http.Server, error) {
+	if listenHost == "" {
+		listenHost = "127.0.0.1"
+	}
 	proxyPort := apiPort + 1
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort))
+	ln, err := net.Listen("tcp", net.JoinHostPort(listenHost, strconv.Itoa(proxyPort)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
 	}
-	handler, err := newLiveProxy(upstreamOrigin, apiPort, upstreamCookies)
+	proxy, err := newLiveProxy(upstreamOrigin, apiPort, upstreamCookies)
 	if err != nil {
 		ln.Close()
 		return nil, nil, err
 	}
 	srv := &http.Server{
-		Handler:     handler,
+		Handler:     checkProxyHost(listenHost, proxy),
 		ReadTimeout: 15 * time.Second,
 		IdleTimeout: 60 * time.Second,
 	}
 	return ln, srv, nil
+}
+
+// checkProxyHost rejects requests whose Host header is malformed, or, when
+// the proxy listens on loopback, does not name a loopback host. The second
+// check is the DNS-rebinding defense of the API server's checkHost.
+func checkProxyHost(listenHost string, next http.Handler) http.Handler {
+	loopbackOnly := config.IsLoopbackHost(listenHost)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := config.RequestHost(r.Host)
+		if !validProxyHost(host) || (loopbackOnly && !config.IsLoopbackHost(host)) {
+			http.Error(w, fmt.Sprintf("Forbidden: request Host %q is not allowed on the live proxy", host), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// validProxyHost reports whether host (no port) is an IP literal or a DNS
+// name. It keeps request Host headers out of the injected HTML unless they
+// are plain hostnames.
+func validProxyHost(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	for _, c := range host {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// agentAPIOrigin returns the API server origin the injected scripts load
+// from: the host the browser used to reach the proxy, on the API port. The
+// review page reaches the proxy on its own hostname, so this is also the
+// origin of the page that embeds the iframe.
+func agentAPIOrigin(proxyHostport string, apiPort int) (string, bool) {
+	host := config.RequestHost(proxyHostport)
+	if !validProxyHost(host) {
+		return "", false
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(apiPort)), true
 }
 
 // rewriteReferer swaps in the upstream origin but keeps the referring page's own path

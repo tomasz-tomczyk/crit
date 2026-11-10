@@ -23,9 +23,9 @@ failure modes, and framework-specific setup for local apps.
    - rewrites `Set-Cookie` so cookies work on the proxy host
    - injects a service-worker shim + route announcer into `<head>`
    - injects the agent script bundle just before the last `</body>`
-4. The agent loads scripts from Crit’s API origin (e.g.
-   `http://localhost:3195/crit-agent.js`), then posts `agent-ready` to the
-   parent chrome.
+4. The agent loads scripts from Crit’s API origin, on the host the browser
+   used to reach the proxy (e.g. `http://localhost:3195/crit-agent.js`), then
+   posts `agent-ready` to the parent chrome.
 5. Only after `agent-ready` does Crit enable Comment/Pin. Live mode launches
    in Comment mode by default; until the agent is ready the Comment button
    stays disabled.
@@ -67,12 +67,6 @@ Typical causes:
 5. **Meta-tag CSP** - Crit strips the **header**, not `<meta
    http-equiv="Content-Security-Policy">` in the document. A strict meta CSP
    can still block the injected scripts.
-6. **`localhost` vs `127.0.0.1` mismatch in the Crit tab** - open Crit via
-   `http://localhost:<port>/live` (not `http://127.0.0.1:…`). The proxy injects
-   agent `<script src="http://localhost:…">` tags; if the chrome tab is on
-   `127.0.0.1`, `postMessage` target origins do not match and `agent-ready` is
-   dropped. Point `--live` / `crit live` at whatever host your app actually
-   binds (often `127.0.0.1`), but keep the Crit UI on `localhost`.
 
 **Quick checks**
 
@@ -89,6 +83,15 @@ session cookies are not shared** with a tab where you already logged in.
 
 Forward cookies with `--cookie`, `--cookie-file`, or `--cdp-url` (see the
 [README live mode section](../README.md#live-mode)).
+
+### Reviewing from another machine
+
+`crit live --host <addr> --allow-unauthenticated-network` binds both the API
+server and the proxy on `<addr>`, for example a Tailscale address. Crit has no
+network auth, so anyone who can reach those two ports can use them. Crit
+refuses to start with `--cookie`, `--cookie-file`, `--cdp-url` (or their
+config keys) on a non-loopback host: the proxy would hand your session to
+every client.
 
 ### Hydration / LiveView / HMR oddities
 
@@ -208,7 +211,6 @@ and `pathname` are accepted aliases). Replies are unchanged:
 ```text
 [ ] App URL returns 200 text/html with </body>
 [ ] crit live stderr: no fatal smoke errors
-[ ] Crit tab is http://localhost:<port>/live (not 127.0.0.1)
 [ ] Iframe Network: agent-*.js / crit-agent.js load (200)
 [ ] No CSP / blocked-script errors in the iframe console
 [ ] After login walls: cookies forwarded (--cookie / --cookie-file / --cdp-url)

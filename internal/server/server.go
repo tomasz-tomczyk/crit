@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log"
 	"math"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -265,7 +264,7 @@ func isLoopbackHost(host string) bool {
 // is bound to a loopback address, the request's Host header must also resolve
 // to a loopback hostname — this is the canonical DNS-rebinding defense.
 func (s *Server) checkHost(r *http.Request) bool {
-	host := requestHost(r.Host)
+	host := config.RequestHost(r.Host)
 	if s.publicURLHost != "" && strings.EqualFold(host, s.publicURLHost) {
 		return true
 	}
@@ -273,18 +272,6 @@ func (s *Server) checkHost(r *http.Request) bool {
 		return true
 	}
 	return isLoopbackHost(host)
-}
-
-func requestHost(hostport string) string {
-	host := hostport
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	} else {
-		// SplitHostPort fails when there's no port (e.g. "Host: [::1]").
-		// Strip IPv6 brackets so ParseIP can recognise the address.
-		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	}
-	return host
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +294,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // hostForbiddenMessage explains a checkHost rejection so a reverse-proxy /
 // --public-url misconfig is diagnosable from the 403 body (see #788).
 func (s *Server) hostForbiddenMessage(r *http.Request) string {
-	host := requestHost(r.Host)
+	host := config.RequestHost(r.Host)
 	if s.publicURLHost == "" {
 		return fmt.Sprintf(
 			"Forbidden: request Host %q does not match loopback (set --public-url if reaching Crit via a reverse proxy)",

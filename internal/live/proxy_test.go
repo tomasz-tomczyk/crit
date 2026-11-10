@@ -158,16 +158,16 @@ func TestProxyModifyResponse_InjectsAgentBeforeBodyTag(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	bs := string(body)
-	if !strings.Contains(bs, "http://localhost:54321/crit-agent.js") {
+	if !strings.Contains(bs, "http://127.0.0.1:54321/crit-agent.js") {
 		t.Errorf("agent tag not injected: %s", bs)
 	}
 	if strings.Contains(bs, "html2canvas") {
 		t.Errorf("html2canvas should not be injected: %s", bs)
 	}
-	if !strings.Contains(bs, "http://localhost:54321/agent-protocol.js") {
+	if !strings.Contains(bs, "http://127.0.0.1:54321/agent-protocol.js") {
 		t.Errorf("protocol tag not injected: %s", bs)
 	}
-	if !strings.Contains(bs, "http://localhost:54321/agent-anchor-utils.js") {
+	if !strings.Contains(bs, "http://127.0.0.1:54321/agent-anchor-utils.js") {
 		t.Errorf("anchor-utils tag not injected: %s", bs)
 	}
 	pi := strings.Index(bs, "/agent-protocol.js")
@@ -926,7 +926,7 @@ func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
 		}
 		apiPort := apiLn.Addr().(*net.TCPAddr).Port
 
-		ln, srv, err := BindProxyServer("http://127.0.0.1:19997", apiPort, "")
+		ln, srv, err := BindProxyServer("127.0.0.1", "http://127.0.0.1:19997", apiPort, "")
 		if err != nil {
 			apiLn.Close()
 			if attempt < maxAttempts-1 && strings.Contains(err.Error(), "already in use") {
@@ -1087,5 +1087,79 @@ func TestProxyModifyResponse_InjectsRouteAnnouncer(t *testing.T) {
 				t.Errorf("expected announcer to wrap pushState/replaceState and listen for popstate; got body=%q", body)
 			}
 		})
+	}
+}
+
+func TestAgentAPIOrigin(t *testing.T) {
+	tests := []struct {
+		hostport string
+		want     string
+		ok       bool
+	}{
+		{"localhost:4191", "http://localhost:4190", true},
+		{"127.0.0.1:4191", "http://127.0.0.1:4190", true},
+		{"100.64.0.6:4191", "http://100.64.0.6:4190", true},
+		{"box.tail1234.ts.net:4191", "http://box.tail1234.ts.net:4190", true},
+		{"[::1]:4191", "http://[::1]:4190", true},
+		{"[fd7a:115c:a1e0::6]:4191", "http://[fd7a:115c:a1e0::6]:4190", true},
+		{"box", "http://box:4190", true},
+		{"", "", false},
+		{`evil"><script>alert(1)</script>:4191`, "", false},
+		{"user@host:4191", "", false},
+		{"host/path:4191", "", false},
+	}
+	for _, tt := range tests {
+		got, ok := agentAPIOrigin(tt.hostport, 4190)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("agentAPIOrigin(%q) = %q, %v; want %q, %v", tt.hostport, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestCheckProxyHost(t *testing.T) {
+	tests := []struct {
+		listenHost string
+		reqHost    string
+		want       int
+	}{
+		{"127.0.0.1", "localhost:4191", http.StatusOK},
+		{"127.0.0.1", "127.0.0.1:4191", http.StatusOK},
+		{"127.0.0.1", "[::1]:4191", http.StatusOK},
+		{"127.0.0.1", "evil.example:4191", http.StatusForbidden},
+		{"127.0.0.1", "100.64.0.6:4191", http.StatusForbidden},
+		{"100.64.0.6", "100.64.0.6:4191", http.StatusOK},
+		{"100.64.0.6", "box.tail1234.ts.net:4191", http.StatusOK},
+		{"0.0.0.0", "192.168.1.20:4191", http.StatusOK},
+		{"100.64.0.6", `bad"host:4191`, http.StatusForbidden},
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	for _, tt := range tests {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = tt.reqHost
+		rec := httptest.NewRecorder()
+		checkProxyHost(tt.listenHost, next).ServeHTTP(rec, req)
+		if rec.Code != tt.want {
+			t.Errorf("listen %q, Host %q: status %d, want %d", tt.listenHost, tt.reqHost, rec.Code, tt.want)
+		}
+	}
+}
+
+func TestProxyModifyResponse_InjectsAgentOnRequestHost(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body><p>Hello</p></body></html>")
+	}))
+	defer upstream.Close()
+	proxy, _ := newLiveProxy(upstream.URL, 4190, "")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "100.64.0.6:4191"
+	rec := httptest.NewRecorder()
+	proxy.ServeHTTP(rec, req)
+	bs := rec.Body.String()
+	if !strings.Contains(bs, `<script src="http://100.64.0.6:4190/crit-agent.js">`) {
+		t.Errorf("agent not injected on the request host: %s", bs)
+	}
+	if strings.Contains(bs, "localhost") {
+		t.Errorf("injected scripts still point at localhost: %s", bs)
 	}
 }
