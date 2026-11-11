@@ -956,7 +956,7 @@ func TestBindProxyServer_AllowsPublicURLHost(t *testing.T) {
 			t.Fatal(err)
 		}
 		apiPort := apiLn.Addr().(*net.TCPAddr).Port
-		ln, srv, err := BindProxyServer("127.0.0.1", "http://box.example:4190", upstream.URL, apiPort, "")
+		ln, srv, err := BindProxyServer("", "http://box.example:4190", upstream.URL, apiPort, "")
 		apiLn.Close()
 		if err != nil {
 			if attempt < 19 && strings.Contains(err.Error(), "already in use") {
@@ -1197,5 +1197,27 @@ func TestProxyModifyResponse_InjectsAgentOnRequestHost(t *testing.T) {
 	}
 	if strings.Contains(bs, "localhost") {
 		t.Errorf("injected scripts still point at localhost: %s", bs)
+	}
+}
+
+func TestProxyModifyResponse_RejectsInvalidRequestHost(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, "<html><body><p>Hello</p></body></html>")
+	}))
+	defer upstream.Close()
+	proxy, err := newLiveProxy(upstream.URL, 4190, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = `bad"host:4191`
+	rec := httptest.NewRecorder()
+	proxy.ServeHTTP(rec, req)
+	if got := rec.Header().Get("X-Crit-Agent-Injection"); got != "failed" {
+		t.Errorf("injection status = %q, want failed", got)
+	}
+	if strings.Contains(rec.Body.String(), "crit-agent.js") {
+		t.Error("agent script injected for invalid Host")
 	}
 }

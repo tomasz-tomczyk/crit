@@ -44,6 +44,15 @@ func serveSessionKey(sc *server.DaemonCLIConfig) string {
 	return sessionKey(cwd, branch, server.FocusKeyArgs(sc))
 }
 
+// checkServeLiveCookies is the daemon backstop for live cookie forwarding.
+// RunLive checks flags and config before connecting to or starting a daemon.
+func checkServeLiveCookies(sc *server.DaemonCLIConfig) error {
+	if sc.LiveOrigin != "" && sc.LiveCookie != "" && config.NeedsUnauthenticatedNetworkAck(sc.Host, sc.PublicURL) {
+		return fmt.Errorf("refusing upstream cookies with host %q and public URL %q: anyone who can reach the live proxy would be logged in as you", sc.Host, sc.PublicURL)
+	}
+	return nil
+}
+
 func checkStaleIntegrations(sc *server.DaemonCLIConfig, srv *Server, cwd string) {
 	if sc.NoIntegrationCheck || os.Getenv("CRIT_NO_INTEGRATION_CHECK") != "" {
 		return
@@ -128,8 +137,8 @@ func runServe(args []string) {
 	srv.SetListenHost(sc.Host)
 	srv.SetPublicURL(sc.PublicURL)
 	exposesProxy := sc.LiveOrigin != "" && config.NeedsUnauthenticatedNetworkAck(sc.Host, sc.PublicURL)
-	if exposesProxy && sc.LiveCookie != "" {
-		daemonFatal(pipe, "Error: refusing upstream cookies with host %q and public URL %q: anyone who can reach the live proxy would be logged in as you", sc.Host, sc.PublicURL)
+	if err := checkServeLiveCookies(sc); err != nil {
+		daemonFatal(pipe, "Error: %v", err)
 	}
 	if sc.AllowUnauthenticatedNetwork {
 		fmt.Fprintln(os.Stderr, "crit: WARNING: unauthenticated network exposure enabled. Anyone who can reach this port can read review files and write comments.")
