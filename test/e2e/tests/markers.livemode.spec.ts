@@ -42,13 +42,15 @@ test.describe('live-mode markers — rendering on current pathname', () => {
   });
 
   test('a pin on an SVG element resolves to that element', async ({ page }) => {
-    // The stored tag chain is uppercase ("SVG", "RECT"), while SVG elements
-    // in an HTML page report lowercase tag names. The pin must still resolve
-    // (a marker element exists either way, so check the agent's verdict).
+    // The <rect> has no id, so the pin anchors to #svg-drawing: selector
+    // "#svg-drawing > rect:nth-of-type(1)", stored tag chain ("SVG", "RECT").
+    // The chain is uppercase, while SVG elements in an HTML page report
+    // lowercase tag names. The pin must still resolve (a marker element exists
+    // either way, so check the agent's verdict).
     await waitForAgentReady(page);
     await setIframeRoute(page, '/svg');
     await expect(getIframe(page).locator('#svg-title')).toBeVisible();
-    await openPinComposerNoNav(page, '#svg-box');
+    await openPinComposerNoNav(page, '#svg-drawing rect');
     await page.locator('.crit-live-composer-body').fill('Pin on an SVG rect');
     await page.locator('.crit-live-composer-save').click();
     await expect(page.locator('.crit-live-composer')).toHaveCount(0);

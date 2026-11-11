@@ -299,14 +299,15 @@ func registerSlow(mux *http.ServeMux) {
 
 // /svg — page with an inline SVG drawing. SVG elements in an HTML page keep
 // lowercase tag names ("rect"), so pins on them exercise the case-insensitive
-// tag-chain check in agent-anchor-utils.js.
+// tag-chain check in agent-anchor-utils.js. The <rect> has no id, so a pin on
+// it anchors to the <svg> and stores a two-level chain ("SVG", "RECT").
 const svgHTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>svg</title></head>
 <body>
 <main>
   <h1 id="svg-title">SVG</h1>
   <svg id="svg-drawing" width="240" height="120" viewBox="0 0 240 120">
-    <rect id="svg-box" x="20" y="20" width="200" height="80" fill="#a5d8ff" stroke="#1971c2"/>
+    <rect x="20" y="20" width="200" height="80" fill="#a5d8ff" stroke="#1971c2"/>
   </svg>
 </main>
 </body></html>`
