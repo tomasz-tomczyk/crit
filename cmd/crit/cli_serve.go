@@ -127,9 +127,9 @@ func runServe(args []string) {
 	}
 	srv.SetListenHost(sc.Host)
 	srv.SetPublicURL(sc.PublicURL)
-	exposesProxy := sc.LiveOrigin != "" && sc.Host != "" && !config.IsLoopbackHost(sc.Host)
+	exposesProxy := sc.LiveOrigin != "" && config.NeedsUnauthenticatedNetworkAck(sc.Host, sc.PublicURL)
 	if exposesProxy && sc.LiveCookie != "" {
-		daemonFatal(pipe, "Error: refusing upstream cookies on non-loopback host %q: anyone who can reach the live proxy would be logged in as you", sc.Host)
+		daemonFatal(pipe, "Error: refusing upstream cookies with host %q and public URL %q: anyone who can reach the live proxy would be logged in as you", sc.Host, sc.PublicURL)
 	}
 	if sc.AllowUnauthenticatedNetwork {
 		fmt.Fprintln(os.Stderr, "crit: WARNING: unauthenticated network exposure enabled. Anyone who can reach this port can read review files and write comments.")
@@ -188,7 +188,7 @@ func runServe(args []string) {
 	var proxyLn net.Listener
 	var proxySrv *http.Server
 	if sc.LiveOrigin != "" {
-		pl, ps, err := bindProxyServer(sc.Host, sc.LiveOrigin, addr.Port, sc.LiveCookie)
+		pl, ps, err := bindProxyServer(sc.Host, sc.PublicURL, sc.LiveOrigin, addr.Port, sc.LiveCookie)
 		if err != nil {
 			daemonFatal(pipe, "Error starting proxy server: %v", err)
 		}

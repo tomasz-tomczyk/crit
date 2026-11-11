@@ -926,7 +926,7 @@ func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
 		}
 		apiPort := apiLn.Addr().(*net.TCPAddr).Port
 
-		ln, srv, err := BindProxyServer("127.0.0.1", "http://127.0.0.1:19997", apiPort, "")
+		ln, srv, err := BindProxyServer("127.0.0.1", "", "http://127.0.0.1:19997", apiPort, "")
 		if err != nil {
 			apiLn.Close()
 			if attempt < maxAttempts-1 && strings.Contains(err.Error(), "already in use") {
@@ -943,6 +943,38 @@ func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
 		return
 	}
 	t.Fatalf("could not bind proxy after %d attempts", maxAttempts)
+}
+
+func TestBindProxyServer_AllowsPublicURLHost(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	for attempt := 0; attempt < 20; attempt++ {
+		apiLn, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		apiPort := apiLn.Addr().(*net.TCPAddr).Port
+		ln, srv, err := BindProxyServer("127.0.0.1", "http://box.example:4190", upstream.URL, apiPort, "")
+		apiLn.Close()
+		if err != nil {
+			if attempt < 19 && strings.Contains(err.Error(), "already in use") {
+				continue
+			}
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = "box.example:4191"
+		rec := httptest.NewRecorder()
+		srv.Handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("proxy response = %d, want %d", rec.Code, http.StatusNoContent)
+		}
+		return
+	}
+	t.Fatal("could not bind proxy after 20 attempts")
 }
 
 func TestProxyModifyResponse_MidBodyReadFailureReturns502(t *testing.T) {
@@ -1118,26 +1150,30 @@ func TestAgentAPIOrigin(t *testing.T) {
 
 func TestCheckProxyHost(t *testing.T) {
 	tests := []struct {
-		listenHost string
-		reqHost    string
-		want       int
+		listenHost    string
+		publicURLHost string
+		reqHost       string
+		want          int
 	}{
-		{"127.0.0.1", "localhost:4191", http.StatusOK},
-		{"127.0.0.1", "127.0.0.1:4191", http.StatusOK},
-		{"127.0.0.1", "[::1]:4191", http.StatusOK},
-		{"127.0.0.1", "evil.example:4191", http.StatusForbidden},
-		{"127.0.0.1", "100.64.0.6:4191", http.StatusForbidden},
-		{"100.64.0.6", "100.64.0.6:4191", http.StatusOK},
-		{"100.64.0.6", "box.tail1234.ts.net:4191", http.StatusOK},
-		{"0.0.0.0", "192.168.1.20:4191", http.StatusOK},
-		{"100.64.0.6", `bad"host:4191`, http.StatusForbidden},
+		{"127.0.0.1", "", "localhost:4191", http.StatusOK},
+		{"127.0.0.1", "", "127.0.0.1:4191", http.StatusOK},
+		{"127.0.0.1", "", "[::1]:4191", http.StatusOK},
+		{"127.0.0.1", "", "evil.example:4191", http.StatusForbidden},
+		{"127.0.0.1", "", "100.64.0.6:4191", http.StatusForbidden},
+		{"127.0.0.1", "box.tail1234.ts.net", "box.tail1234.ts.net:4191", http.StatusOK},
+		{"127.0.0.1", "box.tail1234.ts.net", "BOX.TAIL1234.TS.NET:4191", http.StatusOK},
+		{"127.0.0.1", "box.tail1234.ts.net", "evil.example:4191", http.StatusForbidden},
+		{"100.64.0.6", "", "100.64.0.6:4191", http.StatusOK},
+		{"100.64.0.6", "", "box.tail1234.ts.net:4191", http.StatusOK},
+		{"0.0.0.0", "", "192.168.1.20:4191", http.StatusOK},
+		{"100.64.0.6", "", `bad"host:4191`, http.StatusForbidden},
 	}
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	for _, tt := range tests {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Host = tt.reqHost
 		rec := httptest.NewRecorder()
-		checkProxyHost(tt.listenHost, next).ServeHTTP(rec, req)
+		checkProxyHost(tt.listenHost, tt.publicURLHost, next).ServeHTTP(rec, req)
 		if rec.Code != tt.want {
 			t.Errorf("listen %q, Host %q: status %d, want %d", tt.listenHost, tt.reqHost, rec.Code, tt.want)
 		}

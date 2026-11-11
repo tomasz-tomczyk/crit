@@ -136,6 +136,9 @@ crit live http://localhost:4000/dashboard --cdp-url http://127.0.0.1:9222
 ```
 
 Relative paths resolve from the repo root. Prefer a gitignored file under `.crit/` over committing `live_cookie` inline. Run `crit live --help` for all flags.
+Cookie forwarding is available only when Crit listens on loopback without
+`--public-url`; Crit refuses cookie options and their config keys when the live
+proxy may be exposed over the network.
 
 If Comment/Pin stays unavailable, or a framework needs local CSP / iframe
 tweaks, see the **[live mode guide](docs/live-mode.md)** (injection model,

@@ -90,8 +90,9 @@ Forward cookies with `--cookie`, `--cookie-file`, or `--cdp-url` (see the
 server and the proxy on `<addr>`, for example a Tailscale address. Crit has no
 network auth, so anyone who can reach those two ports can use them. Crit
 refuses to start with `--cookie`, `--cookie-file`, `--cdp-url` (or their
-config keys) on a non-loopback host: the proxy would hand your session to
-every client.
+config keys) on a non-loopback host or with `--public-url`: an exposed proxy
+would hand your session to every client. Cookie forwarding requires a
+loopback host with no public URL.
 
 ### Hydration / LiveView / HMR oddities
 

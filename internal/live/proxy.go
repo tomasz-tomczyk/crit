@@ -403,10 +403,10 @@ func rewriteRedirect(resp *http.Response, upstream *url.URL) error {
 //
 // The proxy binds the daemon's listen host: loopback by default, or a
 // non-loopback --host acknowledged with --allow-unauthenticated-network.
-// On a non-loopback host the rewritten cookies cross the network in clear
-// text, and each browser that reaches the proxy keeps its own. crit live
-// refuses --cookie, --cookie-file and --cdp-url there, so the proxy never
-// attaches the reviewer's session to requests from anyone who can reach it.
+// A --public-url can also expose a loopback listener through a reverse proxy.
+// Each browser that reaches the proxy keeps its own rewritten cookies, but
+// crit live refuses --cookie, --cookie-file and --cdp-url in either exposed
+// setup so it never attaches the reviewer's session to visitors' requests.
 func rewriteCookies(resp *http.Response) {
 	cookies := resp.Header["Set-Cookie"]
 	if len(cookies) == 0 {
@@ -437,7 +437,7 @@ func rewriteCookies(resp *http.Response) {
 // BindProxyServer creates a TCP listener on listenHost:(apiPort+1), the same
 // host as the API server (127.0.0.1 when empty), and returns a proxy server.
 // The server is not yet started; caller calls srv.Serve(ln).
-func BindProxyServer(listenHost, upstreamOrigin string, apiPort int, upstreamCookies string) (net.Listener, *http.Server, error) {
+func BindProxyServer(listenHost, publicURL, upstreamOrigin string, apiPort int, upstreamCookies string) (net.Listener, *http.Server, error) {
 	if listenHost == "" {
 		listenHost = "127.0.0.1"
 	}
@@ -452,21 +452,22 @@ func BindProxyServer(listenHost, upstreamOrigin string, apiPort int, upstreamCoo
 		return nil, nil, err
 	}
 	srv := &http.Server{
-		Handler:     checkProxyHost(listenHost, proxy),
+		Handler:     checkProxyHost(listenHost, config.PublicURLHost(publicURL), proxy),
 		ReadTimeout: 15 * time.Second,
 		IdleTimeout: 60 * time.Second,
 	}
 	return ln, srv, nil
 }
 
-// checkProxyHost rejects requests whose Host header is malformed, or, when
-// the proxy listens on loopback, does not name a loopback host. The second
-// check is the DNS-rebinding defense of the API server's checkHost.
-func checkProxyHost(listenHost string, next http.Handler) http.Handler {
+// checkProxyHost rejects malformed Host headers and, on a loopback listener,
+// permits only loopback or the configured public URL host. This matches the
+// API server's DNS-rebinding defense.
+func checkProxyHost(listenHost, publicURLHost string, next http.Handler) http.Handler {
 	loopbackOnly := config.IsLoopbackHost(listenHost)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := config.RequestHost(r.Host)
-		if !validProxyHost(host) || (loopbackOnly && !config.IsLoopbackHost(host)) {
+		publicHost := publicURLHost != "" && strings.EqualFold(host, publicURLHost)
+		if !validProxyHost(host) || (loopbackOnly && !config.IsLoopbackHost(host) && !publicHost) {
 			http.Error(w, fmt.Sprintf("Forbidden: request Host %q is not allowed on the live proxy", host), http.StatusForbidden)
 			return
 		}
