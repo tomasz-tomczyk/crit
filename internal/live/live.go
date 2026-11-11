@@ -266,6 +266,11 @@ func RunLive(args []string) {
 	key := daemon.LiveSessionKey(cwd, f.origin)
 	noOpenResolved := f.noOpen || cfg.NoOpen
 	quiet := f.quiet || cfg.Quiet
+	if err := checkLiveCookiesExposure(config.ResolveHost(f.host, cfg.Host), config.ResolvePublicURL(f.publicURL, cfg), f, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	if connectToLiveDaemon(key, noOpenResolved, cfg.OpenCmd, quiet) {
 		return
 	}

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/reviewpath"
 	"github.com/tomasz-tomczyk/crit/internal/server"
 )
@@ -41,6 +42,15 @@ func serveSessionKey(sc *server.DaemonCLIConfig) string {
 		branch = vcs.CurrentBranch()
 	}
 	return sessionKey(cwd, branch, server.FocusKeyArgs(sc))
+}
+
+// checkServeLiveCookies is the daemon backstop for live cookie forwarding.
+// RunLive checks flags and config before connecting to or starting a daemon.
+func checkServeLiveCookies(sc *server.DaemonCLIConfig) error {
+	if sc.LiveOrigin != "" && sc.LiveCookie != "" && config.NeedsUnauthenticatedNetworkAck(sc.Host, sc.PublicURL) {
+		return fmt.Errorf("refusing upstream cookies with host %q and public URL %q: anyone who can reach the live proxy would be logged in as you", sc.Host, sc.PublicURL)
+	}
+	return nil
 }
 
 func checkStaleIntegrations(sc *server.DaemonCLIConfig, srv *Server, cwd string) {
@@ -126,8 +136,15 @@ func runServe(args []string) {
 	}
 	srv.SetListenHost(sc.Host)
 	srv.SetPublicURL(sc.PublicURL)
+	exposesProxy := sc.LiveOrigin != "" && config.NeedsUnauthenticatedNetworkAck(sc.Host, sc.PublicURL)
+	if err := checkServeLiveCookies(sc); err != nil {
+		daemonFatal(pipe, "Error: %v", err)
+	}
 	if sc.AllowUnauthenticatedNetwork {
 		fmt.Fprintln(os.Stderr, "crit: WARNING: unauthenticated network exposure enabled. Anyone who can reach this port can read review files and write comments.")
+		if exposesProxy {
+			fmt.Fprintf(os.Stderr, "crit: WARNING: the live proxy on port %d is exposed too. Anyone who can reach it can browse %s through it.\n", addr.Port+1, sc.LiveOrigin)
+		}
 	}
 
 	cwd, _ := resolvedCWD()
@@ -180,7 +197,7 @@ func runServe(args []string) {
 	var proxyLn net.Listener
 	var proxySrv *http.Server
 	if sc.LiveOrigin != "" {
-		pl, ps, err := bindProxyServer(sc.LiveOrigin, addr.Port, sc.LiveCookie)
+		pl, ps, err := bindProxyServer(sc.Host, sc.PublicURL, sc.LiveOrigin, addr.Port, sc.LiveCookie)
 		if err != nil {
 			daemonFatal(pipe, "Error starting proxy server: %v", err)
 		}

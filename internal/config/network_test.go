@@ -25,6 +25,28 @@ func TestIsLoopbackHost(t *testing.T) {
 	}
 }
 
+func TestRequestHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		hostport string
+		want     string
+	}{
+		{"hostname with port", "box.example:4191", "box.example"},
+		{"hostname without port", "box.example", "box.example"},
+		{"IPv4 with port", "127.0.0.1:4191", "127.0.0.1"},
+		{"IPv6 with port", "[::1]:4191", "::1"},
+		{"IPv6 without port", "[::1]", "::1"},
+		{"unbracketed IPv6", "::1", "::1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RequestHost(tt.hostport); got != tt.want {
+				t.Errorf("RequestHost(%q) = %q, want %q", tt.hostport, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNeedsUnauthenticatedNetworkAck(t *testing.T) {
 	tests := []struct {
 		host, publicURL string

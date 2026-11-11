@@ -11,6 +11,28 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
+func TestCheckServeLiveCookies(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  server.DaemonCLIConfig
+		wantErr bool
+	}{
+		{"loopback", server.DaemonCLIConfig{Host: "127.0.0.1", LiveOrigin: "http://app", LiveCookie: "session=1"}, false},
+		{"network host", server.DaemonCLIConfig{Host: "100.64.0.6", LiveOrigin: "http://app", LiveCookie: "session=1"}, true},
+		{"public URL", server.DaemonCLIConfig{Host: "127.0.0.1", PublicURL: "http://box.example", LiveOrigin: "http://app", LiveCookie: "session=1"}, true},
+		{"public URL without cookie", server.DaemonCLIConfig{Host: "127.0.0.1", PublicURL: "http://box.example", LiveOrigin: "http://app"}, false},
+		{"non-live daemon", server.DaemonCLIConfig{Host: "100.64.0.6", LiveCookie: "session=1"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkServeLiveCookies(&tt.config)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("checkServeLiveCookies() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestPreflightCheck_CleanRepo verifies that running crit in a clean
 // repo with no changes returns the user-facing message instead of letting
 // the daemon spawn and crash with a misleading "could not reach daemon" error.

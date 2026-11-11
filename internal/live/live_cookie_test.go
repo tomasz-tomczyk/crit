@@ -169,3 +169,40 @@ func TestResolveLiveCookies_MissingFile(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestCheckLiveCookiesExposure(t *testing.T) {
+	tests := []struct {
+		name      string
+		host      string
+		publicURL string
+		flags     liveCLIFlags
+		cfg       Config
+		wantErr   bool
+	}{
+		{"no cookies, tailnet host", "100.64.0.6", "", liveCLIFlags{}, Config{}, false},
+		{"cookie flag, loopback", "127.0.0.1", "", liveCLIFlags{cookieFlags: stringSliceFlag{"s=1"}}, Config{}, false},
+		{"cookie flag, empty host", "", "", liveCLIFlags{cookieFlags: stringSliceFlag{"s=1"}}, Config{}, false},
+		{"cookie flag, localhost", "localhost", "", liveCLIFlags{cookieFlags: stringSliceFlag{"s=1"}}, Config{}, false},
+		{"cookie flag, tailnet host", "100.64.0.6", "", liveCLIFlags{cookieFlags: stringSliceFlag{"s=1"}}, Config{}, true},
+		{"cookie flag, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{cookieFlags: stringSliceFlag{"s=1"}}, Config{}, true},
+		{"cookie file, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{cookieFile: "c.txt"}, Config{}, true},
+		{"cdp url, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{cdpURL: "http://127.0.0.1:9222"}, Config{}, true},
+		{"no cookies, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{}, Config{}, false},
+		{"cookie file, all interfaces", "0.0.0.0", "", liveCLIFlags{cookieFile: "c.txt"}, Config{}, true},
+		{"cdp url, tailnet host", "100.64.0.6", "", liveCLIFlags{cdpURL: "http://127.0.0.1:9222"}, Config{}, true},
+		{"config cookie, tailnet host", "100.64.0.6", "", liveCLIFlags{}, Config{LiveCookie: "s=1"}, true},
+		{"config cookie file, tailnet host", "100.64.0.6", "", liveCLIFlags{}, Config{LiveCookieFile: "c.txt"}, true},
+		{"config cdp url, tailnet host", "100.64.0.6", "", liveCLIFlags{}, Config{LiveCDPURL: "http://127.0.0.1:9222"}, true},
+		{"config cookie, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{}, Config{LiveCookie: "s=1"}, true},
+		{"config cookie file, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{}, Config{LiveCookieFile: "c.txt"}, true},
+		{"config cdp url, public URL", "127.0.0.1", "http://box.example:4190", liveCLIFlags{}, Config{LiveCDPURL: "http://127.0.0.1:9222"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkLiveCookiesExposure(tt.host, tt.publicURL, tt.flags, tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("checkLiveCookiesExposure(%q, %q) error = %v, wantErr %v", tt.host, tt.publicURL, err, tt.wantErr)
+			}
+		})
+	}
+}
