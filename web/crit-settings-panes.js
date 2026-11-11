@@ -64,7 +64,7 @@
 
     shortcuts.groups.forEach(function (group) {
       var visible = group.shortcuts.filter(function (s) {
-        return s.modes && s.modes.indexOf(mode) !== -1;
+        return s.modes && s.modes.indexOf(mode) !== -1 && (!s.agentOnly || opts.agentEnabled);
       });
       if (visible.length === 0) return;
       html += '<div class="shortcuts-group-label">' + group.label + '</div>';
