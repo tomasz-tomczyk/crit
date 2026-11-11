@@ -166,3 +166,46 @@ func TestReviewCycle_RangeFollowsHead(t *testing.T) {
 		t.Errorf("comment %s not in the saved review file", c.ID)
 	}
 }
+
+// TestReviewCycle_RangeHeadRefGone: a followed ref that no longer resolves
+// doesn't stop the round; the review stays on its commit.
+func TestReviewCycle_RangeHeadRefGone(t *testing.T) {
+	vcs.ClearGitEnvForTest(t)
+	dir := vcs.InitTestRepo(t)
+	base := vcs.GitRun(t, dir, "rev-parse", "HEAD")
+	vcs.GitRun(t, dir, "checkout", "-q", "-b", "feat")
+	head := vcs.CommitAtForTest(t, dir, "a.go", "one\n", "round 1")
+
+	s, sess := newTestServer(t)
+	sess.Mode = "git"
+	sess.RepoRoot, sess.OutputDir, sess.VCS = dir, dir, &vcs.GitVCS{}
+	f, err := focus.ResolveFocus(focus.ChangeSpec{}, base+"..feat", "", false, &vcs.GitVCS{}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.SetFocus(*f); err != nil {
+		t.Fatal(err)
+	}
+	sess.MarkSessionStarted()
+	vcs.GitRun(t, dir, "checkout", "-q", "main")
+	vcs.GitRun(t, dir, "branch", "-q", "-D", "feat")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest("POST", "/api/review-cycle", nil).WithContext(ctx)
+		s.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+	// The round still starts: the session waits for the reviewer.
+	waitForSubscriberCount(t, sess, 1)
+	cancel()
+	<-done
+
+	sess.RLock()
+	got := sess.Focus.HeadSHA
+	sess.RUnlock()
+	if got != head {
+		t.Errorf("focus head = %s; want it unchanged at %s", got, head)
+	}
+}

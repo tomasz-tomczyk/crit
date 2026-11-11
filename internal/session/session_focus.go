@@ -404,13 +404,7 @@ func (s *Session) FollowRangeHead() (oldHead, newHead string, err error) {
 // shortRangeLabel is the "base..head" label of a range focus, with 7-character
 // SHAs, as --range sets it.
 func shortRangeLabel(base, head string) string {
-	short := func(sha string) string {
-		if len(sha) > 7 {
-			return sha[:7]
-		}
-		return sha
-	}
-	return short(base) + ".." + short(head)
+	return fmt.Sprintf("%.7s..%.7s", base, head)
 }
 
 // carryForwardRangeComments re-keys comments made at an older head of the

@@ -1329,6 +1329,31 @@ func TestSetFocus_RangeHeadMoved_FileGoneAtOneHead(t *testing.T) {
 	}
 }
 
+// TestFollowRangeHead_RefGone: when the followed ref no longer resolves (the
+// branch was deleted), FollowRangeHead reports it and leaves the focus alone.
+func TestFollowRangeHead_RefGone(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-q", "-b", "feat")
+	head := commitAt(t, dir, "a.go", "one\n", "one")
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}, Branch: "feat"}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, HeadRef: "feat", DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "checkout", "-q", "main")
+	gitT(t, dir, "branch", "-q", "-D", "feat")
+
+	if _, newHead, err := s.FollowRangeHead(); err == nil || newHead != "" {
+		t.Fatalf("FollowRangeHead = %q, %v; want an error and no move", newHead, err)
+	}
+	s.mu.RLock()
+	got := s.Focus.HeadSHA
+	s.mu.RUnlock()
+	if got != head {
+		t.Errorf("focus head = %s; want it unchanged at %s", got, head)
+	}
+}
+
 // TestFollowRangeHead: a range started as base..HEAD moves to the commit HEAD
 // points at now, carrying its comments forward and saving them, so the next
 // round (which reloads comments from disk) shows them. A range pinned to a
