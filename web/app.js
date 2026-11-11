@@ -4266,8 +4266,10 @@
           if (renderedRow) {
             while (renderedRow.firstChild) {
               const cell = renderedRow.firstChild;
-              cell.className = buildContentClasses(block) + (cell.className ? ' ' + cell.className : '');
-              window.crit.shared.applyAutoTextDirection(cell);
+              if (cell.nodeType === 1) {
+                cell.className = buildContentClasses(block) + (cell.className ? ' ' + cell.className : '');
+                window.crit.shared.applyAutoTextDirection(cell);
+              }
               lineBlockEl.appendChild(cell);
             }
           }
