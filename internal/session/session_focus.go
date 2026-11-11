@@ -387,7 +387,10 @@ func (s *Session) FollowRangeHead() (oldHead, newHead string, err error) {
 	}
 	oldHead = f.HeadSHA
 	f.HeadSHA = head
-	f.Label = shortRangeLabel(f.BaseSHA, head)
+	// Keep a label the picker set (a branch name); refresh a "base..head" one.
+	if f.Label == "" || f.Label == shortRangeLabel(f.BaseSHA, oldHead) {
+		f.Label = shortRangeLabel(f.BaseSHA, head)
+	}
 	if err := s.SetFocus(f); err != nil {
 		return "", "", err
 	}
@@ -399,6 +402,37 @@ func (s *Session) FollowRangeHead() (oldHead, newHead string, err error) {
 		return "", "", fmt.Errorf("saving comments after moving range head: %w", err)
 	}
 	return oldHead, head, nil
+}
+
+// WithHeadRefAtTip marks a range picked in the UI as following HEAD when it
+// ends at the commit HEAD is on: the stack picker's current layer, or the
+// "Resume" pill back to it. The picker sends commits only, so without this
+// a review switched to the branch tip stays on that commit once the agent
+// commits on top, and its comments stay behind (#1148). A range ending
+// anywhere else stays pinned, as do PR/MR ranges and ranges that already
+// name a ref. Returns f unchanged when HEAD can't be resolved.
+func (s *Session) WithHeadRefAtTip(f Focus) Focus {
+	if f.Kind != FocusRange || f.ChangeNumber > 0 || f.HeadRef != "" || f.HeadSHA == "" {
+		return f
+	}
+	s.mu.RLock()
+	vc := s.VCS
+	repoRoot := s.RepoRoot
+	remoteFiles := s.RemoteFiles
+	s.mu.RUnlock()
+	if vc == nil || remoteFiles {
+		return f
+	}
+	head, err := vcs.ResolveCommitOID(vc, "HEAD", repoRoot)
+	if err != nil {
+		return f
+	}
+	picked, err := vcs.ResolveCommitOID(vc, f.HeadSHA, repoRoot)
+	if err != nil || picked != head {
+		return f
+	}
+	f.HeadRef = "HEAD"
+	return f
 }
 
 // shortRangeLabel is the "base..head" label of a range focus, with 7-character

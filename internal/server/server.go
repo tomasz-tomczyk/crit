@@ -2544,7 +2544,9 @@ func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.session.Load().SetFocus(req); err != nil {
+	sess := s.session.Load()
+	// A range picked at the branch tip follows HEAD from round to round.
+	if err := sess.SetFocus(sess.WithHeadRefAtTip(req)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

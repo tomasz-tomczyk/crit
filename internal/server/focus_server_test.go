@@ -209,3 +209,81 @@ func TestReviewCycle_RangeHeadRefGone(t *testing.T) {
 		t.Errorf("focus head = %s; want it unchanged at %s", got, head)
 	}
 }
+
+// TestPickedTipFollowsHead replays #1148: the reviewer picks the branch tip
+// in the stack picker, comments, finishes; the agent commits and starts the
+// next round. The view moves to the new commit with the comment on it. A
+// commit picked below the tip stays where it is.
+func TestPickedTipFollowsHead(t *testing.T) {
+	for _, pickTip := range []bool{true, false} {
+		name := "lower commit stays"
+		if pickTip {
+			name = "tip follows"
+		}
+		t.Run(name, func(t *testing.T) {
+			vcs.ClearGitEnvForTest(t)
+			dir := vcs.InitTestRepo(t)
+			base := vcs.GitRun(t, dir, "rev-parse", "HEAD")
+			lower := vcs.CommitAtForTest(t, dir, "a.go", "one\n", "lower")
+			tip := vcs.CommitAtForTest(t, dir, "a.go", "one\ntwo\n", "tip")
+
+			s, sess := newTestServer(t)
+			sess.Mode = "git"
+			sess.RepoRoot, sess.OutputDir, sess.VCS = dir, dir, &vcs.GitVCS{}
+			sess.MarkSessionStarted()
+			picked := lower
+			if pickTip {
+				picked = tip
+			}
+			body := `{"kind":"range","base_sha":"` + base + `","head_sha":"` + picked + `","diff_scope":"layer","is_stacked":true,"label":"feat"}`
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, httptest.NewRequest("POST", "/api/focus", strings.NewReader(body)))
+			if w.Code != 200 {
+				t.Fatalf("POST /api/focus = %d %s", w.Code, w.Body.String())
+			}
+			c, ok := sess.AddComment("a.go", 1, 1, "", "on one", "", "r", "")
+			if !ok {
+				t.Fatal("AddComment failed")
+			}
+			next := vcs.CommitAtForTest(t, dir, "a.go", "zero\none\ntwo\n", "agent's fix")
+
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				req := httptest.NewRequest("POST", "/api/review-cycle", nil).WithContext(ctx)
+				s.ServeHTTP(httptest.NewRecorder(), req)
+			}()
+			waitForSubscriberCount(t, sess, 1)
+			cancel()
+			<-done
+
+			want := picked
+			if pickTip {
+				want = next
+			}
+			sess.RLock()
+			got, label := sess.Focus.HeadSHA, sess.Focus.Label
+			sess.RUnlock()
+			if got != want {
+				t.Fatalf("focus head = %s; want %s", got, want)
+			}
+			if label != "feat" {
+				t.Errorf("label = %q; want the picked branch name kept", label)
+			}
+			data, err := session.ReadFileShared(session.ReviewPathsFor(sess.CritJSONPath()).Review)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cj session.CritJSON
+			if err := json.Unmarshal(data, &cj); err != nil {
+				t.Fatal(err)
+			}
+			for _, dc := range cj.Files["a.go"].Comments {
+				if dc.ID == c.ID && dc.HeadSHA != want {
+					t.Errorf("saved comment head = %s; want %s", dc.HeadSHA, want)
+				}
+			}
+		})
+	}
+}

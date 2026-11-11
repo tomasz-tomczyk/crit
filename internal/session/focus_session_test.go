@@ -1440,3 +1440,34 @@ func findComment(cs []Comment, id string) (Comment, bool) {
 	}
 	return Comment{}, false
 }
+
+// TestWithHeadRefAtTip: a range picked at HEAD's commit follows HEAD; one
+// picked anywhere else, a PR range, and one that already names a ref don't
+// change.
+func TestWithHeadRefAtTip(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	lower := commitAt(t, dir, "a.go", "one\n", "lower")
+	tip := commitAt(t, dir, "a.go", "one\ntwo\n", "tip")
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}, Branch: "main"}
+
+	tests := []struct {
+		name string
+		in   Focus
+		want string
+	}{
+		{"tip", Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: tip}, "HEAD"},
+		{"tip, short SHA", Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: tip[:7]}, "HEAD"},
+		{"lower commit", Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: lower}, ""},
+		{"pull request", Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: tip, ChangeNumber: 7}, ""},
+		{"already a ref", Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: tip, HeadRef: "main"}, "main"},
+		{"working tree", Focus{Kind: FocusWorkingTree}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := s.WithHeadRefAtTip(tt.in).HeadRef; got != tt.want {
+				t.Errorf("HeadRef = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
