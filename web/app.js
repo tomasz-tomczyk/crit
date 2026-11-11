@@ -3964,6 +3964,7 @@
     html = processTaskLists(html);
     html = rewriteImageSrcs(html, file.path);
     contentEl.innerHTML = html;
+    window.crit.shared.applyAutoTextDirection(contentEl);
     lineBlockEl.appendChild(contentEl);
 
     frag.appendChild(lineBlockEl);
@@ -4266,6 +4267,7 @@
             while (renderedRow.firstChild) {
               const cell = renderedRow.firstChild;
               cell.className = buildContentClasses(block) + (cell.className ? ' ' + cell.className : '');
+              window.crit.shared.applyAutoTextDirection(cell);
               lineBlockEl.appendChild(cell);
             }
           }
@@ -4277,6 +4279,7 @@
         html = processTaskLists(html);
         html = rewriteImageSrcs(html, file.path);
         content.innerHTML = html;
+        window.crit.shared.applyAutoTextDirection(content);
         lineBlockEl.appendChild(gutter);
         lineBlockEl.appendChild(content);
       }
@@ -5290,6 +5293,7 @@
 
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Leave a review comment... (Ctrl+Enter to submit, Escape to cancel)';
+    textarea.dir = 'auto';
     textarea.dataset.formKey = formObj.formKey;
     if (opts.initialBody) textarea.value = opts.initialBody;
 
@@ -5835,6 +5839,7 @@
       replyBody.className = 'reply-body';
       replyBody.dataset.rawBody = reply.body;
       replyBody.innerHTML = commentMd.render(reply.body);
+      window.crit.shared.applyAutoTextDirection(replyBody);
       linkifyCommentRefsInDom(replyBody);
       replyEl.appendChild(replyBody);
 
@@ -6580,6 +6585,7 @@
 
     const textarea = document.createElement('textarea');
     textarea.className = 'comment-textarea';
+    textarea.dir = 'auto';
     textarea.value = currentText;
     textarea.rows = 3;
     bodyEl.replaceWith(textarea);
@@ -6656,6 +6662,7 @@
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'reply-input';
+    input.dir = 'auto';
     input.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
     if (isPending) input.disabled = true;
     form.appendChild(input);
@@ -6663,6 +6670,7 @@
     // Expanded state elements (hidden initially)
     const textarea = document.createElement('textarea');
     textarea.className = 'reply-textarea';
+    textarea.dir = 'auto';
     textarea.placeholder = isPending ? 'Waiting for @' + agentName + '\u2026' : 'Write a reply\u2026';
     textarea.rows = 3;
     if (isPending) textarea.disabled = true;

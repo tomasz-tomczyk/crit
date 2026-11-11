@@ -20,6 +20,21 @@
       .replace(/'/g, '&#39;');
   }
 
+  // Give each rendered text block its own base direction. The CSS plaintext
+  // rule handles bidi ordering, but does not change alignment or list markers.
+  function applyAutoTextDirection(root) {
+    root.dir = root.classList.contains('code-line') ? 'ltr' : 'auto';
+    var blocks = 'p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, th, td';
+    if (!root.matches(blocks)) {
+      root.querySelectorAll(blocks).forEach(function (el) {
+        var parent = el.parentElement;
+        while (parent && parent !== root && !parent.matches(blocks)) parent = parent.parentElement;
+        if (parent === root) el.dir = 'auto';
+      });
+    }
+    root.querySelectorAll('pre, code').forEach(function (el) { el.dir = 'ltr'; });
+  }
+
   async function fetchJSON(url, opts) {
     const o = Object.assign({}, opts || {});
     o.headers = Object.assign({ 'Accept': 'application/json' }, (opts && opts.headers) || {});
@@ -1152,6 +1167,7 @@
   window.crit.shared = {
     pathCompare,
     escapeHTML,
+    applyAutoTextDirection,
     fetchJSON,
     getCookie,
     setCookie,
