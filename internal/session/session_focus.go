@@ -354,6 +354,168 @@ func (s *Session) SetFocus(f Focus) error {
 	return nil
 }
 
+// carryForwardRangeComments re-keys comments made at an older head of the
+// same range so they stay visible in focus f, the focus the session just
+// moved to. A range focus without a PR/MR number keys comments by
+// "range:<base>..<head>", so when the branch gains commits and the review
+// moves to the new head, the comments of earlier rounds no longer match it
+// and disappear (#1148). A comment is carried forward when its key has f's
+// base and its head is an ancestor of f's head. Line comments are re-anchored
+// from the old head's content to the new head's, as the round carry-forward
+// does, and marked Drifted when their anchor is gone. Comments of other
+// ranges (another base, or a head that is not an ancestor) keep their key.
+//
+// SetFocus does not call it: switching views in the stack picker keeps each
+// view's comments to itself, since a branch stacked on top also descends
+// from the older head. Only a caller that moves the review along the same
+// branch between rounds carries comments forward. Call it after SetFocus(f).
+func (s *Session) carryForwardRangeComments(f Focus, v vcs.VCS, repoRoot string) {
+	if f.Kind != FocusRange || f.ChangeNumber > 0 || v == nil || f.BaseSHA == "" || f.HeadSHA == "" {
+		return
+	}
+	cf := rangeCarryForward{prefix: "range:" + f.BaseSHA + "..", newKey: focusKeyFor(f)}
+	need := s.collectOlderRangeHeads(&cf)
+	if len(cf.heads) == 0 {
+		return
+	}
+	// Only heads the new head descends from: the same branch, moved forward.
+	for h := range cf.heads {
+		mb, err := v.MergeBaseOf(h, f.HeadSHA, repoRoot)
+		cf.heads[h] = err == nil && strings.TrimSpace(mb) == h
+	}
+	// Read the contents outside the lock: git I/O.
+	contents := s.readRangeContents(f, cf, need)
+	s.applyRangeCarryForward(cf, f.HeadSHA, contents)
+}
+
+// readRangeContents reads each file with carried comments at its older heads
+// and at f's head.
+func (s *Session) readRangeContents(f Focus, cf rangeCarryForward, need map[string]rangeFileNeed) map[string]map[string]rangeContents {
+	contents := make(map[string]map[string]rangeContents, len(need))
+	for path, n := range need {
+		newData, newOK := s.readRangeFile(f, f.HeadSHA, path)
+		for h := range n.heads {
+			if !cf.heads[h] {
+				continue
+			}
+			oldData, oldOK := s.readRangeFile(f, h, path)
+			if !oldOK && n.oldPath != "" {
+				oldData, oldOK = s.readRangeFile(f, h, n.oldPath)
+			}
+			if contents[path] == nil {
+				contents[path] = map[string]rangeContents{}
+			}
+			contents[path][h] = rangeContents{string(oldData), string(newData), oldOK && newOK}
+		}
+	}
+	return contents
+}
+
+// readRangeFile reads path at sha and reports whether it exists there.
+// ReadFileAtSHA returns (nil, nil) for a path missing at sha, so a nil read
+// counts as missing. An empty file reads as nil too, which is harmless here:
+// it has no lines for a comment to be anchored to.
+func (s *Session) readRangeFile(f Focus, sha, path string) ([]byte, bool) {
+	data, err := s.readFileAtSHAForFocus(f, sha, path)
+	return data, err == nil && data != nil
+}
+
+// rangeCarryForward is the state carryForwardRangeComments shares between steps.
+type rangeCarryForward struct {
+	prefix, newKey string
+	heads          map[string]bool // older head -> the new head descends from it
+}
+
+// olderHead returns the head of key when key is the same range at another
+// head, else "".
+func (cf rangeCarryForward) olderHead(key string) string {
+	if key == cf.newKey || !strings.HasPrefix(key, cf.prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(key, cf.prefix)
+}
+
+// rangeContents is one file at an older head and at the new head.
+type rangeContents struct {
+	oldContent, newContent string
+	ok                     bool // both reads worked
+}
+
+type rangeFileNeed struct {
+	oldPath string
+	heads   map[string]bool
+}
+
+// collectOlderRangeHeads fills cf.heads with the older heads of the range that
+// comments were made at, and returns, per file, the heads its comments have.
+func (s *Session) collectOlderRangeHeads(cf *rangeCarryForward) map[string]rangeFileNeed {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cf.heads = map[string]bool{}
+	need := map[string]rangeFileNeed{}
+	for _, fe := range s.Files {
+		for _, c := range fe.Comments {
+			h := cf.olderHead(c.FocusKey)
+			if h == "" {
+				continue
+			}
+			n, ok := need[fe.Path]
+			if !ok {
+				n = rangeFileNeed{oldPath: fe.OldPath, heads: map[string]bool{}}
+				need[fe.Path] = n
+			}
+			n.heads[h] = true
+			cf.heads[h] = true
+		}
+	}
+	for _, c := range s.reviewComments {
+		if h := cf.olderHead(c.FocusKey); h != "" {
+			cf.heads[h] = true
+		}
+	}
+	return need
+}
+
+// applyRangeCarryForward moves the comments of the older heads the new head
+// descends from onto newHead.
+func (s *Session) applyRangeCarryForward(cf rangeCarryForward, newHead string, contents map[string]map[string]rangeContents) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, fe := range s.Files {
+		for h, r := range contents[fe.Path] {
+			key := cf.prefix + h
+			var idx []int
+			var group []Comment
+			for i, c := range fe.Comments {
+				if c.FocusKey == key {
+					idx = append(idx, i)
+					group = append(group, c)
+				}
+			}
+			if r.ok {
+				group, _ = remapCommentsToContent(group, r.oldContent, r.newContent)
+			}
+			for j, i := range idx {
+				c := group[j]
+				if !r.ok && c.Scope != "file" && c.Side != "old" && c.StartLine > 0 {
+					// The file is missing at one of the heads: its lines can't be followed.
+					c.Drifted = true
+				}
+				c.FocusKey, c.HeadSHA = cf.newKey, newHead
+				fe.Comments[i] = c
+			}
+		}
+	}
+	for i, c := range s.reviewComments {
+		if h := cf.olderHead(c.FocusKey); h != "" && cf.heads[h] {
+			s.reviewComments[i].FocusKey, s.reviewComments[i].HeadSHA = cf.newKey, newHead
+		}
+	}
+	// Schedule the save before releasing the lock: once pendingWrite is set,
+	// the external-change merge won't load the old keys back from disk.
+	s.scheduleWrite()
+}
+
 // validateFocusSHAs runs ensureSHAFetched for each SHA needed by the focus.
 // No-op for working-tree focus, and also when remoteFiles is set: in --remote
 // mode file content reads go through the GitHub API, so the local-fetch step
