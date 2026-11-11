@@ -2777,6 +2777,13 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 	defer sess.Unsubscribe(ch)
 
 	if !sess.IsAwaitingFirstReview() {
+		// A --range review whose head is HEAD (or a branch) shows the commit
+		// the agent is at now, not the one it was at when the daemon started.
+		if oldHead, newHead, err := sess.FollowRangeHead(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: range head not updated: %v\n", err)
+		} else if newHead != "" {
+			fmt.Fprintf(os.Stderr, "Range head moved: %.7s -> %.7s\n", oldHead, newHead)
+		}
 		// Agent finished changes — signal round-complete so browser refreshes
 		sess.SignalRoundComplete()
 	}

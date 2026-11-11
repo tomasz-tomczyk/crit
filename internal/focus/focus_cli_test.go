@@ -259,3 +259,35 @@ func TestResolveFocus_RangeResolvesBranchNamesToOIDs(t *testing.T) {
 		t.Fatalf("got %s..%s, want %s..%s", f.BaseSHA, f.HeadSHA, base, head)
 	}
 }
+
+// TestResolveFocus_RangeHeadRef: a range head that names a ref is kept as
+// HeadRef so the session can follow it; a head given as a commit is not.
+func TestResolveFocus_RangeHeadRef(t *testing.T) {
+	vcs.ClearGitEnvForTest(t)
+	dir := vcs.InitTestRepo(t)
+	vcs.GitRun(t, dir, "branch", "parent")
+	vcs.GitRun(t, dir, "checkout", "-b", "feature")
+	vcs.CommitAtForTest(t, dir, "f.txt", "hi\n", "add f")
+	head := vcs.GitRun(t, dir, "rev-parse", "HEAD")
+
+	tests := []struct {
+		spec, wantRef string
+	}{
+		{"parent..HEAD", "HEAD"},
+		{"parent..feature", "feature"},
+		{"parent.." + head, ""},
+		{"parent.." + head[:7], ""},
+		{"parent.." + strings.ToUpper(head[:7]), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.spec, func(t *testing.T) {
+			f, err := ResolveFocus(ChangeSpec{}, tt.spec, "", false, &vcs.GitVCS{}, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.HeadRef != tt.wantRef || f.HeadSHA != head {
+				t.Errorf("HeadRef=%q HeadSHA=%s; want %q, %s", f.HeadRef, f.HeadSHA, tt.wantRef, head)
+			}
+		})
+	}
+}

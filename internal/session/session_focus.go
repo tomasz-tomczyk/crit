@@ -66,6 +66,12 @@ type Focus struct {
 	HeadRefName       string    `json:"head_ref_name,omitempty"`
 	DiffScope         DiffScope `json:"diff_scope,omitempty"`
 	IsStacked         bool      `json:"is_stacked,omitempty"`
+
+	// HeadRef is the head of a --range as typed, when it names a ref that
+	// moves (HEAD, a branch) rather than a commit. HeadSHA is that ref
+	// resolved when the session started; FollowRangeHead re-resolves it at
+	// the start of each round so the review shows the agent's new commits.
+	HeadRef string `json:"head_ref,omitempty"`
 }
 
 // ReadOnly reports whether comments may be added/edited in this focus.
@@ -352,6 +358,53 @@ func (s *Session) SetFocus(f Focus) error {
 	})
 	s.notify(SSEEvent{Type: "focus-changed", Content: string(payload)})
 	return nil
+}
+
+// FollowRangeHead moves a range focus whose head was given as a ref (HEAD,
+// a branch) to the commit that ref points at now. The daemon calls it when
+// the agent starts a new round: without it, a review started with
+// `--range base..HEAD` keeps showing the commit HEAD was at when the daemon
+// started, round after round. The comments made at the old head are
+// carried forward. The result is saved before returning, because the round
+// that follows clears the in-memory comments and reloads them from disk.
+// It reports the old and new head when the focus moved.
+func (s *Session) FollowRangeHead() (oldHead, newHead string, err error) {
+	s.mu.RLock()
+	f := s.Focus
+	vc := s.VCS
+	repoRoot := s.RepoRoot
+	remoteFiles := s.RemoteFiles
+	s.mu.RUnlock()
+	if f.Kind != FocusRange || f.ChangeNumber > 0 || f.HeadRef == "" || remoteFiles || vc == nil {
+		return "", "", nil
+	}
+	head, err := vcs.ResolveCommitOID(vc, f.HeadRef, repoRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("resolving range head %q: %w", f.HeadRef, err)
+	}
+	if head == f.HeadSHA {
+		return "", "", nil
+	}
+	oldHead = f.HeadSHA
+	f.HeadSHA = head
+	f.Label = shortRangeLabel(f.BaseSHA, head)
+	if err := s.SetFocus(f); err != nil {
+		return "", "", err
+	}
+	s.mu.RLock()
+	f = s.Focus
+	s.mu.RUnlock()
+	s.carryForwardRangeComments(f, vc, repoRoot)
+	if err := s.SyncWriteFiles(); err != nil {
+		return "", "", fmt.Errorf("saving comments after moving range head: %w", err)
+	}
+	return oldHead, head, nil
+}
+
+// shortRangeLabel is the "base..head" label of a range focus, with 7-character
+// SHAs, as --range sets it.
+func shortRangeLabel(base, head string) string {
+	return fmt.Sprintf("%.7s..%.7s", base, head)
 }
 
 // carryForwardRangeComments re-keys comments made at an older head of the

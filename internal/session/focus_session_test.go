@@ -1328,3 +1328,115 @@ func TestSetFocus_RangeHeadMoved_FileGoneAtOneHead(t *testing.T) {
 		})
 	}
 }
+
+// TestFollowRangeHead_RefGone: when the followed ref no longer resolves (the
+// branch was deleted), FollowRangeHead reports it and leaves the focus alone.
+func TestFollowRangeHead_RefGone(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-q", "-b", "feat")
+	head := commitAt(t, dir, "a.go", "one\n", "one")
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}, Branch: "feat"}
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, HeadRef: "feat", DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "checkout", "-q", "main")
+	gitT(t, dir, "branch", "-q", "-D", "feat")
+
+	if _, newHead, err := s.FollowRangeHead(); err == nil || newHead != "" {
+		t.Fatalf("FollowRangeHead = %q, %v; want an error and no move", newHead, err)
+	}
+	s.mu.RLock()
+	got := s.Focus.HeadSHA
+	s.mu.RUnlock()
+	if got != head {
+		t.Errorf("focus head = %s; want it unchanged at %s", got, head)
+	}
+}
+
+// TestFollowRangeHead: a range started as base..HEAD moves to the commit HEAD
+// points at now, carrying its comments forward and saving them, so the next
+// round (which reloads comments from disk) shows them. A range pinned to a
+// commit, or one whose ref hasn't moved, stays put.
+func TestFollowRangeHead(t *testing.T) {
+	tests := []struct {
+		name     string
+		headRef  string
+		commit   bool
+		wantMove bool
+	}{
+		{name: "HEAD moved", headRef: "HEAD", commit: true, wantMove: true},
+		{name: "HEAD unchanged", headRef: "HEAD"},
+		{name: "pinned to a commit", commit: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := initTestRepo(t)
+			base := gitT(t, dir, "rev-parse", "HEAD")
+			head1 := commitAt(t, dir, "a.go", "one\ntwo\nthree\n", "layer 1")
+			s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}, Branch: "main"}
+			if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head1, HeadRef: tt.headRef, DiffScope: DiffScopeLayer}); err != nil {
+				t.Fatal(err)
+			}
+			c, ok := s.AddComment("a.go", 3, 3, "", "on three", "", "r", "")
+			if !ok {
+				t.Fatal("AddComment failed")
+			}
+			flushWrites(s)
+			s.sessionStarted.Store(1)
+			wantHead := head1
+			if tt.commit {
+				h := commitAt(t, dir, "a.go", "zero\none\ntwo\nthree\n", "layer 2")
+				if tt.wantMove {
+					wantHead = h
+				}
+			}
+
+			oldHead, newHead, err := s.FollowRangeHead()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if moved := newHead != ""; moved != tt.wantMove {
+				t.Fatalf("moved = %v (%s -> %s); want %v", moved, oldHead, newHead, tt.wantMove)
+			}
+			s.mu.RLock()
+			f := s.Focus
+			s.mu.RUnlock()
+			if f.HeadSHA != wantHead || f.HeadRef != tt.headRef {
+				t.Errorf("focus head = %s ref %q; want %s ref %q", f.HeadSHA, f.HeadRef, wantHead, tt.headRef)
+			}
+			if wantLabel := base[:7] + ".." + wantHead[:7]; tt.wantMove && f.Label != wantLabel {
+				t.Errorf("label = %q; want %q", f.Label, wantLabel)
+			}
+			wantLine := 3
+			if tt.wantMove {
+				wantLine = 4
+			}
+			got, ok := findComment(s.GetComments("a.go"), c.ID)
+			if !ok || got.StartLine != wantLine {
+				t.Errorf("comment visible=%v line=%d; want visible at line %d", ok, got.StartLine, wantLine)
+			}
+			// Saved without waiting for the debounce: the round that follows
+			// reloads comments from disk.
+			cj, err := readCritJSONFromDisk(filepath.Join(dir, ".crit"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantKey := fmt.Sprintf("range:%s..%s", base, wantHead)
+			for _, dc := range cj.Files["a.go"].Comments {
+				if dc.FocusKey != wantKey {
+					t.Errorf("disk comment %s key = %q; want %q", dc.ID, dc.FocusKey, wantKey)
+				}
+			}
+		})
+	}
+}
+
+func findComment(cs []Comment, id string) (Comment, bool) {
+	for _, c := range cs {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return Comment{}, false
+}
