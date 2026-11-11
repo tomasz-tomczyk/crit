@@ -266,6 +266,7 @@ func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRo
 	if err != nil {
 		return nil, err
 	}
+	headRef := ""
 	// In --remote mode, content reads come from the GitHub API; we can't
 	// prove the SHAs exist locally because we don't intend to use them.
 	if !remoteFiles && v != nil && repoRoot != "" {
@@ -285,12 +286,18 @@ func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRo
 		if err != nil {
 			return nil, fmt.Errorf("resolving head %q: %w", head, err)
 		}
+		// A head that isn't the commit it resolved to (or a prefix of it) is
+		// a ref such as HEAD or a branch: the session follows it each round.
+		if !strings.HasPrefix(headOID, strings.ToLower(head)) {
+			headRef = head
+		}
 		base, head = baseOID, headOID
 	}
 	return &Focus{
 		Kind:      FocusRange,
 		BaseSHA:   base,
 		HeadSHA:   head,
+		HeadRef:   headRef,
 		Label:     fmt.Sprintf("%s..%s", shortSHA(base), shortSHA(head)),
 		DiffScope: DiffScopeLayer,
 		IsStacked: false,
