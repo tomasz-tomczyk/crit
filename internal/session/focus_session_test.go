@@ -1188,3 +1188,96 @@ func TestSetFocus_RangeHeadMoved_LeavesOtherRangesAlone(t *testing.T) {
 		}
 	}
 }
+
+// TestSetFocus_RangeHeadMoved_FileGoneAtOneHead: a line comment carried to
+// the new head follows a renamed file through its old path, and is marked
+// Drifted when its file no longer exists at the new head. Comments without
+// an anchor quote (crit comment, imports) have only the file contents to go
+// by, so these cases rely on the reads at both heads.
+func TestSetFocus_RangeHeadMoved_FileGoneAtOneHead(t *testing.T) {
+	tests := []struct {
+		name string
+		// setup commits head1 and head2 on top of the returned base.
+		setup       func(t *testing.T, dir string) (base, head1, head2 string)
+		seedPath    string
+		comment     Comment
+		viewPath    string
+		wantLine    int
+		wantDrifted bool
+	}{
+		{
+			name: "file deleted at new head",
+			setup: func(t *testing.T, dir string) (string, string, string) {
+				base := gitT(t, dir, "rev-parse", "HEAD")
+				commitAt(t, dir, "keep.go", "k\n", "keep")
+				head1 := commitAt(t, dir, "gone.go", "a\nb\nc\n", "add gone.go")
+				gitT(t, dir, "rm", "-q", "gone.go")
+				gitT(t, dir, "commit", "-q", "-m", "remove gone.go")
+				return base, head1, gitT(t, dir, "rev-parse", "HEAD")
+			},
+			seedPath:    "gone.go",
+			comment:     Comment{ID: "c", Body: "x", StartLine: 3, EndLine: 3, Scope: "line"},
+			viewPath:    "gone.go",
+			wantLine:    3,
+			wantDrifted: true,
+		},
+		{
+			name: "file renamed after the old head",
+			setup: func(t *testing.T, dir string) (string, string, string) {
+				base := commitAt(t, dir, "a.go", "l1\nl2\nl3\nl4\nl5\nl6\nl7\n", "base has a.go")
+				head1 := commitAt(t, dir, "a.go", "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n", "edit a.go")
+				gitT(t, dir, "mv", "a.go", "b.go")
+				head2 := commitAt(t, dir, "b.go", "new\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n", "rename to b.go")
+				return base, head1, head2
+			},
+			seedPath: "a.go",
+			comment:  Comment{ID: "c", Body: "x", StartLine: 4, EndLine: 4, Scope: "line"},
+			viewPath: "b.go",
+			wantLine: 5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := initTestRepo(t)
+			base, head1, head2 := tt.setup(t, dir)
+			s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}, Branch: "main"}
+			if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head1, DiffScope: DiffScopeLayer}); err != nil {
+				t.Fatal(err)
+			}
+			flushWrites(s)
+
+			// Seed the comment on disk, with no anchor quote.
+			identity := filepath.Join(dir, ".crit")
+			cj, err := readCritJSONFromDisk(identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cj.Files == nil {
+				cj.Files = map[string]CritJSONFile{}
+			}
+			c := tt.comment
+			c.DiffScope, c.FocusKey = string(DiffScopeLayer), fmt.Sprintf("range:%s..%s", base, head1)
+			cf := cj.Files[tt.seedPath]
+			cf.Comments = []Comment{c}
+			cj.Files[tt.seedPath] = cf
+			if err := saveCritJSONToDisk(identity, cj); err != nil {
+				t.Fatal(err)
+			}
+
+			s.sessionStarted.Store(1)
+			if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head2, DiffScope: DiffScopeLayer}); err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range s.GetComments(tt.viewPath) {
+				if got.ID != c.ID {
+					continue
+				}
+				if got.StartLine != tt.wantLine || got.Drifted != tt.wantDrifted {
+					t.Errorf("comment = line %d drifted=%v; want line %d drifted=%v", got.StartLine, got.Drifted, tt.wantLine, tt.wantDrifted)
+				}
+				return
+			}
+			t.Errorf("comment not visible on %s at the new head", tt.viewPath)
+		})
+	}
+}

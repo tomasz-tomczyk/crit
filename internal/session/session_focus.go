@@ -392,22 +392,31 @@ func (s *Session) carryForwardRangeComments(f Focus, v vcs.VCS, repoRoot string)
 func (s *Session) readRangeContents(f Focus, cf rangeCarryForward, need map[string]rangeFileNeed) map[string]map[string]rangeContents {
 	contents := make(map[string]map[string]rangeContents, len(need))
 	for path, n := range need {
-		newData, newErr := s.readFileAtSHAForFocus(f, f.HeadSHA, path)
+		newData, newOK := s.readRangeFile(f, f.HeadSHA, path)
 		for h := range n.heads {
 			if !cf.heads[h] {
 				continue
 			}
-			oldData, oldErr := s.readFileAtSHAForFocus(f, h, path)
-			if oldErr != nil && n.oldPath != "" {
-				oldData, oldErr = s.readFileAtSHAForFocus(f, h, n.oldPath)
+			oldData, oldOK := s.readRangeFile(f, h, path)
+			if !oldOK && n.oldPath != "" {
+				oldData, oldOK = s.readRangeFile(f, h, n.oldPath)
 			}
 			if contents[path] == nil {
 				contents[path] = map[string]rangeContents{}
 			}
-			contents[path][h] = rangeContents{string(oldData), string(newData), oldErr == nil && newErr == nil}
+			contents[path][h] = rangeContents{string(oldData), string(newData), oldOK && newOK}
 		}
 	}
 	return contents
+}
+
+// readRangeFile reads path at sha and reports whether it exists there.
+// ReadFileAtSHA returns (nil, nil) for a path missing at sha, so a nil read
+// counts as missing. An empty file reads as nil too, which is harmless here:
+// it has no lines for a comment to be anchored to.
+func (s *Session) readRangeFile(f Focus, sha, path string) ([]byte, bool) {
+	data, err := s.readFileAtSHAForFocus(f, sha, path)
+	return data, err == nil && data != nil
 }
 
 // rangeCarryForward is the state carryForwardRangeComments shares between steps.
@@ -501,6 +510,9 @@ func (s *Session) applyRangeCarryForward(cf rangeCarryForward, newHead string, c
 			s.reviewComments[i].FocusKey, s.reviewComments[i].HeadSHA = cf.newKey, newHead
 		}
 	}
+	// Schedule the save before releasing the lock: once pendingWrite is set,
+	// the external-change merge won't load the old keys back from disk.
+	s.scheduleWrite()
 }
 
 // validateFocusSHAs runs ensureSHAFetched for each SHA needed by the focus.
