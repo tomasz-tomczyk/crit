@@ -1071,6 +1071,53 @@ type canonicalizeFailVCS struct{ vcs.GitVCS }
 func (c *canonicalizeFailVCS) Name() string               { return "hg" }
 func (c *canonicalizeFailVCS) HasObject(_, _ string) bool { return true }
 
+// moveRangeHead moves s to focus f the way the daemon does between rounds:
+// SetFocus, then carry the comments of the older head forward.
+func moveRangeHead(s *Session, f Focus) error {
+	if err := s.SetFocus(f); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	f = s.Focus
+	s.mu.RUnlock()
+	s.carryForwardRangeComments(f, s.VCS, s.RepoRoot)
+	return nil
+}
+
+// TestSetFocus_PickerSwitchKeepsRangeCommentsApart: switching the view to a
+// newer head with SetFocus alone (the stack picker) does not move the older
+// view's comments, and they are still there when switching back.
+func TestSetFocus_PickerSwitchKeepsRangeCommentsApart(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	head1 := commitAt(t, dir, "a.go", "one\n", "one")
+	head2 := commitAt(t, dir, "a.go", "one\ntwo\n", "two")
+	s := &Session{RepoRoot: dir, OutputDir: dir, VCS: &vcs.GitVCS{}, Branch: "main"}
+	at := func(head string) Focus {
+		return Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}
+	}
+	if err := s.SetFocus(at(head1)); err != nil {
+		t.Fatal(err)
+	}
+	c, ok := s.AddComment("a.go", 1, 1, "", "on one", "", "r", "")
+	if !ok {
+		t.Fatal("AddComment failed")
+	}
+	s.sessionStarted.Store(1)
+	if err := s.SetFocus(at(head2)); err != nil {
+		t.Fatal(err)
+	}
+	if cs := s.GetComments("a.go"); len(cs) != 0 {
+		t.Errorf("visible at base..head2 = %+v; want none", cs)
+	}
+	if err := s.SetFocus(at(head1)); err != nil {
+		t.Fatal(err)
+	}
+	if cs := s.GetComments("a.go"); len(cs) != 1 || cs[0].ID != c.ID {
+		t.Errorf("visible at base..head1 = %+v; want %s", cs, c.ID)
+	}
+}
+
 // TestSetFocus_RangeHeadMoved_CarriesCommentsForward covers #1148: comments
 // made on base..head1 stay visible once the view moves to base..head2 (the
 // branch gained a commit between rounds), re-anchored to head2's lines.
@@ -1097,7 +1144,7 @@ func TestSetFocus_RangeHeadMoved_CarriesCommentsForward(t *testing.T) {
 	// The agent adds two lines on top and rewrites the line the B comment is on.
 	head2 := commitAt(t, dir, "a.go", "// x\n// y\nfunc A() {}\nfunc B() int {\n\tpanic(\"not implemented yet\")\n}\nfunc C() {}\n", "rewrite B")
 	s.sessionStarted.Store(1)
-	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head2, DiffScope: DiffScopeLayer}); err != nil {
+	if err := moveRangeHead(s, Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head2, DiffScope: DiffScopeLayer}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1174,7 +1221,7 @@ func TestSetFocus_RangeHeadMoved_LeavesOtherRangesAlone(t *testing.T) {
 	}
 	s.sessionStarted.Store(1)
 	// Go back to the older head: comments made at a later head are not moved back.
-	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head1, DiffScope: DiffScopeLayer}); err != nil {
+	if err := moveRangeHead(s, Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head1, DiffScope: DiffScopeLayer}); err != nil {
 		t.Fatal(err)
 	}
 	if cs := s.GetComments("a.go"); len(cs) != 0 {
@@ -1265,7 +1312,7 @@ func TestSetFocus_RangeHeadMoved_FileGoneAtOneHead(t *testing.T) {
 			}
 
 			s.sessionStarted.Store(1)
-			if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head2, DiffScope: DiffScopeLayer}); err != nil {
+			if err := moveRangeHead(s, Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head2, DiffScope: DiffScopeLayer}); err != nil {
 				t.Fatal(err)
 			}
 			for _, got := range s.GetComments(tt.viewPath) {

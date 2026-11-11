@@ -334,10 +334,6 @@ func (s *Session) SetFocus(f Focus) error {
 		return fmt.Errorf("persisting active diff scope: %w", err)
 	}
 
-	// A range view whose head moved (new commits since the last round) has
-	// a new focus key: bring the comments made at the older head along.
-	s.carryForwardRangeComments(f, vc, repoRoot)
-
 	s.mu.Lock()
 	s.scheduleWrite()
 	s.mu.Unlock()
@@ -359,15 +355,20 @@ func (s *Session) SetFocus(f Focus) error {
 }
 
 // carryForwardRangeComments re-keys comments made at an older head of the
-// same range so they stay visible in focus f. A range focus without a PR/MR
-// number keys comments by "range:<base>..<head>", so when the branch gains
-// commits and the view moves to the new head, the comments of earlier rounds
-// no longer match it and disappear (#1148). A comment is carried forward when
-// its key has f's base and its head is an ancestor of f's head. Line comments
-// are re-anchored from the old head's content to the new head's, as the
-// round carry-forward does, and marked Drifted when their anchor is gone.
-// Comments of other ranges (another base, or a head that is not an ancestor)
-// keep their key.
+// same range so they stay visible in focus f, the focus the session just
+// moved to. A range focus without a PR/MR number keys comments by
+// "range:<base>..<head>", so when the branch gains commits and the review
+// moves to the new head, the comments of earlier rounds no longer match it
+// and disappear (#1148). A comment is carried forward when its key has f's
+// base and its head is an ancestor of f's head. Line comments are re-anchored
+// from the old head's content to the new head's, as the round carry-forward
+// does, and marked Drifted when their anchor is gone. Comments of other
+// ranges (another base, or a head that is not an ancestor) keep their key.
+//
+// SetFocus does not call it: switching views in the stack picker keeps each
+// view's comments to itself, since a branch stacked on top also descends
+// from the older head. Only a caller that moves the review along the same
+// branch between rounds carries comments forward. Call it after SetFocus(f).
 func (s *Session) carryForwardRangeComments(f Focus, v vcs.VCS, repoRoot string) {
 	if f.Kind != FocusRange || f.ChangeNumber > 0 || v == nil || f.BaseSHA == "" || f.HeadSHA == "" {
 		return
