@@ -75,6 +75,18 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 - **Week 1**: Middleware + key model
 - **Week 2**: Validation endpoint + tests
 - **Week 3**: Dashboard UI for key management
+
+שלום, Hello world.
+
+Hello, שלום עולם.
+
+- שלום, list item
+
+> שלום, quoted text
+
+| שלום כותרת | English header |
+|-----------|----------------|
+| שלום תא   | English cell   |
 MDFILE
 
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)

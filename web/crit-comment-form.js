@@ -41,6 +41,7 @@
     }
 
     var textarea = document.createElement('textarea');
+    textarea.dir = 'auto';
     textarea.placeholder = opts.placeholder || 'Leave a comment... (Ctrl+Enter to submit, Escape to cancel)';
     if (opts.formKey) textarea.dataset.formKey = opts.formKey;
     if (opts.initialBody) textarea.value = opts.initialBody;

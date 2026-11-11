@@ -165,6 +165,7 @@
     bodyEl.innerHTML = commentMd
       ? commentMd.render(comment.body, filePath ? buildCommentEnv(comment, filePath) : undefined)
       : (comment.body || '');
+    if (typeof window !== 'undefined') window.crit.shared.applyAutoTextDirection(bodyEl);
     if (typeof deps.linkifyDom === 'function') deps.linkifyDom(bodyEl);
 
     card.appendChild(header);

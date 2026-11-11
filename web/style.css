@@ -1124,6 +1124,25 @@ body.dragging { user-select: none; cursor: grabbing; }
   overflow-wrap: break-word;
 }
 
+/* Hebrew/Arabic (RTL) and mixed-script text: let the browser pick direction
+   per block from its first strong character. English-only blocks stay LTR. */
+.line-content,
+.comment-body,
+.reply-body,
+.comment-textarea,
+.comment-form textarea,
+.reply-input,
+.reply-textarea {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.line-content pre,
+.line-content code {
+  unicode-bidi: normal;
+  text-align: left;
+  direction: ltr;
+}
+
 /* ===== Markdown Styles ===== */
 /* Heading/paragraph top spacing lives on the .line-block row (see the
    .line-block:has(...) rules below), NOT as margin-top on the heading itself.
@@ -1484,7 +1503,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   overflow-wrap: break-word;
 }
 .native-table th.line-content {
-  text-align: left;
+  text-align: start;
   font-weight: 600;
   padding: 10px 14px;
   color: var(--crit-editor-fg-secondary);
@@ -1542,7 +1561,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 .line-content blockquote {
   margin: 6px 0;
   padding: 8px 16px;
-  border-left: 3px solid var(--crit-blockquote-border);
+  border-inline-start: 3px solid var(--crit-blockquote-border);
   background: var(--crit-blockquote-bg);
   border-radius: 0 6px 6px 0;
   color: var(--crit-editor-fg-secondary);
@@ -1554,7 +1573,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 
 .line-content ul,
 .line-content ol {
-  padding-left: 24px;
+  padding-inline-start: 24px;
   margin: 0;
 }
 
@@ -1575,7 +1594,7 @@ body.dragging { user-select: none; cursor: grabbing; }
    their own bullet/marker. */
 .line-content ul.crit-list-wrapper,
 .line-content ol.crit-list-wrapper {
-  padding-left: 24px;
+  padding-inline-start: 24px;
   margin: 0;
 }
 .line-content li.crit-list-wrapper {
@@ -1593,7 +1612,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 
 .line-content th {
-  text-align: left;
+  text-align: start;
   font-weight: 600;
   padding: 10px 14px;
   border-bottom: 2px solid var(--crit-border);
@@ -1619,8 +1638,8 @@ body.dragging { user-select: none; cursor: grabbing; }
 /* Task lists */
 .line-content .task-list-item {
   list-style: none;
-  margin-left: -24px;
-  padding-left: 4px;
+  margin-inline-start: -24px;
+  padding-inline-start: 4px;
 }
 
 .line-content .task-list-item input[type="checkbox"] {
@@ -1868,7 +1887,7 @@ tspan.quote-highlight {
   flex: 1;
   min-width: 0;
 }
-.comment-body ul, .comment-body ol { margin: 0.3em 0; padding-left: 1.5em; }
+.comment-body ul, .comment-body ol { margin: 0.3em 0; padding-inline-start: 1.5em; }
 .comment-body a {
   color: var(--crit-brand);
   text-decoration: none;
@@ -1882,7 +1901,7 @@ tspan.quote-highlight {
 .comment-body blockquote {
   margin: 6px 0;
   padding: 8px 16px;
-  border-left: 3px solid var(--crit-blockquote-border);
+  border-inline-start: 3px solid var(--crit-blockquote-border);
   background: var(--crit-blockquote-bg);
   border-radius: 0 6px 6px 0;
   color: var(--crit-editor-fg-secondary);
@@ -1915,7 +1934,7 @@ tspan.quote-highlight {
 .reply-body td {
   border: 1px solid var(--crit-border);
   padding: 4px 10px;
-  text-align: left;
+  text-align: start;
 }
 
 .comment-body th,
@@ -1978,14 +1997,14 @@ tspan.quote-highlight {
 }
 
 .reply-body ul, .reply-body ol {
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
   margin: 0.3em 0;
 }
 
 .reply-body blockquote {
   margin: 6px 0;
   padding: 8px 16px;
-  border-left: 3px solid var(--crit-blockquote-border);
+  border-inline-start: 3px solid var(--crit-blockquote-border);
   background: var(--crit-blockquote-bg);
   border-radius: 0 6px 6px 0;
   color: var(--crit-editor-fg-secondary);
