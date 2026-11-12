@@ -5936,12 +5936,6 @@ body.pierre-review .review-conversation:not([data-doc-layout="centered"]) { marg
 }
 .commit-context-body > :first-child { margin-top: 0; }
 .commit-context-body > :last-child { margin-bottom: 0; }
-.commit-context-empty {
-  margin-top: 6px;
-  font-size: 12px;
-  font-style: italic;
-  color: var(--crit-editor-fg-muted);
-}
 .commit-context-list {
   list-style: none;
   margin: 8px 0 0;

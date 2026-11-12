@@ -6407,6 +6407,7 @@
       pendingNewDraft = existingNewTa.value;
     }
 
+    const focusedCtl = focusedCommitCtl();
     section.hidden = false;
     section.innerHTML = '';
 
@@ -6423,7 +6424,10 @@
     section.classList.toggle('collapsed', collapsed);
 
     const commitCard = buildCommitContextCard();
-    if (commitCard) section.appendChild(commitCard);
+    if (commitCard) {
+      section.appendChild(commitCard);
+      restoreCommitCardFocus(commitCard, focusedCtl);
+    }
 
     // Header — chevron on the left, matching `.tree-folder` and `.comment-card`
     // collapse conventions elsewhere in the UI.
@@ -8471,6 +8475,7 @@
       diffCommit = '';
     }
     updateScopePinIndicator();
+    refreshCommitContextCard();
   }
 
   // Marks the scope toggle while a pinned commit overrides it. The hint goes
@@ -8622,28 +8627,56 @@
     return commitList.filter(function(c) { return !c.virtual; });
   }
 
-  // Step the single-commit pin to an older (-1) or newer (+1) commit. With
-  // nothing pinned, starts at the oldest commit.
+  // Step the single-commit pin to an older (-1) or newer (+1) commit. With a
+  // range pinned, lands on the range's oldest (next) or newest (previous)
+  // commit; with nothing pinned, starts the walk at the oldest commit.
   function stepPinnedCommit(dir) {
     const real = realCommits();
     if (real.length < 2) return false;
-    const pos = commitFrom && !commitThrough ? real.findIndex(function(c) { return c.sha === commitFrom; }) : -1;
+    const indexOf = function(sha) { return real.findIndex(function(c) { return c.sha === sha; }); };
+    const span = pinnedCommitSpan();
     let next;
-    if (pos < 0) next = dir > 0 ? real.length - 1 : 0;
-    else next = pos - dir; // list is newest first
+    if (span && span.newest === span.oldest) {
+      next = indexOf(commitFrom) - dir; // list is newest first
+    } else if (span) {
+      next = indexOf(commitList[dir > 0 ? span.oldest : span.newest].sha);
+    } else {
+      next = real.length - 1;
+    }
     if (next < 0 || next >= real.length) return false;
     focusSingleCommit(real[next].sha);
     return true;
   }
 
+  // Which card control has focus, so a rebuild can put it back.
+  function focusedCommitCtl() {
+    const active = document.activeElement;
+    const ctl = active && active.closest && active.closest('.commit-context [data-commit-ctl]');
+    return ctl ? ctl.dataset.commitCtl : '';
+  }
+
+  function restoreCommitCardFocus(card, ctlName) {
+    if (!ctlName || !card) return;
+    let el = card.querySelector('[data-commit-ctl="' + ctlName + '"]');
+    if (el && el.disabled) el = card.querySelector('.commit-context-step:not(:disabled)');
+    if (!el) el = card.querySelector('[data-commit-ctl="sha"]');
+    if (el) el.focus();
+  }
+
   function focusSingleCommit(sha) {
+    const focusedCtl = focusedCommitCtl();
     const prev = diffCommit;
     virtualCommitSelected = false;
     commitFrom = sha;
     commitThrough = '';
     recomputeDiffCommit();
     renderCommitPicker();
-    if (diffCommit !== prev) reloadForScope();
+    if (diffCommit === prev) return;
+    // The reload rebuilds the list and moves the review conversation, which
+    // drops focus; put it back on the same control once it settles.
+    reloadForScope().then(function() {
+      restoreCommitCardFocus(document.querySelector('#reviewConversation > .commit-context'), focusedCtl);
+    });
   }
 
   function buildCommitContextCard() {
@@ -8668,6 +8701,7 @@
       const prevBtn = document.createElement('button');
       prevBtn.type = 'button';
       prevBtn.className = 'commit-context-step';
+      prevBtn.dataset.commitCtl = 'prev';
       prevBtn.textContent = '\u2039';
       prevBtn.title = 'Previous commit (,)';
       prevBtn.setAttribute('aria-label', 'Previous commit');
@@ -8679,6 +8713,7 @@
       const nextBtn = document.createElement('button');
       nextBtn.type = 'button';
       nextBtn.className = 'commit-context-step';
+      nextBtn.dataset.commitCtl = 'next';
       nextBtn.textContent = '\u203a';
       nextBtn.title = 'Next commit (.)';
       nextBtn.setAttribute('aria-label', 'Next commit');
@@ -8690,6 +8725,7 @@
       const sha = document.createElement('button');
       sha.type = 'button';
       sha.className = 'commit-context-sha';
+      sha.dataset.commitCtl = 'sha';
       sha.textContent = c.short_sha;
       sha.title = 'Copy full SHA';
       sha.setAttribute('aria-label', 'Copy commit SHA ' + c.sha);
@@ -8713,16 +8749,12 @@
       title.textContent = c.message;
       card.appendChild(title);
 
+      // jj and Sapling do not send bodies, so an empty one says nothing.
       if (c.body) {
         const body = document.createElement('div');
         body.className = 'commit-context-body comment-body';
         body.innerHTML = commentMd.render(c.body);
         card.appendChild(body);
-      } else {
-        const none = document.createElement('div');
-        none.className = 'commit-context-empty';
-        none.textContent = 'No description beyond the subject line.';
-        card.appendChild(none);
       }
       return card;
     }
@@ -8744,6 +8776,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'commit-context-list-item';
+      btn.dataset.commitCtl = 'list';
       btn.title = commitTooltip(c);
       const shaEl = document.createElement('span');
       shaEl.className = 'commit-context-list-sha';
@@ -8765,10 +8798,12 @@
     const section = document.getElementById('reviewConversation');
     if (!section || section.hidden) return;
     const old = section.querySelector(':scope > .commit-context');
+    const focusedCtl = focusedCommitCtl();
     const next = buildCommitContextCard();
     if (old && next) old.replaceWith(next);
     else if (old) old.remove();
     else if (next) section.insertBefore(next, section.firstChild);
+    restoreCommitCardFocus(next, focusedCtl);
   }
 
   document.getElementById('commitDropdownBtn').addEventListener('click', function() {
@@ -9965,7 +10000,7 @@
         break;
       }
       case 'next_commit': case 'previous_commit': {
-        if (session.mode !== 'git' || !commitRangeChromeVisible()) break;
+        if (session.mode !== 'git' || storyActive() || !commitRangeChromeVisible()) break;
         if (stepPinnedCommit(shortcutAction === 'next_commit' ? 1 : -1)) e.preventDefault();
         break;
       }

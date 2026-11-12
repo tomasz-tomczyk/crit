@@ -394,7 +394,7 @@ func CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 		headRef = "HEAD"
 	}
 	// NUL separates fields and RS separates records, so multi-line bodies parse safely.
-	cmd := exec.Command("git", "log", "--format=%H%x00%h%x00%s%x00%b%x00%an%x00%aI%x1e", baseRef+".."+headRef)
+	cmd := exec.Command("git", "log", "--no-show-signature", "--format=%H%x00%h%x00%s%x00%b%x00%an%x00%aI%x1e", baseRef+".."+headRef)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -416,7 +416,7 @@ func CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 			SHA:      f[0],
 			ShortSHA: f[1],
 			Message:  f[2],
-			Body:     strings.TrimSpace(f[3]),
+			Body:     strings.TrimRight(strings.TrimLeft(f[3], "\r\n"), " \t\r\n"),
 			Author:   f[4],
 			Date:     strings.TrimSpace(f[5]),
 		})
