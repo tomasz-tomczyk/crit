@@ -95,12 +95,9 @@ func (s *Server) servePreviewExcalidraw(w http.ResponseWriter, filePath string) 
 		return
 	}
 	// The scene goes in as a JSON string. json.Marshal escapes <, > and &, so
-	// the file cannot close the <script> element it sits in.
-	sceneJSON, err := json.Marshal(string(scene))
-	if err != nil {
-		http.Error(w, "failed to encode scene", http.StatusInternalServerError)
-		return
-	}
+	// the file cannot close the <script> element it sits in. Marshalling a
+	// string never fails (invalid UTF-8 becomes U+FFFD).
+	sceneJSON, _ := json.Marshal(string(scene))
 	body := strings.NewReplacer(
 		"{{TITLE}}", html.EscapeString(filepath.Base(filePath)),
 		"{{SCENE}}", string(sceneJSON),

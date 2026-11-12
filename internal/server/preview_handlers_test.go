@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
@@ -149,6 +150,42 @@ func TestServePreviewExcalidraw_ServesCanvasPageWithSceneAndAgent(t *testing.T) 
 	}
 	if strings.Index(body, "crit-excalidraw-canvas.js") > strings.Index(body, "crit-agent.js") {
 		t.Error("the canvas must be drawn before the agent scripts run")
+	}
+}
+
+func TestServePreviewExcalidraw_SceneGoneIsAServerError(t *testing.T) {
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := newPreviewContentTestServer(t, scene)
+	if err := os.Remove(scene); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	s.handlePreviewContent(w, httptest.NewRequest("GET", "/preview-content/", nil))
+
+	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "failed to read preview file") {
+		t.Fatalf("got %d %q, want 500 failed to read preview file", w.Code, w.Body.String())
+	}
+}
+
+func TestServePreviewExcalidraw_MissingCanvasPageIsAServerError(t *testing.T) {
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := newPreviewContentTestServer(t, scene)
+	s.assets = fstest.MapFS{}
+
+	w := httptest.NewRecorder()
+	s.handlePreviewContent(w, httptest.NewRequest("GET", "/preview-content/", nil))
+
+	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "missing excalidraw-canvas.html") {
+		t.Fatalf("got %d %q, want 500 missing excalidraw-canvas.html", w.Code, w.Body.String())
 	}
 }
 
