@@ -375,6 +375,7 @@ type CommitInfo struct {
 	SHA      string `json:"sha"`
 	ShortSHA string `json:"short_sha"`
 	Message  string `json:"message"`
+	Body     string `json:"body,omitempty"`
 	Author   string `json:"author"`
 	Date     string `json:"date"`
 	Virtual  bool   `json:"virtual,omitempty"`
@@ -392,7 +393,8 @@ func CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 	if headRef == "" {
 		headRef = "HEAD"
 	}
-	cmd := exec.Command("git", "log", "--format=%H%n%h%n%s%n%an%n%aI", baseRef+".."+headRef)
+	// NUL separates fields and RS separates records, so multi-line bodies parse safely.
+	cmd := exec.Command("git", "log", "--no-show-signature", "--format=%H%x00%h%x00%s%x00%b%x00%an%x00%aI%x1e", baseRef+".."+headRef)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -400,22 +402,23 @@ func CommitLog(baseRef, headRef, dir string) ([]CommitInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
-	output := strings.TrimSpace(string(out))
-	if output == "" {
-		return nil, nil
-	}
-	lines := strings.Split(output, "\n")
-	if len(lines)%5 != 0 {
-		return nil, fmt.Errorf("unexpected git log output: %d lines (not a multiple of 5)", len(lines))
-	}
 	var commits []CommitInfo
-	for i := 0; i < len(lines); i += 5 {
+	for _, rec := range strings.Split(string(out), "\x1e") {
+		rec = strings.TrimLeft(rec, "\n")
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		f := strings.Split(rec, "\x00")
+		if len(f) != 6 {
+			return nil, fmt.Errorf("unexpected git log record: %d fields", len(f))
+		}
 		commits = append(commits, CommitInfo{
-			SHA:      lines[i],
-			ShortSHA: lines[i+1],
-			Message:  lines[i+2],
-			Author:   lines[i+3],
-			Date:     lines[i+4],
+			SHA:      f[0],
+			ShortSHA: f[1],
+			Message:  f[2],
+			Body:     strings.TrimRight(strings.TrimLeft(f[3], "\r\n"), " \t\r\n"),
+			Author:   f[4],
+			Date:     strings.TrimSpace(f[5]),
 		})
 	}
 	return commits, nil

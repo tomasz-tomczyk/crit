@@ -1,6 +1,7 @@
 package vcs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1919,5 +1920,50 @@ func TestPathListings_NonASCIIPaths(t *testing.T) {
 
 	if got := fileStatusInRepo("réflexion/vérifié.md", dir, base); got != "added" {
 		t.Errorf("fileStatusInRepo = %q, want added", got)
+	}
+}
+
+func TestCommitLogBody(t *testing.T) {
+	dir := testutil.InitTestRepo(t)
+	baseRef := testutil.Git(t, dir, "rev-parse", "HEAD")
+	testutil.Git(t, dir, "checkout", "-b", "feature/bodies")
+
+	cases := []struct {
+		name    string
+		args    []string
+		subject string
+		body    string
+	}{
+		{"subject only", []string{"-m", "subject only"}, "subject only", ""},
+		{"multi-paragraph body", []string{"-m", "with body", "-m", "first para\nwrapped line\n\nsecond para"}, "with body", "first para\nwrapped line\n\nsecond para"},
+		{"indented first line", []string{"-m", "indented", "-m", "    code line\nplain"}, "indented", "    code line\nplain"},
+	}
+	for i, tc := range cases {
+		name := fmt.Sprintf("f%d.txt", i)
+		testutil.WriteFile(t, filepath.Join(dir, name), tc.name+"\n")
+		testutil.Git(t, dir, "add", name)
+		testutil.Git(t, dir, append([]string{"commit"}, tc.args...)...)
+	}
+
+	commits, err := CommitLog(baseRef, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != len(cases) {
+		t.Fatalf("got %d commits, want %d", len(commits), len(cases))
+	}
+	for i, tc := range cases {
+		c := commits[len(cases)-1-i] // newest first
+		t.Run(tc.name, func(t *testing.T) {
+			if c.Message != tc.subject {
+				t.Errorf("Message = %q, want %q", c.Message, tc.subject)
+			}
+			if c.Body != tc.body {
+				t.Errorf("Body = %q, want %q", c.Body, tc.body)
+			}
+			if c.Author == "" || c.Date == "" || len(c.SHA) != 40 {
+				t.Errorf("fields shifted: %+v", c)
+			}
+		})
 	}
 }

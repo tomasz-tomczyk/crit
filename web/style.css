@@ -5019,6 +5019,7 @@ html[data-theme="light"] .toggle-btn.active {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
 }
 .commit-picker-item-time {
   font-size: 10px;
@@ -5865,6 +5866,109 @@ html[data-theme="light"] .toggle-btn.active {
 /* The review list already pads the files; line the conversation up with them. */
 body.pierre-review .review-conversation:not([data-doc-layout="centered"]) { margin-inline: 0; }
 .review-conversation.collapsed .review-conversation-body { display: none; }
+
+/* Commit context card: what the pinned commit (or range) is for, shown
+   above the review conversation when reviewing commit by commit. */
+.commit-context {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--crit-editor-bg-elevated);
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-md);
+}
+.commit-context-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+}
+.commit-context-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.commit-context-step {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--crit-editor-fg);
+  background: transparent;
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+.commit-context-step:hover:not(:disabled) { background: var(--crit-editor-bg-hover); }
+.commit-context-step:disabled { opacity: 0.35; cursor: default; }
+.commit-context-counter {
+  font-weight: 600;
+  color: var(--crit-editor-fg-secondary);
+}
+.commit-context-sha {
+  padding: 1px 6px;
+  font-family: var(--crit-font-mono);
+  font-size: 11px;
+  color: var(--crit-editor-fg-muted);
+  background: transparent;
+  border: 1px solid var(--crit-border);
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+.commit-context-sha:hover { color: var(--crit-editor-fg); background: var(--crit-editor-bg-hover); }
+.commit-context-title {
+  margin: 10px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--crit-editor-fg);
+  overflow-wrap: anywhere;
+}
+.commit-context-body {
+  margin-top: 8px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--crit-editor-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.commit-context-body > :first-child { margin-top: 0; }
+.commit-context-body > :last-child { margin-bottom: 0; }
+.commit-context-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.commit-context-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 6px;
+  margin-left: -6px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--crit-editor-fg);
+  background: transparent;
+  border: 0;
+  border-radius: var(--crit-r-sm);
+  cursor: pointer;
+}
+.commit-context-list-item:hover { background: var(--crit-editor-bg-hover); }
+.commit-context-list-sha {
+  flex-shrink: 0;
+  font-family: var(--crit-font-mono);
+  font-size: 11px;
+  color: var(--crit-editor-fg-muted);
+}
+.commit-context-list-msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .review-conversation-header {
   display: flex;
