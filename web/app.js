@@ -6422,6 +6422,9 @@
     const collapsed = isReviewConversationCollapsed() && !reviewCommentFormActive;
     section.classList.toggle('collapsed', collapsed);
 
+    const commitCard = buildCommitContextCard();
+    if (commitCard) section.appendChild(commitCard);
+
     // Header — chevron on the left, matching `.tree-folder` and `.comment-card`
     // collapse conventions elsewhere in the UI.
     const header = document.createElement('div');
@@ -8589,11 +8592,183 @@
       return '<div class="' + cls + '" data-commit="' + c.sha + '" role="button" tabindex="0">'
         + fromPin + throughPin
         + '<span class="commit-picker-item-sha">' + escapeHtml(c.short_sha) + '</span>'
-        + '<span class="commit-picker-item-msg">' + escapeHtml(c.message.length > 40 ? c.message.slice(0, 40) + '\u2026' : c.message) + '</span>'
+        + '<span class="commit-picker-item-msg" title="' + escapeHtml(commitTooltip(c)) + '">' + escapeHtml(c.message) + '</span>'
         + virtualPill
         + time
         + '</div>';
     }).join('');
+    refreshCommitContextCard();
+  }
+
+  function commitTooltip(c) {
+    if (c.virtual) return c.message;
+    const lines = (c.body || '').split('\n').slice(0, 12);
+    return c.message + (lines.join('').trim() ? '\n\n' + lines.join('\n') : '');
+  }
+
+  // Index range [newest, oldest] in commitList for the pinned scope, or null
+  // when nothing real is pinned.
+  function pinnedCommitSpan() {
+    if (!commitFrom) return null;
+    const fromIdx = commitIndexForSha(commitFrom);
+    if (fromIdx < 0 || commitList[fromIdx].virtual) return null;
+    if (!commitThrough) return { newest: fromIdx, oldest: fromIdx };
+    const throughIdx = commitIndexForSha(commitThrough);
+    if (throughIdx < 0) return null;
+    return { newest: Math.min(fromIdx, throughIdx), oldest: Math.max(fromIdx, throughIdx) };
+  }
+
+  function realCommits() {
+    return commitList.filter(function(c) { return !c.virtual; });
+  }
+
+  // Step the single-commit pin to an older (-1) or newer (+1) commit. With
+  // nothing pinned, starts at the oldest commit.
+  function stepPinnedCommit(dir) {
+    const real = realCommits();
+    if (real.length < 2) return false;
+    const pos = commitFrom && !commitThrough ? real.findIndex(function(c) { return c.sha === commitFrom; }) : -1;
+    let next;
+    if (pos < 0) next = dir > 0 ? real.length - 1 : 0;
+    else next = pos - dir; // list is newest first
+    if (next < 0 || next >= real.length) return false;
+    focusSingleCommit(real[next].sha);
+    return true;
+  }
+
+  function focusSingleCommit(sha) {
+    const prev = diffCommit;
+    virtualCommitSelected = false;
+    commitFrom = sha;
+    commitThrough = '';
+    recomputeDiffCommit();
+    renderCommitPicker();
+    if (diffCommit !== prev) reloadForScope();
+  }
+
+  function buildCommitContextCard() {
+    if (!session || session.mode !== 'git' || !commitRangeChromeVisible()) return null;
+    const span = pinnedCommitSpan();
+    if (!span) return null;
+    const real = realCommits();
+    const card = document.createElement('section');
+    card.className = 'commit-context';
+    card.setAttribute('aria-label', 'Commit details');
+
+    if (span.newest === span.oldest) {
+      const c = commitList[span.newest];
+      const pos = real.findIndex(function(r) { return r.sha === c.sha; });
+      const number = real.length - pos; // 1 = oldest
+
+      const meta = document.createElement('div');
+      meta.className = 'commit-context-meta';
+
+      const nav = document.createElement('div');
+      nav.className = 'commit-context-nav';
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'commit-context-step';
+      prevBtn.textContent = '\u2039';
+      prevBtn.title = 'Previous commit (,)';
+      prevBtn.setAttribute('aria-label', 'Previous commit');
+      prevBtn.disabled = pos >= real.length - 1;
+      prevBtn.addEventListener('click', function() { stepPinnedCommit(-1); });
+      const counter = document.createElement('span');
+      counter.className = 'commit-context-counter';
+      counter.textContent = 'Commit ' + number + ' of ' + real.length;
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'commit-context-step';
+      nextBtn.textContent = '\u203a';
+      nextBtn.title = 'Next commit (.)';
+      nextBtn.setAttribute('aria-label', 'Next commit');
+      nextBtn.disabled = pos <= 0;
+      nextBtn.addEventListener('click', function() { stepPinnedCommit(1); });
+      nav.append(prevBtn, counter, nextBtn);
+      meta.appendChild(nav);
+
+      const sha = document.createElement('button');
+      sha.type = 'button';
+      sha.className = 'commit-context-sha';
+      sha.textContent = c.short_sha;
+      sha.title = 'Copy full SHA';
+      sha.setAttribute('aria-label', 'Copy commit SHA ' + c.sha);
+      sha.addEventListener('click', function() {
+        navigator.clipboard.writeText(c.sha).then(function() {
+          sha.textContent = 'Copied';
+          setTimeout(function() { sha.textContent = c.short_sha; }, 1200);
+        }).catch(function() { sha.textContent = c.short_sha; });
+      });
+      meta.appendChild(sha);
+
+      const who = document.createElement('span');
+      who.className = 'commit-context-author';
+      who.textContent = (c.author || '') + (c.date ? ' \u00b7 ' + relativeTime(c.date) : '');
+      if (c.date) who.title = new Date(c.date).toLocaleString();
+      meta.appendChild(who);
+      card.appendChild(meta);
+
+      const title = document.createElement('h2');
+      title.className = 'commit-context-title';
+      title.textContent = c.message;
+      card.appendChild(title);
+
+      if (c.body) {
+        const body = document.createElement('div');
+        body.className = 'commit-context-body comment-body';
+        body.innerHTML = commentMd.render(c.body);
+        card.appendChild(body);
+      } else {
+        const none = document.createElement('div');
+        none.className = 'commit-context-empty';
+        none.textContent = 'No description beyond the subject line.';
+        card.appendChild(none);
+      }
+      return card;
+    }
+
+    const count = span.oldest - span.newest + 1;
+    const meta = document.createElement('div');
+    meta.className = 'commit-context-meta';
+    const counter = document.createElement('span');
+    counter.className = 'commit-context-counter';
+    counter.textContent = count + ' commits \u00b7 ' + commitList[span.oldest].short_sha + ' \u2192 ' + commitList[span.newest].short_sha;
+    meta.appendChild(counter);
+    card.appendChild(meta);
+
+    const list = document.createElement('ol');
+    list.className = 'commit-context-list';
+    for (let i = span.oldest; i >= span.newest; i--) {
+      const c = commitList[i];
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'commit-context-list-item';
+      btn.title = commitTooltip(c);
+      const shaEl = document.createElement('span');
+      shaEl.className = 'commit-context-list-sha';
+      shaEl.textContent = c.short_sha;
+      const msg = document.createElement('span');
+      msg.className = 'commit-context-list-msg';
+      msg.textContent = c.message;
+      btn.append(shaEl, msg);
+      btn.addEventListener('click', function() { focusSingleCommit(c.sha); });
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+    card.appendChild(list);
+    return card;
+  }
+
+  // Swap only the card so an open review-comment form is left alone.
+  function refreshCommitContextCard() {
+    const section = document.getElementById('reviewConversation');
+    if (!section || section.hidden) return;
+    const old = section.querySelector(':scope > .commit-context');
+    const next = buildCommitContextCard();
+    if (old && next) old.replaceWith(next);
+    else if (old) old.remove();
+    else if (next) section.insertBefore(next, section.firstChild);
   }
 
   document.getElementById('commitDropdownBtn').addEventListener('click', function() {
@@ -9787,6 +9962,11 @@
       case 'previous_change': {
         e.preventDefault();
         navigateToChange(-1);
+        break;
+      }
+      case 'next_commit': case 'previous_commit': {
+        if (session.mode !== 'git' || !commitRangeChromeVisible()) break;
+        if (stepPinnedCommit(shortcutAction === 'next_commit' ? 1 : -1)) e.preventDefault();
         break;
       }
       case 'scope_all': case 'scope_branch': case 'scope_staged': case 'scope_unstaged': {

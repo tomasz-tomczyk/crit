@@ -26,6 +26,8 @@
       { id: 'previous_comment', binding: '[', action: 'Previous comment', modes: CODE_REVIEW_ONLY },
       { id: 'next_change', binding: 'n', action: 'Next change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
       { id: 'previous_change', binding: 'Shift+N', action: 'Previous change', mode: 'file mode', modes: CODE_REVIEW_ONLY },
+      { id: 'next_commit', binding: '.', action: 'Next commit (one commit at a time)', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
+      { id: 'previous_commit', binding: ',', action: 'Previous commit (one commit at a time)', mode: 'vcs mode', modes: CODE_REVIEW_ONLY },
     ]},
     { label: 'Comments', shortcuts: [
       { id: 'comment', binding: 'c', action: 'Comment on focused block (or text selection, with quote)', modes: CODE_REVIEW_ONLY },
