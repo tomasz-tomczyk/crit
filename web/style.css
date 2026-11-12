@@ -4856,8 +4856,85 @@ html[data-theme="light"] .toggle-btn.active {
   padding: 0 10px;
 }
 .scope-toggle .toggle-btn:disabled { opacity: 0.4; cursor: default; }
+/* A pinned commit overrides the scope. The toggle recedes (no track fill,
+   dashed hairline, dimmer labels) and a chip on its left names the pin. The
+   scope that comes back on unpin keeps a ghost outline. */
 .scope-toggle.commit-pinned {
-  border-color: var(--crit-orange);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--crit-border-strong);
+}
+.scope-toggle.commit-pinned .toggle-btn:not(:disabled) {
+  color: var(--crit-scope-idle-fg);
+}
+.scope-toggle.commit-pinned .toggle-btn.remembered {
+  box-shadow: inset 0 0 0 1px var(--crit-scope-ghost);
+}
+.scope-toggle.commit-pinned .toggle-btn:not(:disabled):hover,
+.scope-toggle.commit-pinned .toggle-btn:not(:disabled):focus-visible {
+  color: var(--crit-editor-fg);
+  background: color-mix(in srgb, var(--crit-editor-fg) 5%, transparent);
+}
+.scope-toggle.commit-pinned .toggle-btn:disabled { opacity: 0.3; }
+.scope-pin {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 5px;
+  margin-right: 3px;
+  border-right: 1px solid var(--crit-border-strong);
+}
+.scope-pin[hidden] { display: none; }
+.scope-pin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--crit-editor-fg);
+  background: var(--crit-pin-chip-bg);
+  border-radius: 6px 0 0 6px;
+  box-shadow: inset 0 0 0 1px var(--crit-pin-chip-border);
+}
+.scope-pin-icon { color: var(--crit-brand); flex-shrink: 0; }
+.scope-pin-kind { color: var(--crit-editor-fg-muted); font-weight: 500; }
+.scope-pin-ref {
+  font-family: var(--crit-font-mono);
+  font-size: 11.5px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scope-pin-note {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.scope-pin-clear {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 26px;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--crit-pin-chip-bg);
+  box-shadow: inset 0 0 0 1px var(--crit-pin-chip-border);
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+}
+.scope-pin-clear:hover {
+  background: var(--crit-pin-chip-hover);
+  color: var(--crit-editor-fg);
+}
+.scope-pin-clear:focus-visible {
+  outline: 2px solid var(--crit-brand);
+  outline-offset: 1px;
 }
 
 /* Commit picker (sidebar dropdown) */

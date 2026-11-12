@@ -96,7 +96,18 @@
         </svg>
       </button>
     </div>
-    <div class="scope-toggle" id="scopeToggle" style="display:none">
+    <div class="scope-toggle" id="scopeToggle" role="group" aria-label="Diff scope" style="display:none">
+      <span class="scope-pin" id="scopePin" hidden>
+        <span class="scope-pin-label" id="scopePinLabel">
+          <svg class="scope-pin-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M1 8h4M11 8h4"/></svg>
+          <span class="scope-pin-kind" id="scopePinKind"></span>
+          <span class="scope-pin-ref" id="scopePinRef"></span>
+          <span class="scope-pin-note" id="scopePinNote"></span>
+        </span>
+        <button type="button" class="scope-pin-clear" id="scopePinClear">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+        </button>
+      </span>
       <button class="toggle-btn active" data-scope="all" title="All changes">All</button>
       <button class="toggle-btn" data-scope="branch" title="Committed changes">Branch</button>
       <button class="toggle-btn" data-scope="staged" title="Staged changes">Staged</button>

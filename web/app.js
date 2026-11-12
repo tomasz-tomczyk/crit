@@ -1302,9 +1302,7 @@
         session = corrected;
         reviewComments = corrected.review_comments || [];
       }
-      scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
-        b.classList.toggle('active', b.dataset.scope === diffScope);
-      });
+      updateScopePinIndicator();
 
       updateCompareAndCommitChrome();
     }
@@ -8391,12 +8389,7 @@
     } else if (scopes.indexOf(diffScope) === -1) {
       diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
     }
-    const scopeToggle = document.getElementById('scopeToggle');
-    if (scopeToggle) {
-      scopeToggle.querySelectorAll('.toggle-btn').forEach(function(b) {
-        b.classList.toggle('active', b.dataset.scope === diffScope);
-      });
-    }
+    updateScopePinIndicator();
   }
 
   function compareTargetChromeVisible() {
@@ -8478,17 +8471,56 @@
     refreshCommitContextCard();
   }
 
-  // Marks the scope toggle while a pinned commit overrides it. The hint goes
-  // on each button, since the browser shows the innermost element's title.
+  // Short label for a pinned ref: the commit's short sha, the virtual
+  // commit's message, or the compare-target label for anything else.
+  function commitPinRef(sha) {
+    const c = commitList.find(function(x) { return x.sha === sha; });
+    if (!c) return compareTargetChipLabel(sha);
+    return c.virtual ? c.message : c.short_sha;
+  }
+
+  const SCOPE_NAMES = { all: 'All', branch: 'Branch', staged: 'Staged', unstaged: 'Unstaged' };
+
+  // A pinned commit overrides the scope. The toggle recedes, a chip on its
+  // left names the pin, and the scope that comes back on unpin keeps a ghost
+  // outline instead of the active fill. The hint goes on each button, since
+  // the browser shows the innermost element's title.
   function updateScopePinIndicator() {
     if (!wtScopeToggleEl) return;
     const pinned = !!diffCommit;
     wtScopeToggleEl.classList.toggle('commit-pinned', pinned);
+    scopePinEl.hidden = !pinned;
+    const scopeName = SCOPE_NAMES[diffScope] || diffScope;
+    if (pinned) {
+      let kind;
+      let ref;
+      if (diffCommit === VIRTUAL_WORKING_COMMIT) {
+        const virtual = commitList.find(function(c) { return c.virtual; });
+        kind = '';
+        ref = virtual ? virtual.message : 'Working changes';
+      } else if (commitThrough) {
+        kind = 'Range';
+        ref = commitPinRef(commitFrom) + '\u2026' + commitPinRef(commitThrough);
+      } else {
+        kind = 'Commit';
+        ref = commitPinRef(commitFrom);
+      }
+      scopePinKindEl.textContent = kind;
+      scopePinRefEl.textContent = ref;
+      scopePinNoteEl.textContent = '. The scope is not applied while it is pinned; choosing a scope unpins it.';
+      scopePinLabelEl.title = 'The diff shows ' + (kind ? kind.toLowerCase() + ' ' : '') + ref + ' instead of a scope';
+      scopePinClearEl.setAttribute('aria-label', 'Unpin and show ' + scopeName + ' changes');
+      scopePinClearEl.title = 'Unpin (Esc) \u00b7 back to ' + scopeName;
+    }
     wtScopeToggleEl.querySelectorAll('.toggle-btn').forEach(function(b) {
+      const current = b.dataset.scope === diffScope;
+      b.classList.toggle('active', current && !pinned);
+      b.classList.toggle('remembered', current && pinned);
+      b.setAttribute('aria-pressed', String(current && !pinned));
       if (b.dataset.baseTitle === undefined) b.dataset.baseTitle = b.title || '';
-      b.title = pinned
-        ? b.dataset.baseTitle + ' (a commit is pinned; click to show this scope)'
-        : b.dataset.baseTitle;
+      b.title = pinned ? b.dataset.baseTitle + ' (unpins the commit)' : b.dataset.baseTitle;
+      if (pinned) b.setAttribute('aria-describedby', 'scopePinLabel');
+      else b.removeAttribute('aria-describedby');
     });
   }
 
@@ -8564,15 +8596,9 @@
       if (label) {
         if (commitFrom && !commitThrough) {
           const sel = commitList.find(function(c) { return c.sha === commitFrom; });
-          label.textContent = sel
-            ? (sel.virtual ? sel.message : (sel.short_sha + ' only'))
-            : compareTargetChipLabel(commitFrom) + ' only';
+          label.textContent = sel && sel.virtual ? sel.message : commitPinRef(commitFrom) + ' only';
         } else if (commitFrom && commitThrough) {
-          const a = commitList.find(function(c) { return c.sha === commitFrom; });
-          const b = commitList.find(function(c) { return c.sha === commitThrough; });
-          const aLabel = a ? (a.virtual ? a.message : a.short_sha) : compareTargetChipLabel(commitFrom);
-          const bLabel = b ? (b.virtual ? b.message : b.short_sha) : compareTargetChipLabel(commitThrough);
-          label.textContent = aLabel + ' \u2192 ' + bLabel;
+          label.textContent = commitPinRef(commitFrom) + ' \u2192 ' + commitPinRef(commitThrough);
         }
       }
     }
@@ -9180,11 +9206,24 @@
     navCommentId = null;
     setSetting('diffScope', scope);
     clearCommitPins();
-    document.querySelectorAll('#scopeToggle .toggle-btn').forEach(function(b) {
-      b.classList.toggle('active', b.dataset.scope === scope);
-    });
     updateCompareAndCommitChrome();
     await reloadForScope();
+  });
+
+  // Unpinning from the chip (or Esc inside the toggle) returns to the scope
+  // the pin set aside, through the same path as clicking that scope.
+  function unpinToRememberedScope() {
+    const btn = document.querySelector('#scopeToggle .toggle-btn.remembered');
+    if (!btn || btn.disabled) return false;
+    btn.click();
+    btn.focus();
+    return true;
+  }
+  document.getElementById('scopePinClear').addEventListener('click', unpinToRememberedScope);
+  document.getElementById('scopeToggle').addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape' || !diffCommit || !unpinToRememberedScope()) return;
+    e.preventDefault();
+    e.stopPropagation();
   });
 
   let reloadInFlight = null;
@@ -10186,6 +10225,12 @@
   const compareRailEl = document.getElementById('compareRail');
   const baseBranchArrowEl = document.getElementById('baseBranchArrow');
   const wtScopeToggleEl = document.getElementById('scopeToggle');
+  const scopePinEl = document.getElementById('scopePin');
+  const scopePinLabelEl = document.getElementById('scopePinLabel');
+  const scopePinKindEl = document.getElementById('scopePinKind');
+  const scopePinRefEl = document.getElementById('scopePinRef');
+  const scopePinNoteEl = document.getElementById('scopePinNote');
+  const scopePinClearEl = document.getElementById('scopePinClear');
 
   // Cached /api/picker.stack array. We only consume `stack` now — `other_prs`
   // and `branches` are intentionally unused. Refreshed on focus-changed SSE.
