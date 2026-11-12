@@ -29,8 +29,10 @@ type fakeWatchVCS struct {
 	changedFlsCalls int32
 }
 
-func (f *fakeWatchVCS) CurrentBranch() string { return f.currentBranch }
-func (f *fakeWatchVCS) DefaultBranch() string { return f.defaultBranch }
+func (f *fakeWatchVCS) CurrentBranch() string                { return f.currentBranch }
+func (f *fakeWatchVCS) DefaultBranch() string                { return f.defaultBranch }
+func (f *fakeWatchVCS) DefaultBaseRef() string               { return "origin/" + f.defaultBranch }
+func (f *fakeWatchVCS) MergeBase(ref string) (string, error) { return ref, nil }
 
 func (f *fakeWatchVCS) ChangedFilesOnDefaultInDir(_ string) ([]vcs.FileChange, error) {
 	atomic.AddInt32(&f.changedFlsCalls, 1)
