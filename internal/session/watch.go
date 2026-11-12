@@ -641,6 +641,10 @@ func (s *Session) handleRoundCompleteGit() {
 
 	s.loadResolvedComments()
 
+	// The branch may have been rebased onto (or merged with) a newer default
+	// branch since the last round; diff against the current merge-base.
+	s.refreshWorkingTreeBaseRef()
+
 	// Refresh file list (agent may have created/deleted files)
 	s.RefreshFileList()
 
@@ -690,6 +694,33 @@ func (s *Session) handleRoundCompleteGit() {
 	s.RefreshDiffs()
 
 	s.finishRoundComplete(edits)
+}
+
+// refreshWorkingTreeBaseRef recomputes BaseRef for the working-tree focus so a
+// rebase or merge of the default branch between rounds does not leave the
+// review diffing against the old merge-base (which would pull every commit the
+// default branch gained into the diff). Keeps the current base on error.
+// No-op under FocusRange: the base is pinned to the range.
+func (s *Session) refreshWorkingTreeBaseRef() {
+	s.mu.RLock()
+	v := s.VCS
+	rangeFocus := s.Focus.Kind == FocusRange
+	s.mu.RUnlock()
+	if v == nil || rangeFocus {
+		return
+	}
+	mb, err := s.baseRefForWorkingTreeDiscovery(v)
+	if err != nil || mb == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.Focus.Kind != FocusRange {
+		s.BaseRef = mb
+		if s.Focus.Kind == FocusWorkingTree {
+			s.Focus.BaseRef = mb
+		}
+	}
+	s.mu.Unlock()
 }
 
 // relPathFromRoot returns a slash-separated path relative to repoRoot, falling
