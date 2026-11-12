@@ -705,6 +705,7 @@ func (s *Session) refreshWorkingTreeBaseRef() {
 	s.mu.RLock()
 	v := s.VCS
 	rangeFocus := s.Focus.Kind == FocusRange
+	prev := s.BaseRef
 	s.mu.RUnlock()
 	if v == nil || rangeFocus {
 		return
@@ -714,7 +715,8 @@ func (s *Session) refreshWorkingTreeBaseRef() {
 		return
 	}
 	s.mu.Lock()
-	if s.Focus.Kind != FocusRange {
+	// Skip if a base-branch change or focus switch landed while merge-base ran.
+	if s.Focus.Kind != FocusRange && s.BaseRef == prev {
 		s.BaseRef = mb
 		if s.Focus.Kind == FocusWorkingTree {
 			s.Focus.BaseRef = mb
