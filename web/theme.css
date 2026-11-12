@@ -47,6 +47,11 @@
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
   --crit-seg-active:     var(--crit-brand-subtle);
   --crit-seg-active-fg:  var(--crit-editor-fg);
+  --crit-pin-chip-bg:     color-mix(in srgb, var(--crit-editor-fg) 5%, transparent);
+  --crit-pin-chip-border: color-mix(in srgb, var(--crit-editor-fg) 12%, transparent);
+  --crit-pin-chip-hover:  color-mix(in srgb, var(--crit-editor-fg) 9%, transparent);
+  --crit-scope-idle-fg:   color-mix(in srgb, var(--crit-editor-fg-muted) 72%, var(--crit-bg-card));
+  --crit-scope-ghost:     color-mix(in srgb, var(--crit-editor-fg-muted) 35%, transparent);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
@@ -294,6 +299,11 @@
     --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 6%, rgba(0, 0, 0, 0.03));
     --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 12%, #ffffff);
     --crit-seg-active-fg:  var(--crit-brand);
+    --crit-pin-chip-bg:     var(--crit-editor-bg);
+    --crit-pin-chip-border: var(--crit-border-strong);
+    --crit-pin-chip-hover:  var(--crit-editor-bg-elevated);
+    --crit-scope-idle-fg:   color-mix(in srgb, var(--crit-editor-fg-muted) 82%, var(--crit-bg-card));
+    --crit-scope-ghost:     color-mix(in srgb, var(--crit-editor-fg-muted) 40%, transparent);
     --crit-rail-fg:        #59636e;
     --crit-rail-arrow:     #8b949e;
 
@@ -509,6 +519,11 @@
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 8%, rgba(255, 255, 255, 0.03));
   --crit-seg-active:     var(--crit-brand-subtle);
   --crit-seg-active-fg:  var(--crit-editor-fg);
+  --crit-pin-chip-bg:     color-mix(in srgb, var(--crit-editor-fg) 5%, transparent);
+  --crit-pin-chip-border: color-mix(in srgb, var(--crit-editor-fg) 12%, transparent);
+  --crit-pin-chip-hover:  color-mix(in srgb, var(--crit-editor-fg) 9%, transparent);
+  --crit-scope-idle-fg:   color-mix(in srgb, var(--crit-editor-fg-muted) 72%, var(--crit-bg-card));
+  --crit-scope-ghost:     color-mix(in srgb, var(--crit-editor-fg-muted) 35%, transparent);
   --crit-rail-fg:        #7d8590;
   --crit-rail-arrow:     #6e7681;
 
@@ -723,6 +738,11 @@
   --crit-seg-track:      color-mix(in srgb, var(--crit-brand) 6%, rgba(0, 0, 0, 0.03));
   --crit-seg-active:     color-mix(in srgb, var(--crit-brand) 12%, #ffffff);
   --crit-seg-active-fg:  var(--crit-brand);
+  --crit-pin-chip-bg:     var(--crit-editor-bg);
+  --crit-pin-chip-border: var(--crit-border-strong);
+  --crit-pin-chip-hover:  var(--crit-editor-bg-elevated);
+  --crit-scope-idle-fg:   color-mix(in srgb, var(--crit-editor-fg-muted) 82%, var(--crit-bg-card));
+  --crit-scope-ghost:     color-mix(in srgb, var(--crit-editor-fg-muted) 40%, transparent);
   --crit-rail-fg:        #59636e;
   --crit-rail-arrow:     #8b949e;
 

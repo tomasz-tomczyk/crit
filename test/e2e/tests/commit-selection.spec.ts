@@ -155,14 +155,22 @@ test.describe('Commit Selection', () => {
     await pick(page, realCommitItems(page).first());
     await page.keyboard.press('Escape');
     await expect(toggle).toHaveClass(/commit-pinned/);
-    await expect(allBtn).toHaveAttribute('title', /a commit is pinned/);
+    await expect(page.locator('#scopePin')).toBeVisible();
+    await expect(page.locator('#scopePinKind')).toHaveText('Commit');
+    // No scope is in effect: the set-aside one keeps an outline, not the active fill.
+    await expect(allBtn).not.toHaveClass(/active/);
+    await expect(allBtn).toHaveClass(/remembered/);
+    await expect(allBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(allBtn).toHaveAttribute('title', /unpins the commit/);
     await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(0);
 
     const response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
     await allBtn.click();
     await response;
     await expect(toggle).not.toHaveClass(/commit-pinned/);
-    await expect(allBtn).not.toHaveAttribute('title', /a commit is pinned/);
+    await expect(page.locator('#scopePin')).toBeHidden();
+    await expect(allBtn).not.toHaveAttribute('title', /unpins the commit/);
+    await expect(allBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(label(page)).toHaveText('All commits');
     await expect(allBtn).toHaveClass(/active/);
     await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(1);
@@ -183,6 +191,36 @@ test.describe('Commit Selection', () => {
     await expect(toggle).not.toHaveClass(/commit-pinned/);
     await expect(label(page)).toHaveText('All commits');
     await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(1);
+  });
+
+  test('the pin chip and Escape in the scope toggle release a pinned commit', async ({ page }) => {
+    await loadPage(page);
+    const toggle = page.locator('#scopeToggle');
+    const allBtn = toggle.locator('.toggle-btn[data-scope="all"]');
+
+    await openCommitPicker(page);
+    await pick(page, realCommitItems(page).first());
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveClass(/commit-pinned/);
+
+    let response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
+    await page.locator('#scopePinClear').click();
+    await response;
+    await expect(toggle).not.toHaveClass(/commit-pinned/);
+    await expect(allBtn).toHaveClass(/active/);
+    await expect(allBtn).toBeFocused();
+    await expect(label(page)).toHaveText('All commits');
+
+    await openCommitPicker(page);
+    await pick(page, realCommitItems(page).first());
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveClass(/commit-pinned/);
+    await toggle.locator('.toggle-btn[data-scope="branch"]').focus();
+    response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
+    await page.keyboard.press('Escape');
+    await response;
+    await expect(toggle).not.toHaveClass(/commit-pinned/);
+    await expect(allBtn).toHaveClass(/active/);
   });
 
   // Regression: switching commit scope hid out-of-scope unresolved comments
