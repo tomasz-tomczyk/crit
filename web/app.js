@@ -8484,8 +8484,8 @@
     scopePinEl.hidden = !pinned;
     const scopeName = SCOPE_NAMES[diffScope] || diffScope;
     if (pinned) {
-      let kind = 'Commit';
-      let ref = commitPinRef(commitFrom);
+      let kind;
+      let ref;
       if (diffCommit === VIRTUAL_WORKING_COMMIT) {
         const virtual = commitList.find(function(c) { return c.virtual; });
         kind = '';
@@ -8493,6 +8493,9 @@
       } else if (commitThrough) {
         kind = 'Range';
         ref = commitPinRef(commitFrom) + '\u2026' + commitPinRef(commitThrough);
+      } else {
+        kind = 'Commit';
+        ref = commitPinRef(commitFrom);
       }
       scopePinKindEl.textContent = kind;
       scopePinRefEl.textContent = ref;
@@ -9001,16 +9004,16 @@
   // the pin set aside, through the same path as clicking that scope.
   function unpinToRememberedScope() {
     const btn = document.querySelector('#scopeToggle .toggle-btn.remembered');
-    if (!btn) return;
+    if (!btn || btn.disabled) return false;
     btn.click();
     btn.focus();
+    return true;
   }
   document.getElementById('scopePinClear').addEventListener('click', unpinToRememberedScope);
   document.getElementById('scopeToggle').addEventListener('keydown', function(e) {
-    if (e.key !== 'Escape' || !diffCommit) return;
+    if (e.key !== 'Escape' || !diffCommit || !unpinToRememberedScope()) return;
     e.preventDefault();
     e.stopPropagation();
-    unpinToRememberedScope();
   });
 
   let reloadInFlight = null;
