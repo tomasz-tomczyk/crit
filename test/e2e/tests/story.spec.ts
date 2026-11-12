@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   clearAllComments, loadPage, fileHeader, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile,
-  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC, readFixtureState, roundComplete,
+  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC, readFixtureState, roundComplete, addFileComment,
 } from './helpers';
 
 // Story mode fixtures live on top of the shared git-mode fixture repo (server.go,
@@ -409,6 +409,79 @@ test.describe('Story mode', () => {
     const ch2Card = storyPane(page).locator(`.comment-card[data-comment-id="${comment.id}"]`);
     await expect(ch2Card).toBeVisible();
     await expect(ch2Card).toContainText('Story E2E: dashboard logging comment');
+  });
+
+  test('clicking a comment on a viewed (collapsed) file group expands it', async ({ page, request }) => {
+    await postStory(request);
+    // ch2 owns routes.go's old_start=48 hunk (new-side lines 52-58).
+    const comment = await addComment(request, 'routes.go', 55, 'Story E2E: comment on a viewed file');
+    await loadPage(page);
+
+    await tocItem(page, 'ch2').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch2').click();
+    const group = storyView(page, 'ch2').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await group.locator('.file-header-viewed').scrollIntoViewIfNeeded();
+    await group.locator('.file-header-viewed').click();
+    await expect(group).toHaveClass(/viewed/);
+    await expect(group).not.toHaveAttribute('open', '');
+
+    // Leave the chapter so the click also has to navigate back to it.
+    await railRow(page, 'overview').click();
+    await expect(storyOverview(page)).toBeVisible();
+
+    await page.keyboard.press('Shift+C');
+    const panel = page.locator('#commentsPanel');
+    await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    await panel.locator(`.comment-card[data-comment-id="${comment.id}"]`).click();
+
+    await expect(page).toHaveURL(/#story\/ch2$/);
+    const reopened = storyView(page, 'ch2').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await expect(reopened).toHaveAttribute('open', '');
+    await expect(reopened.locator(`.comment-card[data-comment-id="${comment.id}"]`)).toBeInViewport();
+    // Expanding is not unmarking: the file group stays viewed.
+    await expect(reopened).toHaveClass(/viewed/);
+    await expect(reopened.locator('.file-header-viewed input')).toBeChecked();
+  });
+
+  test('clicking a file-level comment on a collapsed file group expands it', async ({ page, request }) => {
+    await postStory(request);
+    const id = await addFileComment(request, 'routes.go', 'Story E2E: file comment on a collapsed group');
+    await loadPage(page);
+
+    await tocItem(page, 'ch1').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await group.locator('.crit-story-file-header').click();
+    await expect(group).not.toHaveAttribute('open', '');
+
+    await page.keyboard.press('Shift+C');
+    const panel = page.locator('#commentsPanel');
+    await expect(panel).not.toHaveClass(/comments-panel-hidden/);
+    await panel.locator(`.comment-card[data-comment-id="${id}"]`).click();
+
+    await expect(group).toHaveAttribute('open', '');
+    await expect(group.locator(`.file-comments .comment-card[data-comment-id="${id}"]`)).toBeInViewport();
+  });
+
+  test('a comment reference to a card in a collapsed file group expands it', async ({ page, request }) => {
+    await postStory(request);
+    const target = await addComment(request, 'routes.go', 55, 'Story E2E: referenced comment');
+    const source = await addComment(request, 'plan.md', 1, `See ${target.id}`);
+    await loadPage(page);
+
+    await tocItem(page, 'ch2').scrollIntoViewIfNeeded();
+    await tocItem(page, 'ch2').click();
+    const view = storyView(page, 'ch2');
+    const group = view.locator('.crit-story-file-group[data-story-file="routes.go"]');
+    await group.locator('.crit-story-file-header').click();
+    await expect(group).not.toHaveAttribute('open', '');
+
+    const ref = view.locator(`.comment-card[data-comment-id="${source.id}"] .comment-ref`);
+    await ref.scrollIntoViewIfNeeded();
+    await ref.click();
+
+    await expect(group).toHaveAttribute('open', '');
+    await expect(group.locator(`.comment-card[data-comment-id="${target.id}"]`)).toBeInViewport();
   });
 
   test('viewed state on a file group persists across reload and updates rail/TOC progress', async ({ page, request }) => {

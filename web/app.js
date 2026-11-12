@@ -87,6 +87,7 @@
       // Story view: the card is in the chapter pane when its chapter is shown.
       const storyCard = document.querySelector(selector);
       if (!storyCard) return;
+      openStoryFileGroup(storyCard);
       flashCommentRefCard(storyCard);
       storyCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
@@ -7187,6 +7188,7 @@
         if (!pane) return;
         const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
         if (!card) return;
+        openStoryFileGroup(card);
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         flashCommentCard(card);
       };
@@ -11696,6 +11698,13 @@
     if (section.getBoundingClientRect().top < top) section.scrollIntoView({ behavior: 'instant' });
   }
 
+  // A file group marked viewed (or folded by hand) is collapsed. Jumping to
+  // a comment or line inside it opens it first, as the review list does.
+  function openStoryFileGroup(el) {
+    const section = el && el.closest('.crit-story-file-group');
+    if (section && !section.open) section.open = true;
+  }
+
   // toggle_viewed / toggle_collapse in a story chapter (no line focus
   // there): the file group under the mouse, else the one taking up most of
   // the pane. Clicking its Viewed checkbox or header runs the same handlers
@@ -11824,7 +11833,9 @@
                   const pane = document.getElementById('storyPane');
                   if (!pane) return;
                   const group = pane.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(anchor.filePath) + '"]');
-                  if (group) group.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  if (!group) return;
+                  openStoryFileGroup(group);
+                  group.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 };
                 if (navigated) requestAnimationFrame(locateFile); else locateFile();
                 return Promise.resolve();
@@ -11837,6 +11848,7 @@
                 const pane = document.getElementById('storyPane');
                 if (!pane || !displayAnchor) return;
                 const group = pane.querySelector('.crit-story-file-group[data-story-file="' + CSS.escape(anchor.filePath) + '"]');
+                openStoryFileGroup(group);
                 const el = window.crit.pierreDOM.pierreLineElement(group, displayAnchor.line, displayAnchor.side) ||
                   (side !== 'old' ? pane.querySelector('.line-block[data-file-path="' + CSS.escape(anchor.filePath) + '"][data-end-line="' + anchor.endLine + '"]') : null);
                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
