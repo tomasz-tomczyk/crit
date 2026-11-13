@@ -156,6 +156,8 @@ test.describe('Comments Panel — Git Mode', () => {
 
   // Pierre kept the file scroll target pending after Crit centered the card,
   // so the next click re-applied it and the card bounced to the file top.
+  // The card is mounted throughout here; lazy-comments.perf.spec.ts covers a
+  // first click on an unmounted card.
   test('clicking the same panel card again leaves the inline card in place', async ({ page, request }) => {
     const id = await addFileComment(request, 'utils.go', 'Click me twice');
     await loadPage(page);

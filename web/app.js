@@ -2706,9 +2706,13 @@
   function scrollPierreElementIntoView(el, isCurrent) {
     const root = document.getElementById('filesContainer');
     if (!root || !el) return;
+    // A rebuild (scope, palette, SSE) does not supersede the jump, so check
+    // the card and view are still the ones this alignment started on.
+    const view = pierreView;
     let frames = 0;
     (function align() {
       if (isCurrent && !isCurrent()) return;
+      if (!el.isConnected || view !== pierreView) return;
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const gap = Math.max(0, (root.clientHeight - elRect.height) / 2);
@@ -2717,7 +2721,7 @@
         // The card now sits away from the file or line Pierre was asked to
         // scroll to. Left pending, that target would be re-applied on the
         // next render (e.g. the next click) and pull the card off-center.
-        if (pierreView) pierreView.releaseScroll();
+        if (view) view.releaseScroll();
         return;
       }
       // Make each layout correction immediate instead of starting overlapping
