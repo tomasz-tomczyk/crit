@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 const promptsSubdir = ".crit/prompts"
@@ -29,17 +31,34 @@ func hookKeyToFilename(key string) string {
 	return strings.ReplaceAll(key, ":", ".") + ".md"
 }
 
+// DiscoveryDir returns the directory holding conventional files for a layer
+// and the form of it used in source labels. For the project layer baseDir is
+// the project root and the directory is baseDir/<subdir>. For the global layer
+// baseDir is the home directory and globalDir is the resolved user directory
+// (XDG or legacy ~/.crit/...); its label is relative to home when possible.
+func DiscoveryDir(baseDir, subdir, globalDir string, layer Layer) (dir, label string) {
+	if layer != LayerGlobal {
+		return filepath.Join(baseDir, subdir), subdir
+	}
+	if rel, err := filepath.Rel(baseDir, globalDir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return globalDir, rel
+	}
+	return globalDir, globalDir
+}
+
 func discoverPromptTemplate(baseDir, hook, mode string, layer Layer, finish bool) (*resolvedTemplate, *Problem) {
 	specific, generic := ResolveHookKey(hook, mode)
 	keys := []string{specific}
 	if specific != generic {
 		keys = append(keys, generic)
 	}
+	dir, labelDir := DiscoveryDir(baseDir, promptsSubdir, userdirs.PromptsDir(baseDir), layer)
 	for _, key := range keys {
-		rel := filepath.Join(promptsSubdir, hookKeyToFilename(key))
-		path := filepath.Join(baseDir, rel)
+		name := hookKeyToFilename(key)
+		path := filepath.Join(dir, name)
+		label := filepath.ToSlash(filepath.Join(labelDir, name))
 		data, err := os.ReadFile(path)
-		t := &resolvedTemplate{text: string(data), hook: key, source: string(layer) + ":" + filepath.ToSlash(rel), layer: layer}
+		t := &resolvedTemplate{text: string(data), hook: key, source: string(layer) + ":" + label, layer: layer}
 		if err == nil {
 			return t, nil
 		}

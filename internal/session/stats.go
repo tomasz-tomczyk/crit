@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 type statsFile struct {
@@ -39,7 +41,7 @@ func statsFilePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "stats.json"), nil
+	return filepath.Join(userdirs.StateDir(home), "stats.json"), nil
 }
 
 func loadStats() (statsFile, error) {
