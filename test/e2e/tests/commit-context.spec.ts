@@ -37,6 +37,37 @@ test.describe('Commit context card', () => {
     await expect(counter(page)).toHaveText('Commit 2 of 2');
   });
 
+  test('with one commit beside uncommitted changes, . and , pin it', async ({ page, request }) => {
+    const commits: Array<{ virtual?: boolean }> = await (await request.get('/api/commits')).json();
+    const virtual = commits.filter(c => c.virtual);
+    expect(virtual.length).toBeGreaterThan(0);
+    expect(commits.some(c => !c.virtual)).toBe(true);
+    await page.route('**/api/commits', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([...virtual, commits.find(c => !c.virtual)]),
+    }));
+    const commitsResponse = page.waitForResponse(r => r.url().includes('/api/commits'));
+    await loadPage(page);
+    await commitsResponse;
+    await expect(page.locator('#commitDropdown')).toBeVisible();
+
+    await page.locator('.main-content').click({ position: { x: 5, y: 5 } });
+    let response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
+    await page.keyboard.press('.');
+    await response;
+    await expect(counter(page)).toHaveText('Commit 1 of 1');
+    await expect(page.locator('#commitDropdownLabel')).toContainText('only');
+
+    // Unpin, then the other direction pins it too.
+    await page.locator('#scopeToggle .toggle-btn[data-scope="all"]').click();
+    await expect(card(page)).toHaveCount(0);
+    response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
+    await page.keyboard.press(',');
+    await response;
+    await expect(counter(page)).toHaveText('Commit 1 of 1');
+  });
+
   test('stepping with the card buttons keeps keyboard focus on the card', async ({ page }) => {
     await loadPage(page);
     await pick(page, 1); // oldest

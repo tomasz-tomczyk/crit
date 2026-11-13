@@ -602,9 +602,15 @@ type CritJSON struct {
 
 	PendingRemoteDeletes []RemoteRef `json:"pending_remote_deletes,omitempty"`
 
-	// ViewedFiles holds the reviewer's viewed marks by path. It is top-level
-	// rather than on CritJSONFile because Files only keeps paths with comments.
+	// ViewedFiles holds the reviewer's viewed marks by path, for views that
+	// are not a PR or MR layer. It is top-level rather than on CritJSONFile
+	// because Files only keeps paths with comments.
 	ViewedFiles map[string]ViewedFile `json:"viewed_files,omitempty"`
+	// ChangeViewedFiles holds the marks made on a PR or MR layer, keyed by
+	// the change's identity (focusKeyFor: forge, host, project and number)
+	// and then by path, so the same path in another layer or another
+	// repository's same-numbered PR keeps its own mark.
+	ChangeViewedFiles map[string]map[string]ViewedFile `json:"change_viewed_files,omitempty"`
 
 	// ReviewType distinguishes review modes. "" (zero value) = code review.
 	// "live" = live mode. Omitted from JSON when empty for back-compat.

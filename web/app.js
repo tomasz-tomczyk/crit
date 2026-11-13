@@ -954,14 +954,22 @@
     });
   }
 
+  // Marks are saved per PR layer, so a focus change reloads them. Saves still
+  // in flight land first, or the reload would miss them, but a save that
+  // never answers must not hold up the reload. On failure the marks stay
+  // empty rather than keep another layer's: localStorage still restores this
+  // origin's marks.
   async function loadServerViewed() {
+    await Promise.race([viewedPersistChain, new Promise(function(resolve) { setTimeout(resolve, 3000); })]);
+    serverViewed = {};
+    serverViewedLoaded = false;
     try {
       const res = await fetch('/api/viewed');
       if (res.ok) {
         serverViewed = (await res.json()).files || {};
         serverViewedLoaded = true;
       }
-    } catch { /* localStorage still restores this origin's marks */ }
+    } catch { /* see above */ }
   }
 
   // Whether a saved mark still describes this file. Lazy files have no hash
@@ -981,17 +989,27 @@
     updateTreeViewedState();
   }
 
+  // Reads a JSON object from localStorage, or {} when storage is blocked
+  // (some privacy modes throw on access) or the value is unreadable.
+  function readStoredObject(key) {
+    try {
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      return data && typeof data === 'object' ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
   function restoreViewedState() {
+    // Marks saved in the review file apply even when localStorage is blocked.
+    const local = readStoredObject(viewedStorageKey());
+    for (let i = 0; i < files.length; i++) {
+      const mark = serverViewed[files[i].path];
+      files[i].viewed = mark ? mark.viewed && viewedMarkIsCurrent(mark, files[i]) : !!local[files[i].path];
+      if (files[i].viewed) files[i].collapsed = true;
+    }
     try {
-      const data = JSON.parse(localStorage.getItem(viewedStorageKey()) || '{}');
-      for (let i = 0; i < files.length; i++) {
-        const mark = serverViewed[files[i].path];
-        files[i].viewed = mark ? mark.viewed && viewedMarkIsCurrent(mark, files[i]) : !!data[files[i].path];
-        if (files[i].viewed) files[i].collapsed = true;
-      }
-    } catch {}
-    try {
-      const data = JSON.parse(localStorage.getItem('crit-viewed-hunks-' + viewedIdentityHash()) || '{}');
+      const data = readStoredObject('crit-viewed-hunks-' + viewedIdentityHash());
       files.forEach(function(file) {
         if (Array.isArray(data[file.path])) file.viewedHunks = data[file.path];
         reconcileStoryViewed(file);
@@ -8678,7 +8696,9 @@
   // commit; with nothing pinned, starts the walk at the oldest commit.
   function stepPinnedCommit(dir) {
     const real = realCommits();
-    if (real.length < 2) return false;
+    // One commit alone is the whole branch, so there is nothing to step to.
+    // Beside uncommitted changes it is a scope of its own, as in the picker.
+    if (real.length === 0 || (real.length === 1 && real.length === commitList.length)) return false;
     const indexOf = function(sha) { return real.findIndex(function(c) { return c.sha === sha; }); };
     const span = pinnedCommitSpan();
     let next;
@@ -9316,7 +9336,9 @@
           return;
         }
 
+        const viewedLoad = loadServerViewed();
         const loadedFiles = await loadAllFileData(session.files, currentFileDataScope());
+        await viewedLoad;
         if (requestVersion !== reloadRequestVersion) return;
         files = loadedFiles;
         hiddenUnresolved = session.hidden_unresolved || 0;

@@ -150,16 +150,16 @@ type viewedPushPlan struct {
 	stale  []string // marks made on a version the PR no longer has
 }
 
-// planViewedPush compares local marks with GitHub. stale reports whether path
-// may have changed since sha. A mark on an old version is not carried over:
-// ticking it would claim a review of code nobody looked at, and unticking it
-// could undo a newer tick made on GitHub.
-func planViewedPush(entries map[string]session.ViewedFile, prNumber int, remote prViewedState,
+// planViewedPush compares the PR's local marks with GitHub. stale reports
+// whether path may have changed since sha. A mark on an old version is not
+// carried over: ticking it would claim a review of code nobody looked at, and
+// unticking it could undo a newer tick made on GitHub.
+func planViewedPush(entries map[string]session.ViewedFile, remote prViewedState,
 	stale func(sha, path string) bool) viewedPushPlan {
 	var plan viewedPushPlan
 	for path, e := range entries {
 		state, inPR := remote.files[path]
-		if !inPR || e.Auto || e.HeadSHA == "" || e.ChangeNumber != prNumber {
+		if !inPR || e.Auto || e.HeadSHA == "" {
 			continue
 		}
 		if e.Viewed == (state == ghViewed) {
@@ -180,14 +180,103 @@ func planViewedPush(entries map[string]session.ViewedFile, prNumber int, remote 
 	return plan
 }
 
-// buildViewedPushPlan plans a push, comparing each older revision once.
+// checkoutPRKey returns the change key of PR number in the repository this
+// checkout belongs to, or "" when that repository cannot be resolved. A
+// variable so tests can stand in for gh.
+var checkoutPRKey = func(number int) string {
+	out, err := exec.Command("gh", "repo", "view", "--json", "nameWithOwner,url").Output()
+	if err != nil {
+		return ""
+	}
+	var resp struct {
+		NameWithOwner string `json:"nameWithOwner"`
+		URL           string `json:"url"`
+	}
+	if json.Unmarshal(out, &resp) != nil || resp.NameWithOwner == "" {
+		return ""
+	}
+	return session.PRFocusKey(number, resp.NameWithOwner, forge.RemoteHost(resp.URL))
+}
+
+// viewedChangeKeys lists the change keys that name the PR id, most specific
+// first. A review started from a URL keys its marks by repository; one
+// started with a bare number in a checkout keys them by number alone, which
+// means this checkout's repository. The bare key therefore only matches when
+// id is that repository's PR. checkout returns the checkout's key for id
+// (see checkoutPRKey) and is only called when the review, or the running
+// daemon's focus (daemonKey), names the PR under another key.
+func viewedChangeKeys(cj session.CritJSON, id forge.ChangeID, daemonKey string, checkout func() string) []string {
+	primary := session.PRFocusKey(id.Number, id.Project, id.Host)
+	bare := session.PRFocusKey(id.Number, "", "")
+	suffix := fmt.Sprintf("#%d", id.Number)
+	sameNumber := func(key string) bool {
+		return key != "" && !strings.EqualFold(key, primary) &&
+			strings.HasPrefix(key, "pr:") && (key == bare || strings.HasSuffix(key, suffix))
+	}
+	other := sameNumber(daemonKey)
+	for key := range cj.ChangeViewedFiles {
+		other = other || sameNumber(key)
+	}
+	if !other {
+		return []string{primary}
+	}
+	key := checkout()
+	switch {
+	case key == "":
+		return []string{primary}
+	case id.Project == "":
+		return []string{primary, key}
+	case strings.EqualFold(primary, key):
+		return []string{primary, bare}
+	default:
+		return []string{primary}
+	}
+}
+
+// matchingViewedBuckets returns the bucket keys in cj equal to want, ignoring
+// case, with an exact match first and the rest sorted, so a review holding
+// the same PR under differently cased URLs reads the same way every time.
+func matchingViewedBuckets(cj session.CritJSON, want string) []string {
+	var exact, folded []string
+	for key := range cj.ChangeViewedFiles {
+		switch {
+		case key == want:
+			exact = append(exact, key)
+		case strings.EqualFold(key, want):
+			folded = append(folded, key)
+		}
+	}
+	sort.Strings(folded)
+	return append(exact, folded...)
+}
+
+// viewedMarksFor gathers the marks saved under any of keys. A path marked
+// under more than one key takes the mark from the earliest key.
+func viewedMarksFor(cj session.CritJSON, keys []string) map[string]session.ViewedFile {
+	marks := make(map[string]session.ViewedFile)
+	for _, want := range keys {
+		for _, key := range matchingViewedBuckets(cj, want) {
+			for path, mark := range cj.ChangeViewedFiles[key] {
+				if _, seen := marks[path]; !seen {
+					marks[path] = mark
+				}
+			}
+		}
+	}
+	return marks
+}
+
+// buildViewedPushPlan plans a push of the marks made on PR id, comparing
+// each older revision once.
 func buildViewedPushPlan(id forge.ChangeID, cj session.CritJSON, remote prViewedState) viewedPushPlan {
 	type comparison struct {
 		paths map[string]struct{}
 		ok    bool
 	}
 	seen := make(map[string]comparison)
-	return planViewedPush(cj.ViewedFiles, id.Number, remote, func(sha, path string) bool {
+	keys := viewedChangeKeys(cj, id, "", func() string { return checkoutPRKey(id.Number) })
+	marks := viewedMarksFor(cj, keys)
+	return planViewedPush(marks, remote, func(sha, path string) bool {
 		if sha == remote.headSHA {
 			return false
 		}
@@ -301,25 +390,49 @@ func pushViewedFiles(ctx pushContext) error {
 	return unmarkErr
 }
 
-// mergeRemoteViewed adds GitHub's viewed files to cj and returns how many it
-// added. GitHub's tick applies to the PR's current head, so it replaces a
-// local tick pinned anywhere else. A local untick stays: it is a decision
-// that has not been pushed yet.
-func mergeRemoteViewed(cj *session.CritJSON, prNumber int, remote prViewedState) int {
+// mergeRemoteViewed adds GitHub's viewed files for PR id to cj and returns
+// how many it added. GitHub's tick applies to the PR's current head, so it
+// replaces a local tick pinned anywhere else. A local untick stays: it is a
+// decision that has not been pushed yet. daemonKey is the change key of the
+// running daemon's focus, or "", and checkoutKey is this checkout's key for
+// id (resolved before the caller took the review lock).
+func mergeRemoteViewed(cj *session.CritJSON, id forge.ChangeID, remote prViewedState, daemonKey, checkoutKey string) int {
+	keys := viewedChangeKeys(*cj, id, daemonKey, func() string { return checkoutKey })
+	local := viewedMarksFor(*cj, keys)
+	target := viewedPullTarget(*cj, keys, daemonKey)
 	added := 0
 	for path, state := range remote.files {
 		if state != ghViewed {
 			continue
 		}
-		if e, exists := cj.ViewedFiles[path]; exists &&
-			(!e.Viewed || (e.HeadSHA == remote.headSHA && e.ChangeNumber == prNumber)) {
+		if e, exists := local[path]; exists && (!e.Viewed || e.HeadSHA == remote.headSHA) {
 			continue
 		}
-		if cj.ViewedFiles == nil {
-			cj.ViewedFiles = make(map[string]session.ViewedFile)
+		if cj.ChangeViewedFiles == nil {
+			cj.ChangeViewedFiles = make(map[string]map[string]session.ViewedFile)
 		}
-		cj.ViewedFiles[path] = session.ViewedFile{Viewed: true, HeadSHA: remote.headSHA, ChangeNumber: prNumber}
+		if cj.ChangeViewedFiles[target] == nil {
+			cj.ChangeViewedFiles[target] = make(map[string]session.ViewedFile)
+		}
+		cj.ChangeViewedFiles[target][path] = session.ViewedFile{Viewed: true, HeadSHA: remote.headSHA, ChangeNumber: id.Number}
 		added++
 	}
 	return added
+}
+
+// viewedPullTarget picks the bucket pulled marks go to: the one the running
+// daemon shows when it is this PR, else one the review already uses for it,
+// else the PR's own key.
+func viewedPullTarget(cj session.CritJSON, keys []string, daemonKey string) string {
+	for _, key := range keys {
+		if daemonKey != "" && strings.EqualFold(key, daemonKey) {
+			return daemonKey
+		}
+	}
+	for _, key := range keys {
+		if found := matchingViewedBuckets(cj, key); len(found) > 0 {
+			return found[0]
+		}
+	}
+	return keys[0]
 }

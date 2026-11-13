@@ -43,9 +43,67 @@ func viewedFocusRef(f Focus) (headSHA string, changeNumber int) {
 	return f.HeadSHA, f.ChangeNumber
 }
 
-// ViewedFiles returns the marks saved in the review file. They live only on
-// disk: buildCritJSON starts from the disk copy, so a daemon write keeps what
-// `crit pull --viewed` saved without merging it into memory.
+// ViewedChangeKey names the ChangeViewedFiles bucket for marks made in f, or
+// "" for views whose marks live in ViewedFiles. It is the same change
+// identity comments are stamped with, so marks follow the layer and the
+// repository, not just the number.
+func ViewedChangeKey(f Focus) string {
+	if _, n := viewedFocusRef(f); n == 0 {
+		return ""
+	}
+	return focusKeyFor(f)
+}
+
+// isLegacyPRMark reports a mark saved in ViewedFiles while it still held PR
+// marks too. It records the PR number and head, but not the repository.
+func isLegacyPRMark(mark ViewedFile) bool {
+	return mark.HeadSHA != "" || mark.ChangeNumber != 0
+}
+
+// adoptLegacyViewed moves the legacy PR marks that f can vouch for into its
+// bucket: a mark made on f's own PR number at f's exact head commit belongs
+// to this PR. Other legacy marks stay where they are, out of every view and
+// never pushed, until their own PR and head come into focus.
+func adoptLegacyViewed(cj *CritJSON, f Focus) {
+	key := ViewedChangeKey(f)
+	head, number := viewedFocusRef(f)
+	if key == "" || head == "" {
+		return
+	}
+	for path, mark := range cj.ViewedFiles {
+		if mark.ChangeNumber != number || mark.HeadSHA != head {
+			continue
+		}
+		bucket := viewedBucket(cj, key, true)
+		if _, exists := bucket[path]; !exists {
+			bucket[path] = mark
+		}
+		delete(cj.ViewedFiles, path)
+	}
+}
+
+// viewedBucket returns the marks for key, creating the map when create is
+// set.
+func viewedBucket(cj *CritJSON, key string, create bool) map[string]ViewedFile {
+	if key == "" {
+		if cj.ViewedFiles == nil && create {
+			cj.ViewedFiles = make(map[string]ViewedFile)
+		}
+		return cj.ViewedFiles
+	}
+	if cj.ChangeViewedFiles[key] == nil && create {
+		if cj.ChangeViewedFiles == nil {
+			cj.ChangeViewedFiles = make(map[string]map[string]ViewedFile)
+		}
+		cj.ChangeViewedFiles[key] = make(map[string]ViewedFile)
+	}
+	return cj.ChangeViewedFiles[key]
+}
+
+// ViewedFiles returns the marks saved in the review file for the current
+// focus. They live only on disk: buildCritJSON starts from the disk copy, so
+// a daemon write keeps what `crit pull --viewed` saved without merging it
+// into memory.
 func (s *Session) ViewedFiles() (map[string]ViewedFile, error) {
 	critPath := s.critJSONPath()
 	if critPath == "" {
@@ -62,19 +120,35 @@ func (s *Session) ViewedFiles() (map[string]ViewedFile, error) {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return nil, fmt.Errorf("invalid review file: %w", err)
 	}
-	return cj.ViewedFiles, nil
+	s.mu.RLock()
+	focus := s.Focus
+	s.mu.RUnlock()
+	adoptLegacyViewed(&cj, focus)
+	key := ViewedChangeKey(focus)
+	if key != "" {
+		return viewedBucket(&cj, key, false), nil
+	}
+	marks := make(map[string]ViewedFile, len(cj.ViewedFiles))
+	for path, mark := range cj.ViewedFiles {
+		if !isLegacyPRMark(mark) {
+			marks[path] = mark
+		}
+	}
+	return marks, nil
 }
 
 // SetViewedFiles saves marks in the same transaction as the session's pending
-// state, pinned to the current focus.
+// state, under the current focus's change and pinned to its head.
 func (s *Session) SetViewedFiles(updates []ViewedUpdate) error {
 	critPath := s.critJSONPath()
 	if critPath == "" || len(updates) == 0 {
 		return nil
 	}
 	s.mu.RLock()
-	headSHA, changeNumber := viewedFocusRef(s.Focus)
+	focus := s.Focus
 	s.mu.RUnlock()
+	headSHA, changeNumber := viewedFocusRef(focus)
+	key := ViewedChangeKey(focus)
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -83,17 +157,16 @@ func (s *Session) SetViewedFiles(updates []ViewedUpdate) error {
 	s.handleExternalDeletion(critPath)
 	return WithReviewWriteLock(critPath, func() error {
 		return s.writeReviewFile(critPath, func(cj *CritJSON) {
-			if cj.ViewedFiles == nil {
-				cj.ViewedFiles = make(map[string]ViewedFile, len(updates))
-			}
+			adoptLegacyViewed(cj, focus)
+			marks := viewedBucket(cj, key, true)
 			for _, u := range updates {
 				mark := ViewedFile{Viewed: u.Viewed, Auto: u.Auto && u.Viewed, FileHash: u.FileHash}
-				// A mark made on any other revision stays local: pinning it
-				// to this head would claim a version nobody saw.
-				if u.HeadSHA == headSHA {
+				// A mark made on any other revision stays unpinned: pinning
+				// it to this head would claim a version nobody saw.
+				if key != "" && u.HeadSHA == headSHA {
 					mark.HeadSHA, mark.ChangeNumber = headSHA, changeNumber
 				}
-				cj.ViewedFiles[u.Path] = mark
+				marks[u.Path] = mark
 			}
 		})
 	})
@@ -112,24 +185,30 @@ func pushableViewedReview(reviewPath string) *CritJSON {
 	if json.Unmarshal(data, &cj) != nil {
 		return nil
 	}
-	marks := make(map[string]ViewedFile)
-	for path, mark := range cj.ViewedFiles {
-		if !mark.Auto && mark.HeadSHA != "" {
-			marks[path] = mark
+	changes := make(map[string]map[string]ViewedFile)
+	for key, bucket := range cj.ChangeViewedFiles {
+		for path, mark := range bucket {
+			if mark.Auto || mark.HeadSHA == "" {
+				continue
+			}
+			if changes[key] == nil {
+				changes[key] = make(map[string]ViewedFile)
+			}
+			changes[key][path] = mark
 		}
 	}
-	if len(marks) == 0 {
+	if len(changes) == 0 {
 		return nil
 	}
 	return &CritJSON{
-		Branch:          cj.Branch,
-		BaseRef:         cj.BaseRef,
-		UpdatedAt:       cj.UpdatedAt,
-		ReviewRound:     1,
-		CliArgs:         cj.CliArgs,
-		CWD:             cj.CWD,
-		ActiveDiffScope: cj.ActiveDiffScope,
-		Files:           map[string]CritJSONFile{},
-		ViewedFiles:     marks,
+		Branch:            cj.Branch,
+		BaseRef:           cj.BaseRef,
+		UpdatedAt:         cj.UpdatedAt,
+		ReviewRound:       1,
+		CliArgs:           cj.CliArgs,
+		CWD:               cj.CWD,
+		ActiveDiffScope:   cj.ActiveDiffScope,
+		Files:             map[string]CritJSONFile{},
+		ChangeViewedFiles: changes,
 	}
 }

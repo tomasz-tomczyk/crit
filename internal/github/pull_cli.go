@@ -145,6 +145,14 @@ func RunPull(args []string) error { //nolint:gocyclo
 
 	// Probe before taking the review lock: it makes an HTTP call to the daemon.
 	daemonFocus := session.ProbeDaemonFocus()
+	// Same for viewed marks: resolving the checkout's repository runs gh.
+	var daemonViewedKey, checkoutViewedKey string
+	if f.viewed {
+		if daemonFocus != nil && daemonFocus.ChangeNumber == id.Number {
+			daemonViewedKey = session.ViewedChangeKey(*daemonFocus)
+		}
+		checkoutViewedKey = checkoutPRKey(id.Number)
+	}
 	var added, viewedAdded int
 	err = session.WithReviewWriteLock(critPath, func() error {
 		cj := readCritJSONForPull(critPath)
@@ -164,7 +172,7 @@ func RunPull(args []string) error { //nolint:gocyclo
 		}
 		added = MergeGHCommentsScoped(&cj, ghComments, session.PullScopeFor(daemonFocus, &cj), threadResolved)
 		if f.viewed {
-			viewedAdded = mergeRemoteViewed(&cj, id.Number, remoteViewed)
+			viewedAdded = mergeRemoteViewed(&cj, id, remoteViewed, daemonViewedKey, checkoutViewedKey)
 		}
 		if added == 0 && viewedAdded == 0 {
 			return nil
