@@ -484,6 +484,10 @@
       ensureLoaded: ensureLoaded,
       scrollToFile: scrollToFile,
       scrollToLine: scrollToLine,
+      // Drop Pierre's pending scrollTo target once Crit has placed the list
+      // itself. Pierre keeps the target until scrollTop matches it exactly
+      // and re-applies it on every render until then.
+      releaseScroll: function() { viewer.clearPendingScroll(); },
       setCollapsed: setCollapsed,
       setAllCollapsed: setAllCollapsed,
       setDiffStyle: setDiffStyle,

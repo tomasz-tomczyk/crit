@@ -186,3 +186,37 @@ test('a ref chip at the bottom to a review comment scrolls back to it', async ({
   await chip.click();
   await expect(page.locator('#reviewConversation .comment-card')).toBeInViewport();
 });
+
+// A jump to an unmounted card asks Pierre to scroll to its file, then centers
+// the card. Pierre kept that file target pending, so the next click (card
+// now mounted) re-applied it and the card bounced to the file top.
+test('clicking the same panel card again leaves the inline card in place', async ({ page, request }) => {
+  const path = 'file150.go';
+  const res = await request.post(`/api/file/comments?path=${encodeURIComponent(path)}`, {
+    data: { scope: 'file', start_line: 0, end_line: 0, body: 'Click me twice' },
+  });
+  expect(res.ok()).toBeTruthy();
+  const { id } = await res.json();
+  await loadPage(page);
+  const inline = page.locator(`#filesContainer .comment-card[data-comment-id="${id}"]`);
+  await expect(inline).toHaveCount(0);
+
+  await page.keyboard.press('Shift+C');
+  const panel = page.locator(`.panel-comment-block .comment-card[data-comment-id="${id}"]`);
+  const cardTop = () => inline.evaluate(el => Math.round(el.getBoundingClientRect().top));
+  await panel.click();
+  await waitForScrollStable(page);
+  await expect(inline).toBeInViewport();
+  // Files above can still finish measuring after the first jump and nudge the
+  // card, so compare from the second click: a re-centered card stays put.
+  await panel.click();
+  await waitForScrollStable(page);
+  await expect(inline).toBeInViewport();
+  const placed = await cardTop();
+
+  for (let i = 0; i < 2; i++) {
+    await panel.click();
+    await waitForScrollStable(page);
+    expect(Math.abs(await cardTop() - placed)).toBeLessThanOrEqual(2);
+  }
+});

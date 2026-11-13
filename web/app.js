@@ -2706,14 +2706,24 @@
   function scrollPierreElementIntoView(el, isCurrent) {
     const root = document.getElementById('filesContainer');
     if (!root || !el) return;
+    // A rebuild (scope, palette, SSE) does not supersede the jump, so check
+    // the card and view are still the ones this alignment started on.
+    const view = pierreView;
     let frames = 0;
     (function align() {
       if (isCurrent && !isCurrent()) return;
+      if (!el.isConnected || view !== pierreView) return;
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const gap = Math.max(0, (root.clientHeight - elRect.height) / 2);
       const offset = elRect.top - rootRect.top - gap;
-      if (Math.abs(offset) < 2 || frames++ >= 12) return;
+      if (Math.abs(offset) < 2 || frames++ >= 12) {
+        // The card now sits away from the file or line Pierre was asked to
+        // scroll to. Left pending, that target would be re-applied on the
+        // next render (e.g. the next click) and pull the card off-center.
+        if (view) view.releaseScroll();
+        return;
+      }
       // Make each layout correction immediate instead of starting overlapping
       // browser scroll animations during the bounded alignment loop.
       root.scrollTo({ top: root.scrollTop + offset, behavior: 'instant' });
@@ -2747,6 +2757,16 @@
       else {
         ignoreTreeObserverUntil = Date.now() + 400;
         updateTreeActive(filePath);
+      }
+      // A mounted card is centered directly. Asking Pierre to scroll too
+      // would race the alignment: Pierre applies its scroll a frame later,
+      // after the align loop saw the card in place and stopped, so repeat
+      // clicks on the same comment bounced between the file top and the card.
+      const mounted = card();
+      if (mounted) {
+        scrollPierreElementIntoView(mounted, isCurrent);
+        done(mounted);
+        return;
       }
       const scrolled = anchored
         ? pierreView.scrollToLine(filePath, comment.end_line, comment.side, 'center')
