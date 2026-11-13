@@ -121,6 +121,59 @@ test.describe('Commit Selection', () => {
     await expect(label(page)).toHaveText('All commits');
   });
 
+  test('changing the commit selection hides the previous diff while a reload is queued', async ({ page }) => {
+    await loadPage(page);
+    await openCommitPicker(page);
+    const commits = realCommitItems(page);
+    const firstSha = await commits.first().getAttribute('data-commit');
+    const secondSha = await commits.nth(1).getAttribute('data-commit');
+    let releaseFirst: () => void = () => {};
+    let releaseSecond: () => void = () => {};
+    const holdFirst = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const holdSecond = new Promise<void>(resolve => { releaseSecond = resolve; });
+    await page.route('**/api/session?*', async route => {
+      const commit = new URL(route.request().url()).searchParams.get('commit');
+      if (commit === firstSha) await holdFirst;
+      if (commit === secondSha) await holdSecond;
+      await route.continue();
+    });
+
+    try {
+      await commits.first().click();
+      await commits.nth(1).click();
+      await expect(page.locator('#filesContainer .loading')).toHaveText('Loading...');
+      await expect(page.locator('#filesContainer .pierre-file-header')).toHaveCount(0);
+      // Catch even a brief stale render that the next reload clears before
+      // Playwright's next assertion runs.
+      await page.evaluate(() => {
+        const container = document.getElementById('filesContainer')!;
+        container.dataset.staleHeaderMounts = '0';
+        new MutationObserver(records => {
+          for (const record of records) {
+            for (const node of record.addedNodes) {
+              if (node instanceof Element &&
+                  (node.matches('.pierre-file-header') || node.querySelector('.pierre-file-header'))) {
+                container.dataset.staleHeaderMounts = String(Number(container.dataset.staleHeaderMounts) + 1);
+              }
+            }
+          }
+        }).observe(container, { childList: true, subtree: true });
+      });
+      const secondRequest = page.waitForRequest(r => new URL(r.url()).searchParams.get('commit') === secondSha);
+      releaseFirst();
+      await secondRequest;
+      await expect(page.locator('#filesContainer .loading')).toHaveText('Loading...');
+      await expect(page.locator('#filesContainer .pierre-file-header')).toHaveCount(0);
+      await expect(page.locator('#filesContainer')).toHaveAttribute('data-stale-header-mounts', '0');
+    } finally {
+      releaseFirst();
+      releaseSecond();
+    }
+    await expect(page.locator('.tree-file[data-tree-path="handler.js"]')).toHaveCount(1);
+    await expect(fileHeader(page, 'handler.js')).toBeVisible();
+    await expect(fileHeader(page, 'deleted.txt')).toHaveCount(0);
+  });
+
   test('commit picker hidden when only one commit exists', async ({ page, request }) => {
     const commits = await (await request.get('/api/commits')).json();
     expect(Array.isArray(commits) && commits.length).toBeGreaterThan(1);
