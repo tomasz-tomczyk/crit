@@ -41,6 +41,7 @@ test.describe('Commit context card', () => {
     const commits: Array<{ virtual?: boolean }> = await (await request.get('/api/commits')).json();
     const virtual = commits.filter(c => c.virtual);
     expect(virtual.length).toBeGreaterThan(0);
+    expect(commits.some(c => !c.virtual)).toBe(true);
     await page.route('**/api/commits', route => route.fulfill({
       status: 200,
       contentType: 'application/json',

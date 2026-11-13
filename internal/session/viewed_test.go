@@ -183,26 +183,51 @@ func TestSetViewedFiles_SameNumberInDifferentRepositories(t *testing.T) {
 	}
 }
 
-func TestViewedFiles_LegacyPinnedMarksAreUnpinned(t *testing.T) {
+func TestViewedFiles_LegacyPinnedMarks(t *testing.T) {
 	s := viewedTestSession(t)
-	// A review written before marks were keyed by change: the mark knows its
-	// PR number but not its repository.
+	// A review written before marks were keyed by change: each PR mark knows
+	// its PR number and head commit, but not its repository.
 	legacy := CritJSON{ReviewRound: 1, Files: map[string]CritJSONFile{}, ViewedFiles: map[string]ViewedFile{
-		"main.go": {Viewed: true, FileHash: "sha256:a", HeadSHA: "abc", ChangeNumber: 7},
+		"main.go":  {Viewed: true, FileHash: "sha256:a", HeadSHA: "h7", ChangeNumber: 7},
+		"other.go": {Viewed: true, HeadSHA: "h8", ChangeNumber: 8},
+		"old.go":   {Viewed: true, HeadSHA: "stale", ChangeNumber: 7},
+		"local.go": {Viewed: true},
 	}}
 	if err := SaveCritJSON(s.critJSONPath(), legacy); err != nil {
 		t.Fatal(err)
 	}
-	got := mustViewed(t, s)
-	if e := got["main.go"]; !e.Viewed || e.FileHash != "sha256:a" || e.HeadSHA != "" || e.ChangeNumber != 0 {
-		t.Fatalf("legacy mark: %+v", e)
+
+	// Outside a PR only the local mark shows.
+	if got := mustViewed(t, s); len(got) != 1 || !got["local.go"].Viewed {
+		t.Fatalf("working tree: %+v", got)
 	}
-	// Writing migrates it on disk too, and it is never pushable.
-	if err := s.SetViewedFiles([]ViewedUpdate{{Path: "other.go", Viewed: true}}); err != nil {
-		t.Fatal(err)
+
+	// PR 7 at h7 vouches for the mark made on exactly that revision.
+	s.Focus = Focus{Kind: FocusRange, ChangeNumber: 7, HeadSHA: "h7"}
+	got := mustViewed(t, s)
+	if e := got["main.go"]; !e.Viewed || e.HeadSHA != "h7" || e.FileHash != "sha256:a" || len(got) != 1 {
+		t.Fatalf("PR 7 view: %+v", got)
 	}
 	if pushableViewedReview(s.critJSONPath()) != nil {
-		t.Fatal("a mark without repository identity must not be pushable")
+		t.Fatal("reading must not write the adoption")
+	}
+
+	// Writing in that focus saves the adoption, which makes the mark pushable.
+	if err := s.SetViewedFiles([]ViewedUpdate{{Path: "new.go", Viewed: true, HeadSHA: "h7"}}); err != nil {
+		t.Fatal(err)
+	}
+	pushable := pushableViewedReview(s.critJSONPath())
+	if pushable == nil || !pushable.ChangeViewedFiles["pr:7"]["main.go"].Viewed {
+		t.Fatalf("adopted mark not pushable: %+v", pushable)
+	}
+	if _, kept := pushable.ChangeViewedFiles["pr:7"]["old.go"]; kept {
+		t.Fatal("a legacy mark on another revision must not be adopted")
+	}
+
+	// PR 8 still finds its own mark later.
+	s.Focus = Focus{Kind: FocusRange, ChangeNumber: 8, HeadSHA: "h8"}
+	if !mustViewed(t, s)["other.go"].Viewed {
+		t.Fatal("PR 8's legacy mark was lost")
 	}
 }
 

@@ -955,16 +955,21 @@
   }
 
   // Marks are saved per PR layer, so a focus change reloads them. Saves still
-  // in flight land first, or the reload would miss them.
+  // in flight land first, or the reload would miss them, but a save that
+  // never answers must not hold up the reload. On failure the marks stay
+  // empty rather than keep another layer's: localStorage still restores this
+  // origin's marks.
   async function loadServerViewed() {
-    await viewedPersistChain;
+    await Promise.race([viewedPersistChain, new Promise(function(resolve) { setTimeout(resolve, 3000); })]);
+    serverViewed = {};
+    serverViewedLoaded = false;
     try {
       const res = await fetch('/api/viewed');
       if (res.ok) {
         serverViewed = (await res.json()).files || {};
         serverViewedLoaded = true;
       }
-    } catch { /* localStorage still restores this origin's marks */ }
+    } catch { /* see above */ }
   }
 
   // Whether a saved mark still describes this file. Lazy files have no hash
@@ -9331,9 +9336,9 @@
           return;
         }
 
+        const viewedLoad = loadServerViewed();
         const loadedFiles = await loadAllFileData(session.files, currentFileDataScope());
-        if (requestVersion !== reloadRequestVersion) return;
-        await loadServerViewed();
+        await viewedLoad;
         if (requestVersion !== reloadRequestVersion) return;
         files = loadedFiles;
         hiddenUnresolved = session.hidden_unresolved || 0;

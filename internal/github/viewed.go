@@ -202,33 +202,52 @@ var checkoutPRKey = func(number int) string {
 // first. A review started from a URL keys its marks by repository; one
 // started with a bare number in a checkout keys them by number alone, which
 // means this checkout's repository. The bare key therefore only matches when
-// id is that repository's PR, and the checkout is only resolved when the
-// review holds marks under another key for the same number.
-func viewedChangeKeys(cj session.CritJSON, id forge.ChangeID) []string {
+// id is that repository's PR. checkout returns the checkout's key for id
+// (see checkoutPRKey) and is only called when the review, or the running
+// daemon's focus (daemonKey), names the PR under another key.
+func viewedChangeKeys(cj session.CritJSON, id forge.ChangeID, daemonKey string, checkout func() string) []string {
 	primary := session.PRFocusKey(id.Number, id.Project, id.Host)
 	bare := session.PRFocusKey(id.Number, "", "")
 	suffix := fmt.Sprintf("#%d", id.Number)
-	other := false
+	sameNumber := func(key string) bool {
+		return key != "" && !strings.EqualFold(key, primary) &&
+			strings.HasPrefix(key, "pr:") && (key == bare || strings.HasSuffix(key, suffix))
+	}
+	other := sameNumber(daemonKey)
 	for key := range cj.ChangeViewedFiles {
-		if !strings.EqualFold(key, primary) && (key == bare || strings.HasSuffix(key, suffix)) {
-			other = true
-			break
-		}
+		other = other || sameNumber(key)
 	}
 	if !other {
 		return []string{primary}
 	}
-	checkout := checkoutPRKey(id.Number)
+	key := checkout()
 	switch {
-	case checkout == "":
+	case key == "":
 		return []string{primary}
 	case id.Project == "":
-		return []string{primary, checkout}
-	case strings.EqualFold(primary, checkout):
+		return []string{primary, key}
+	case strings.EqualFold(primary, key):
 		return []string{primary, bare}
 	default:
 		return []string{primary}
 	}
+}
+
+// matchingViewedBuckets returns the bucket keys in cj equal to want, ignoring
+// case, with an exact match first and the rest sorted, so a review holding
+// the same PR under differently cased URLs reads the same way every time.
+func matchingViewedBuckets(cj session.CritJSON, want string) []string {
+	var exact, folded []string
+	for key := range cj.ChangeViewedFiles {
+		switch {
+		case key == want:
+			exact = append(exact, key)
+		case strings.EqualFold(key, want):
+			folded = append(folded, key)
+		}
+	}
+	sort.Strings(folded)
+	return append(exact, folded...)
 }
 
 // viewedMarksFor gathers the marks saved under any of keys. A path marked
@@ -236,11 +255,8 @@ func viewedChangeKeys(cj session.CritJSON, id forge.ChangeID) []string {
 func viewedMarksFor(cj session.CritJSON, keys []string) map[string]session.ViewedFile {
 	marks := make(map[string]session.ViewedFile)
 	for _, want := range keys {
-		for key, bucket := range cj.ChangeViewedFiles {
-			if !strings.EqualFold(key, want) {
-				continue
-			}
-			for path, mark := range bucket {
+		for _, key := range matchingViewedBuckets(cj, want) {
+			for path, mark := range cj.ChangeViewedFiles[key] {
 				if _, seen := marks[path]; !seen {
 					marks[path] = mark
 				}
@@ -258,7 +274,8 @@ func buildViewedPushPlan(id forge.ChangeID, cj session.CritJSON, remote prViewed
 		ok    bool
 	}
 	seen := make(map[string]comparison)
-	marks := viewedMarksFor(cj, viewedChangeKeys(cj, id))
+	keys := viewedChangeKeys(cj, id, "", func() string { return checkoutPRKey(id.Number) })
+	marks := viewedMarksFor(cj, keys)
 	return planViewedPush(marks, remote, func(sha, path string) bool {
 		if sha == remote.headSHA {
 			return false
@@ -376,19 +393,13 @@ func pushViewedFiles(ctx pushContext) error {
 // mergeRemoteViewed adds GitHub's viewed files for PR id to cj and returns
 // how many it added. GitHub's tick applies to the PR's current head, so it
 // replaces a local tick pinned anywhere else. A local untick stays: it is a
-// decision that has not been pushed yet.
-func mergeRemoteViewed(cj *session.CritJSON, id forge.ChangeID, remote prViewedState) int {
-	keys := viewedChangeKeys(*cj, id)
+// decision that has not been pushed yet. daemonKey is the change key of the
+// running daemon's focus, or "", and checkoutKey is this checkout's key for
+// id (resolved before the caller took the review lock).
+func mergeRemoteViewed(cj *session.CritJSON, id forge.ChangeID, remote prViewedState, daemonKey, checkoutKey string) int {
+	keys := viewedChangeKeys(*cj, id, daemonKey, func() string { return checkoutKey })
 	local := viewedMarksFor(*cj, keys)
-	// Add to the bucket the review already uses for this PR, so the daemon
-	// that made those marks shows these too.
-	target := keys[0]
-	for _, want := range keys {
-		if found := existingViewedKey(*cj, want); found != "" {
-			target = found
-			break
-		}
-	}
+	target := viewedPullTarget(*cj, keys, daemonKey)
 	added := 0
 	for path, state := range remote.files {
 		if state != ghViewed {
@@ -409,13 +420,19 @@ func mergeRemoteViewed(cj *session.CritJSON, id forge.ChangeID, remote prViewedS
 	return added
 }
 
-// existingViewedKey returns the bucket key in cj equal to want, ignoring
-// case, or "".
-func existingViewedKey(cj session.CritJSON, want string) string {
-	for key := range cj.ChangeViewedFiles {
-		if strings.EqualFold(key, want) {
-			return key
+// viewedPullTarget picks the bucket pulled marks go to: the one the running
+// daemon shows when it is this PR, else one the review already uses for it,
+// else the PR's own key.
+func viewedPullTarget(cj session.CritJSON, keys []string, daemonKey string) string {
+	for _, key := range keys {
+		if daemonKey != "" && strings.EqualFold(key, daemonKey) {
+			return daemonKey
 		}
 	}
-	return ""
+	for _, key := range keys {
+		if found := matchingViewedBuckets(cj, key); len(found) > 0 {
+			return found[0]
+		}
+	}
+	return keys[0]
 }

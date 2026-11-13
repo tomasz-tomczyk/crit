@@ -43,28 +43,42 @@ func viewedFocusRef(f Focus) (headSHA string, changeNumber int) {
 	return f.HeadSHA, f.ChangeNumber
 }
 
-// viewedChangeKey names the ChangeViewedFiles bucket for marks made in f, or
+// ViewedChangeKey names the ChangeViewedFiles bucket for marks made in f, or
 // "" for views whose marks live in ViewedFiles. It is the same change
 // identity comments are stamped with, so marks follow the layer and the
 // repository, not just the number.
-func viewedChangeKey(f Focus) string {
+func ViewedChangeKey(f Focus) string {
 	if _, n := viewedFocusRef(f); n == 0 {
 		return ""
 	}
 	return focusKeyFor(f)
 }
 
-// MigrateLegacyViewed unpins PR marks written before marks were keyed by
-// change identity. Such a mark records only a PR number, so it cannot say
-// which repository it belongs to, and a later mark on another layer may have
-// overwritten it. It stays as a local mark, which is never pushed; the
-// reviewer re-ticks the file to push it.
-func MigrateLegacyViewed(cj *CritJSON) {
+// isLegacyPRMark reports a mark saved in ViewedFiles while it still held PR
+// marks too. It records the PR number and head, but not the repository.
+func isLegacyPRMark(mark ViewedFile) bool {
+	return mark.HeadSHA != "" || mark.ChangeNumber != 0
+}
+
+// adoptLegacyViewed moves the legacy PR marks that f can vouch for into its
+// bucket: a mark made on f's own PR number at f's exact head commit belongs
+// to this PR. Other legacy marks stay where they are, out of every view and
+// never pushed, until their own PR and head come into focus.
+func adoptLegacyViewed(cj *CritJSON, f Focus) {
+	key := ViewedChangeKey(f)
+	head, number := viewedFocusRef(f)
+	if key == "" || head == "" {
+		return
+	}
 	for path, mark := range cj.ViewedFiles {
-		if mark.HeadSHA != "" || mark.ChangeNumber != 0 {
-			mark.HeadSHA, mark.ChangeNumber = "", 0
-			cj.ViewedFiles[path] = mark
+		if mark.ChangeNumber != number || mark.HeadSHA != head {
+			continue
 		}
+		bucket := viewedBucket(cj, key, true)
+		if _, exists := bucket[path]; !exists {
+			bucket[path] = mark
+		}
+		delete(cj.ViewedFiles, path)
 	}
 }
 
@@ -106,11 +120,21 @@ func (s *Session) ViewedFiles() (map[string]ViewedFile, error) {
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return nil, fmt.Errorf("invalid review file: %w", err)
 	}
-	MigrateLegacyViewed(&cj)
 	s.mu.RLock()
-	key := viewedChangeKey(s.Focus)
+	focus := s.Focus
 	s.mu.RUnlock()
-	return viewedBucket(&cj, key, false), nil
+	adoptLegacyViewed(&cj, focus)
+	key := ViewedChangeKey(focus)
+	if key != "" {
+		return viewedBucket(&cj, key, false), nil
+	}
+	marks := make(map[string]ViewedFile, len(cj.ViewedFiles))
+	for path, mark := range cj.ViewedFiles {
+		if !isLegacyPRMark(mark) {
+			marks[path] = mark
+		}
+	}
+	return marks, nil
 }
 
 // SetViewedFiles saves marks in the same transaction as the session's pending
@@ -121,9 +145,10 @@ func (s *Session) SetViewedFiles(updates []ViewedUpdate) error {
 		return nil
 	}
 	s.mu.RLock()
-	headSHA, changeNumber := viewedFocusRef(s.Focus)
-	key := viewedChangeKey(s.Focus)
+	focus := s.Focus
 	s.mu.RUnlock()
+	headSHA, changeNumber := viewedFocusRef(focus)
+	key := ViewedChangeKey(focus)
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -132,7 +157,7 @@ func (s *Session) SetViewedFiles(updates []ViewedUpdate) error {
 	s.handleExternalDeletion(critPath)
 	return WithReviewWriteLock(critPath, func() error {
 		return s.writeReviewFile(critPath, func(cj *CritJSON) {
-			MigrateLegacyViewed(cj)
+			adoptLegacyViewed(cj, focus)
 			marks := viewedBucket(cj, key, true)
 			for _, u := range updates {
 				mark := ViewedFile{Viewed: u.Viewed, Auto: u.Auto && u.Viewed, FileHash: u.FileHash}

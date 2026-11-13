@@ -71,7 +71,7 @@ func TestMergeRemoteViewed_ReplacesTickFromAnotherRevision(t *testing.T) {
 				"pr:7": {"a.go": tt.entry},
 			}}
 			remote := prViewedState{headSHA: "head", files: map[string]string{"a.go": "VIEWED"}}
-			if got := mergeRemoteViewed(&cj, forge.ChangeID{Number: 7}, remote); got != tt.want {
+			if got := mergeRemoteViewed(&cj, forge.ChangeID{Number: 7}, remote, "", ""); got != tt.want {
 				t.Fatalf("added %d, want %d", got, tt.want)
 			}
 		})
@@ -88,7 +88,7 @@ func TestMergeRemoteViewed(t *testing.T) {
 		"dismissed.go": "DISMISSED",
 		"unviewed.go":  "UNVIEWED",
 	}}
-	if got := mergeRemoteViewed(&cj, forge.ChangeID{Number: 7}, remote); got != 1 {
+	if got := mergeRemoteViewed(&cj, forge.ChangeID{Number: 7}, remote, "", ""); got != 1 {
 		t.Fatalf("added %d, want 1", got)
 	}
 	marks := cj.ChangeViewedFiles["pr:7"]
@@ -352,7 +352,7 @@ func TestViewedMarksFor_SameNumberAcrossRepositories(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stubCheckoutPR(t, tt.checkout)
-			got := viewedMarksFor(cj, viewedChangeKeys(cj, tt.id))
+			got := viewedMarksFor(cj, viewedChangeKeys(cj, tt.id, "", func() string { return checkoutPRKey(tt.id.Number) }))
 			var paths []string
 			for p := range got {
 				paths = append(paths, p)
@@ -370,9 +370,16 @@ func TestViewedChangeKeys_ResolvesCheckoutOnlyWhenNeeded(t *testing.T) {
 	cj := session.CritJSON{ChangeViewedFiles: map[string]map[string]session.ViewedFile{
 		"pr:7": {"a.go": {Viewed: true}},
 	}}
-	viewedChangeKeys(cj, forge.ChangeID{Number: 7})
+	resolve := func() string { return checkoutPRKey(7) }
+	viewedChangeKeys(cj, forge.ChangeID{Number: 7}, "", resolve)
 	if *calls != 0 {
 		t.Fatalf("resolved the checkout %d times with only the primary key present", *calls)
+	}
+	// A GitLab MR with the same number is not this PR under another key.
+	cj.ChangeViewedFiles["mr:acme/widget#7"] = map[string]session.ViewedFile{"b.go": {Viewed: true}}
+	viewedChangeKeys(cj, forge.ChangeID{Number: 7}, "", resolve)
+	if *calls != 0 {
+		t.Fatalf("an MR key made the checkout resolve %d times", *calls)
 	}
 }
 
@@ -398,7 +405,7 @@ func TestMergeRemoteViewed_KeepsLayersApart(t *testing.T) {
 		"pr:8": {"a.go": {Viewed: false, HeadSHA: "h8", ChangeNumber: 8}},
 	}}
 	remote := prViewedState{headSHA: "h7", files: map[string]string{"a.go": "VIEWED"}}
-	if got := mergeRemoteViewed(&cj, forge.ChangeID{Number: 7}, remote); got != 1 {
+	if got := mergeRemoteViewed(&cj, forge.ChangeID{Number: 7}, remote, "pr:8", "pr:acme/widget#7"); got != 1 {
 		t.Fatalf("added %d, want 1", got)
 	}
 	if cj.ChangeViewedFiles["pr:8"]["a.go"].Viewed {
@@ -416,8 +423,67 @@ func TestMergeRemoteViewed_UsesExistingBucketForCheckoutRepo(t *testing.T) {
 		"pr:7": {"b.go": {Viewed: true, HeadSHA: "head", ChangeNumber: 7}},
 	}}
 	remote := prViewedState{headSHA: "head", files: map[string]string{"a.go": "VIEWED"}}
-	mergeRemoteViewed(&cj, forge.ChangeID{Number: 7, Project: "acme/widget"}, remote)
+	mergeRemoteViewed(&cj, forge.ChangeID{Number: 7, Project: "acme/widget"}, remote, "", "pr:acme/widget#7")
 	if _, ok := cj.ChangeViewedFiles["pr:7"]["a.go"]; !ok || len(cj.ChangeViewedFiles) != 1 {
 		t.Fatalf("pulled mark not added beside the daemon's: %+v", cj.ChangeViewedFiles)
+	}
+}
+
+func TestMergeRemoteViewed_FirstPullUsesTheDaemonsBucket(t *testing.T) {
+	remote := prViewedState{headSHA: "head", files: map[string]string{"a.go": "VIEWED"}}
+	tests := []struct {
+		name            string
+		id              forge.ChangeID
+		daemonKey, want string
+		checkoutKey     string
+	}{
+		{"daemon from url, bare pull", forge.ChangeID{Number: 7}, "pr:acme/widget#7", "pr:acme/widget#7", "pr:acme/widget#7"},
+		{"bare daemon, url pull", forge.ChangeID{Number: 7, Project: "acme/widget"}, "pr:7", "pr:7", "pr:acme/widget#7"},
+		{"daemon on another repo's pr 7", forge.ChangeID{Number: 7}, "pr:other/thing#7", "pr:7", "pr:acme/widget#7"},
+		{"no daemon", forge.ChangeID{Number: 7}, "", "pr:7", "pr:acme/widget#7"},
+		{"checkout unknown", forge.ChangeID{Number: 7}, "pr:acme/widget#7", "pr:7", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cj session.CritJSON
+			mergeRemoteViewed(&cj, tt.id, remote, tt.daemonKey, tt.checkoutKey)
+			if !cj.ChangeViewedFiles[tt.want]["a.go"].Viewed || len(cj.ChangeViewedFiles) != 1 {
+				t.Fatalf("want the mark under %s: %+v", tt.want, cj.ChangeViewedFiles)
+			}
+		})
+	}
+}
+
+func TestViewedMarksFor_CaseVariantsAreDeterministic(t *testing.T) {
+	cj := session.CritJSON{ChangeViewedFiles: map[string]map[string]session.ViewedFile{
+		"pr:Acme/Widget#7": {"a.go": {Viewed: false}},
+		"pr:ACME/widget#7": {"a.go": {Viewed: false}},
+		"pr:acme/widget#7": {"a.go": {Viewed: true}},
+	}}
+	for i := 0; i < 50; i++ {
+		if !viewedMarksFor(cj, []string{"pr:acme/widget#7"})["a.go"].Viewed {
+			t.Fatal("the exact-case bucket must win")
+		}
+		if viewedMarksFor(cj, []string{"pr:aCME/WIDGET#7"})["a.go"].Viewed {
+			t.Fatal("folded matches must be read in sorted order")
+		}
+	}
+}
+
+func TestCheckoutPRKey(t *testing.T) {
+	tests := []struct{ name, body, want string }{
+		{"github.com", `echo '{"nameWithOwner":"acme/widget","url":"https://github.com/acme/widget"}'`, "pr:acme/widget#7"},
+		{"enterprise host", `echo '{"nameWithOwner":"acme/widget","url":"https://GHE.example.com/acme/widget"}'`, "pr:ghe.example.com/acme/widget#7"},
+		{"not a repo", `exit 1`, ""},
+		{"unparseable", `echo 'nope'`, ""},
+		{"no name", `echo '{"url":"https://github.com/acme/widget"}'`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			installViewedFakeGH(t, tt.body)
+			if got := checkoutPRKey(7); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
