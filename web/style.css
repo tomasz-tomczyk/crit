@@ -2377,6 +2377,19 @@ textarea.drag-active {
   100% { background-color: transparent; box-shadow: 0 0 0 2px transparent; }
 }
 
+/* New comment form: a soft accent ring that fades out, so the form is easy
+   to spot without the louder comment-ref jump flash. */
+.comment-form-flash {
+  animation: comment-form-flash 1.4s var(--crit-ease);
+}
+@keyframes comment-form-flash {
+  0%, 20% {
+    background-color: color-mix(in srgb, var(--crit-brand) 12%, var(--crit-editor-comment-bg));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit-brand) 55%, transparent);
+  }
+  100% { box-shadow: 0 0 0 2px var(--crit-brand-subtle); }
+}
+
 /* ===== Save Template Dialog ===== */
 .save-template-overlay {
   display: none;
