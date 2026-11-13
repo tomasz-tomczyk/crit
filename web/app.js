@@ -8017,6 +8017,7 @@
 
   // ===== Table of Contents =====
   function buildToc() {
+    refreshReadAloud();
     const tocEl = document.getElementById('toc');
     const listEl = tocEl.querySelector('.toc-list');
     const toggleBtn = document.getElementById('tocToggle');
@@ -9447,6 +9448,207 @@
     setSetting('toc', 'closed');
   });
 
+  // ===== Read Aloud =====
+  // Speaks the markdown documents sentence by sentence with the browser's
+  // speech synthesis, starting at the first block in view and highlighting the
+  // block being read. While reading, a player bar pauses (resuming at the
+  // current word), seeks by sentence and sets speed and volume, and clicking
+  // the text seeks to the clicked word. Clicking the header button again stops.
+  const readAloudBtn = document.getElementById('readAloudToggle');
+  const readAloudSupported = window.crit.readAloud.isSupported(window);
+  let readAloudReader = null;
+  let readAloudFiles = null;
+  let readAloudLastPath = null;
+  let readAloudSegments = [];
+
+  function readAloudFileList() {
+    return files.filter(function(f) { return f.fileType === 'markdown' && f.lineBlocks && f.lineBlocks.length; });
+  }
+
+  // Called with buildToc on every (re)render: show the button only when there
+  // is a document to read, and stop a reading whose files were replaced.
+  function refreshReadAloud() {
+    if (readAloudReader && readAloudReader.state() !== 'stopped' && readAloudFiles !== files) readAloudReader.stop();
+    readAloudBtn.style.display = readAloudSupported && readAloudFileList().length ? '' : 'none';
+  }
+
+  // The highlight is a style rule rather than a class: the document DOM is
+  // rebuilt on re-render (hydration, annotations) and a class would be lost.
+  // It goes before the user's custom.css link, which must stay last.
+  const readAloudStyle = document.createElement('style');
+  const customCSSLink = document.getElementById('critCustomCSS');
+  if (customCSSLink) customCSSLink.before(readAloudStyle);
+  else document.head.appendChild(readAloudStyle);
+
+  function clearReadAloudHighlight() {
+    readAloudStyle.textContent = '';
+  }
+
+  const readAloudBar = document.getElementById('readAloudBar');
+  const readAloudSeek = document.getElementById('readAloudSeek');
+  const readAloudPos = document.getElementById('readAloudPos');
+  const readAloudPlayPause = document.getElementById('readAloudPlayPause');
+  const readAloudRate = document.getElementById('readAloudRate');
+  const readAloudVolume = document.getElementById('readAloudVolume');
+
+  function showReadAloudPosition(index) {
+    readAloudSeek.max = String(Math.max(0, readAloudReader.length() - 1));
+    readAloudSeek.value = String(index);
+    readAloudPos.textContent = (index + 1) + ' / ' + readAloudReader.length();
+  }
+
+  function onReadAloudSegment(segment, index) {
+    showReadAloudPosition(index);
+    const selector = '.line-block[data-file-path="' + CSS.escape(segment.filePath) + '"][data-start-line="' + segment.startLine + '"]';
+    // A table row's cells paint their own background, so they are tinted
+    // instead of the row, and the cell being read (they follow the gutter
+    // cell) carries the accent bar.
+    const tinted = segment.cell === undefined ? selector : selector + ' > .line-content';
+    const marked = segment.cell === undefined ? selector : selector + ' > .line-content:nth-child(' + (segment.cell + 2) + ')';
+    readAloudStyle.textContent = tinted + ' { background: var(--crit-brand-subtle); }\n' +
+      marked + ' { box-shadow: inset 2px 0 0 var(--crit-brand); }';
+    const el = document.querySelector('#filesContainer ' + selector);
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < reviewScrollerTop() || rect.bottom > window.innerHeight) scrollReviewToElement(el, 80, 'smooth');
+    } else if (segment.filePath !== readAloudLastPath) {
+      // Off-screen documents have no DOM (CodeView virtualizes); bring it in
+      // so the following blocks can be highlighted.
+      scrollToFile(segment.filePath);
+    }
+    readAloudLastPath = segment.filePath;
+  }
+
+  // First commentable document block below the header, or null.
+  function firstVisibleReadAloudBlock() {
+    const top = reviewScrollerTop();
+    const blocks = document.querySelectorAll('#filesContainer .line-block[data-start-line][data-file-path]');
+    for (const el of blocks) {
+      if (el.getBoundingClientRect().bottom > top) return el;
+    }
+    return null;
+  }
+
+  // Character offset of a click in a block's text, measured on whitespace-
+  // normalized text the way segment offsets are; 0 when the caret can't be found.
+  function readAloudClickOffset(e, content) {
+    let node = null;
+    let offset = 0;
+    if (document.caretPositionFromPoint) {
+      const caret = document.caretPositionFromPoint(e.clientX, e.clientY);
+      if (caret) { node = caret.offsetNode; offset = caret.offset; }
+    } else if (document.caretRangeFromPoint) {
+      const caret = document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (caret) { node = caret.startContainer; offset = caret.startOffset; }
+    }
+    if (!node || !content.contains(node)) return 0;
+    const prefix = document.createRange();
+    prefix.setStart(content, 0);
+    prefix.setEnd(node, offset);
+    return window.crit.readAloud.normalizeText(prefix.toString()).length;
+  }
+
+  function startReadAloud() {
+    const ra = window.crit.readAloud;
+    let segments = [];
+    for (const f of readAloudFileList()) segments = segments.concat(ra.segmentsFromBlocks(f.path, f.lineBlocks));
+    const visible = firstVisibleReadAloudBlock();
+    const startIndex = visible
+      ? ra.startIndexFor(segments, visible.dataset.filePath, Number(visible.dataset.startLine))
+      : 0;
+    readAloudFiles = files;
+    readAloudLastPath = null;
+    readAloudSegments = segments;
+    readAloudReader.start(segments, startIndex);
+  }
+
+  if (readAloudSupported) {
+    const rates = window.crit.readAloud.RATES;
+    const savedRate = Number(getSetting('readAloudRate', 1));
+    const savedVolume = Number(getSetting('readAloudVolume', 1));
+    for (const r of rates) {
+      const opt = document.createElement('option');
+      opt.value = String(r);
+      opt.textContent = r + '×';
+      readAloudRate.appendChild(opt);
+    }
+    readAloudRate.value = String(rates.indexOf(savedRate) !== -1 ? savedRate : 1);
+    readAloudVolume.value = String(savedVolume);
+
+    readAloudReader = window.crit.readAloud.createReader({
+      synth: window.speechSynthesis,
+      Utterance: window.SpeechSynthesisUtterance,
+      rate: Number(readAloudRate.value),
+      volume: savedVolume,
+      onSegment: onReadAloudSegment,
+      onStateChange: function(state) {
+        const active = state !== 'stopped';
+        readAloudBtn.classList.toggle('active', active);
+        readAloudBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        readAloudBtn.title = active ? 'Stop reading (Shift+L)' : 'Read aloud (Shift+L)';
+        readAloudBtn.setAttribute('aria-label', active ? 'Stop reading' : 'Read aloud');
+        readAloudBar.hidden = !active;
+        readAloudBar.classList.toggle('paused', state === 'paused');
+        readAloudPlayPause.title = state === 'paused' ? 'Resume' : 'Pause';
+        readAloudPlayPause.setAttribute('aria-label', readAloudPlayPause.title);
+        if (!active) clearReadAloudHighlight();
+      },
+    });
+    readAloudBtn.addEventListener('click', function() {
+      if (readAloudReader.state() !== 'stopped') readAloudReader.stop();
+      else startReadAloud();
+    });
+    readAloudPlayPause.addEventListener('click', function() {
+      if (readAloudReader.state() === 'paused') readAloudReader.resume();
+      else readAloudReader.pause();
+    });
+    document.getElementById('readAloudPrev').addEventListener('click', function() {
+      readAloudReader.seek(readAloudReader.index() - 1);
+    });
+    document.getElementById('readAloudNext').addEventListener('click', function() {
+      readAloudReader.seek(readAloudReader.index() + 1);
+    });
+    document.getElementById('readAloudStop').addEventListener('click', function() {
+      readAloudReader.stop();
+    });
+    // Dragging only previews the position; speech restarts on release.
+    readAloudSeek.addEventListener('input', function() {
+      readAloudPos.textContent = (Number(readAloudSeek.value) + 1) + ' / ' + readAloudReader.length();
+    });
+    readAloudSeek.addEventListener('change', function() {
+      readAloudReader.seek(Number(readAloudSeek.value));
+    });
+    readAloudRate.addEventListener('change', function() {
+      readAloudReader.setRate(Number(readAloudRate.value));
+      setSetting('readAloudRate', Number(readAloudRate.value));
+    });
+    readAloudVolume.addEventListener('change', function() {
+      readAloudReader.setVolume(Number(readAloudVolume.value));
+      setSetting('readAloudVolume', Number(readAloudVolume.value));
+    });
+    // While reading, clicking the document's text jumps to that block. Links,
+    // controls, comments and text selections keep their usual behaviour.
+    document.getElementById('filesContainer').addEventListener('click', function(e) {
+      if (readAloudReader.state() === 'stopped') return;
+      if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target.closest('a, button, input, textarea, select, label, .line-comment-gutter, .comment-card, .comment-form')) return;
+      const content = e.target.closest('.line-content');
+      const block = content && content.closest('.line-block[data-file-path][data-start-line]');
+      if (!block) return;
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) return;
+      // In a table row each cell is its own .line-content.
+      const cell = block.tagName === 'TR'
+        ? Array.prototype.indexOf.call(block.querySelectorAll(':scope > .line-content'), content)
+        : 0;
+      const pos = window.crit.readAloud.positionAt(readAloudSegments, block.dataset.filePath,
+        Number(block.dataset.startLine), readAloudClickOffset(e, content), cell);
+      readAloudReader.seek(pos.index, pos.charIndex);
+    });
+    // Speech keeps going after the tab navigates away in some browsers.
+    window.addEventListener('pagehide', function() { readAloudReader.stop(); });
+  }
+
   // ===== Comment Navigation =====
   let navCommentId = null;
   let navHighlightTimer;
@@ -10009,6 +10211,12 @@
         if (!treeBtn || getComputedStyle(treeBtn).display === 'none') return;
         e.preventDefault();
         treeBtn.click();
+        break;
+      }
+      case 'read_aloud': {
+        if (readAloudBtn.style.display === 'none') return;
+        e.preventDefault();
+        readAloudBtn.click();
         break;
       }
       case 'toggle_toc': {

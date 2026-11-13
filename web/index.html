@@ -125,6 +125,9 @@
     <button class="theme-toggle" id="settingsToggle" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"/></svg>
     </button>
+    <button class="theme-toggle" id="readAloudToggle" style="display:none" title="Read aloud (Shift+L)" aria-label="Read aloud" aria-pressed="false">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6v4h2.5l3.5 3V3L5 6H2.5Z"/><path class="read-aloud-wave" d="M10.75 5.75a3 3 0 0 1 0 4.5M12.5 4a5.5 5.5 0 0 1 0 8"/><path class="read-aloud-stop" d="M10.5 6l4 4M14.5 6l-4 4"/></svg>
+    </button>
     <button class="theme-toggle" id="tocToggle" title="Table of contents" aria-label="Table of contents">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke-linecap="round"/></svg>
     </button>
@@ -144,6 +147,26 @@
 <div class="toast-container" id="toastContainer"></div>
 <div id="copyStatus" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap"></div>
 <div class="bottom-toast-container" id="bottomToastContainer"></div>
+<div class="read-aloud-bar" id="readAloudBar" role="group" aria-label="Read aloud player" hidden>
+  <button type="button" class="read-aloud-bar-btn" id="readAloudPrev" title="Previous sentence" aria-label="Previous sentence">
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.5 3h1.5v10H3.5zM13 3.5v9L6 8z"/></svg>
+  </button>
+  <button type="button" class="read-aloud-bar-btn read-aloud-bar-play" id="readAloudPlayPause" title="Pause" aria-label="Pause">
+    <svg class="read-aloud-icon-pause" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>
+    <svg class="read-aloud-icon-play" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.75v10.5L13 8z"/></svg>
+  </button>
+  <button type="button" class="read-aloud-bar-btn" id="readAloudNext" title="Next sentence" aria-label="Next sentence">
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11 3h1.5v10H11zM3 3.5v9L10 8z"/></svg>
+  </button>
+  <input type="range" class="read-aloud-seek" id="readAloudSeek" min="0" max="0" step="1" value="0" aria-label="Position in document">
+  <span class="read-aloud-pos" id="readAloudPos" aria-live="off"></span>
+  <select class="read-aloud-rate" id="readAloudRate" aria-label="Speed" title="Speed"></select>
+  <svg class="read-aloud-volume-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6v4h2.5l3.5 3V3L5 6H2.5Z"/><path d="M10.75 5.75a3 3 0 0 1 0 4.5" stroke-linecap="round"/></svg>
+  <input type="range" class="read-aloud-volume" id="readAloudVolume" min="0" max="1" step="0.05" value="1" aria-label="Volume" title="Volume">
+  <button type="button" class="read-aloud-bar-btn" id="readAloudStop" title="Stop reading" aria-label="Stop reading">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+  </button>
+</div>
 
 <div class="mobile-file-picker-bar mobile-file-picker-hidden" id="mobileFilePickerBar" aria-label="File navigation">
   <label class="mobile-file-picker-label" for="mobileFilePicker">File:</label>
@@ -525,6 +548,8 @@
       var pd = document.createElement('script'); pd.src = 'crit-pierre-dom.js'; pd.async = false; document.body.appendChild(pd);
       // Find in the review list (Cmd/Ctrl+F over Pierre's virtualized rows).
       var fd = document.createElement('script'); fd.src = 'crit-find.js'; fd.async = false; document.body.appendChild(fd);
+      // Read the markdown documents aloud (window.crit.readAloud). Must load before app.js.
+      var ra = document.createElement('script'); ra.src = 'crit-read-aloud.js'; ra.async = false; document.body.appendChild(ra);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();

@@ -464,6 +464,45 @@ mv "$STORY_DIR/updated.js" "$STORY_DIR/example.js"
 (cd "$STORY_DIR" && exec "$ROOT/$BINARY" _serve --port "$STORY_PORT" --no-open) &
 STORY_PID=$!
 
+# Read aloud: a single markdown file in files mode, so it opens in Document
+# view with headings, a list, a table, code, a diagram and a quote to listen to.
+READ_ALOUD_PORT=$((PORT + 7))
+READ_ALOUD_DIR=$(mktemp -d)
+cat > "$READ_ALOUD_DIR/listen.md" <<'MD'
+# Listening test
+
+Press the speaker button in the header (or Shift+L) to hear this document.
+
+## A list
+
+- The first item is short.
+- The second item is a little longer, so the highlight stays on it for a while.
+
+## A table
+
+| Setting | Range |
+|---------|-------|
+| Speed | 0.75x to 2x |
+| Volume | 0 to 1 |
+
+## Code and a diagram
+
+```go
+fmt.Println("this is announced, not read")
+```
+
+```mermaid
+graph LR
+  A --> B
+```
+
+> A quote is read like any other paragraph.
+
+The last paragraph. When it ends, the player bar closes on its own.
+MD
+(cd "$READ_ALOUD_DIR" && exec "$ROOT/$BINARY" _serve --port "$READ_ALOUD_PORT" --no-open listen.md) &
+READ_ALOUD_PID=$!
+
 cleanup() {
   kill "$CRIT_PID" 2>/dev/null || true
   kill "$WORD_DIFF_PID" 2>/dev/null || true
@@ -472,6 +511,7 @@ cleanup() {
   kill "$RANGE_PID" 2>/dev/null || true
   kill "$TOGGLE_PID" 2>/dev/null || true
   kill "$STORY_PID" 2>/dev/null || true
+  kill "$READ_ALOUD_PID" 2>/dev/null || true
   wait "$CRIT_PID" 2>/dev/null || true
   wait "$WORD_DIFF_PID" 2>/dev/null || true
   wait "$CF_FILE_PID" 2>/dev/null || true
@@ -479,6 +519,7 @@ cleanup() {
   wait "$RANGE_PID" 2>/dev/null || true
   wait "$TOGGLE_PID" 2>/dev/null || true
   wait "$STORY_PID" 2>/dev/null || true
+  wait "$READ_ALOUD_PID" 2>/dev/null || true
   rm -f .crit.json
   rm -f "$CF_FILE"
   rm -rf "$WORD_DIFF_DIR"
@@ -486,11 +527,12 @@ cleanup() {
   rm -rf "$RANGE_DIR"
   rm -rf "$TOGGLE_DIR"
   rm -rf "$STORY_DIR"
+  rm -rf "$READ_ALOUD_DIR"
 }
 trap cleanup EXIT INT TERM
 
 # Wait for servers to be ready (poll until /api/session returns 200, not 503)
-for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$RANGE_PORT" "$TOGGLE_PORT" "$STORY_PORT"; do
+for port_to_wait in "$PORT" "$WORD_DIFF_PORT" "$CF_FILE_PORT" "$CF_GIT_PORT" "$RANGE_PORT" "$TOGGLE_PORT" "$STORY_PORT" "$READ_ALOUD_PORT"; do
   for i in $(seq 1 40); do
     if curl -sf "http://127.0.0.1:$port_to_wait/api/session" > /dev/null 2>&1; then
       break
@@ -985,6 +1027,7 @@ echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
 echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
 echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
 echo "  7. Story + Ignore whitespace:    http://127.0.0.1:$STORY_PORT"
+echo "  8. Read aloud (single markdown):  http://127.0.0.1:$READ_ALOUD_PORT"
 echo ""
 echo "Instance 1 — GitHub-synced comment badge (#370):"
 echo "  The overview paragraph (line 8) has a comment authored by 'octocat' that"
@@ -1125,7 +1168,7 @@ git -C "$WORD_DIFF_DIR" rm -q helpers.go && git -C "$WORD_DIFF_DIR" commit -q -m
 curl -sf -X POST "http://127.0.0.1:$WORD_DIFF_PORT/api/round-complete" > /dev/null
 
 echo ""
-echo "Seven views running:"
+echo "Eight views running:"
 echo "  1. Markdown diff (inter-round):   http://127.0.0.1:$PORT"
 echo "  2. Code diff (word-level):        http://127.0.0.1:$WORD_DIFF_PORT"
 echo "  3. Carry-forward (file-mode):     http://127.0.0.1:$CF_FILE_PORT"
@@ -1133,6 +1176,7 @@ echo "  4. Carry-forward (git-mode):      http://127.0.0.1:$CF_GIT_PORT"
 echo "  5. Range mode (--range A..B):     http://127.0.0.1:$RANGE_PORT"
 echo "  6. Stacked PR (layer/full-stack): http://127.0.0.1:$TOGGLE_PORT"
 echo "  7. Story + Ignore whitespace:    http://127.0.0.1:$STORY_PORT"
+echo "  8. Read aloud (single markdown):  http://127.0.0.1:$READ_ALOUD_PORT"
 echo ""
 echo "Instance 1: diff view with resolved comments + threaded replies + deletion markers."
 echo "            Comment #2 (resolved): 2 agent replies — visible when expanded."
@@ -1169,5 +1213,9 @@ echo "            Switch to Diff: only the result change should remain. Switch b
 echo "            Story: both chapter and support hunks should still render."
 echo "            Mark Update result Viewed: Support must stay unviewed. Mark Support"
 echo "            Viewed too: the whole file is now viewed. Reload to check persistence."
+echo "Instance 8: press the speaker button (or Shift+L). Each block is highlighted as"
+echo "            it is read; the code block and diagram are announced, not read."
+echo "            Try previous/next, the seek slider, pause, and clicking any text to"
+echo "            jump there. Change speed and volume, then reload: both are kept."
 echo "Press Enter to stop all servers."
 read -r
