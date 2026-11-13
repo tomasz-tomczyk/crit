@@ -63,11 +63,12 @@ test.describe('Commit context card', () => {
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
 
-    // Clicking the active scope releases a pinned commit.
+    // Clicking the scope set aside by the pin (marked .remembered, not
+    // .active, while pinned) releases the pinned commit.
     await pick(page, 0);
     await expect(card(page)).toHaveCount(1);
     const response = page.waitForResponse(r => r.url().includes('/api/session') && r.status() === 200);
-    await page.locator('#scopeToggle .toggle-btn.active').click();
+    await page.locator('#scopeToggle .toggle-btn.remembered').click();
     await response;
     await expect(card(page)).toHaveCount(0);
   });
