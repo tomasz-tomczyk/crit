@@ -56,8 +56,8 @@ test.describe('Multi-Form Comments', () => {
   });
 
   test('a newly opened form flashes once; returning to an open form does not', async ({ page }) => {
-    await recordClassAdditions(page, 'comment-ref-flash');
-    const flashes = () => classAdditions(page, 'comment-ref-flash');
+    await recordClassAdditions(page, 'comment-form-flash');
+    const flashes = () => classAdditions(page, 'comment-form-flash');
 
     const goForm = await openGoForm(page);
     await expect.poll(flashes).toEqual(['server.go:5:5:']);
@@ -76,13 +76,13 @@ test.describe('Multi-Form Comments', () => {
   });
 
   test('a newly opened file-level form flashes once revealed', async ({ page }) => {
-    await recordClassAdditions(page, 'comment-ref-flash');
+    await recordClassAdditions(page, 'comment-form-flash');
     // Leave server.go, then open its file-level form from the tree reveal so
     // pierreRevealForm may have to scroll/mount before the flash runs.
     await jsSection(page);
     const goSec = await goSection(page);
     await fileHeader(page, 'server.go').locator('.file-comment-btn').click();
-    await expect.poll(() => classAdditions(page, 'comment-ref-flash')).toEqual(['server.go:file']);
+    await expect.poll(() => classAdditions(page, 'comment-form-flash')).toEqual(['server.go:file']);
     await expect(goSec.locator('.comment-form[data-form-key="server.go:file"] textarea')).toBeFocused();
   });
 
@@ -91,14 +91,14 @@ test.describe('Multi-Form Comments', () => {
       data: { body: 'seed for edit flash guard', start_line: 5, end_line: 5 },
     })).json();
     await loadPage(page);
-    await recordClassAdditions(page, 'comment-ref-flash');
+    await recordClassAdditions(page, 'comment-form-flash');
     const goSec = await goSection(page);
     const card = goSec.locator(`.comment-card[data-comment-id="${created.id}"]`);
     await expect(card).toBeVisible();
     await card.locator('.comment-actions button[title="Edit"]').click();
     await expect(goSec.locator('.comment-form textarea')).toHaveValue('seed for edit flash guard');
     await page.waitForTimeout(300);
-    expect(await classAdditions(page, 'comment-ref-flash')).toEqual([]);
+    expect(await classAdditions(page, 'comment-form-flash')).toEqual([]);
   });
 
   test('clicking same gutter line twice does not duplicate form', async ({ page }) => {

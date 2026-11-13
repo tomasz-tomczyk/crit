@@ -4788,9 +4788,9 @@
   }
 
   // A new form can open below an existing thread; flash it once it is on
-  // screen so it is easy to spot (same animation as a comment-ref jump).
+  // screen so it is easy to spot (a softer accent pulse than a comment-ref jump).
   function flashNewCommentForm(formEl) {
-    if (formEl) restartFlash(formEl, 'comment-ref-flash');
+    if (formEl) restartFlash(formEl, 'comment-form-flash');
   }
 
   function openFileCommentForm(filePath) {
