@@ -9257,19 +9257,26 @@
   // Story/Diff also changes the effective fetch/file-data scopes without
   // changing diffScope itself, so include those derived scopes in the key.
   let reloadInFlightKey = null;
-  async function reloadForScope() {
+  let reloadRequestVersion = 0;
+  function scopeReloadKey() {
     const diffFetchMode = ignoreWhitespace && !storyNeedsRawDiff() ? 'filtered' : 'raw';
-    const key = currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit + '\0' + diffFetchMode;
+    return currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit + '\0' + diffFetchMode;
+  }
+  async function reloadForScope() {
+    const key = scopeReloadKey();
     if (reloadInFlight && reloadInFlightKey === key) return reloadInFlight;
     if (reloadInFlight) {
       // Different inputs — chain after the in-flight reload finishes so we
       // don't tear down filesContainer mid-render. The previous reload's
       // finally clears reloadInFlight; we then re-enter reloadForScope().
+      reloadRequestVersion++;
+      showFilesMessage('Loading...');
       const prev = reloadInFlight;
       const chained = prev.then(function() { return reloadForScope(); }, function() { return reloadForScope(); });
       return chained;
     }
     reloadInFlightKey = key;
+    const requestVersion = ++reloadRequestVersion;
     reloadInFlight = (async function() {
       try {
         activeReplyForms.clear();
@@ -9288,6 +9295,7 @@
           sessionRes = await hydrateStoryIfMissing(sessionRes);
         }
         sessionRes = await hydrateFullSessionForStoryIfNeeded(sessionRes);
+        if (requestVersion !== reloadRequestVersion) return;
         session = sessionRes;
         reviewComments = sessionRes.review_comments || [];
 
@@ -9308,7 +9316,9 @@
           return;
         }
 
-        files = await loadAllFileData(session.files, currentFileDataScope());
+        const loadedFiles = await loadAllFileData(session.files, currentFileDataScope());
+        if (requestVersion !== reloadRequestVersion) return;
+        files = loadedFiles;
         hiddenUnresolved = session.hidden_unresolved || 0;
         files.sort(fileSortComparator);
         restoreViewedState();
