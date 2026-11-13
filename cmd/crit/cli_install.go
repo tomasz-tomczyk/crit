@@ -61,11 +61,11 @@ func printInstallUsage() {
 	fmt.Fprintln(os.Stderr, "  story-prompts")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Install stock finish templates:")
-	fmt.Fprintln(os.Stderr, "  cd ~ && crit install prompts     # ~/.crit/prompts/")
+	fmt.Fprintln(os.Stderr, "  cd ~ && crit install prompts     # ~/.config/crit/prompts/ (legacy ~/.crit/prompts/)")
 	fmt.Fprintln(os.Stderr, "  crit install prompts             # .crit/prompts/ in cwd (from repo root)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Install the stock on_story_generate template:")
-	fmt.Fprintln(os.Stderr, "  cd ~ && crit install story-prompts   # ~/.crit/prompts/")
+	fmt.Fprintln(os.Stderr, "  cd ~ && crit install story-prompts   # ~/.config/crit/prompts/ (legacy ~/.crit/prompts/)")
 	fmt.Fprintln(os.Stderr, "  crit install story-prompts           # .crit/prompts/ in cwd (from repo root)")
 }
 
