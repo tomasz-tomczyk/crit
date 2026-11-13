@@ -954,7 +954,10 @@
     });
   }
 
+  // Marks are saved per PR layer, so a focus change reloads them. Saves still
+  // in flight land first, or the reload would miss them.
   async function loadServerViewed() {
+    await viewedPersistChain;
     try {
       const res = await fetch('/api/viewed');
       if (res.ok) {
@@ -9317,6 +9320,8 @@
         }
 
         const loadedFiles = await loadAllFileData(session.files, currentFileDataScope());
+        if (requestVersion !== reloadRequestVersion) return;
+        await loadServerViewed();
         if (requestVersion !== reloadRequestVersion) return;
         files = loadedFiles;
         hiddenUnresolved = session.hidden_unresolved || 0;
