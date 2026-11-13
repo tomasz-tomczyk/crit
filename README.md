@@ -368,9 +368,11 @@ Project config overrides global. CLI flags and env vars override both.
 
 ```bash
 mkdir -p ~/.config/crit
-crit config --generate > ~/.config/crit/config.json   # scaffold a starter config file
+crit config --generate > ~/.config/crit/config.json   # fresh installs: scaffold a starter config file
 crit config                                           # view resolved config (merged global + project)
 ```
+
+Already have `~/.crit.config.json`? Move it rather than generating a second file: when both exist, `~/.config/crit/config.json` wins and the old file (with your `agent_cmd`, `share_targets` and login tokens) is ignored. See [Where Crit keeps its files](#where-crit-keeps-its-files).
 
 ### Where Crit keeps its files
 
@@ -390,10 +392,10 @@ Each path is resolved on its own:
 2. Otherwise the legacy location, if it exists.
 3. Otherwise, for a file Crit is about to create: the legacy location when this is an existing install (`~/.crit/` or `~/.crit.config.json` exists), the XDG location on a fresh one.
 
-Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`. The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one:
+Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`. The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. Each target must not exist yet, or `mv` nests the old directory inside it (`~/.local/state/crit/.crit`) or overwrites the file; if one does, merge it by hand:
 
 ```bash
-mkdir -p ~/.config/crit ~/.local/state
+mkdir -p ~/.config/crit ~/.local/state   # parents only; not ~/.local/state/crit itself
 mv ~/.crit.config.json ~/.config/crit/config.json
 mv ~/.crit/prompts ~/.crit/hooks ~/.crit/custom.css ~/.config/crit/ 2>/dev/null
 mv ~/.crit ~/.local/state/crit
