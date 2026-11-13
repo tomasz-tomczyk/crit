@@ -1348,7 +1348,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-radius: 6px;
 }
 /* Diagram parts the renderer maps to source lines take a click to comment. */
-.crit-render[data-crit-anchorable] .crit-render-output :is(g.node, g.cluster, .edgeLabel, .actor, .messageText, .statediagram-state, .classGroup) {
+.crit-render[data-crit-anchorable] .crit-render-output :is(g.node, g.cluster, .edgeLabel, .actor, .messageText, .statediagram-state, .classGroup, [data-excalidraw-index]) {
   cursor: pointer;
 }
 

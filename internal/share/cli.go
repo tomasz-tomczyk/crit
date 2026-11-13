@@ -47,6 +47,9 @@ type unpublishFlags struct {
 func postPreviewShare(htmlPath, svcURL, authToken, org, visibility string) (string, error) {
 	entryPath := session.PreviewEntryPath(htmlPath, "")
 	files, err := session.CrawlPreview(htmlPath, entryPath)
+	if errors.Is(err, session.ErrSceneShareUnsupported) {
+		return "", err
+	}
 	if err != nil {
 		return "", fmt.Errorf("crawling preview assets: %w", err)
 	}

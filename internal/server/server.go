@@ -1027,6 +1027,9 @@ func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, e
 	sess := s.session.Load()
 	if sess != nil && sess.ReviewType == "preview" {
 		files, err = session.CrawlPreview(sess.Origin, s.previewEntryPath(sess))
+		if errors.Is(err, session.ErrSceneShareUnsupported) {
+			return nil, "", err
+		}
 		if err != nil {
 			return nil, "", fmt.Errorf("crawling preview assets: %w", err)
 		}
@@ -1111,6 +1114,11 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) { //nolint:
 	// current by review.SaveCritJSON). shareFilesForSession is the single source of
 	// truth shared with the proxy-auth relay path.
 	files, reviewType, err := s.shareFilesForSession()
+	if errors.Is(err, session.ErrSceneShareUnsupported) {
+		// JSON, so the Share button's toast shows the reason.
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1360,6 +1368,10 @@ func (s *Server) handlePreviewPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	entryPath := s.previewEntryPath(sess)
 	files, err := session.CrawlPreview(sess.Origin, entryPath)
+	if errors.Is(err, session.ErrSceneShareUnsupported) {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

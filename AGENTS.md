@@ -17,7 +17,8 @@ crit/
 │   ├── style.css / style-live.css / theme.css
 │   ├── __tests__/       # Node.js unit tests (node --test)
 │   ├── pierre/          # Vendored @pierre/diffs + Shiki (split ESM, gzip; scripts/build-pierre.mjs)
-│   └── *.min.js         # Vendored markdown-it, DOMPurify, mermaid, diff-match-patch
+│   ├── fonts/excalidraw/ # Excalidraw's fonts for the excalidraw renderer (SHA256SUMS, LICENSES.txt)
+│   └── *.min.js         # Vendored markdown-it, DOMPurify, mermaid, rough.js, perfect-freehand + laser-pointer, diff-match-patch
 ├── integrations/        # Drop-in config files for AI coding tools (claude-code, cursor, aider, …)
 ├── test/                # Test harnesses, E2E, roundtrip docs, shared fixtures
 ├── Makefile
@@ -42,7 +43,7 @@ crit/
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
-16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`). New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
+16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`); built-in excalidraw (`crit-renderer-excalidraw.js`) covers ```` ```excalidraw ````, `*.excalidraw`, `*.excalidraw.json`, drawing with `rough.min.js` and `freehand.min.js` (freedraw) in Excalidraw's fonts; a lone scene opens in preview mode as a canvas page (`excalidraw-canvas.html` + `crit-excalidraw-canvas.js`, served by `servePreviewExcalidraw`) where the agent's hover box and pins work per element (`#excalidraw-<id>`) (`web/fonts/excalidraw`, copied from the Excalidraw repo; `SHA256SUMS` + `LICENSES.txt` there), all loaded on first use. New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
 17. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
 
 <important if="you are writing a plan, design doc, or implementation proposal, or about to commit">
@@ -72,7 +73,7 @@ crit                          # Review git changes (starts daemon, blocks for fe
 crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
 crit review [...]             # Explicit review invocation (same as default)
 crit live <url>               # Review a running web app in live mode (also: crit <url>)
-crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
+crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>); an Excalidraw scene (crit <file.excalidraw>) previews as a canvas
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit resume [--list | <id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)
@@ -168,7 +169,7 @@ make e2e-report                                       # View HTML report with sc
 
 ### Projects
 
-Ten Playwright projects. Test naming convention determines which project runs which file:
+Eleven Playwright projects. Test naming convention determines which project runs which file:
 
 | Project | Port | Fixture | Test glob |
 | --- | --- | --- | --- |
@@ -179,6 +180,7 @@ Ten Playwright projects. Test naming convention determines which project runs wh
 | `multi-file-mode` | 3127 | `setup-fixtures-multifile.sh` (code + markdown files) | `*.multifile.spec.ts` |
 | `range-mode` | 3128 | `setup-fixtures-range-mode.sh` (`--range A..B` stacked git) | `*.rangemode.spec.ts` |
 | `live-mode` | 3129 | `setup-fixtures-livemode.sh` (Go upstream + crit live) | `*.livemode.spec.ts` |
+| `preview-mode` | 3126 | `setup-fixtures-preview.sh` (a lone Excalidraw scene, opened as a canvas) | `*.previewmode.spec.ts` |
 | `share-transport` | 3132 (stub crit-web on 3133) | `setup-fixtures-sharetransport.sh` (file mode + stub crit-web) | `*.sharetransport.spec.ts` |
 | `perf` | 3134 | `setup-fixtures-perf.sh` (300 files + large markdown) | `*.perf.spec.ts` |
 | `huge` | 3136 | `setup-fixtures-huge.sh` (~2,500 files; document taller than 2^22px) | `*.huge.spec.ts` |

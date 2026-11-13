@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -126,13 +127,30 @@ func (c *previewCollector) tryAdd(rel string) (isCSS bool, err error) {
 	return strings.HasSuffix(strings.ToLower(rel), ".css"), nil
 }
 
+// ErrSceneShareUnsupported is returned when a share would upload an
+// Excalidraw canvas preview. crit-web can't show the canvas yet, so the share
+// would publish the scene's JSON as the page.
+var ErrSceneShareUnsupported = errors.New("sharing an Excalidraw canvas preview isn't supported yet")
+
+// IsExcalidrawScene reports whether path names an Excalidraw scene
+// (*.excalidraw or *.excalidraw.json, any case), which preview mode opens as
+// a canvas.
+func IsExcalidrawScene(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".excalidraw") || strings.HasSuffix(lower, ".excalidraw.json")
+}
+
 // CrawlPreview reads an HTML file and all its local asset references,
 // returning them as ShareFile entries suitable for uploading to crit-web.
 // The HTML is the first entry, keyed entryPath (see PreviewEntryPath); assets
 // are keyed relative to entryPath's directory. CSS files are followed one
 // level deep to discover url() and @import refs. Missing assets are silently
-// skipped. Total size is capped at maxPreviewBytes.
+// skipped. Total size is capped at maxPreviewBytes. An Excalidraw scene
+// returns ErrSceneShareUnsupported.
 func CrawlPreview(htmlPath, entryPath string) ([]ShareFile, error) {
+	if IsExcalidrawScene(htmlPath) {
+		return nil, ErrSceneShareUnsupported
+	}
 	absHTML, err := filepath.Abs(htmlPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)

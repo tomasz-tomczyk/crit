@@ -2,10 +2,15 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
+	"html"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 // handlePreviewContent serves the previewed HTML file and its sibling assets.
@@ -28,6 +33,10 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	baseDir := filepath.Dir(sess.Origin)
 
 	if reqPath == "" || reqPath == "/" {
+		if session.IsExcalidrawScene(sess.Origin) {
+			s.servePreviewExcalidraw(w, sess.Origin)
+			return
+		}
 		s.servePreviewHTML(w, sess.Origin)
 		return
 	}
@@ -67,7 +76,37 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 		http.Error(w, "failed to read preview file", http.StatusInternalServerError)
 		return
 	}
+	writePreviewPage(w, body)
+}
 
+// servePreviewExcalidraw serves an Excalidraw scene as a canvas page: the
+// embedded excalidraw-canvas.html with the scene inlined, which
+// crit-renderer-excalidraw.js draws element by element, so the agent's hover
+// box and pins work on the drawing like on any previewed page.
+func (s *Server) servePreviewExcalidraw(w http.ResponseWriter, filePath string) {
+	scene, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "failed to read preview file", http.StatusInternalServerError)
+		return
+	}
+	page, err := fs.ReadFile(s.assets, "excalidraw-canvas.html")
+	if err != nil {
+		http.Error(w, "missing excalidraw-canvas.html", http.StatusInternalServerError)
+		return
+	}
+	// The scene goes in as a JSON string. json.Marshal escapes <, > and &, so
+	// the file cannot close the <script> element it sits in. Marshalling a
+	// string never fails (invalid UTF-8 becomes U+FFFD).
+	sceneJSON, _ := json.Marshal(string(scene))
+	body := strings.NewReplacer(
+		"{{TITLE}}", html.EscapeString(filepath.Base(filePath)),
+		"{{SCENE}}", string(sceneJSON),
+	).Replace(string(page))
+	writePreviewPage(w, []byte(body))
+}
+
+// writePreviewPage writes a preview page with the agent scripts injected.
+func writePreviewPage(w http.ResponseWriter, body []byte) {
 	var sb strings.Builder
 	for _, f := range AgentScriptFiles {
 		sb.WriteString(`<script src="/`)
