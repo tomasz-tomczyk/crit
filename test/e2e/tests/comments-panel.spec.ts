@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import {
   clearAllComments, loadPage, switchToDocumentView, addComment, getMdPath, getReviewFilePath,
-  openDocLineComment, resolveComment, roundComplete, waitForScrollStable, reviewScroller,
+  openDocLineComment, resolveComment, addFileComment, roundComplete, waitForScrollStable, reviewScroller,
   recordClassAdditions, expectClassAddedTo, classAdditions,
 } from './helpers';
 
@@ -152,6 +152,28 @@ test.describe('Comments Panel — Git Mode', () => {
     await waitForScrollStable(page);
     await expect(inlineCard(page, target.id)).toBeVisible();
     await expect(inlineCard(page, target.id)).toBeInViewport();
+  });
+
+  // Pierre kept the file scroll target pending after Crit centered the card,
+  // so the next click re-applied it and the card bounced to the file top.
+  test('clicking the same panel card again leaves the inline card in place', async ({ page, request }) => {
+    const id = await addFileComment(request, 'utils.go', 'Click me twice');
+    await loadPage(page);
+    await reviewScroller(page).evaluate(el => { el.scrollTop = 0; });
+    await waitForScrollStable(page);
+    await page.keyboard.press('Shift+C');
+
+    const cardTop = () => inlineCard(page, id).evaluate(el => Math.round(el.getBoundingClientRect().top));
+    await panelCard(page, id).click();
+    await waitForScrollStable(page);
+    await expect(inlineCard(page, id)).toBeInViewport();
+    const first = await cardTop();
+
+    for (let i = 0; i < 2; i++) {
+      await panelCard(page, id).click();
+      await waitForScrollStable(page);
+      expect(Math.abs(await cardTop() - first)).toBeLessThanOrEqual(2);
+    }
   });
 
   test('resolve and unresolve from the panel, for file and review-level comments', async ({ page, request }) => {
