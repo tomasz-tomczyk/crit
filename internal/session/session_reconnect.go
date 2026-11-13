@@ -9,6 +9,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 // startDaemonForReconnect is daemon.StartDaemonInDir in production; tests may replace it.
@@ -137,7 +138,7 @@ func planReconnectFlags(reviewDir string) []string {
 	if err != nil {
 		return nil
 	}
-	plansRoot := filepath.Join(home, ".crit", "plans")
+	plansRoot := filepath.Join(userdirs.StateDir(home), "plans")
 	parent := filepath.Dir(reviewDir)
 	if !strings.HasSuffix(filepath.ToSlash(reviewDir), "/.crit") {
 		return nil

@@ -22,11 +22,29 @@ func init() {
 	}
 }
 
-// SetHome sets HOME (and Windows profile vars) for the duration of the test.
+// SetHome sets HOME (and Windows profile vars) for the duration of the test
+// and makes it an existing crit install, so config and state resolve to the
+// legacy ~/.crit layout. Use SetFreshHome to test the XDG layout.
 func SetHome(t *testing.T, dir string) {
+	t.Helper()
+	SetFreshHome(t, dir)
+	if dir != "" {
+		SeedLegacyLayout(t, dir)
+	}
+}
+
+// SetFreshHome sets HOME (and Windows profile vars) for the duration of the
+// test without creating anything in it, like a machine where crit never ran.
+// The XDG base directory variables are cleared; set them after this call to
+// relocate crit's config and state.
+func SetFreshHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
 	t.Setenv("CODEX_HOME", "")
+	// crit resolves its config and state directories from these before HOME
+	// (internal/userdirs); empty means unset.
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
 	if runtime.GOOS == "windows" {
 		t.Setenv("USERPROFILE", dir)
 		t.Setenv("HOMEDRIVE", "")
@@ -113,6 +131,21 @@ func MustMkdirAll(path string) string {
 	return path
 }
 
+// SeedLegacyLayout creates ~/.crit under home, making it an existing install
+// so crit keeps resolving its config and state paths to the legacy layout
+// (~/.crit.config.json, ~/.crit/...) that most tests assert against. Tests of
+// the XDG layout start from a home without it (see internal/userdirs).
+func SeedLegacyLayout(t testing.TB, home string) {
+	t.Helper()
+	if err := seedLegacyLayout(home); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedLegacyLayout(home string) error {
+	return os.MkdirAll(filepath.Join(home, ".crit"), 0o755)
+}
+
 // RunWithTempHome runs a package's tests with a throwaway HOME, for use from
 // TestMain. Review sessions, config and auth live under ~/.crit; a crit daemon
 // running in the same checkout (or the developer's own config) must not change
@@ -136,6 +169,11 @@ func RunWithTempHome(m *testing.M) int {
 	os.Setenv("HOME", home)
 	os.Setenv("USERPROFILE", home)
 	os.Setenv("CODEX_HOME", "")
+	os.Unsetenv("XDG_CONFIG_HOME")
+	os.Unsetenv("XDG_STATE_HOME")
+	if err := seedLegacyLayout(home); err != nil {
+		panic(err)
+	}
 	return m.Run()
 }
 

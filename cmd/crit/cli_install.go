@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/prompt"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 func runInstall(args []string) {
@@ -104,7 +105,7 @@ func installPrompts(force bool) error {
 	}
 	dest := filepath.Join(cwd, ".crit", "prompts")
 	if isGlobalInstall(cwd, home) {
-		dest = filepath.Join(home, ".crit", "prompts")
+		dest = userdirs.PromptsDir(home)
 	}
 	fmt.Printf("Installing stock finish prompts to %s\n", dest)
 	return prompt.InstallPrompts(dest, force)
@@ -118,7 +119,7 @@ func installStoryPrompts(force bool) error {
 	}
 	dest := filepath.Join(cwd, ".crit", "prompts")
 	if isGlobalInstall(cwd, home) {
-		dest = filepath.Join(home, ".crit", "prompts")
+		dest = userdirs.PromptsDir(home)
 	}
 	fmt.Printf("Installing stock story prompt to %s\n", dest)
 	return prompt.InstallStoryPrompt(dest, force)

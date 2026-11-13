@@ -184,6 +184,7 @@ waitLoop:
 // stubs first on PATH.
 func clientFinishEnv(t *testing.T, homeDir string) []string {
 	t.Helper()
+	testutil.SeedLegacyLayout(t, homeDir)
 	src := os.Environ()
 	out := make([]string, 0, len(src)+4)
 	for _, kv := range src {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 // planStorageDir returns the managed storage directory for a plan session.
@@ -23,7 +24,7 @@ func planStorageDir(slug string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("determining home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "plans", slug), nil
+	return filepath.Join(userdirs.StateDir(home), "plans", slug), nil
 }
 
 // PlanSessionKey identifies the global plan directory for a slug, regardless
@@ -183,7 +184,7 @@ func planSessionsFile() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("determining home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "plan-sessions.json"), nil
+	return filepath.Join(userdirs.StateDir(home), "plan-sessions.json"), nil
 }
 
 type planSessionMapping struct {

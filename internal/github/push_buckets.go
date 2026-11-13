@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 // bucketReason describes why a comment was diverted from the postable bucket.
@@ -316,12 +317,12 @@ func bucketsToGHComments(postable []scopedComment, rewrite bodyRewriter) []map[s
 	return out
 }
 
-// exportsDir returns the path to ~/.crit/exports/ — the directory used for
+// exportsDir returns the exports directory under the crit state root — the directory used for
 // orphan markdown dumps. Mirrors the pattern of reviewsDir / sessionsDir.
 func exportsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "exports"), nil
+	return filepath.Join(userdirs.StateDir(home), "exports"), nil
 }
