@@ -109,11 +109,11 @@ Diff scope options:
       --mr <iid|url>         Generate for a GitLab merge request
       --range <base>..<head> Generate for a commit range
       --base-branch <branch> Override auto-detected base branch
-      --output, -o <dir>     Crit data root for reviews (default: ~/.crit)
+      --output, -o <dir>     Crit data root for reviews (default: crit state dir)
       --scope <mode>         PR diff scope: layer or full-stack
       --vcs <name>           VCS backend: git, sl, or jj
 
-Default generation uses global agent_cmd from ~/.crit.config.json. The agent
+Default generation uses agent_cmd from the global crit config. The agent
 must be able to read the generated prep file and print raw story JSON.`)
 }
 
@@ -574,7 +574,7 @@ func runStoryLLM(f storyFlags, critPath string, cj review.CritJSON) error {
 
 	agentCmd := config.LoadConfig(mustCWD()).AgentCmd
 	if strings.TrimSpace(agentCmd) == "" {
-		return clicmd.ExitError{Code: 1, Err: errors.New("no agent_cmd configured; set agent_cmd in ~/.crit.config.json, or use --story-file/--skip-llm/--guide")}
+		return clicmd.ExitError{Code: 1, Err: fmt.Errorf("no agent_cmd configured; set agent_cmd in %s, or use --story-file/--skip-llm/--guide", config.GlobalConfigPath())}
 	}
 
 	fmt.Fprintln(os.Stderr, "Generating story. This can take a minute, please wait...")

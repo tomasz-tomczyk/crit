@@ -37,7 +37,7 @@ Only **one** hook fires per finish: the most specific key that resolves wins (mo
 
 ## Configuration
 
-**Global:** `~/.crit.config.json` `hooks` map and/or `~/.crit/hooks/`
+**Global:** the global config file's `hooks` map and/or the user hooks directory: `~/.config/crit/hooks/` (honouring `$XDG_CONFIG_HOME`), or `~/.crit/hooks/` on existing installs. See [Where Crit keeps its files](../README.md#where-crit-keeps-its-files).
 **Project:** `.crit.config.json` `hooks` map and/or `.crit/hooks/` in the repo root (committable, team-shared)
 
 ### How paths are resolved
@@ -47,14 +47,14 @@ Precedence for each hook (e.g. `on_finish_unresolved` in a PR review) is identic
 1. **Project** `.crit.config.json` `hooks` entry (mode-specific key, then generic)
 2. **Global** `~/.crit.config.json` `hooks` entry (same fallback order)
 3. **Project** conventional file under `.crit/hooks/` (e.g. `on_finish_unresolved.diff.sh`, then `on_finish_unresolved.sh`)
-4. **Global** conventional file under `~/.crit/hooks/` (same naming)
+4. **Global** conventional file under the user hooks directory, `~/.config/crit/hooks/` or `~/.crit/hooks/` (same naming)
 5. Nothing - no stock command hook is run.
 
 Config `file:` paths and conventional filenames both use `.` instead of `:` for mode suffixes (`on_finish_unresolved:diff` → `on_finish_unresolved.diff.sh`).
 
 You do **not** need a `hooks` map entry when the script already lives at the conventional path. Copy the example scripts from `docs/example-hooks/` into place:
 
-- **Global:** `cp docs/example-hooks/*.sh ~/.crit/hooks/` (create the dir first)
+- **Global:** `cp docs/example-hooks/*.sh ~/.config/crit/hooks/` (create the dir first; once it exists it is used even on a legacy install)
 - **Project:** `cp docs/example-hooks/*.sh .crit/hooks/` (from your repo root)
 
 The example scripts are **reference material** - copying them does not enable behavior until you edit them (or add a `hooks` config map entry) to opt in.
