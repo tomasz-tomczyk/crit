@@ -1264,7 +1264,7 @@ func checkProxyAuthCLIAllowed(command string) error {
 
 Your crit-web instance is behind an SSO reverse proxy. Terminal commands cannot authenticate there — use Crit's browser interface instead
 
-proxy_auth is set in ~/.crit.config.json (global config only)`, command)
+proxy_auth is set in the global crit config (global config only)`, command)
 }
 
 // loadShareConfig loads the merged config.Config from the current directory context.

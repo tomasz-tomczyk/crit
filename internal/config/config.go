@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -581,24 +582,27 @@ func LoadHookMaps(projectDir string) (global, project map[string]string) {
 	return global, project
 }
 
-// GlobalConfigPath returns the path to the global config file.
+// GlobalConfigPath returns the path to the global config file:
+// ~/.config/crit/config.json, or the legacy ~/.crit.config.json when that is
+// the one in use (see internal/userdirs).
 func GlobalConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".crit.config.json")
+	return userdirs.ConfigFile(home)
 }
 
 // CustomCSSPath is where crit looks for the user's own stylesheet:
-// ~/.crit/custom.css. It lives in the home directory, so a project repo
+// ~/.config/crit/custom.css (or the legacy ~/.crit/custom.css). It lives in
+// the user's config directory, so a project repo
 // cannot supply or redirect it. Empty when the home directory is unknown.
 func CustomCSSPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".crit", "custom.css")
+	return userdirs.CustomCSS(home)
 }
 
 // SaveGlobalConfig performs a read-modify-write on ~/.crit.config.json.

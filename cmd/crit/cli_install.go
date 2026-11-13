@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/prompt"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 func runInstall(args []string) {
@@ -60,11 +61,11 @@ func printInstallUsage() {
 	fmt.Fprintln(os.Stderr, "  story-prompts")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Install stock finish templates:")
-	fmt.Fprintln(os.Stderr, "  cd ~ && crit install prompts     # ~/.crit/prompts/")
+	fmt.Fprintln(os.Stderr, "  cd ~ && crit install prompts     # ~/.config/crit/prompts/ (legacy ~/.crit/prompts/)")
 	fmt.Fprintln(os.Stderr, "  crit install prompts             # .crit/prompts/ in cwd (from repo root)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Install the stock on_story_generate template:")
-	fmt.Fprintln(os.Stderr, "  cd ~ && crit install story-prompts   # ~/.crit/prompts/")
+	fmt.Fprintln(os.Stderr, "  cd ~ && crit install story-prompts   # ~/.config/crit/prompts/ (legacy ~/.crit/prompts/)")
 	fmt.Fprintln(os.Stderr, "  crit install story-prompts           # .crit/prompts/ in cwd (from repo root)")
 }
 
@@ -104,7 +105,7 @@ func installPrompts(force bool) error {
 	}
 	dest := filepath.Join(cwd, ".crit", "prompts")
 	if isGlobalInstall(cwd, home) {
-		dest = filepath.Join(home, ".crit", "prompts")
+		dest = userdirs.PromptsDir(home)
 	}
 	fmt.Printf("Installing stock finish prompts to %s\n", dest)
 	return prompt.InstallPrompts(dest, force)
@@ -118,7 +119,7 @@ func installStoryPrompts(force bool) error {
 	}
 	dest := filepath.Join(cwd, ".crit", "prompts")
 	if isGlobalInstall(cwd, home) {
-		dest = filepath.Join(home, ".crit", "prompts")
+		dest = userdirs.PromptsDir(home)
 	}
 	fmt.Printf("Installing stock story prompt to %s\n", dest)
 	return prompt.InstallStoryPrompt(dest, force)

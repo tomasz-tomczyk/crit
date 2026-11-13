@@ -196,7 +196,8 @@ Show active session IDs and review paths, daemon status, and comment counts.`},
 	{name: "resume", handler: runResume, help: `Usage: crit resume [--list | <id>] [review options]
 
 Pick a stored review to reopen. Without arguments this shows an interactive
-list of every review in ~/.crit/reviews, newest first, and reconnects to the
+list of every review in crit's state directory (~/.local/state/crit/reviews,
+or ~/.crit/reviews on existing installs), newest first, and reconnects to the
 one you choose — restarting its daemon in the directory it came from when that
 daemon has stopped. Pass a session ID to skip the picker.
 
@@ -204,7 +205,7 @@ Options:
   -l, --list               Print the list instead of opening the picker
 
 Any other option is passed through to the review, so flags like --no-open work.
-Reviews stored outside ~/.crit/reviews are not listed: reopen a plan with
+Reviews stored elsewhere are not listed: reopen a plan with
 crit plan --name <slug>, and an --output review with crit --session <id>.`},
 	{name: "stats", handler: runStats, help: `Usage: crit stats [--json]
 
@@ -359,7 +360,7 @@ Options:
       --public-url <url>      Advertised base URL (e.g. https://machine.ts.net via tailscale serve)
       --allow-unauthenticated-network
                               Allow non-loopback --host or --public-url (trusted network only; Crit has no network auth)
-  -o, --output <dir>          Crit data root for reviews (default: ~/.crit)
+  -o, --output <dir>          Crit data root for reviews (default: crit state dir)
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 On success, suppress connect/start status, tips, and session summary
@@ -384,7 +385,9 @@ Environment:
   CRIT_NO_INTEGRATION_CHECK   Disable staleness check and agent detection on startup
 
 Configuration:
-  Global: ~/.crit.config.json   Project: .crit.config.json (in repo root)
+  Global: ~/.config/crit/config.json (legacy: ~/.crit.config.json)
+  Project: .crit.config.json (in repo root)
+  Config honours $XDG_CONFIG_HOME, state (reviews, sessions) $XDG_STATE_HOME.
   Run 'crit config' to see all keys and resolved values.
 
 Learn more: https://crit.md

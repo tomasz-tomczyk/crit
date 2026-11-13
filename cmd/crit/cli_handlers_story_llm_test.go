@@ -20,6 +20,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 // sessionStoryStub returns a distinctive existing story (Version 42) so tests
@@ -56,8 +57,7 @@ func stubPostIngest(t *testing.T) {
 func setupStoryRepoLLM(t *testing.T) (repoDir, scratchDir string) {
 	t.Helper()
 	repoDir, _, _ = setupStoryRepo(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testutil.SetHome(t, t.TempDir())
 	return repoDir, t.TempDir()
 }
 

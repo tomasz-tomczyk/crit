@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/prompt"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 // Subdir is the conventional on-disk directory for discovered hook scripts,
@@ -76,10 +77,13 @@ func hookKeyToFilename(key string) string {
 	return strings.ReplaceAll(key, ":", ".") + fileSuffix
 }
 
-// DiscoverFile loads the first matching conventional hook script under
-// baseDir/.crit/hooks/. Returns the resolved command, its source label, and ok.
+// DiscoverFile loads the first matching conventional hook script. For the
+// project layer baseDir is the project root (baseDir/.crit/hooks/); for the
+// global layer it is the home directory and the user's hooks directory is used
+// (~/.config/crit/hooks/ or the legacy ~/.crit/hooks/). Returns the resolved
+// command, its source label, and ok.
 func DiscoverFile(baseDir, hook, mode string, layer Layer) (cmd ExecutableCommand, ok bool) {
-	dir := filepath.Join(baseDir, Subdir)
+	dir, labelDir := prompt.DiscoveryDir(baseDir, Subdir, userdirs.HooksDir(baseDir), layer)
 	for _, name := range Filenames(hook, mode) {
 		path := filepath.Join(dir, name)
 		abs := path
@@ -89,7 +93,7 @@ func DiscoverFile(baseDir, hook, mode string, layer Layer) (cmd ExecutableComman
 		if _, err := os.Stat(abs); err != nil {
 			continue
 		}
-		source := string(layer) + ":" + filepath.ToSlash(filepath.Join(Subdir, name))
+		source := string(layer) + ":" + filepath.ToSlash(filepath.Join(labelDir, name))
 		return ExecutableCommand{
 			Kind:   "file",
 			Arg:    abs,
@@ -137,7 +141,7 @@ func LoadCommand(value, baseDir string) (ExecutableCommand, error) {
 //  1. Project config map (when useProject)
 //  2. Global config map
 //  3. Project discovered .crit/hooks/*.sh (when useProject)
-//  4. Global discovered ~/.crit/hooks/*.sh
+//  4. Global discovered ~/.config/crit/hooks/*.sh (or legacy ~/.crit/hooks/)
 //
 // There are no stock command hooks — returns nil when nothing is configured.
 func ResolveFinishCommand(globalHooks, projectHooks map[string]string, projectDir, homeDir, hook, mode string, useProject bool) (*ExecutableCommand, error) {

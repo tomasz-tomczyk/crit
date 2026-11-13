@@ -151,7 +151,7 @@ crit stats                        # show lifetime review statistics
 crit cleanup                      # delete stale review files
 ```
 
-`crit resume` lists every review in `~/.crit/reviews`, newest first, with its branch or files, directory, age, and open comment count. Choosing one reconnects to its daemon, or restarts the daemon in the directory the review came from when it has stopped — so you can resume a review from anywhere. Pass `--list` to print the list instead, or a session ID to skip the picker.
+`crit resume` lists every review in the `reviews/` folder of Crit's state directory (`~/.local/state/crit`, or `~/.crit` on existing installs), newest first, with its branch or files, directory, age, and open comment count. Choosing one reconnects to its daemon, or restarts the daemon in the directory the review came from when it has stopped — so you can resume a review from anywhere. Pass `--list` to print the list instead, or a session ID to skip the picker.
 
 ## Features
 
@@ -233,7 +233,7 @@ crit auth status                   # list targets and identities
 crit auth logout --share-url https://crit.md
 ```
 
-`crit auth login` uses the OAuth Device Flow - it opens your browser, you confirm, and the CLI receives a token automatically. The token is stored in your global config (`~/.crit.config.json`).
+`crit auth login` uses the OAuth Device Flow - it opens your browser, you confirm, and the CLI receives a token automatically. The token is stored in your global config (`~/.config/crit/config.json`, or `~/.crit.config.json` on existing installs).
 
 ### GitHub PR and GitLab MR Sync
 
@@ -341,7 +341,7 @@ After the first agent interaction, the comment becomes a **live thread**:
 
 ### Everything else
 
-- **Per-branch review isolation.** Each branch gets its own review file — switch branches freely without losing comments. Review data lives in `~/.crit/reviews/`, not your repo.
+- **Per-branch review isolation.** Each branch gets its own review file — switch branches freely without losing comments. Review data lives in Crit's state directory (`~/.local/state/crit/reviews/`, or `~/.crit/reviews/` on existing installs), not your repo.
 - **Draft autosave.** Close your browser mid-review and pick up exactly where you left off.
 - **Vim keybindings.** `j`/`k` to navigate, `c` to comment, `Shift+F` to finish. `?` for the full reference.
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
@@ -359,16 +359,46 @@ After the first agent interaction, the comment becomes a **live thread**:
 
 Crit supports persistent configuration via JSON files so you don't have to pass the same flags every time.
 
-| File                  | Scope   | Location                                         |
-| --------------------- | ------- | ------------------------------------------------ |
-| `~/.crit.config.json` | Global  | Applies to all projects                          |
-| `.crit.config.json`   | Project | Repo root (from `git rev-parse --show-toplevel`) |
+| File                         | Scope   | Location                                                                     |
+| ---------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `~/.config/crit/config.json` | Global  | Applies to all projects (`~/.crit.config.json` on existing installs, below)  |
+| `.crit.config.json`          | Project | Repo root (from `git rev-parse --show-toplevel`)                             |
 
 Project config overrides global. CLI flags and env vars override both.
 
 ```bash
-crit config --generate > ~/.crit.config.json   # scaffold a starter config file
-crit config                                    # view resolved config (merged global + project)
+mkdir -p ~/.config/crit
+crit config --generate > ~/.config/crit/config.json   # fresh installs: scaffold a starter config file
+crit config                                           # view resolved config (merged global + project)
+```
+
+Already have `~/.crit.config.json`? Move it rather than generating a second file: when both exist, `~/.config/crit/config.json` wins and the old file (with your `agent_cmd`, `share_targets` and login tokens) is ignored. See [Where Crit keeps its files](#where-crit-keeps-its-files).
+
+### Where Crit keeps its files
+
+Crit follows the [XDG Base Directory spec](https://specifications.freedesktop.org/basedir-spec/latest/): hand-written configuration and machine-local state live apart, so you can keep the first in a dotfiles repo and grant sandboxed agents access to the second alone.
+
+| What                                                        | Location                                                          | Legacy location                  |
+| ----------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------- |
+| Global config                                               | `$XDG_CONFIG_HOME/crit/config.json` (`~/.config/crit/config.json`) | `~/.crit.config.json`            |
+| Prompt templates, hook scripts, `custom.css`                | `$XDG_CONFIG_HOME/crit/{prompts,hooks,custom.css}`                 | `~/.crit/{prompts,hooks,custom.css}` |
+| Reviews, sessions, plans, `plan-sessions.json`, `stats.json`, exports | `$XDG_STATE_HOME/crit/` (`~/.local/state/crit/`)         | `~/.crit/`                       |
+
+The same defaults apply on macOS and Linux; a relative or empty `XDG_*` variable is ignored. On Windows the legacy locations stay the default unless the variables are set.
+
+Each path is resolved on its own:
+
+1. The XDG location, if it exists.
+2. Otherwise the legacy location, if it exists.
+3. Otherwise, for a file Crit is about to create: the legacy location when this is an existing install (`~/.crit/` or `~/.crit.config.json` exists), the XDG location on a fresh one.
+
+Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`. The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. Each target must not exist yet, or `mv` nests the old directory inside it (`~/.local/state/crit/.crit`) or overwrites the file; if one does, merge it by hand:
+
+```bash
+mkdir -p ~/.config/crit ~/.local/state   # parents only; not ~/.local/state/crit itself
+mv ~/.crit.config.json ~/.config/crit/config.json
+mv ~/.crit/prompts ~/.crit/hooks ~/.crit/custom.css ~/.config/crit/ 2>/dev/null
+mv ~/.crit ~/.local/state/crit
 ```
 
 ### Config keys
@@ -381,7 +411,7 @@ All keys are optional — omit any you don't need.
 | `host`                 | string   | `"127.0.0.1"`              | Listen host (global/CLI/env only). Non-loopback values also require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`. Prefer loopback + SSH/Tailscale/Docker host-loopback publish. |
 | `no_open`              | bool     | `false`                    | Don't auto-open the browser when starting a review.                                                                                                                                     |
 | `quiet`                | bool     | `false`                    | On success, suppress daemon connect/start lines, integration tips, and the session summary. Errors, `approved:`, and the finish prompt are unchanged. |
-| `output`               | string   | `~/.crit`                  | Crit data root for reviews. Reviews live in `<root>/reviews/<key>/` (same layout as the default). |
+| `output`               | string   | state dir (`~/.local/state/crit` or `~/.crit`) | Crit data root for reviews. Reviews live in `<root>/reviews/<key>/` (same layout as the default). |
 | `author`               | string   | VCS user name              | Author name shown on comments. Falls back to your configured VCS user name.                                                                                                            |
 | `forge`                | string   | `"auto"`                   | Remote review provider: `"auto"`, `"github"`, or `"gitlab"`. Auto-detection uses the repository remote; set this for ambiguous self-managed hosts. |
 | `gitlab_url`           | string   | `"https://gitlab.com"`     | GitLab base URL used for every MR operation. Set once for a self-managed instance; MR URL arguments must use the same host. |
@@ -484,7 +514,7 @@ crit --no-ignore
 
 ### Custom styles
 
-To restyle Crit with your own CSS, create `~/.crit/custom.css`. Every Crit page (reviews, live mode and the theme preview) loads it after Crit's own styles, reading it fresh each time, so edit the file and reload the tab to see changes. If the file can't be read, Crit logs why and uses its own styles. In review and live mode, Settings → Configuration shows whether the file exists and its path, and Settings → Display has a "Use custom CSS" switch to turn it off without deleting it.
+To restyle Crit with your own CSS, create `~/.config/crit/custom.css` (`~/.crit/custom.css` on existing installs; see [Where Crit keeps its files](#where-crit-keeps-its-files)). Every Crit page (reviews, live mode and the theme preview) loads it after Crit's own styles, reading it fresh each time, so edit the file and reload the tab to see changes. If the file can't be read, Crit logs why and uses its own styles. In review and live mode, Settings → Configuration shows whether the file exists and its path, and Settings → Display has a "Use custom CSS" switch to turn it off without deleting it.
 
 Crit marks the page with the mode in use, `data-crit-mode="light"` or `"dark"` (also when following the system setting), so you can keep everything for one mode in one block. Override theme variables and nest element rules inside it:
 

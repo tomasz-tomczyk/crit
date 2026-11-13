@@ -71,6 +71,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	// Use temp HOME so session files don't pollute real HOME
 	homeDir := t.TempDir()
 	homeDir, _ = filepath.EvalSymlinks(homeDir)
+	testutil.SeedLegacyLayout(t, homeDir)
 	// A git process can outlive the daemon by a moment and still be writing
 	// into these dirs, which makes t.TempDir's RemoveAll fail with "directory
 	// not empty". Cleanups run in reverse order, so this one runs first and

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 type CommonDaemonFlags struct {
@@ -225,13 +226,14 @@ func InvalidSessionIDError(id string) error {
 	return fmt.Errorf("invalid session ID %q (expected 12-character hex)", id)
 }
 
-// sessionsDir returns the path to ~/.crit/sessions/.
+// sessionsDir returns the sessions directory under the crit state root
+// (~/.local/state/crit/sessions, or the legacy ~/.crit/sessions).
 func sessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "sessions"), nil
+	return filepath.Join(userdirs.StateDir(home), "sessions"), nil
 }
 
 // sessionFilePath returns the full path for a session file.
@@ -243,13 +245,14 @@ func sessionFilePath(key string) (string, error) {
 	return filepath.Join(dir, key+".json"), nil
 }
 
-// reviewsDir returns the path to ~/.crit/reviews/.
+// ReviewsDir returns the reviews directory under the crit state root
+// (~/.local/state/crit/reviews, or the legacy ~/.crit/reviews).
 func ReviewsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "reviews"), nil
+	return filepath.Join(userdirs.StateDir(home), "reviews"), nil
 }
 
 // ReviewFilePath returns the v4 review identity path: a folder named <key>
