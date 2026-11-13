@@ -126,6 +126,14 @@ test.describe('Markdown Rendering — plan.md', () => {
     const secondQuote = section.locator(`.line-block[data-start-line="${endLine + 2}"] blockquote`);
     await expect(secondQuote).toContainText('fire fed with wood');
 
+    // The three quote blocks join into one quote with no gap between them.
+    const firstQuoteBox = firstQuote.locator('.line-content > blockquote');
+    await expect(async () => {
+      const [a, b, c] = await Promise.all([firstQuoteBox, separator, secondQuote].map(l => l.boundingBox()));
+      expect(Math.round(b!.y)).toBe(Math.round(a!.y + a!.height));
+      expect(Math.round(c!.y)).toBe(Math.round(b!.y + b!.height));
+    }).toPass();
+
     // nested bullet items are split into individually-commentable line blocks
 
     // Each nested bullet from the "Nested Tasks" fixture should produce its own
