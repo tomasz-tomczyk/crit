@@ -542,6 +542,25 @@ test.describe('Viewed marks in the review file', () => {
     await expect(viewedBox(page, filePath)).not.toBeChecked();
   });
 
+  test('a saved mark is restored when localStorage access throws', async ({ page, request }) => {
+    await loadFreshReview(page);
+    const [filePath] = await treePaths(page);
+    const put = await request.put('/api/viewed', { data: { files: [{ path: filePath, viewed: true }] } });
+    expect(put.status()).toBe(204);
+
+    // Some privacy modes block storage, so reading it throws.
+    await page.addInitScript(() => {
+      const getItem = Storage.prototype.getItem;
+      Storage.prototype.getItem = function(key: string) {
+        if (key.startsWith('crit-viewed-')) throw new DOMException('blocked', 'SecurityError');
+        return getItem.call(this, key);
+      };
+    });
+    await loadPage(page);
+    await revealFile(page, filePath);
+    await expect(viewedBox(page, filePath)).toBeChecked();
+  });
+
   test('a mark on other content is not restored', async ({ page, request }) => {
     await loadFreshReview(page);
     const [filePath] = await treePaths(page);

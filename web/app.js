@@ -984,17 +984,27 @@
     updateTreeViewedState();
   }
 
+  // Reads a JSON object from localStorage, or {} when storage is blocked
+  // (some privacy modes throw on access) or the value is unreadable.
+  function readStoredObject(key) {
+    try {
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      return data && typeof data === 'object' ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
   function restoreViewedState() {
+    // Marks saved in the review file apply even when localStorage is blocked.
+    const local = readStoredObject(viewedStorageKey());
+    for (let i = 0; i < files.length; i++) {
+      const mark = serverViewed[files[i].path];
+      files[i].viewed = mark ? mark.viewed && viewedMarkIsCurrent(mark, files[i]) : !!local[files[i].path];
+      if (files[i].viewed) files[i].collapsed = true;
+    }
     try {
-      const data = JSON.parse(localStorage.getItem(viewedStorageKey()) || '{}');
-      for (let i = 0; i < files.length; i++) {
-        const mark = serverViewed[files[i].path];
-        files[i].viewed = mark ? mark.viewed && viewedMarkIsCurrent(mark, files[i]) : !!data[files[i].path];
-        if (files[i].viewed) files[i].collapsed = true;
-      }
-    } catch {}
-    try {
-      const data = JSON.parse(localStorage.getItem('crit-viewed-hunks-' + viewedIdentityHash()) || '{}');
+      const data = readStoredObject('crit-viewed-hunks-' + viewedIdentityHash());
       files.forEach(function(file) {
         if (Array.isArray(data[file.path])) file.viewedHunks = data[file.path];
         reconcileStoryViewed(file);
