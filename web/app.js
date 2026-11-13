@@ -8681,7 +8681,9 @@
   // commit; with nothing pinned, starts the walk at the oldest commit.
   function stepPinnedCommit(dir) {
     const real = realCommits();
-    if (real.length < 2) return false;
+    // One commit alone is the whole branch, so there is nothing to step to.
+    // Beside uncommitted changes it is a scope of its own, as in the picker.
+    if (real.length === 0 || (real.length === 1 && real.length === commitList.length)) return false;
     const indexOf = function(sha) { return real.findIndex(function(c) { return c.sha === sha; }); };
     const span = pinnedCommitSpan();
     let next;
