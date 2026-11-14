@@ -21,14 +21,20 @@ func runPull(args []string)      { clicmd.Exit(forge.RunPull(args)) }
 func runPush(args []string)      { clicmd.Exit(forge.RunPush(args)) }
 func runComment(args []string)   { clicmd.Exit(comment.RunComment(args)) }
 func runComments(args []string)  { clicmd.Exit(comment.RunComments(args)) }
-func runReview(args []string)    { clicmd.Exit(session.RunReview(args)) }
-func runResume(args []string)    { clicmd.Exit(session.RunResume(args)) }
-func runPlan(args []string)      { clicmd.Exit(session.RunPlan(args)) }
-func runStop(args []string)      { clicmd.Exit(session.RunStop(args)) }
-func runStatus(args []string)    { clicmd.Exit(session.RunStatus(args)) }
-func runCleanup(args []string)   { clicmd.Exit(review.RunCleanup(args)) }
-func runPR(args []string)        { clicmd.Exit(forge.RunChange(forge.GitHub, args)) }
-func runMR(args []string)        { clicmd.Exit(forge.RunChange(forge.GitLab, args)) }
+func runReview(args []string) {
+	args, err := forge.ResolveBareChangeFlags(args)
+	if err != nil {
+		clicmd.Exit(err)
+	}
+	clicmd.Exit(session.RunReview(args))
+}
+func runResume(args []string)  { clicmd.Exit(session.RunResume(args)) }
+func runPlan(args []string)    { clicmd.Exit(session.RunPlan(args)) }
+func runStop(args []string)    { clicmd.Exit(session.RunStop(args)) }
+func runStatus(args []string)  { clicmd.Exit(session.RunStatus(args)) }
+func runCleanup(args []string) { clicmd.Exit(review.RunCleanup(args)) }
+func runPR(args []string)      { clicmd.Exit(forge.RunChange(forge.GitHub, args)) }
+func runMR(args []string)      { clicmd.Exit(forge.RunChange(forge.GitLab, args)) }
 
 func runLive(args []string)    { live.RunLive(args) }
 func runPreview(args []string) { preview.RunPreview(args) }
