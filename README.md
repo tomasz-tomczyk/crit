@@ -244,7 +244,9 @@ Crit auto-detects GitHub or GitLab from the repository remote. Set `"forge": "gi
 #### Open a remote change for review
 
 ```bash
+crit pr                                     # PR for the current branch (like gh)
 crit pr 42                                  # GitHub pull request
+crit mr                                     # MR for the current branch
 crit mr 42                                  # GitLab MR in the current project
 crit mr https://gitlab.com/group/sub/project/-/merge_requests/42
 crit review --mr 42 --remote                # read MR files via GitLab instead of local git
