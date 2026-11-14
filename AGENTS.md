@@ -79,7 +79,7 @@ crit resume [--list | <id>]   # Pick a stored review to reopen (interactive list
 crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]  # Post review comments as a GitHub PR review
-crit pr <num|url>             # Thin shim — forwards to `crit review --pr <n>`
+crit pr [num|url]             # Thin shim — forwards to `crit review --pr <n>`; no arg = PR for current branch
 crit fetch ...                # Fetch remote artefacts (see runFetch)
 crit comment <path>:<line[-end]> <body>         # Add a comment (no server needed)
 crit comment --selector <css> [--route <path>] <body>  # Pin a DOM element (live or HTML preview)

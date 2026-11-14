@@ -14,12 +14,14 @@ type cliTestProvider struct {
 	pushRequest PushRequest
 	pullErr     error
 	pushErr     error
+	detectID    ChangeID
+	detectErr   error
 }
 
 func (p *cliTestProvider) Kind() Kind                                   { return p.kind }
 func (*cliTestProvider) RequireAuth(context.Context, RepoContext) error { return nil }
-func (*cliTestProvider) Detect(context.Context, RepoContext) (ChangeID, error) {
-	return ChangeID{}, nil
+func (p *cliTestProvider) Detect(context.Context, RepoContext) (ChangeID, error) {
+	return p.detectID, p.detectErr
 }
 func (*cliTestProvider) Get(context.Context, RepoContext, ChangeID) (ChangeRequest, error) {
 	return ChangeRequest{}, nil
@@ -255,7 +257,7 @@ func TestRunChangeAndSelectionErrors(t *testing.T) {
 	if err := RunChange(GitLab, []string{"7"}); err == nil || !strings.Contains(err.Error(), "not wired") {
 		t.Fatalf("unwired review error = %v", err)
 	}
-	if err := RunChange(GitHub, nil); err == nil || !strings.Contains(err.Error(), "usage: crit pr") {
+	if err := RunChange(GitHub, []string{"1", "2"}); err == nil || !strings.Contains(err.Error(), "usage: crit pr [num|url]") {
 		t.Fatalf("invalid PR args error = %v", err)
 	}
 	SelectProviderFn = nil
@@ -302,5 +304,70 @@ func TestRunPullAndPushForwardSession(t *testing.T) {
 	want := PushRequest{ChangeSpec: "11", SessionID: "dddddddddddd", DryRun: true, Event: "comment"}
 	if !reflect.DeepEqual(provider.pushRequest, want) {
 		t.Fatalf("push request = %+v, want %+v", provider.pushRequest, want)
+	}
+}
+
+func TestRunChangeDetectsCurrentBranch(t *testing.T) {
+	oldReview := ReviewFn
+	t.Cleanup(func() { ReviewFn = oldReview })
+	var got []string
+	ReviewFn = func(args []string) error { got = args; return nil }
+
+	tests := []struct {
+		kind Kind
+		want []string
+	}{
+		{GitHub, []string{"--pr", "42"}},
+		{GitLab, []string{"--mr", "42"}},
+	}
+	for _, tt := range tests {
+		withCLIProvider(t, &cliTestProvider{kind: tt.kind, detectID: ChangeID{Number: 42}})
+		if err := RunChange(tt.kind, nil); err != nil {
+			t.Fatalf("%s: %v", tt.kind, err)
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Fatalf("%s: review args = %v, want %v", tt.kind, got, tt.want)
+		}
+	}
+
+	withCLIProvider(t, &cliTestProvider{kind: GitHub, detectErr: errors.New("no PR found")})
+	if err := RunChange(GitHub, nil); err == nil || !strings.Contains(err.Error(), "no PR found") {
+		t.Fatalf("detect error = %v", err)
+	}
+}
+
+func TestResolveBareChangeFlags(t *testing.T) {
+	withCLIProvider(t, &cliTestProvider{kind: GitHub, detectID: ChangeID{Number: 7}})
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"no flag", []string{"--no-open"}, []string{"--no-open"}},
+		{"bare at end", []string{"--pr"}, []string{"--pr", "7"}},
+		{"bare before flag", []string{"--pr", "--no-open"}, []string{"--pr", "7", "--no-open"}},
+		{"bare mr", []string{"--mr"}, []string{"--mr", "7"}},
+		{"empty equals", []string{"--pr="}, []string{"--pr", "7"}},
+		{"single dash", []string{"-pr"}, []string{"-pr", "7"}},
+		{"explicit number", []string{"--pr", "12"}, []string{"--pr", "12"}},
+		{"explicit url", []string{"--pr", "https://github.com/a/b/pull/3"}, []string{"--pr", "https://github.com/a/b/pull/3"}},
+		{"equals value", []string{"--pr=12"}, []string{"--pr=12"}},
+		{"after terminator", []string{"--", "--pr"}, []string{"--", "--pr"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveBareChangeFlags(tt.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	withCLIProvider(t, &cliTestProvider{kind: GitHub, detectErr: errors.New("no PR found")})
+	if _, err := ResolveBareChangeFlags([]string{"--pr"}); err == nil {
+		t.Fatal("expected detect error")
 	}
 }
