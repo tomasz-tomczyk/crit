@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/github"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
@@ -500,5 +501,17 @@ func TestStoryFixtureDuplicateRejected(t *testing.T) {
 	cj, _ := review.LoadCritJSON(critPath)
 	if cj.Story != nil {
 		t.Fatal("rejected story must not be persisted")
+	}
+}
+
+func TestRunStoryE_BareChangeFlagGoesThroughDetection(t *testing.T) {
+	prevSelect := forge.SelectProviderFn
+	t.Cleanup(func() { forge.SelectProviderFn = prevSelect })
+	detectErr := errors.New("no PR for branch")
+	forge.SelectProviderFn = func(forge.Kind) (forge.Provider, error) { return nil, detectErr }
+
+	// Without resolution, `--pr --no-open` would take "--no-open" as the PR spec.
+	if err := runStoryE([]string{"--pr", "--no-open"}); !errors.Is(err, detectErr) {
+		t.Fatalf("crit story --pr error = %v, want detection error", err)
 	}
 }

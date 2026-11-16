@@ -366,6 +366,11 @@ func TestResolveBareChangeFlags(t *testing.T) {
 		})
 	}
 
+	selected := withCLIProvider(t, &cliTestProvider{kind: GitLab, detectID: ChangeID{Number: 9}})
+	if _, err := ResolveBareChangeFlags([]string{"--mr"}); err != nil || *selected != GitLab {
+		t.Fatalf("bare --mr selected %q (err %v), want gitlab", *selected, err)
+	}
+
 	withCLIProvider(t, &cliTestProvider{kind: GitHub, detectErr: errors.New("no PR found")})
 	if _, err := ResolveBareChangeFlags([]string{"--pr"}); err == nil {
 		t.Fatal("expected detect error")
