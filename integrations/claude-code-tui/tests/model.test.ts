@@ -6,6 +6,7 @@ import {
   chatDoc,
   clientPropsOf,
   critThreadsOf,
+  critThreadsOfList,
   feedbackOf,
   parseDiff,
   quoteOffsetOf,
@@ -85,6 +86,22 @@ describe('documents', () => {
     const [one] = critThreadsOf(json)
     expect(one?.path).toBe('src/a.go')
     expect(one?.replies[0]?.fromClaude).toBe(true)
+  })
+
+  test('crit comments --json output becomes threads; review-level comments are skipped', () => {
+    const json = JSON.stringify([
+      { scope: 'review', id: 'rv', body: 'overall' },
+      { scope: 'line', path: 'plan.md', id: 'x1', start_line: 4, end_line: 5, body: 'nit', author: 'Tomasz', resolved: true, replies: [{ id: 'r1', body: 'done', author: 'Claude' }] },
+      { scope: 'line', path: 'plan.md', id: 'x2', start_line: 9, end_line: 9, body: 'why' },
+    ])
+    const threads = critThreadsOfList(json)
+    expect(threads.map(one => [one.id, one.path, one.start, one.end, one.resolved])).toEqual([
+      ['x1', 'plan.md', 4, 5, true],
+      ['x2', 'plan.md', 9, 9, false],
+    ])
+    expect(threads[0]?.replies[0]?.fromClaude).toBe(true)
+    expect(critThreadsOfList('not json')).toEqual([])
+    expect(critThreadsOfList('{"files":{}}')).toEqual([])
   })
 })
 

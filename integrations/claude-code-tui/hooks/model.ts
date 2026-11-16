@@ -266,6 +266,31 @@ export function critThreadsOf(json: string): Thread[] {
   return threads
 }
 
+/**
+ * Reads `crit comments --json` output (a flat list, each comment with its
+ * `scope` and `path`) into threads. Review-level comments have no path and
+ * are skipped, as in critThreadsOf.
+ */
+export function critThreadsOfList(json: string): Thread[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) {
+    return []
+  }
+  const files: Record<string, { comments: CritComment[] }> = {}
+  for (const entry of parsed as (CritComment & { path?: string })[]) {
+    if (!entry?.path) {
+      continue
+    }
+    ;(files[entry.path] ??= { comments: [] }).comments.push(entry)
+  }
+  return critThreadsOf(JSON.stringify({ files }))
+}
+
 // ── The conversation as a crit plan ─────────────────────────────────────
 
 /** The plan a session's chat comments live in. */
