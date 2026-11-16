@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/live"
 	"github.com/tomasz-tomczyk/crit/internal/preview"
 	"github.com/tomasz-tomczyk/crit/internal/session"
@@ -63,6 +64,17 @@ func runPositionalCLI(args []string) {
 	case positionalRoutePreview:
 		runPreviewForPositionalCLI(args)
 	default:
-		clicmd.Exit(runReviewForPositionalCLI(args))
+		clicmd.Exit(runReviewWithResolvedChange(args))
 	}
+}
+
+// runReviewWithResolvedChange fills in a bare --pr/--mr from the current
+// branch before handing args to the review entrypoint, so `crit --pr` and
+// `crit review --pr` behave the same.
+func runReviewWithResolvedChange(args []string) error {
+	resolved, err := forge.ResolveBareChangeFlags(args)
+	if err != nil {
+		return err
+	}
+	return runReviewForPositionalCLI(resolved)
 }

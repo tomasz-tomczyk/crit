@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/forge"
 )
 
 func TestRoutePositionalArgs(t *testing.T) {
@@ -158,5 +162,40 @@ func TestRunPositionalCLI_PlainFileReview(t *testing.T) {
 	runPositionalCLI([]string{"README.md"})
 	if len(got) != 1 || got[0] != "README.md" {
 		t.Fatalf("RunReview args = %v, want [README.md]", got)
+	}
+}
+
+func TestRunReviewWithResolvedChange_BareFlagFromRoot(t *testing.T) {
+	var got []string
+	called := false
+	prevReview := runReviewForPositionalCLI
+	prevSelect := forge.SelectProviderFn
+	t.Cleanup(func() {
+		runReviewForPositionalCLI = prevReview
+		forge.SelectProviderFn = prevSelect
+	})
+	runReviewForPositionalCLI = func(args []string) error {
+		called = true
+		got = append([]string{}, args...)
+		return nil
+	}
+	detectErr := errors.New("no PR for branch")
+	forge.SelectProviderFn = func(forge.Kind) (forge.Provider, error) { return nil, detectErr }
+
+	// A bare --pr from the root command must go through branch detection,
+	// not straight to the flag parser ("flag needs an argument").
+	if err := runReviewWithResolvedChange([]string{"--pr", "--no-open"}); !errors.Is(err, detectErr) {
+		t.Fatalf("bare --pr error = %v, want detection error", err)
+	}
+	if called {
+		t.Fatal("review ran despite failed detection")
+	}
+
+	// Explicit values pass through without detection.
+	if err := runReviewWithResolvedChange([]string{"--pr", "5", "--no-open"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--pr", "5", "--no-open"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("review args = %v, want %v", got, want)
 	}
 }
