@@ -392,13 +392,15 @@ Each path is resolved on its own:
 2. Otherwise the legacy location, if it exists.
 3. Otherwise, for a file Crit is about to create: the legacy location when this is an existing install (`~/.crit/` or `~/.crit.config.json` exists), the XDG location on a fresh one.
 
-Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`. The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. Each target must not exist yet, or `mv` nests the old directory inside it (`~/.local/state/crit/.crit`) or overwrites the file; if one does, merge it by hand:
+Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`. The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. The recipe below moves files to the same directories Crit reads: `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` when they are absolute paths, the defaults otherwise. Each target must not exist yet, or `mv` nests the old directory inside it (`$state/.crit`) or overwrites the file; if one does, merge it by hand:
 
 ```bash
-mkdir -p ~/.config/crit ~/.local/state   # parents only; not ~/.local/state/crit itself
-mv ~/.crit.config.json ~/.config/crit/config.json
-mv ~/.crit/prompts ~/.crit/hooks ~/.crit/custom.css ~/.config/crit/ 2>/dev/null
-mv ~/.crit ~/.local/state/crit
+case "$XDG_CONFIG_HOME" in /*) config="$XDG_CONFIG_HOME/crit" ;; *) config="$HOME/.config/crit" ;; esac
+case "$XDG_STATE_HOME" in /*) state="$XDG_STATE_HOME/crit" ;; *) state="$HOME/.local/state/crit" ;; esac
+mkdir -p "$config" "$(dirname "$state")"   # parents only; not "$state" itself
+mv ~/.crit.config.json "$config/config.json"
+mv ~/.crit/prompts ~/.crit/hooks ~/.crit/custom.css "$config/" 2>/dev/null
+mv ~/.crit "$state"
 ```
 
 ### Config keys
