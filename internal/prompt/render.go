@@ -149,13 +149,53 @@ func RenderFinish(globalPrompts, projectPrompts map[string]string, projectDir, h
 	rendered, err := Render(text, ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: rendering prompt %s: %v\n", hookKey, err)
-		return FinishResult{Prompt: "Review finished."}
+		// A custom template that fails to render must not hide the review
+		// outcome from the agent. Fall back to the built-in template for the
+		// same hook and mode, and say that the custom prompt failed.
+		if strings.HasPrefix(source, "stock:") {
+			return FinishResult{Prompt: "Review finished."}
+		}
+		stockText, stockSource, stockHook, ok := loadStockFinishTemplate(hook, mode)
+		if !ok {
+			return FinishResult{Prompt: "Review finished."}
+		}
+		stockRendered, stockErr := Render(stockText, ctx)
+		if stockErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: rendering prompt %s: %v\n", stockHook, stockErr)
+			return FinishResult{Prompt: "Review finished."}
+		}
+		note := fmt.Sprintf("Note: the custom prompt %s (%s) failed to render, so Crit used the built-in prompt instead. Error: %v", hookKey, source, err)
+		return FinishResult{
+			Prompt: note + "\n\n" + strings.TrimRight(stockRendered, "\n"),
+			Meta:   &Meta{Hook: stockHook, TemplateSource: stockSource},
+		}
 	}
 
 	return FinishResult{
 		Prompt: strings.TrimRight(rendered, "\n"),
 		Meta:   &Meta{Hook: hookKey, TemplateSource: source},
 	}
+}
+
+// loadStockFinishTemplate returns the built-in template that
+// resolveTemplateText would use for hook and mode when no custom template is
+// configured.
+func loadStockFinishTemplate(hook, mode string) (text, source, hookKey string, ok bool) {
+	if mode == "story" {
+		if text, source, ok := LoadStockTemplateSpecific(hook, mode); ok {
+			specific, _ := ResolveHookKey(hook, mode)
+			return text, source, specific, true
+		}
+		if text, source, ok := LoadStockTemplateSpecific(hook, ""); ok {
+			return text, source, hook, true
+		}
+		return "", "", "", false
+	}
+	if text, source, ok := LoadStockTemplate(hook, mode); ok {
+		specific, _ := ResolveHookKey(hook, mode)
+		return text, source, specific, true
+	}
+	return "", "", "", false
 }
 
 // HookResult holds a rendered non-finish hook (e.g. on_story_generate).

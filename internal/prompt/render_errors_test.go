@@ -30,7 +30,7 @@ func TestResolveFinishTemplate_ProjectLoadErrorFallsBackToGlobal(t *testing.T) {
 	}
 }
 
-func TestRenderFinish_MalformedTemplateUsesSafeFallback(t *testing.T) {
+func TestRenderFinish_MalformedTemplateFallsBackToStock(t *testing.T) {
 	result := prompt.RenderFinish(
 		nil,
 		map[string]string{prompt.HookFinishApproved: "inline:{{"},
@@ -40,11 +40,58 @@ func TestRenderFinish_MalformedTemplateUsesSafeFallback(t *testing.T) {
 		prompt.Context{Approved: true, Mode: "files"},
 	)
 
-	if result.Prompt != "Review finished." {
-		t.Fatalf("Prompt = %q, want safe fallback", result.Prompt)
+	if !strings.HasPrefix(result.Prompt, "Note: the custom prompt on_finish_approved (project:inline) failed to render") {
+		t.Fatalf("Prompt = %q, want a failure note first", result.Prompt)
 	}
-	if result.Meta != nil {
-		t.Fatalf("Meta = %+v, want nil when rendering fails", result.Meta)
+	if result.Meta == nil || result.Meta.TemplateSource != "stock:on_finish_approved.md" {
+		t.Fatalf("Meta = %+v, want stock source", result.Meta)
+	}
+}
+
+func TestRenderFinish_UnresolvedRenderErrorKeepsComments(t *testing.T) {
+	// Parses fine but fails at execution time: len of an int.
+	global := map[string]string{
+		prompt.HookFinishUnresolved: "inline:{{len .unresolved_count}}",
+	}
+	ctx := prompt.Context{
+		Mode:                   "files",
+		UnresolvedCount:        2,
+		CommentsUnresolvedJSON: `[{"id":"c_1","body":"fix the bug"}]`,
+		InternalSessionMode:    "files",
+		NextRoundCmd:           "crit --session abcd",
+	}
+	result := prompt.RenderFinish(global, nil, "", t.TempDir(), false, ctx)
+
+	if !strings.HasPrefix(result.Prompt, "Note: the custom prompt on_finish_unresolved (global:inline) failed to render") {
+		t.Fatalf("Prompt = %q, want a failure note first", result.Prompt)
+	}
+	for _, want := range []string{"2 unresolved comments", "fix the bug", "crit --session abcd"} {
+		if !strings.Contains(result.Prompt, want) {
+			t.Errorf("Prompt missing %q: %q", want, result.Prompt)
+		}
+	}
+	if result.Meta == nil || result.Meta.Hook != "on_finish_unresolved:files" || result.Meta.TemplateSource != "stock:on_finish_unresolved.md" {
+		t.Fatalf("Meta = %+v, want stock on_finish_unresolved:files", result.Meta)
+	}
+}
+
+func TestRenderFinish_StoryRenderErrorFallsBackToStockStory(t *testing.T) {
+	project := map[string]string{
+		"on_finish_unresolved:story": "inline:{{.unresolved_count",
+	}
+	ctx := prompt.Context{
+		Mode:                   "story",
+		UnresolvedCount:        1,
+		CommentsUnresolvedJSON: `[{"id":"c_1","body":"fix"}]`,
+		InternalSessionMode:    "git",
+	}
+	result := prompt.RenderFinish(nil, project, t.TempDir(), "", true, ctx)
+
+	if !strings.Contains(result.Prompt, "story-mode review finished with 1 unresolved comment") {
+		t.Fatalf("Prompt = %q, want stock story prompt", result.Prompt)
+	}
+	if result.Meta == nil || result.Meta.Hook != "on_finish_unresolved:story" || result.Meta.TemplateSource != "stock:on_finish_unresolved.story.md" {
+		t.Fatalf("Meta = %+v, want stock story source", result.Meta)
 	}
 }
 
