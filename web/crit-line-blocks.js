@@ -84,6 +84,25 @@
     return coveredUpTo;
   }
 
+  // Same as addGapLineBlocks, but for lines inside a blockquote's source range.
+  // A line there that belongs to no child token carries no rendered content: a
+  // bare ">" separating paragraphs, or a link reference definition. Render it
+  // as an empty quote so the quote reads as one block instead of leaking the
+  // escaped source (a literal ">"). The line keeps its own commentable block.
+  function addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, upTo) {
+    while (coveredUpTo < upTo) {
+      var blank = sourceLines[coveredUpTo].trim() === '';
+      blocks.push({
+        startLine: coveredUpTo + 1,
+        endLine: coveredUpTo + 1,
+        html: blank ? '' : '<blockquote></blockquote>',
+        isEmpty: blank
+      });
+      coveredUpTo++;
+    }
+    return coveredUpTo;
+  }
+
   // Handle a fence (code block) token — split into per-line blocks.
   function handleFenceToken(token, blocks, sourceLines, coveredUpTo, blockStart, blockEnd) {
     var lang = token.info.trim().split(/\s+/)[0] || '';
@@ -417,7 +436,7 @@
       var childMap = tokens[j].map;
       var childCloseIdx = j;
       if (tokens[j].nesting === 1) childCloseIdx = findCloseToken(tokens, j);
-      addGapLineBlocks(blocks, sourceLines, coveredUpTo, childMap[0]);
+      coveredUpTo = addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, childMap[0]);
       var childTokens = tokens.slice(j, childCloseIdx + 1);
       var childHtml = '<blockquote>' +
         md.renderer.render(childTokens, md.options, {}) +
@@ -440,7 +459,7 @@
       coveredUpTo = blockEnd;
     }
 
-    coveredUpTo = addGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
+    coveredUpTo = addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, blockEnd);
     return { nextIndex: bqCloseIdx + 1, coveredUpTo: coveredUpTo };
   }
 

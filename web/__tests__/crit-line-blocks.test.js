@@ -234,3 +234,38 @@ test('buildLineBlocks skips hidden tokens', () => {
   // Gap block for the uncovered line
   assert.equal(blocks[0].html, 'visible line');
 });
+
+test('buildLineBlocks keeps blockquote lines carrying only the > marker inside the quote', () => {
+  const md = markdownit();
+  const content = '> line one\n>\n> line two';
+  const blocks = lineBlocks.buildLineBlocks(md.parse(content, {}), md, content);
+
+  assert.equal(blocks.length, 3);
+  assert.match(blocks[0].html, /<blockquote>/);
+  assert.equal(blocks[1].startLine, 2);
+  assert.equal(blocks[1].html, '<blockquote></blockquote>');
+  assert.equal(blocks[1].isEmpty, false);
+  assert.match(blocks[2].html, /<blockquote>/);
+});
+
+test('buildLineBlocks keeps leading and trailing blockquote marker lines inside the quote', () => {
+  const md = markdownit();
+  const content = '>\n> quoted\n>';
+  const blocks = lineBlocks.buildLineBlocks(md.parse(content, {}), md, content);
+
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0].html, '<blockquote></blockquote>');
+  assert.match(blocks[1].html, /<blockquote>/);
+  assert.equal(blocks[2].html, '<blockquote></blockquote>');
+});
+
+test('buildLineBlocks keeps a link reference definition inside a quote as an empty quote', () => {
+  const md = markdownit();
+  const content = '> line one\n>\n> [ref]: https://example.com\n> line two';
+  const blocks = lineBlocks.buildLineBlocks(md.parse(content, {}), md, content);
+
+  assert.equal(blocks.length, 4);
+  assert.equal(blocks[2].startLine, 3);
+  assert.equal(blocks[2].html, '<blockquote></blockquote>');
+  assert.match(blocks[3].html, /<blockquote>/);
+});

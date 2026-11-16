@@ -100,7 +100,39 @@ test.describe('Markdown Rendering — plan.md', () => {
     await expect(blockquotes.first()).toBeVisible();
 
     // Verify blockquote content from plan.md
-    await expect(section.locator('blockquote', { hasText: 'rate-limit' })).toBeVisible();
+    await expect(section.locator('blockquote', { hasText: 'Dorothy' })).toBeVisible();
+
+    // a blockquote line carrying only the > marker stays inside the quote
+
+    // The "Open Questions" quote in plan.md separates its two paragraphs with a
+    // bare ">" line. That line belongs to no markdown token, so it used to leak
+    // into the document as an escaped literal ">".
+    const firstQuote = section.locator('.line-block', { hasText: 'Dorothy' }).first();
+    await expect(firstQuote).toBeVisible();
+    // The quoted paragraph wraps across two source lines, so the separator sits
+    // after its end line, not one past its start.
+    const endLine = Number(await firstQuote.getAttribute('data-end-line'));
+
+    // The separator renders as an empty quote, so the quote styling carries
+    // across the gap instead of dropping out to plain body text.
+    const separator = section.locator(`.line-block[data-start-line="${endLine + 1}"] .line-content > blockquote`);
+    await expect(separator).toBeVisible();
+    await expect(separator).toHaveText('');
+
+    // No line anywhere in the document renders a bare ">" as body text.
+    await expect(section.locator('.line-content', { hasText: /^>\s*$/ })).toHaveCount(0);
+
+    // The paragraph after the separator is still quoted.
+    const secondQuote = section.locator(`.line-block[data-start-line="${endLine + 2}"] blockquote`);
+    await expect(secondQuote).toContainText('fire fed with wood');
+
+    // The three quote blocks join into one quote with no gap between them.
+    const firstQuoteBox = firstQuote.locator('.line-content > blockquote');
+    await expect(async () => {
+      const [a, b, c] = await Promise.all([firstQuoteBox, separator, secondQuote].map(l => l.boundingBox()));
+      expect(Math.round(b!.y)).toBe(Math.round(a!.y + a!.height));
+      expect(Math.round(c!.y)).toBe(Math.round(b!.y + b!.height));
+    }).toPass();
 
     // nested bullet items are split into individually-commentable line blocks
 

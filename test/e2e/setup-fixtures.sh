@@ -441,8 +441,11 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 ## Open Questions
 
-> Should we rate-limit by API key or by IP?
-> Leaning toward API key since we want per-tenant limits.
+> Dorothy followed her through many of the
+> beautiful rooms in her castle.
+>
+> The Witch bade her clean the pots and kettles
+> and sweep the floor and keep the fire fed with wood.
 
 ## Timeline
 
