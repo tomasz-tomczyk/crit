@@ -1563,7 +1563,8 @@ body.dragging { user-select: none; cursor: grabbing; }
   padding: 8px 16px;
   border-inline-start: 3px solid var(--crit-blockquote-border);
   background: var(--crit-blockquote-bg);
-  border-radius: 0 6px 6px 0;
+  border-start-end-radius: 6px;
+  border-end-end-radius: 6px;
   color: var(--crit-editor-fg-secondary);
 }
 
@@ -1572,12 +1573,13 @@ body.dragging { user-select: none; cursor: grabbing; }
 }
 
 /* One quote is split into a line block per paragraph or bare ">" line, so
-   join adjacent quote blocks back into one continuous quote. */
-.line-block:has(> .line-content > blockquote):has(+ .line-block > .line-content > blockquote) > .line-content > blockquote {
+   join adjacent quote blocks back into one continuous quote. A removed quote
+   followed by the added quote that replaces it (unified diff) stays apart. */
+.line-block:has(> .line-content > blockquote):not(.diff-removed:has(+ .diff-added)):has(+ .line-block > .line-content > blockquote) > .line-content > blockquote {
   margin-bottom: 0;
   border-end-end-radius: 0;
 }
-.line-block:has(> .line-content > blockquote) + .line-block > .line-content > blockquote {
+.line-block:has(> .line-content > blockquote) + .line-block:not(.diff-removed + .diff-added) > .line-content > blockquote {
   margin-top: 0;
   border-start-end-radius: 0;
 }
@@ -1591,13 +1593,13 @@ body.dragging { user-select: none; cursor: grabbing; }
   margin-top: 0;
   border-start-end-radius: 0;
 }
-/* The other side of a row can be taller; stretch the quote to the row's
-   bottom so the join holds. */
-.diff-view-cell:has(> .line-block:last-child > .line-content > blockquote) {
+/* The other side of a row can be taller; stretch a quote that joins the next
+   row down to the row's bottom so the join holds. */
+.diff-view-cell:has(> .line-block:last-child > .line-content > blockquote):has(+ * + .diff-view-cell > .line-block:first-child > .line-content > blockquote) {
   display: flex;
   flex-direction: column;
 }
-.diff-view-cell > .line-block:last-child:has(> .line-content > blockquote) {
+.diff-view-cell:has(+ * + .diff-view-cell > .line-block:first-child > .line-content > blockquote) > .line-block:last-child:has(> .line-content > blockquote) {
   flex: 1;
 }
 /* A bare ">" line's empty quote is shorter than its row; fill the row so no

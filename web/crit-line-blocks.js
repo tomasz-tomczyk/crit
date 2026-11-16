@@ -84,26 +84,19 @@
     return coveredUpTo;
   }
 
-  // A blockquote line carrying only "> " markers separates paragraphs inside the
-  // quote and belongs to no child token, so it would otherwise leak as a literal ">".
-  var QUOTE_MARKER_ONLY = /^\s*>[\s>]*$/;
-
   // Same as addGapLineBlocks, but for lines inside a blockquote's source range.
-  // Marker-only lines render as an empty quote so the quote reads as one block
-  // across the gap; truly blank lines stay blank.
+  // A line there that belongs to no child token carries no rendered content: a
+  // bare ">" separating paragraphs, or a link reference definition. Render it
+  // as an empty quote so the quote reads as one block instead of leaking the
+  // escaped source (a literal ">"). The line keeps its own commentable block.
   function addBlockquoteGapLineBlocks(blocks, sourceLines, coveredUpTo, upTo) {
     while (coveredUpTo < upTo) {
-      var lineText = sourceLines[coveredUpTo];
-      var markerOnly = QUOTE_MARKER_ONLY.test(lineText);
-      var html;
-      if (markerOnly) html = '<blockquote></blockquote>';
-      else if (lineText === '') html = '';
-      else html = escapeHtml(lineText);
+      var blank = sourceLines[coveredUpTo].trim() === '';
       blocks.push({
         startLine: coveredUpTo + 1,
         endLine: coveredUpTo + 1,
-        html: html,
-        isEmpty: !markerOnly && lineText.trim() === ''
+        html: blank ? '' : '<blockquote></blockquote>',
+        isEmpty: blank
       });
       coveredUpTo++;
     }

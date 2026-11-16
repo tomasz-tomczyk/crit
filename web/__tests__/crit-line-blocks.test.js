@@ -259,11 +259,13 @@ test('buildLineBlocks keeps leading and trailing blockquote marker lines inside 
   assert.equal(blocks[2].html, '<blockquote></blockquote>');
 });
 
-test('buildLineBlocks still renders truly blank lines inside a blockquote range as empty', () => {
+test('buildLineBlocks keeps a link reference definition inside a quote as an empty quote', () => {
   const md = markdownit();
-  const content = '> quoted\n\nplain';
+  const content = '> line one\n>\n> [ref]: https://example.com\n> line two';
   const blocks = lineBlocks.buildLineBlocks(md.parse(content, {}), md, content);
 
-  assert.equal(blocks[1].html, '');
-  assert.equal(blocks[1].isEmpty, true);
+  assert.equal(blocks.length, 4);
+  assert.equal(blocks[2].startLine, 3);
+  assert.equal(blocks[2].html, '<blockquote></blockquote>');
+  assert.match(blocks[3].html, /<blockquote>/);
 });
