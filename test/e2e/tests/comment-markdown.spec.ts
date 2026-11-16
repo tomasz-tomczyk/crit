@@ -150,8 +150,10 @@ test.describe('Comment markdown rendering', () => {
     const doc = await switchToDocumentView(page);
     await recordClassAdditions(page, 'comment-ref-flash');
 
-    // Put the chip near the top of the view; the target card sits just above.
+    // The document view virtualizes cards below the initial viewport. Scroll the
+    // reference into the render window before asserting it is visible.
     const chip = card(doc, ref.id).locator('.comment-ref');
+    await chip.scrollIntoViewIfNeeded();
     await expect(chip).toBeVisible();
     await page.evaluate(() => {
       const root = document.getElementById('filesContainer')!;
