@@ -125,7 +125,7 @@ func DetectPR(prFlag int) (int, error) {
 	}
 	out, err := exec.Command("gh", "pr", "view", "--json", "number", "--jq", ".number").Output()
 	if err != nil {
-		return 0, fmt.Errorf("no PR found for current branch (try: crit pull <pr-number>)")
+		return 0, fmt.Errorf("no PR found for current branch; pass the PR number or URL explicitly")
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil {

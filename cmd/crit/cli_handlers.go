@@ -21,7 +21,7 @@ func runPull(args []string)      { clicmd.Exit(forge.RunPull(args)) }
 func runPush(args []string)      { clicmd.Exit(forge.RunPush(args)) }
 func runComment(args []string)   { clicmd.Exit(comment.RunComment(args)) }
 func runComments(args []string)  { clicmd.Exit(comment.RunComments(args)) }
-func runReview(args []string)    { clicmd.Exit(session.RunReview(args)) }
+func runReview(args []string)    { clicmd.Exit(runReviewWithResolvedChange(args)) }
 func runResume(args []string)    { clicmd.Exit(session.RunResume(args)) }
 func runPlan(args []string)      { clicmd.Exit(session.RunPlan(args)) }
 func runStop(args []string)      { clicmd.Exit(session.RunStop(args)) }

@@ -73,7 +73,7 @@ func (p Provider) Detect(ctx context.Context, repo forge.RepoContext) (forge.Cha
 		return forge.ChangeID{}, fmt.Errorf("parsing GitLab merge request list: %w", err)
 	}
 	if len(mrs) == 0 {
-		return forge.ChangeID{}, fmt.Errorf("no GitLab merge request found for current branch (try: crit pull <mr-iid>)")
+		return forge.ChangeID{}, fmt.Errorf("no GitLab merge request found for current branch; pass the MR iid or URL explicitly")
 	}
 	return forge.ChangeID{Number: mrs[0].IID, Host: repo.Host, Project: repo.Project}, nil
 }

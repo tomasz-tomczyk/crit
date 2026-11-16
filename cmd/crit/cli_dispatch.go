@@ -48,12 +48,12 @@ Options:
 	{name: "check", handler: func([]string) { runCheck() }, help: `Usage: crit check
 
 Check installed integrations for missing or stale configuration.`},
-	{name: "pr", handler: runPR, help: `Usage: crit pr <num|url>
+	{name: "pr", handler: runPR, help: `Usage: crit pr [num|url]
 
-Open a GitHub pull request for review.`},
-	{name: "mr", handler: runMR, help: `Usage: crit mr <iid|url>
+Open a GitHub pull request for review (default: the PR for the current branch).`},
+	{name: "mr", handler: runMR, help: `Usage: crit mr [iid|url]
 
-Open a GitLab merge request for review.`},
+Open a GitLab merge request for review (default: the MR for the current branch).`},
 	{name: "pull", handler: runPull, help: `Usage: crit pull [--session <id>] [--viewed] [--output <dir>] [number|url]
 
 Fetch PR/MR comments into the local review file.
