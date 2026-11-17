@@ -2727,30 +2727,72 @@
   // pulling the list back over the next jump.
   // An element taller than the list is aligned by its top instead, so its
   // start (and the line just above a comment card) stays in view.
+  // Files that mount around the card are measured after it is placed, some
+  // only once their highlighting comes back from the worker pool. Pierre keeps
+  // the top of the viewport still while they resize, which pushes the card
+  // off-center. So the alignment only stops once the list has been quiet for
+  // a while with the card centered (or as close as the list allows).
+  const ALIGN_QUIET_MS = 300;
+  const ALIGN_MAX_MS = 2000;
+  // Any input from the reader ends the alignment, so it never pulls the list
+  // back against them. A key that navigates starts its own jump anyway, and
+  // pointerdown covers clicks and scrollbar drags.
+  const ALIGN_CANCEL_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+  const ALIGN_CANCEL_OPTIONS = { capture: true, passive: true };
   function scrollPierreElementIntoView(el, isCurrent) {
     const root = document.getElementById('filesContainer');
     if (!root || !el) return;
     // A rebuild (scope, palette, SSE) does not supersede the jump, so check
     // the card and view are still the ones this alignment started on.
     const view = pierreView;
-    let frames = 0;
+    let cancelled = false;
+    const onInput = function() { cancelled = true; };
+    ALIGN_CANCEL_EVENTS.forEach(function(type) {
+      document.addEventListener(type, onInput, ALIGN_CANCEL_OPTIONS);
+    });
+    // Every exit removes the listeners, so none outlive the loop or the view.
+    const finish = function() {
+      ALIGN_CANCEL_EVENTS.forEach(function(type) {
+        document.removeEventListener(type, onInput, ALIGN_CANCEL_OPTIONS);
+      });
+    };
+    const startedAt = performance.now();
+    let quietSince = startedAt;
+    let lastLayout = '';
     (function align() {
-      if (isCurrent && !isCurrent()) return;
-      if (!el.isConnected || view !== pierreView) return;
+      if ((isCurrent && !isCurrent()) || cancelled) return finish();
+      if (!el.isConnected || view !== pierreView) return finish();
+      const now = performance.now();
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const gap = Math.max(0, (root.clientHeight - elRect.height) / 2);
       const offset = elRect.top - rootRect.top - gap;
-      if (Math.abs(offset) < 2 || frames++ >= 12) {
+      const maxTop = Math.max(0, root.scrollHeight - root.clientHeight);
+      const target = Math.min(maxTop, Math.max(0, root.scrollTop + offset));
+      const layout = root.scrollTop + ':' + root.scrollHeight + ':' + Math.round(elRect.top);
+      if (layout !== lastLayout) {
+        lastLayout = layout;
+        quietSince = now;
+      }
+      // Centered, or as close as the list can get (the top or end of it).
+      if (Math.abs(offset) < 2 || Math.abs(target - root.scrollTop) < 1) {
         // The card now sits away from the file or line Pierre was asked to
         // scroll to. Left pending, that target would be re-applied on the
         // next render (e.g. the next click) and pull the card off-center.
         if (view) view.releaseScroll();
-        return;
+        if (now - quietSince >= ALIGN_QUIET_MS) return finish();
+      } else {
+        // Pierre's own pending scroll target is stale once the card is being
+        // aligned; left set, it would move the list back after each fix.
+        if (view) view.releaseScroll();
+        // Make each layout correction immediate instead of starting
+        // overlapping browser scroll animations during the alignment loop.
+        root.scrollTo({ top: target, behavior: 'instant' });
       }
-      // Make each layout correction immediate instead of starting overlapping
-      // browser scroll animations during the bounded alignment loop.
-      root.scrollTo({ top: root.scrollTop + offset, behavior: 'instant' });
+      if (now - startedAt >= ALIGN_MAX_MS) {
+        if (view) view.releaseScroll();
+        return finish();
+      }
       requestAnimationFrame(align);
     })();
   }
