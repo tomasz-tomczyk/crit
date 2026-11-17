@@ -98,13 +98,15 @@ func resolveReconnectReviewDir(key string, stale daemon.SessionEntry) (string, e
 }
 
 // daemonArgsForReconnect rebuilds _serve argv including flags not stored in cli_args.
-func daemonArgsForReconnect(sessionKey string, cliArgs []string, stale daemon.SessionEntry, reviewDir string) []string {
+// noOpen comes from the reconnecting CLI (--no-open or no_open in config).
+func daemonArgsForReconnect(sessionKey string, cliArgs []string, stale daemon.SessionEntry, reviewDir string, noOpen bool) []string {
 	args := daemonArgsFromCliArgs(sessionKey, cliArgs)
 	args = appendReconnectPathFlags(sessionKey, args, reviewDir)
 	args = daemon.AppendCommonDaemonFlags(args, daemon.CommonDaemonFlags{
 		Host:                        stale.Host,
 		PublicURL:                   stale.PublicURL,
 		AllowUnauthenticatedNetwork: config.NeedsUnauthenticatedNetworkAck(stale.Host, stale.PublicURL),
+		NoOpen:                      noOpen,
 	})
 	return args
 }
@@ -201,7 +203,7 @@ func reconnectDir(cj CritJSON, stale daemon.SessionEntry) (string, error) {
 }
 
 // reconnectDeadSession restarts a daemon for an existing review folder.
-func reconnectDeadSession(key string, stale daemon.SessionEntry, quiet bool) (daemon.SessionEntry, error) {
+func reconnectDeadSession(key string, stale daemon.SessionEntry, noOpen, quiet bool) (daemon.SessionEntry, error) {
 	revDir, err := resolveReconnectReviewDir(key, stale)
 	if err != nil {
 		return daemon.SessionEntry{}, err
@@ -218,7 +220,7 @@ func reconnectDeadSession(key string, stale daemon.SessionEntry, quiet bool) (da
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return daemon.SessionEntry{}, fmt.Errorf("parsing review for session %s: %w", key, err)
 	}
-	daemonArgs := daemonArgsForReconnect(key, cj.CliArgs, stale, revDir)
+	daemonArgs := daemonArgsForReconnect(key, cj.CliArgs, stale, revDir, noOpen)
 	dir, err := reconnectDir(cj, stale)
 	if err != nil {
 		return daemon.SessionEntry{}, err
