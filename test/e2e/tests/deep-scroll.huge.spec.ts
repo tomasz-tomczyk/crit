@@ -33,7 +33,9 @@ async function reviewOrder(page: Page): Promise<string[]> {
 async function paintedFraction(page: Page, clip: { x: number; y: number; width: number; height: number }) {
   const png = await page.screenshot({ clip });
   return page.evaluate(async (b64) => {
-    const img = await createImageBitmap(await (await fetch('data:image/png;base64,' + b64)).blob());
+    // Decode without fetch(): the review page's CSP limits connect-src to 'self'.
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const img = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
     const canvas = new OffscreenCanvas(img.width, img.height);
     const ctx = canvas.getContext('2d')!;
     ctx.drawImage(img, 0, 0);

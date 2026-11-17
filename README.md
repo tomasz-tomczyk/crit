@@ -441,6 +441,19 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `plan_approve_mode`    | string   | unset                      | Claude Code permission mode after Crit approves an `ExitPlanMode` hook: `default`, `manual`, `acceptEdits`, `plan`, `auto`, `dontAsk`, or `bypassPermissions`. The update uses `destination: "session"`, so it lasts only for the current Claude Code session. See [Claude Code plan approval mode](integrations/README.md#claude-code-plan-approval-mode). |
 | `close_on_approve_after_ms` | int | unset (disabled)          | Auto-close the review tab this many milliseconds after you Approve with no unresolved comments. Unset means no auto-close (current behavior); negative values are treated as unset. A Cancel button during the countdown skips the close for that approval. |
 | `stale_review_days`    | int      | `14`                       | Delete reviews untouched for this many days in the background sweep that runs when a review starts. Unset or non-positive values use the default. `crit cleanup --days N` is unaffected. |
+| `remote_images`        | string[] | `[]`                       | Hosts whose remote (http/https) images load without a click: `"img.shields.io"`, `"*.githubusercontent.com"` (subdomains only), or `"*"` for any host. See [Remote images](#remote-images). |
+
+### Remote images
+
+Reviewed files and comments can be written by an agent, so Crit does not load images from other hosts on its own: a remote image URL can carry data to whoever runs that host, even when the agent itself has no network access. Each remote image shows as a placeholder with the image's host; click it to load that image. The review page's Content-Security-Policy blocks remote images and media, so this holds for every way an image can get onto the page, including raw HTML and diagrams.
+
+To load images from hosts you trust without clicking, list them in `remote_images` in `~/.crit.config.json`:
+
+```json
+{ "remote_images": ["img.shields.io", "*.githubusercontent.com"] }
+```
+
+`remote_images` is global-only: a project's `.crit.config.json` cannot set it, because an agent can write that file. The same policy applies to `~/.crit/custom.css`: it can load fonts from Google Fonts and images from `remote_images` hosts, or use `data:` URLs.
 
 ### CLI flags
 
