@@ -743,7 +743,7 @@ func (s *Server) serveHTML(name string) http.HandlerFunc {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		s.serveShell(w, r, name)
+		s.serveShell(w, name)
 	}
 }
 

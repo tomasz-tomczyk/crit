@@ -1523,6 +1523,9 @@ body.dragging { user-select: none; cursor: grabbing; }
   color: var(--crit-fg-muted);
   font-size: 12px;
 }
+@media (pointer: coarse) {
+  .crit-remote-image-load { min-height: 44px; }
+}
 
 /* === Native rendered tables === */
 .native-table-wrapper {

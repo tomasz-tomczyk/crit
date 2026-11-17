@@ -455,6 +455,8 @@ To load images from hosts you trust without clicking, list them in `remote_image
 
 `remote_images` is global-only: a project's `.crit.config.json` cannot set it, because an agent can write that file. The same policy applies to `~/.crit/custom.css`: it can load fonts from Google Fonts and images from `remote_images` hosts, or use `data:` URLs.
 
+This covers the review page itself. The HTML file shown by `crit preview` and the pages of your dev server in live mode are not covered: they run with their own content and headers.
+
 ### CLI flags
 
 | Flag            | Short | Equivalent config key | Description                            |

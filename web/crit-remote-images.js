@@ -22,7 +22,12 @@
   // without a click. <a href> and <area href> are left alone: a link needs a
   // click, which is the reviewer's choice.
   var FETCHING_ATTRS = ['src', 'srcset', 'poster', 'background', 'data', 'href', 'xlink:href'];
-  var LINK_TAGS = { A: true, AREA: true };
+  var LINK_TAGS = { a: true, area: true };
+  // Largest size a frame takes from what the image reports.
+  var MAX_FRAME_PX = 4000;
+  // A frame that hasn't reported by then (the remote host never answers,
+  // or /remote-image refused the URL) shows the error instead of spinning.
+  var LOAD_TIMEOUT_MS = 20000;
 
   var patterns = readPatterns();
 
@@ -172,7 +177,7 @@
   function stripFetchingAttrs(el, list) {
     for (var i = 0; i < FETCHING_ATTRS.length; i++) {
       var name = FETCHING_ATTRS[i];
-      if (name === 'href' && LINK_TAGS[el.tagName]) continue;
+      if (name === 'href' && LINK_TAGS[el.localName]) continue;
       if (!el.hasAttribute(name)) continue;
       var value = el.getAttribute(name);
       if (name === 'srcset') {
@@ -223,6 +228,11 @@
     var h = parseInt(frame.getAttribute('data-crit-height'), 10) ||
       (naturalWidth ? Math.round(w * naturalHeight / naturalWidth) : naturalHeight);
     if (!w || !h) return;
+    if (w > MAX_FRAME_PX || h > MAX_FRAME_PX) {
+      var scale = MAX_FRAME_PX / Math.max(w, h);
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+    }
     frame.style.width = w + 'px';
     frame.style.aspectRatio = w + ' / ' + h;
     frame.style.height = 'auto';
@@ -231,6 +241,12 @@
   function load(placeholder) {
     var src = placeholder.getAttribute('data-crit-remote-src');
     if (!src || !isRemote(src)) return;
+    // /remote-image needs an absolute URL; resolve //host/x.png here.
+    try {
+      src = new URL(src, location.href).href;
+    } catch (_) {
+      return;
+    }
     var alt = placeholder.getAttribute('data-crit-remote-alt') || '';
     var doc = placeholder.ownerDocument;
     var frame = doc.createElement('iframe');
@@ -249,6 +265,13 @@
     frame.src = frameURL(src, alt);
     placeholder.classList.add('is-loading');
     placeholder.replaceChildren(frame);
+    var failIfStillLoading = function () {
+      if (frame.isConnected && placeholder.classList.contains('is-loading')) showError(frame);
+    };
+    // The frame's load event fires after its image settles, and its script
+    // posts before that; a frame with no report by then was refused.
+    frame.addEventListener('load', function () { setTimeout(failIfStillLoading, 500); });
+    setTimeout(failIfStillLoading, LOAD_TIMEOUT_MS);
   }
 
   function showError(frame) {

@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"html"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 // The review page renders Markdown and comments that an AI agent may have
@@ -29,15 +30,22 @@ import (
 // waiting for /api/config.
 const remoteImagesMeta = `<meta name="crit-remote-images" content="[]">`
 
-var inlineScriptRe = regexp.MustCompile(`(?s)<script>(.*?)</script>`)
+var (
+	inlineScriptRe = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script>`)
+	scriptSrcRe    = regexp.MustCompile(`(?i)\bsrc\s*=`)
+)
 
 // inlineScriptHashes returns CSP 'sha256-…' sources for every inline
-// <script> (one with no attributes) in page, so the shell's inline bootstrap
-// keeps running under script-src without 'unsafe-inline'.
+// <script> (one without a src attribute) in page, so the shell's inline
+// bootstrap keeps running under script-src without 'unsafe-inline'. The hash
+// covers the script's text only, so its attributes don't matter.
 func inlineScriptHashes(page []byte) []string {
 	var out []string
 	for _, m := range inlineScriptRe.FindAllSubmatch(page, -1) {
-		sum := sha256.Sum256(m[1])
+		if scriptSrcRe.Match(m[1]) {
+			continue
+		}
+		sum := sha256.Sum256(m[2])
 		out = append(out, "'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'")
 	}
 	return out
@@ -52,31 +60,20 @@ func remoteImageSources(patterns []string) []string {
 		if p == "*" {
 			return []string{"http:", "https:"}
 		}
-		if validCSPHostPattern(p) {
+		if config.ValidRemoteImagePattern(p) {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-var cspHostPatternRe = regexp.MustCompile(`^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*$`)
-
-func validCSPHostPattern(p string) bool {
-	return cspHostPatternRe.MatchString(p)
-}
-
 // reviewPageCSP builds the policy for the review page shells (index.html at
-// /, /live and /preview; themes.html). requestHost is the hostname the page
-// was loaded from: live mode frames its proxy at http://<that host>:<port>.
-func reviewPageCSP(scriptHashes, remoteImages []string, requestHost string) string {
+// /, /live and /preview; themes.html).
+func reviewPageCSP(scriptHashes, remoteImages []string) string {
 	remote := remoteImageSources(remoteImages)
 	imgSrc := append([]string{"'self'", "data:", "blob:"}, remote...)
 	mediaSrc := append([]string{"'self'", "data:", "blob:"}, remote...)
 	scriptSrc := append([]string{"'self'", "'wasm-unsafe-eval'"}, scriptHashes...)
-	frameSrc := []string{"'self'"}
-	if h := cspFrameHost(requestHost); h != "" {
-		frameSrc = append(frameSrc, "http://"+h+":*", "https://"+h+":*")
-	}
 	directives := []string{
 		"default-src 'self'",
 		"script-src " + strings.Join(scriptSrc, " "),
@@ -87,26 +84,17 @@ func reviewPageCSP(scriptHashes, remoteImages []string, requestHost string) stri
 		"img-src " + strings.Join(imgSrc, " "),
 		"media-src " + strings.Join(mediaSrc, " "),
 		"connect-src 'self'",
-		"frame-src " + strings.Join(frameSrc, " "),
+		// Live mode frames the user's dev server through its proxy, and the
+		// framed app may navigate anywhere (links, SSO). frame-src covers every
+		// navigation in that frame, so it can't be narrowed to the proxy. The
+		// sanitizers drop <iframe> from rendered content, so agent-written
+		// content can't add a frame.
+		"frame-src 'self' http: https:",
+		"form-action 'self'",
 		"object-src 'none'",
 		"base-uri 'self'",
 	}
 	return strings.Join(directives, "; ")
-}
-
-var cspHostnameRe = regexp.MustCompile(`^[a-z0-9.-]+$`)
-
-// cspFrameHost returns the request's hostname in a form safe to put in the
-// header (IPv6 in brackets), or "" when it has unexpected characters.
-func cspFrameHost(requestHost string) string {
-	h := strings.ToLower(requestHost)
-	if ip := net.ParseIP(h); ip != nil && ip.To4() == nil {
-		return "[" + ip.String() + "]"
-	}
-	if !cspHostnameRe.MatchString(h) {
-		return ""
-	}
-	return h
 }
 
 // injectRemoteImagesMeta fills index.html's crit-remote-images meta tag with
@@ -124,7 +112,7 @@ func injectRemoteImagesMeta(page []byte, remoteImages []string) []byte {
 }
 
 // serveShell writes an embedded HTML shell with the review page's CSP.
-func (s *Server) serveShell(w http.ResponseWriter, r *http.Request, name string) {
+func (s *Server) serveShell(w http.ResponseWriter, name string) {
 	f, err := s.assets.Open(name)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -141,20 +129,14 @@ func (s *Server) serveShell(w http.ResponseWriter, r *http.Request, name string)
 		page = injectRemoteImagesMeta(page, remoteImages)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", reviewPageCSP(inlineScriptHashes(page), remoteImages, requestHostname(r)))
+	w.Header().Set("Content-Security-Policy", reviewPageCSP(inlineScriptHashes(page), remoteImages))
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	// CSP doesn't cover DNS: without this, browsers may resolve the host of
+	// every link on the page, and an agent could put data in a hostname.
+	w.Header().Set("X-DNS-Prefetch-Control", "off")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(page)
-}
-
-// requestHostname returns r.Host without its port.
-func requestHostname(r *http.Request) string {
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	return strings.Trim(host, "[]")
 }
 
 // remoteImageFrameScript reports the image's size (or failure) to the review
@@ -180,8 +162,10 @@ var remoteImageFrameScriptHash = func() string {
 
 // remoteImageFrameCSP lets the frame load one remote image and nothing else.
 // It is only ever framed by the review page, which loads it in a sandboxed
-// iframe (opaque origin) after the reviewer clicks a placeholder.
+// iframe after the reviewer clicks a placeholder. The sandbox directive gives
+// it an opaque origin even when it is opened some other way.
 var remoteImageFrameCSP = strings.Join([]string{
+	"sandbox allow-scripts",
 	"default-src 'none'",
 	"img-src http: https:",
 	"style-src 'unsafe-inline'",
@@ -212,7 +196,7 @@ func (s *Server) handleRemoteImage(w http.ResponseWriter, r *http.Request) {
 	}
 	alt := r.URL.Query().Get("alt")
 	if len(alt) > 1024 {
-		alt = alt[:1024]
+		alt = strings.ToValidUTF8(alt[:1024], "")
 	}
 	page := `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">` +
 		`<style>html,body{margin:0;padding:0;background:transparent;overflow:hidden}` +

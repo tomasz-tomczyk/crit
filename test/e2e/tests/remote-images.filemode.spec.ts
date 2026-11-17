@@ -106,6 +106,29 @@ test.describe('Remote images — click to load', () => {
       .toHaveAttribute('href', `https://${REMOTE_HOST}/md.png?d=secret-md`);
   });
 
+  test('a protocol-relative image loads on click', async ({ page, request }) => {
+    await writePlan(request, `![Relative](//${REMOTE_HOST}/rel.png)`);
+    const seen = watch(page);
+    await page.route(`**://${REMOTE_HOST}/**`, route => route.fulfill({ contentType: 'image/png', body: PNG }));
+    await loadPage(page);
+    const section = await mdSection(page);
+
+    await section.getByRole('button', { name: /Load remote image "Relative"/ }).click();
+    const frame = section.locator('iframe.crit-remote-image-frame');
+    await expect.poll(() => frame.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(40);
+    expect(seen.remoteRequests).toHaveLength(1);
+  });
+
+  test('a frame the server refuses shows the error instead of loading forever', async ({ page, request }) => {
+    await writePlan(request, MD_IMAGE);
+    await page.route('**/remote-image?**', route => route.fulfill({ status: 400, contentType: 'text/plain', body: 'bad' }));
+    await loadPage(page);
+    const section = await mdSection(page);
+
+    await section.getByRole('button', { name: /Load remote image "Status badge"/ }).click();
+    await expect(section.locator('.crit-remote-image-error')).toContainText(`Couldn’t load image from ${REMOTE_HOST}`);
+  });
+
   test('comment images become placeholders', async ({ page, request }) => {
     await writePlan(request, 'Plain text.');
     await addComment(request, 'plan.md', 1,

@@ -46,19 +46,29 @@ func TestReviewPageShellsSendCSP(t *testing.T) {
 			if got := cspDirective(policy, "connect-src"); got != "connect-src 'self'" {
 				t.Errorf("connect-src = %q", got)
 			}
-			if got := cspDirective(policy, "frame-src"); !strings.Contains(got, "http://127.0.0.1:*") {
-				t.Errorf("frame-src = %q, want live proxy host", got)
+			if got := cspDirective(policy, "frame-src"); got != "frame-src 'self' http: https:" {
+				t.Errorf("frame-src = %q, want live mode's frame to navigate anywhere", got)
+			}
+			if got := cspDirective(policy, "form-action"); got != "form-action 'self'" {
+				t.Errorf("form-action = %q", got)
 			}
 			if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
 				t.Errorf("Referrer-Policy = %q", got)
 			}
-			// Every inline script must be allowed by hash, or the shell breaks.
+			if got := w.Header().Get("X-DNS-Prefetch-Control"); got != "off" {
+				t.Errorf("X-DNS-Prefetch-Control = %q", got)
+			}
+			// Every inline script (any <script> without src, whatever its
+			// attributes) must be allowed by hash, or the shell breaks.
 			body := w.Body.Bytes()
-			for _, m := range regexp.MustCompile(`(?s)<script>(.*?)</script>`).FindAllSubmatch(body, -1) {
-				sum := sha256.Sum256(m[1])
+			for _, m := range regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script>`).FindAllSubmatch(body, -1) {
+				if strings.Contains(strings.ToLower(string(m[1])), "src") {
+					continue
+				}
+				sum := sha256.Sum256(m[2])
 				hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 				if !strings.Contains(cspDirective(policy, "script-src"), hash) {
-					t.Errorf("inline script %.40q not allowed by script-src", m[1])
+					t.Errorf("inline script %.40q not allowed by script-src", m[2])
 				}
 			}
 			if strings.Contains(cspDirective(policy, "script-src"), "'unsafe-inline'") {
@@ -94,7 +104,7 @@ func TestReviewPageCSPRemoteImages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy := reviewPageCSP(nil, tt.patterns, "localhost")
+			policy := reviewPageCSP(nil, tt.patterns)
 			if got := cspDirective(policy, "img-src"); got != tt.wantImg {
 				t.Errorf("img-src = %q, want %q", got, tt.wantImg)
 			}
@@ -105,20 +115,16 @@ func TestReviewPageCSPRemoteImages(t *testing.T) {
 	}
 }
 
-func TestCSPFrameHost(t *testing.T) {
-	tests := map[string]string{
-		"localhost":        "localhost",
-		"127.0.0.1":        "127.0.0.1",
-		"::1":              "[::1]",
-		"Machine.TS.Net":   "machine.ts.net",
-		"evil.com; x":      "",
-		"host'with'quotes": "",
-		"":                 "",
+func TestInlineScriptHashes(t *testing.T) {
+	page := []byte(`<script>a()</script><SCRIPT type="module">b()</SCRIPT><script src="x.js"></script><script defer src=y.js>ignored</script>`)
+	got := inlineScriptHashes(page)
+	want := []string{}
+	for _, body := range []string{"a()", "b()"} {
+		sum := sha256.Sum256([]byte(body))
+		want = append(want, "'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'")
 	}
-	for in, want := range tests {
-		if got := cspFrameHost(in); got != want {
-			t.Errorf("cspFrameHost(%q) = %q, want %q", in, got, want)
-		}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("inlineScriptHashes = %v, want %v", got, want)
 	}
 }
 
@@ -151,7 +157,7 @@ func TestHandleRemoteImage(t *testing.T) {
 				return
 			}
 			policy := w.Header().Get("Content-Security-Policy")
-			for _, want := range []string{"default-src 'none'", "img-src http: https:", "frame-ancestors 'self'", "script-src " + remoteImageFrameScriptHash} {
+			for _, want := range []string{"sandbox allow-scripts", "default-src 'none'", "img-src http: https:", "frame-ancestors 'self'", "script-src " + remoteImageFrameScriptHash} {
 				if !strings.Contains(policy, want) {
 					t.Errorf("policy %q lacks %q", policy, want)
 				}
@@ -167,7 +173,7 @@ func TestHandleRemoteImageEscapes(t *testing.T) {
 	s, _ := newTestServer(t)
 	src := `https://img.example/a.png?x="><script>alert(1)</script>`
 	alt := `"><script>alert(2)</script>`
-	req := httptest.NewRequest(http.MethodGet, "/remote-image?src="+urlQueryEscape(src)+"&alt="+urlQueryEscape(alt), nil)
+	req := httptest.NewRequest(http.MethodGet, "/remote-image?src="+url.QueryEscape(src)+"&alt="+url.QueryEscape(alt), nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	body, _ := io.ReadAll(w.Body)
@@ -176,6 +182,13 @@ func TestHandleRemoteImageEscapes(t *testing.T) {
 	}
 }
 
-func urlQueryEscape(s string) string {
-	return url.QueryEscape(s)
+func TestHandleRemoteImageTruncatesAltOnRuneBoundary(t *testing.T) {
+	s, _ := newTestServer(t)
+	alt := strings.Repeat("a", 1023) + "é"
+	req := httptest.NewRequest(http.MethodGet, "/remote-image?src="+url.QueryEscape("https://img.example/a.png")+"&alt="+url.QueryEscape(alt), nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), `alt="`+strings.Repeat("a", 1023)+`"`) {
+		t.Error("alt was not cut back to the last whole character")
+	}
 }
