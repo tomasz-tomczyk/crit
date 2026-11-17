@@ -5591,6 +5591,55 @@ func TestHandleSharePayload_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+// A range review stores its focus key in cli_args for `crit --session`;
+// crit-web shows cli_args as a command to run, so neither payload carries it.
+func TestHandleSharePayloads_OmitRangeFocusKey(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "f.go")
+	os.WriteFile(filePath, []byte("package f\n"), 0o644)
+
+	sess := &Session{
+		Mode:        "git",
+		OutputDir:   dir,
+		RepoRoot:    dir,
+		ReviewRound: 1,
+		Files: []*FileEntry{
+			{Path: "f.go", AbsPath: filePath, Status: "modified"},
+		},
+	}
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
+	data, err := json.Marshal(CritJSON{CliArgs: []string{"range:abc..def"}, Files: map[string]CritJSONFile{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := sesspkg.ReviewPathsFor(sess.CritJSONPath()).Review
+	if err := os.MkdirAll(filepath.Dir(reviewPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reviewPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/share/payload", "/api/share/upsert-payload"} {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != 200 {
+			t.Fatalf("%s: status = %d, body = %s", path, w.Code, w.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("%s: invalid JSON: %v", path, err)
+		}
+		if got, ok := payload["cli_args"]; ok && got != nil {
+			t.Errorf("%s: cli_args = %v, want none", path, got)
+		}
+	}
+}
+
 // --- handleUpsertPayload tests ---
 
 func TestHandleUpsertPayload_HappyPath(t *testing.T) {

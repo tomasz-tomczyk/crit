@@ -370,6 +370,16 @@ func LoadCliArgsFromReviewFile(critPath string) []string {
 		fmt.Fprintf(os.Stderr, "warning: failed to load cli_args from review file: %v\n", err)
 		return nil
 	}
+	// A range/PR/MR review records its focus key ("range:<base>..<head>") so
+	// `crit --session` can restore it. That is not a runnable crit argument,
+	// and crit-web shows cli_args as a command to run, so it is not shared.
+	if len(cj.CliArgs) == 1 {
+		for _, prefix := range []string{"range:", "pr:", "mr:"} {
+			if strings.HasPrefix(cj.CliArgs[0], prefix) {
+				return nil
+			}
+		}
+	}
 	return cj.CliArgs
 }
 
