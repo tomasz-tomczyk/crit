@@ -2782,6 +2782,9 @@
         if (view) view.releaseScroll();
         if (now - quietSince >= ALIGN_QUIET_MS) return finish();
       } else {
+        // Pierre's own pending scroll target is stale once the card is being
+        // aligned; left set, it would move the list back after each fix.
+        if (view) view.releaseScroll();
         // Make each layout correction immediate instead of starting
         // overlapping browser scroll animations during the alignment loop.
         root.scrollTo({ top: target, behavior: 'instant' });

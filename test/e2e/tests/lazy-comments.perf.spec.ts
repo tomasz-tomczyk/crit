@@ -203,19 +203,33 @@ test('clicking the same panel card again leaves the inline card in place', async
 
   await page.keyboard.press('Shift+C');
   const panel = page.locator(`.panel-comment-block .comment-card[data-comment-id="${id}"]`);
-  const cardTop = () => inline.evaluate(el => Math.round(el.getBoundingClientRect().top));
+  // The card's top once it has not moved for 400ms: longer than the jump's
+  // own quiet window, so a late resize can't land between reads.
+  const settledTop = () => inline.evaluate(el => new Promise<number>((resolve) => {
+    let last = Math.round(el.getBoundingClientRect().top);
+    let since = performance.now();
+    (function tick() {
+      const top = Math.round(el.getBoundingClientRect().top);
+      const now = performance.now();
+      if (top !== last) {
+        last = top;
+        since = now;
+      }
+      if (now - since >= 400) resolve(top);
+      else requestAnimationFrame(tick);
+    })();
+  }));
   // Files around the card finish measuring after the first jump has placed
   // it; the jump keeps it centered through that, so compare from the first
   // click.
   await panel.click();
   await waitForScrollStable(page);
   await expect(inline).toBeInViewport();
-  const placed = await cardTop();
+  const placed = await settledTop();
 
   for (let i = 0; i < 3; i++) {
     await panel.click();
-    await waitForScrollStable(page);
-    expect(Math.abs(await cardTop() - placed)).toBeLessThanOrEqual(2);
+    expect(Math.abs(await settledTop() - placed)).toBeLessThanOrEqual(2);
   }
 });
 
