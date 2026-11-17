@@ -17,6 +17,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/reviewpath"
 	"github.com/tomasz-tomczyk/crit/internal/server"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
 // liveSessionArgsTag is the leading element of sessionEntry.Args for a
@@ -72,6 +73,24 @@ func checkStaleIntegrations(sc *server.DaemonCLIConfig, srv *Server, cwd string)
 		}
 	}
 	srv.SetIntegrationWarnings(warnings, checkMissingIntegrations(cwd, home))
+}
+
+// serveCLIArgs is what the review file records as cli_args, so that
+// `crit --session` can restart the daemon in the same mode. A commit range is
+// stored as its "range:<base>..<head>" focus key, which the reconnect turns
+// back into --range. PR/MR keys are not stored: they can name a project
+// ("pr:owner/repo#N") that --pr and --mr do not accept.
+func serveCLIArgs(sc *server.DaemonCLIConfig) []string {
+	switch {
+	case sc.LiveOrigin != "":
+		return []string{"live", sc.LiveOrigin}
+	case sc.PreviewFile != "":
+		return []string{"preview", sc.PreviewFile}
+	case sc.Focus != nil && sc.Focus.Kind == session.FocusRange && sc.Focus.ChangeNumber == 0:
+		return server.FocusKeyArgs(sc)
+	default:
+		return sc.Files
+	}
 }
 
 func bindListener(host string, port int) (net.Listener, error) {
@@ -161,15 +180,7 @@ func runServe(args []string) {
 	if err != nil {
 		daemonFatal(pipe, "Error: resolve review path: %v", err)
 	}
-	var cliArgs []string
-	switch {
-	case sc.LiveOrigin != "":
-		cliArgs = []string{"live", sc.LiveOrigin}
-	case sc.PreviewFile != "":
-		cliArgs = []string{"preview", sc.PreviewFile}
-	default:
-		cliArgs = sc.Files
-	}
+	cliArgs := serveCLIArgs(sc)
 	sessionArgs := sc.Files
 	if sc.LiveOrigin != "" {
 		sessionArgs = []string{liveSessionArgsTag, sc.LiveOrigin}
@@ -284,14 +295,7 @@ func runServe(args []string) {
 		return
 	}
 	server.ApplySessionOverrides(sess, sc)
-	switch {
-	case sc.LiveOrigin != "":
-		sess.CLIArgs = []string{"live", sc.LiveOrigin}
-	case sc.PreviewFile != "":
-		sess.CLIArgs = []string{"preview", sc.PreviewFile}
-	default:
-		sess.CLIArgs = sc.Files
-	}
+	sess.CLIArgs = cliArgs
 	sess.SessionKey = key
 	sess.CWD = cwd
 
