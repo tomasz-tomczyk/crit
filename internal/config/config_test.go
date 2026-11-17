@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1242,5 +1243,32 @@ func TestLoadConfig_DefaultMarkdownViewUnset(t *testing.T) {
 
 	if got := LoadConfig(projectDir).DefaultMarkdownView; got != "" {
 		t.Errorf("DefaultMarkdownView = %q, want empty when unset", got)
+	}
+}
+
+func TestMergeConfigsRemoteImagesGlobalOnly(t *testing.T) {
+	// An agent can write the project config; letting it allow image hosts
+	// would let it make the reviewer's browser fetch URLs it chose.
+	global := Config{RemoteImages: []string{"img.shields.io"}}
+	project := Config{RemoteImages: []string{"*"}}
+	merged := mergeConfigs(global, project, ConfigPresence{})
+	if len(merged.RemoteImages) != 1 || merged.RemoteImages[0] != "img.shields.io" {
+		t.Errorf("remote_images = %v, want global value only", merged.RemoteImages)
+	}
+}
+
+func TestLoadConfigFileRemoteImagesValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	body := `{"remote_images": ["Img.Shields.IO", "*.githubusercontent.com", "*", "https://evil.example", "a b", "*.", "-bad.com", "x.com; script-src *", "'self'"]}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"img.shields.io", "*.githubusercontent.com", "*"}
+	if !reflect.DeepEqual(cfg.RemoteImages, want) {
+		t.Errorf("remote_images = %v, want %v", cfg.RemoteImages, want)
 	}
 }

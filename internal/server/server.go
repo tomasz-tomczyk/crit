@@ -147,6 +147,9 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/preview-content/", s.handlePreviewContent)
 	mux.HandleFunc("/preview-content", s.handlePreviewContent)
 
+	// Click-to-load frame for one remote image (see csp.go). No session needed.
+	mux.HandleFunc("/remote-image", s.handleRemoteImage)
+
 	// Theme preview page — static samples, no session needed.
 	mux.HandleFunc("/themes", s.serveHTML("themes.html"))
 
@@ -232,7 +235,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	// Static file serving (repo files need session; embedded assets do not)
 	mux.HandleFunc("/files/", s.withReady(s.handleFiles))
 	mux.Handle(precompressedPrefix, servePrecompressed(frontendFS))
-	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+	mux.Handle("/", s.serveAssets(frontendFS))
 
 	s.mux = mux
 	return s, nil
@@ -736,21 +739,30 @@ func (s *Server) serveIndexHTML() http.HandlerFunc {
 // serveHTML serves an embedded HTML page at a clean path (e.g. /themes).
 func (s *Server) serveHTML(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		f, err := s.assets.Open(name)
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		defer f.Close()
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := io.Copy(w, f); err != nil {
-			log.Printf("serveHTML %s: %v", name, err)
-		}
+		s.serveShell(w, name)
 	}
+}
+
+// serveAssets serves the embedded frontend. The HTML shells go through
+// serveShell so they carry the review page's Content-Security-Policy.
+func (s *Server) serveAssets(frontendFS embed.FS) http.Handler {
+	files := http.FileServer(http.FS(frontendFS))
+	index := s.serveHTML("index.html")
+	themes := s.serveHTML("themes.html")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/", "/index.html":
+			index(w, r)
+		case "/themes.html":
+			themes(w, r)
+		default:
+			files.ServeHTTP(w, r)
+		}
+	})
 }
 
 func (s *Server) handleCritAgentJS(w http.ResponseWriter, r *http.Request) {

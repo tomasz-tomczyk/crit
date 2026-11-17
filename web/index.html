@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Crit</title>
+<!-- remote_images allowlist, filled in by the server (internal/server/csp.go). -->
+<meta name="crit-remote-images" content="[]">
 <link rel="icon" type="image/png" sizes="96x96" href="favicon-96x96.png">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -20,6 +22,8 @@
 <script src="pierre/palettes.js"></script>
 <script src="crit-theme-palette.js"></script>
 <script>window.crit.themePalette.applySaved();</script>
+<!-- Click-to-load placeholders for remote images, in every mode. -->
+<script src="crit-remote-images.js"></script>
 </head>
 <body>
 

@@ -68,7 +68,8 @@
           var renderCommentMarkdown = commentMd.render.bind(commentMd);
           commentMd.render = function (src, env) {
             src = window.crit.commentHtml.normalizeCommentMarkdown(src);
-            return window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env));
+            // Remote images become click-to-load placeholders.
+            return window.crit.remoteImages.rewriteHtml(window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env)));
           };
         }
       } catch (_) {}

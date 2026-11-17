@@ -312,6 +312,10 @@ test('renderCommentsPanel: live comments use code-review markdown semantics', ()
     normalizeCommentMarkdown(src) { return src; },
     sanitize(html) { return html; },
   };
+  const rewritten = [];
+  win.crit.remoteImages = {
+    rewriteHtml(html) { rewritten.push(html); return html; },
+  };
   win.crit.live.row = {
     renderLivePinRow(_comment, deps) {
       commentMd = deps.commentMd;
@@ -335,6 +339,8 @@ test('renderCommentsPanel: live comments use code-review markdown semantics', ()
     assert.match(commentMd.render('first\nsecond'), /first\nsecond/);
     assert.doesNotMatch(commentMd.render('first\nsecond'), /<br>/);
     assert.match(commentMd.render('```js\nconst x = 1;\n```'), /<pre><code class="language-js">const x = 1;/);
+    // Sanitized output goes through the remote-image rewrite (click to load).
+    assert.ok(rewritten.length > 0, 'live comments pass through remoteImages.rewriteHtml');
   } finally {
     teardownDom(prev);
   }

@@ -258,15 +258,17 @@
       return self.renderToken(tokens, idx, options);
     };
   })();
+  // Remote images in comments become click-to-load placeholders
+  // (crit-remote-images.js); the page CSP blocks them otherwise.
   const renderCommentMarkdown = commentMd.render.bind(commentMd);
   commentMd.render = function(src, env) {
     src = window.crit.commentHtml.normalizeCommentMarkdown(src);
-    return window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env));
+    return window.crit.remoteImages.rewriteHtml(window.crit.commentHtml.sanitize(renderCommentMarkdown(src, env)));
   };
   const renderInlineCommentMarkdown = commentMd.renderInline.bind(commentMd);
   commentMd.renderInline = function(src, env) {
     src = window.crit.commentHtml.normalizeCommentMarkdown(src);
-    return window.crit.commentHtml.sanitize(renderInlineCommentMarkdown(src, env));
+    return window.crit.remoteImages.rewriteHtml(window.crit.commentHtml.sanitize(renderInlineCommentMarkdown(src, env)));
   };
 
   // ===== Document Markdown Renderer =====
@@ -1455,13 +1457,17 @@
     return stack.join('/');
   }
 
+  // Relative images load from /files/ next to the reviewed file. Remote ones
+  // become click-to-load placeholders (crit-remote-images.js) unless their
+  // host is in remote_images; the page CSP blocks them otherwise.
   function rewriteImageSrcs(html, filePath) {
-    return html.replace(/(<img\s[^>]*src=")([^"]+)(")/gi, function(match, pre, src, post) {
+    html = html.replace(/(<img\s[^>]*src=")([^"]+)(")/gi, function(match, pre, src, post) {
       if (/^https?:\/\/|^data:|^\//.test(src)) return match;
       // src comes from serialized HTML and is already escaped; the file path
       // is raw, and a quote in a folder name would end the attribute.
       return pre + '/files/' + resolveImagePath(escapeHtml(filePath || ''), src) + post;
     });
+    return window.crit.remoteImages.rewriteHtml(html);
   }
 
   // Pure rendering helpers live in crit-comment-card-helpers.js so live-mode
