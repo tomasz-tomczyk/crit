@@ -244,11 +244,20 @@ func TestDaemonArgsForReconnect_NoOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, noOpen := range []bool{false, true} {
-		args := daemonArgsForReconnect(key, []string{"range:HEAD~1..HEAD"}, daemon.SessionEntry{}, defaultDir, noOpen)
-		if got := containsArg(args, "--no-open"); got != noOpen {
-			t.Errorf("noOpen=%v: args %v, --no-open present = %v", noOpen, args, got)
-		}
+	tests := []struct {
+		name   string
+		noOpen bool
+	}{
+		{name: "opens browser by default", noOpen: false},
+		{name: "passes --no-open through", noOpen: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := daemonArgsForReconnect(key, []string{"range:HEAD~1..HEAD"}, daemon.SessionEntry{}, defaultDir, tt.noOpen)
+			if got := containsArg(args, "--no-open"); got != tt.noOpen {
+				t.Errorf("args %v: --no-open present = %v, want %v", args, got, tt.noOpen)
+			}
+		})
 	}
 }
 
