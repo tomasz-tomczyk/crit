@@ -113,13 +113,7 @@ func (s *Session) RefreshFileList() {
 	changes = config.FilterIgnored(changes, s.IgnorePatterns)
 	changes = filterBinary(changes)
 
-	// Snapshot existing files under read lock
-	s.mu.RLock()
-	existing := make(map[string]*FileEntry, len(s.Files))
-	for _, f := range s.Files {
-		existing[f.Path] = f
-	}
-	s.mu.RUnlock()
+	existing, lazyEntries := s.snapshotFilesForRefresh()
 
 	// Fetch numstats if we might need them for lazy files
 	var numstats map[string]vcs.NumstatEntry
@@ -130,6 +124,7 @@ func (s *Session) RefreshFileList() {
 	}
 
 	built := buildRefreshedFileList(existing, changes, repoRoot, numstats)
+	hashLazyUpdates(built.updates, lazyEntries)
 
 	// Assign under write lock
 	s.mu.Lock()
@@ -167,6 +162,22 @@ func (s *Session) RefreshFileList() {
 	}
 }
 
+// snapshotFilesForRefresh returns the current entries by path and the set of
+// entries that are lazy, read under the session read lock.
+func (s *Session) snapshotFilesForRefresh() (map[string]*FileEntry, map[*FileEntry]bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	existing := make(map[string]*FileEntry, len(s.Files))
+	lazyEntries := make(map[*FileEntry]bool)
+	for _, f := range s.Files {
+		existing[f.Path] = f
+		if f.Lazy {
+			lazyEntries[f] = true
+		}
+	}
+	return existing, lazyEntries
+}
+
 // fileListUpdate defers Path/Status/OldPath mutation until the write lock.
 type fileListUpdate struct {
 	entry   *FileEntry
@@ -192,13 +203,9 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 	for i, fc := range changes {
 		absPath := filepath.Join(repoRoot, fc.Path)
 		if f, ok := existing[fc.Path]; ok {
-			upd := fileListUpdate{entry: f, status: fc.Status, oldPath: fc.OldPath, absPath: absPath}
-			if len(changes) > lazyFileThreshold && fc.Status != "deleted" {
-				if data, err := os.ReadFile(absPath); err == nil {
-					upd.listedHash = fileHash(data)
-				}
-			}
-			out.updates = append(out.updates, upd)
+			out.updates = append(out.updates, fileListUpdate{
+				entry: f, status: fc.Status, oldPath: fc.OldPath, absPath: absPath,
+			})
 			out.files = append(out.files, f)
 			delete(existing, fc.Path)
 			if fc.OldPath != "" {
@@ -246,6 +253,22 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 		out.files = append(out.files, fe)
 	}
 	return out
+}
+
+// hashLazyUpdates re-hashes the working-tree content of entries that were
+// lazy when the file list was snapshotted, so a stale "viewed" mark on a file
+// that never loaded is still dropped. Eager entries are skipped: they carry
+// FileHash from their loaded content.
+func hashLazyUpdates(updates []fileListUpdate, lazyEntries map[*FileEntry]bool) {
+	for i := range updates {
+		u := &updates[i]
+		if !lazyEntries[u.entry] || u.status == "deleted" {
+			continue
+		}
+		if data, err := os.ReadFile(u.absPath); err == nil {
+			u.listedHash = fileHash(data)
+		}
+	}
 }
 
 // pathRename is old→new path for a VCS-reported rename.
