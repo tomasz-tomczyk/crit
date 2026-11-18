@@ -55,7 +55,7 @@ func RunReview(args []string) error {
 				go browser.OpenBrowserWithCommand(entry.BaseURL(), sc.OpenCmd)
 			}
 		} else {
-			entry, err = reconnectDeadSession(key, staleEntry, sc.Quiet)
+			entry, err = reconnectDeadSession(key, staleEntry, sc.NoOpen, sc.Quiet)
 			if err != nil {
 				return err
 			}
