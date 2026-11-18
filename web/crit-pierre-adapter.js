@@ -100,16 +100,46 @@
     gradle: 'groovy',
   };
 
-  function languageOverride(path) {
-    var base = String(path || '').split('/').pop().toLowerCase();
+  // Template and sample suffixes that wrap another file type: `main.py.tmpl`,
+  // `.env.example`, `config.h.in`. Pierre detects nothing for them, so the
+  // language comes from the name without the suffix.
+  var TEMPLATE_SUFFIXES = {
+    tmpl: true,
+    tpl: true,
+    template: true,
+    example: true,
+    sample: true,
+    dist: true,
+    in: true,
+  };
+
+  function extensionOverride(base) {
     var dot = base.lastIndexOf('.');
-    return dot > 0 ? LANGUAGE_OVERRIDES[base.slice(dot + 1)] || null : null;
+    return dot > 0 ? LANGUAGE_OVERRIDES[base.slice(dot + 1).toLowerCase()] || null : null;
+  }
+
+  // Language to force on a file, or null to keep Pierre's own detection.
+  // P is window.PierreDiffs (getFiletypeFromFileName); without it only
+  // LANGUAGE_OVERRIDES apply.
+  function languageOverride(path, P) {
+    var base = String(path || '').split('/').pop();
+    var dot = base.lastIndexOf('.');
+    if (dot <= 0) return null;
+    var direct = extensionOverride(base);
+    if (direct) return direct;
+    if (!TEMPLATE_SUFFIXES[base.slice(dot + 1).toLowerCase()]) return null;
+    var inner = base.slice(0, dot);
+    var innerOverride = extensionOverride(inner);
+    if (innerOverride) return innerOverride;
+    if (!P || typeof P.getFiletypeFromFileName !== 'function') return null;
+    var detected = P.getFiletypeFromFileName(inner);
+    return detected && detected !== 'text' ? detected : null;
   }
 
   // Pierre FileContents for a whole file (files-mode code view).
   function buildFileContents(P, file, cacheKey) {
     var contents = { name: file.path, contents: file.content || '', cacheKey: cacheKey };
-    var lang = languageOverride(file.path);
+    var lang = languageOverride(file.path, P);
     return lang ? P.setLanguageOverride(contents, lang) : contents;
   }
 
@@ -137,7 +167,8 @@
   // unchanged, so full contents only work when no omitted hunk sits before a
   // shown one; otherwise the old-side line numbers would not line up and the
   // diff falls back to the patch alone (correct numbers, no expansion).
-  // P is window.PierreDiffs (processFile, setLanguageOverride).
+  // P is window.PierreDiffs (processFile, setLanguageOverride,
+  // getFiletypeFromFileName).
   function buildFileDiff(P, file, hunks, cacheKey, allHunks) {
     var model = { path: file.path, old_path: file.oldPath || file.old_path, status: file.status, diffHunks: hunks };
     var patch = hunksToPatch(model);
@@ -150,7 +181,7 @@
         oldFile: { name: model.old_path || file.path, contents: oldContent },
         newFile: { name: file.path, contents: newContent },
       });
-    var lang = languageOverride(file.path);
+    var lang = languageOverride(file.path, P);
     return lang ? P.setLanguageOverride(diff, lang) : diff;
   }
 

@@ -217,7 +217,10 @@ guarantee AA contrast.
 
 146 grammars ship. Pierre detects a file's language from its name;
 `LANGUAGE_OVERRIDES` maps `.heex`/`.leex` → HTML, `.svg` → XML, `.gradle` →
-Groovy (Pierre left those as plain text). Fence names written for
+Groovy (Pierre left those as plain text). A template or sample suffix
+(`.tmpl`, `.tpl`, `.template`, `.example`, `.sample`, `.dist`, `.in`) is
+dropped before detection, so `main.py.tmpl` highlights as Python and
+`.env.example` as dotenv. Fence names written for
 highlight.js resolve through `FENCE_ALIASES` (`dos` → bat, `arduino` → C++,
 `delphi` → Pascal, `mathematica` → Wolfram, `1c` → BSL, …).
 

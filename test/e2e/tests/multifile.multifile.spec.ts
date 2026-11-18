@@ -58,12 +58,12 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('file tree lists all files including directory contents, with nested names and count', async ({ page, request }) => {
-    // 7 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, lib/utils.ex, lib/config.ex
-    await expect(page.locator('.tree-file')).toHaveCount(7);
+    // 8 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, main.py.tmpl, lib/utils.ex, lib/config.ex
+    await expect(page.locator('.tree-file')).toHaveCount(8);
     // lib/utils.ex and lib/config.ex appear by name
     await expect(page.locator('.tree-file-name', { hasText: 'utils.ex' })).toBeVisible();
     await expect(page.locator('.tree-file-name', { hasText: 'config.ex' })).toBeVisible();
-    await expect(page.locator('#fileTreeStats')).toContainText('7');
+    await expect(page.locator('#fileTreeStats')).toContainText('8');
     // The session is a files-mode session.
     const session = await (await request.get('/api/session')).json();
     expect(session.mode).toBe('files');
@@ -79,7 +79,7 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
-    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd lib/
+    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
     await expect(page.locator('.pierre-file-header').first()).toBeVisible();
     expect(await listOrder(page)).toEqual([
@@ -88,6 +88,7 @@ test.describe('Multi-File Mode — Loading', () => {
       'handler.ex',
       'flow.mmd',
       'seq.mmd',
+      'main.py.tmpl',
       'lib/config.ex',
       'lib/utils.ex',
     ]);
@@ -106,6 +107,13 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
     await expect(diffLine(section, 1)).toContainText('package');
     await expect(section.locator('code[data-additions], code[data-deletions], code[data-unified]')).toHaveCount(0);
     // Shiki tokens carry per-theme colors as inline custom properties
+    await expect(section.locator('code[data-code] [data-content] span[style*="--diffs-token"]').first()).toBeVisible();
+  });
+
+  test('template file is highlighted as the language under its suffix', async ({ page }) => {
+    const section = await revealFile(page, 'main.py.tmpl');
+    await expect(diffLine(section, 1)).toContainText('from app import agents');
+    // `.tmpl` alone is plain text; the `.py` before it gives Python tokens
     await expect(section.locator('code[data-code] [data-content] span[style*="--diffs-token"]').first()).toBeVisible();
   });
 
