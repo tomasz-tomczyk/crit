@@ -113,13 +113,7 @@ func (s *Session) RefreshFileList() {
 	changes = config.FilterIgnored(changes, s.IgnorePatterns)
 	changes = filterBinary(changes)
 
-	// Snapshot existing files under read lock
-	s.mu.RLock()
-	existing := make(map[string]*FileEntry, len(s.Files))
-	for _, f := range s.Files {
-		existing[f.Path] = f
-	}
-	s.mu.RUnlock()
+	existing, lazyEntries := s.snapshotFilesForRefresh()
 
 	// Fetch numstats if we might need them for lazy files
 	var numstats map[string]vcs.NumstatEntry
@@ -130,11 +124,17 @@ func (s *Session) RefreshFileList() {
 	}
 
 	built := buildRefreshedFileList(existing, changes, repoRoot, numstats)
+	hashLazyUpdates(built.updates, lazyEntries)
 
 	// Assign under write lock
 	s.mu.Lock()
 	for _, u := range built.updates {
 		u.entry.Status = u.status
+		// Keep the previous hash when the read failed (e.g. mid-rewrite);
+		// a deleted file has no working-tree hash.
+		if u.entry.Lazy && (u.listedHash != "" || u.status == "deleted") {
+			u.entry.ListedHash = u.listedHash
+		}
 		// A phantom that reappears in the live change list is no longer
 		// orphaned — Branch scope (and other Orphaned readers) must not
 		// keep treating it as "left the review".
@@ -164,6 +164,22 @@ func (s *Session) RefreshFileList() {
 	}
 }
 
+// snapshotFilesForRefresh returns the current entries by path and the set of
+// entries that are lazy, read under the session read lock.
+func (s *Session) snapshotFilesForRefresh() (map[string]*FileEntry, map[*FileEntry]bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	existing := make(map[string]*FileEntry, len(s.Files))
+	lazyEntries := make(map[*FileEntry]bool)
+	for _, f := range s.Files {
+		existing[f.Path] = f
+		if f.Lazy {
+			lazyEntries[f] = true
+		}
+	}
+	return existing, lazyEntries
+}
+
 // fileListUpdate defers Path/Status/OldPath mutation until the write lock.
 type fileListUpdate struct {
 	entry   *FileEntry
@@ -171,6 +187,8 @@ type fileListUpdate struct {
 	oldPath string // set FileEntry.OldPath when non-empty (rename)
 	newPath string // when set, retarget Path/AbsPath (rename handoff)
 	absPath string
+	// listedHash is the refreshed working-tree hash for a still-lazy entry.
+	listedHash string
 }
 
 type refreshedFileList struct {
@@ -226,11 +244,7 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 		}
 
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-			fe.Lazy = true
-			if ns, ok := numstats[fc.Path]; ok {
-				fe.LazyAdditions = ns.Additions
-				fe.LazyDeletions = ns.Deletions
-			}
+			populateLazyFile(fe, fc, numstats, true)
 		} else if fc.Status != "deleted" {
 			if data, err := os.ReadFile(absPath); err == nil {
 				fe.Content = string(data)
@@ -241,6 +255,22 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 		out.files = append(out.files, fe)
 	}
 	return out
+}
+
+// hashLazyUpdates re-hashes the working-tree content of entries that were
+// lazy when the file list was snapshotted, so a stale "viewed" mark on a file
+// that never loaded is still dropped. Eager entries are skipped: they carry
+// FileHash from their loaded content.
+func hashLazyUpdates(updates []fileListUpdate, lazyEntries map[*FileEntry]bool) {
+	for i := range updates {
+		u := &updates[i]
+		if !lazyEntries[u.entry] || u.status == "deleted" {
+			continue
+		}
+		if data, err := os.ReadFile(u.absPath); err == nil {
+			u.listedHash = fileHash(data)
+		}
+	}
 }
 
 // pathRename is old→new path for a VCS-reported rename.

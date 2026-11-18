@@ -589,3 +589,34 @@ func newLineCountSession(t *testing.T, hideFromNumstat string) (*Session, *diffC
 	quiesceSession(t, sess)
 	return sess, v
 }
+
+// A lazy file edited mid-round (no round complete) must get a fresh listed
+// hash on the next live sync, so a stale "viewed" mark is dropped; range focus
+// pins content and is left alone.
+func TestSyncWorkingTree_RefreshesLazyListedHash(t *testing.T) {
+	tests := []struct {
+		name  string
+		focus FocusKind
+		want  string
+	}{
+		{"working tree", "", fileHash([]byte("v2\n"))},
+		{"range focus", FocusRange, fileHash([]byte("v1\n"))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "a.go")
+			writeFile(t, path, "v1\n")
+			fe := &FileEntry{Path: "a.go", AbsPath: path, Status: "modified"}
+			populateLazyFile(fe, vcs.FileChange{Path: "a.go", Status: "modified"}, nil, true)
+			s := &Session{Mode: "git", Files: []*FileEntry{fe}}
+			s.Focus.Kind = tt.focus
+
+			writeFile(t, path, "v2\n")
+			s.SyncWorkingTree()
+
+			if fe.ListedHash != tt.want {
+				t.Errorf("ListedHash = %q, want %q", fe.ListedHash, tt.want)
+			}
+		})
+	}
+}
