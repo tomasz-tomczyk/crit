@@ -1286,6 +1286,20 @@ func TestLoadCliArgsFromReviewFile(t *testing.T) {
 		}
 	})
 
+	t.Run("drops a focus key", func(t *testing.T) {
+		for _, key := range []string{"range:abc..def", "pr:42", "mr:o/r#7"} {
+			dir := t.TempDir()
+			critPath := filepath.Join(dir, "review.json")
+			cj := CritJSON{Branch: "main", CliArgs: []string{key}, Files: map[string]CritJSONFile{}}
+			data, _ := json.Marshal(cj)
+			os.WriteFile(session.MustMkdirAll(review.ReviewPathsFor(critPath).Review), data, 0644)
+
+			if got := LoadCliArgsFromReviewFile(critPath); got != nil {
+				t.Errorf("cli_args %q: expected nil, got %v", key, got)
+			}
+		}
+	})
+
 	t.Run("returns nil for file without cli_args", func(t *testing.T) {
 		dir := t.TempDir()
 		critPath := filepath.Join(dir, "review.json")
