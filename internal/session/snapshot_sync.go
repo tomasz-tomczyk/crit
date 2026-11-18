@@ -71,6 +71,9 @@ func (s *Session) clearLiveChanges() {
 // cleared from memory and are reloaded from the review file with positions
 // for the old content.
 func (s *Session) SyncWorkingTree(paths ...string) {
+	if len(paths) == 0 {
+		s.syncLazyHashes()
+	}
 	candidates, baseRef, repoRoot, vc := s.syncCandidates(paths)
 	var updates []syncUpdate
 	for _, c := range candidates {
@@ -89,6 +92,42 @@ func (s *Session) SyncWorkingTree(paths ...string) {
 	defer s.writeMu.Unlock()
 	if s.applySyncUpdates(updates) {
 		_ = s.syncWriteFilesLocked()
+	}
+}
+
+// syncLazyHashes re-hashes lazy (not yet loaded) files from the working tree,
+// so a "viewed" mark on a lazy file edited mid-round is dropped on the next
+// listing, as it is for loaded files. Same gating as syncCandidates.
+func (s *Session) syncLazyHashes() {
+	s.mu.RLock()
+	if s.Mode != "git" || s.Focus.Kind == FocusRange || s.roundCompletePending {
+		s.mu.RUnlock()
+		return
+	}
+	var lazy []*FileEntry
+	var abs []string
+	for _, f := range s.Files {
+		if f.Lazy && !f.Orphaned && f.AbsPath != "" && f.Status != "deleted" {
+			lazy = append(lazy, f)
+			abs = append(abs, f.AbsPath)
+		}
+	}
+	s.mu.RUnlock()
+	if len(lazy) == 0 {
+		return
+	}
+	hashes := make([]string, len(lazy))
+	for i, p := range abs {
+		if data, err := os.ReadFile(p); err == nil {
+			hashes[i] = fileHash(data)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, f := range lazy {
+		if f.Lazy && hashes[i] != "" {
+			f.ListedHash = hashes[i]
+		}
 	}
 }
 

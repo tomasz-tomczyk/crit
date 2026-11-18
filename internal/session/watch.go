@@ -130,7 +130,9 @@ func (s *Session) RefreshFileList() {
 	s.mu.Lock()
 	for _, u := range built.updates {
 		u.entry.Status = u.status
-		if u.entry.Lazy {
+		// Keep the previous hash when the read failed (e.g. mid-rewrite);
+		// a deleted file has no working-tree hash.
+		if u.entry.Lazy && (u.listedHash != "" || u.status == "deleted") {
 			u.entry.ListedHash = u.listedHash
 		}
 		// A phantom that reappears in the live change list is no longer
