@@ -666,7 +666,7 @@
         deletions: fi.deletions || 0,
         lazy: true,
         generated: !!fi.generated,
-        fileHash: '',
+        fileHash: fi.file_hash || '',
       };
     });
 

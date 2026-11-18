@@ -457,3 +457,36 @@ func TestRefreshHelpers_RangeFocusNoOp(t *testing.T) {
 		t.Errorf("content = %q, want %q", got, "pr content\n")
 	}
 }
+
+// A lazy file's listed hash must follow the working tree across a file-list
+// refresh so a stale "viewed" mark is dropped without loading the file.
+func TestRefreshFileList_RefreshesLazyListedHash(t *testing.T) {
+	total := lazyFileThreshold + 2
+	changes := make([]vcs.FileChange, 0, total)
+	for i := 0; i < total; i++ {
+		changes = append(changes, vcs.FileChange{Path: fmt.Sprintf("f%03d.go", i), Status: "modified"})
+	}
+	v := &fakeWatchVCS{currentBranch: "feature", defaultBranch: "main", branchChanges: changes}
+	s := newWatchSession(t, v)
+
+	lazyPath := changes[total-1].Path
+	abs := filepath.Join(s.RepoRoot, lazyPath)
+	if err := os.WriteFile(abs, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fe := &FileEntry{Path: lazyPath, AbsPath: abs, Status: "modified"}
+	populateLazyFile(fe, changes[total-1], nil, true)
+	s.Files = []*FileEntry{fe}
+	if fe.ListedHash != fileHash([]byte("v1")) {
+		t.Fatalf("initial ListedHash = %q", fe.ListedHash)
+	}
+
+	if err := os.WriteFile(abs, []byte("v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.RefreshFileList()
+
+	if fe.ListedHash != fileHash([]byte("v2")) {
+		t.Errorf("ListedHash after refresh = %q, want hash of v2", fe.ListedHash)
+	}
+}

@@ -135,6 +135,9 @@ func (s *Session) RefreshFileList() {
 	s.mu.Lock()
 	for _, u := range built.updates {
 		u.entry.Status = u.status
+		if u.entry.Lazy {
+			u.entry.ListedHash = u.listedHash
+		}
 		// A phantom that reappears in the live change list is no longer
 		// orphaned — Branch scope (and other Orphaned readers) must not
 		// keep treating it as "left the review".
@@ -171,6 +174,8 @@ type fileListUpdate struct {
 	oldPath string // set FileEntry.OldPath when non-empty (rename)
 	newPath string // when set, retarget Path/AbsPath (rename handoff)
 	absPath string
+	// listedHash is the refreshed working-tree hash for a still-lazy entry.
+	listedHash string
 }
 
 type refreshedFileList struct {
@@ -187,9 +192,13 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 	for i, fc := range changes {
 		absPath := filepath.Join(repoRoot, fc.Path)
 		if f, ok := existing[fc.Path]; ok {
-			out.updates = append(out.updates, fileListUpdate{
-				entry: f, status: fc.Status, oldPath: fc.OldPath, absPath: absPath,
-			})
+			upd := fileListUpdate{entry: f, status: fc.Status, oldPath: fc.OldPath, absPath: absPath}
+			if len(changes) > lazyFileThreshold && fc.Status != "deleted" {
+				if data, err := os.ReadFile(absPath); err == nil {
+					upd.listedHash = fileHash(data)
+				}
+			}
+			out.updates = append(out.updates, upd)
 			out.files = append(out.files, f)
 			delete(existing, fc.Path)
 			if fc.OldPath != "" {
@@ -226,11 +235,7 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 		}
 
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
-			fe.Lazy = true
-			if ns, ok := numstats[fc.Path]; ok {
-				fe.LazyAdditions = ns.Additions
-				fe.LazyDeletions = ns.Deletions
-			}
+			populateLazyFile(fe, fc, numstats, true)
 		} else if fc.Status != "deleted" {
 			if data, err := os.ReadFile(absPath); err == nil {
 				fe.Content = string(data)

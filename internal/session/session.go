@@ -236,6 +236,12 @@ type FileEntry struct {
 	LazyAdditions int `json:"-"`
 	LazyDeletions int `json:"-"`
 
+	// ListedHash is the working-tree content hash of a lazy file, computed
+	// when the file is listed so the page can invalidate stale "viewed" marks
+	// without loading the file. Unlike FileHash it is not published with
+	// Content; it is empty for range/--pr focus and deleted files.
+	ListedHash string `json:"-"`
+
 	// Orphaned: file has comments in the review file but is no longer in the session's
 	// file list (e.g., added on branch then deleted). No content or diff available.
 	Orphaned bool `json:"-"`
@@ -736,12 +742,19 @@ func populateLazyFile(fe *FileEntry, fc vcs.FileChange, numstats map[string]vcs.
 	if ns, ok := numstats[fc.Path]; ok {
 		fe.LazyAdditions = ns.Additions
 		fe.LazyDeletions = ns.Deletions
-	} else if diskFallback && (fc.Status == "untracked" || fc.Status == "added") {
-		if data, err := os.ReadFile(fe.AbsPath); err == nil {
-			fe.LazyAdditions = strings.Count(string(data), "\n")
-			if len(data) > 0 && data[len(data)-1] != '\n' {
-				fe.LazyAdditions++
-			}
+	}
+	if !diskFallback || fc.Status == "deleted" {
+		return
+	}
+	data, err := os.ReadFile(fe.AbsPath)
+	if err != nil {
+		return
+	}
+	fe.ListedHash = fileHash(data)
+	if _, ok := numstats[fc.Path]; !ok && (fc.Status == "untracked" || fc.Status == "added") {
+		fe.LazyAdditions = strings.Count(string(data), "\n")
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			fe.LazyAdditions++
 		}
 	}
 }
@@ -3175,6 +3188,8 @@ type SessionFileInfo struct {
 	Lazy         bool   `json:"lazy,omitempty"`
 	Orphaned     bool   `json:"orphaned,omitempty"`
 	Generated    bool   `json:"generated,omitempty"`
+	// FileHash is the working-tree hash of a lazy (not yet loaded) file.
+	FileHash string `json:"file_hash,omitempty"`
 }
 
 // GetSessionInfo returns a snapshot of session metadata.
@@ -3239,6 +3254,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 			// Use pre-computed stats from git diff --numstat
 			fi.Additions = f.LazyAdditions
 			fi.Deletions = f.LazyDeletions
+			fi.FileHash = f.ListedHash
 		} else {
 			// Count additions/deletions from diff hunks
 			for _, h := range f.DiffHunks {

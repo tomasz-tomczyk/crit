@@ -1024,7 +1024,7 @@ type scopedSessionSnapshot struct {
 	commentCounts    map[string]int
 	unresolvedCounts map[string]int
 	totalUnresolved  int
-	lazyFiles        map[string]*FileEntry
+	lazyFiles        map[string]lazyStub
 	reviewComments   []Comment
 	focus            Focus
 	lastRangeFocus   *Focus
@@ -1047,7 +1047,7 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 
 	commentCounts := make(map[string]int, len(s.Files))
 	unresolvedCounts := make(map[string]int, len(s.Files))
-	lazyFiles := make(map[string]*FileEntry, len(s.Files))
+	lazyFiles := make(map[string]lazyStub, len(s.Files))
 	totalUnresolved := 0
 	var commentedFiles, removedFiles []SessionFileInfo
 	for _, f := range s.Files {
@@ -1059,7 +1059,7 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 			}
 		}
 		if f.Lazy {
-			lazyFiles[f.Path] = f
+			lazyFiles[f.Path] = lazyStub{additions: f.LazyAdditions, deletions: f.LazyDeletions, hash: f.ListedHash}
 		}
 		if n := commentCounts[f.Path]; n > 0 {
 			row := SessionFileInfo{
@@ -1305,6 +1305,13 @@ func (snap *scopedSessionSnapshot) sessionInfo() SessionInfo {
 	}
 }
 
+// lazyStub is the listing data of a lazy file, copied under the session lock
+// so scoped listings never read a FileEntry that a refresh may rewrite.
+type lazyStub struct {
+	additions, deletions int
+	hash                 string
+}
+
 // scopedFileInfos builds the file rows for changes.
 func (snap *scopedSessionSnapshot) scopedFileInfos(changes []vcs.FileChange, scope, commit string) []SessionFileInfo {
 	counter := snap.newScopedLineCounter(changes, scope, commit)
@@ -1318,7 +1325,7 @@ func (snap *scopedSessionSnapshot) scopedFileInfos(changes []vcs.FileChange, sco
 			CommentCount: snap.commentCounts[fc.Path],
 			Generated:    vcs.IsGenerated(fc.Path, snap.generatedRules),
 		}
-		fi.Lazy, fi.Additions, fi.Deletions = counter.count(i, fc)
+		fi.Lazy, fi.Additions, fi.Deletions, fi.FileHash = counter.count(i, fc)
 		files = append(files, fi)
 	}
 	return files
@@ -1348,20 +1355,21 @@ func (snap *scopedSessionSnapshot) newScopedLineCounter(changes []vcs.FileChange
 	return c
 }
 
-// count returns whether the file at index i is lazy, and its +/- counts.
-func (c scopedLineCounter) count(i int, fc vcs.FileChange) (lazy bool, additions, deletions int) {
+// count returns whether the file at index i is lazy, its +/- counts, and for a
+// lazy file its working-tree hash.
+func (c scopedLineCounter) count(i int, fc vcs.FileChange) (lazy bool, additions, deletions int, hash string) {
 	lazy = c.lazyAll && i >= lazyFileThreshold
 	if c.liveAll && (c.haveNumstats || lazy) {
-		if additions, deletions, ok := c.numstatCounts(fc, lazy); ok {
-			return lazy, additions, deletions
+		if additions, deletions, hash, ok := c.numstatCounts(fc, lazy); ok {
+			return lazy, additions, deletions, hash
 		}
 	}
 	if lf, ok := c.snap.lazyFiles[fc.Path]; ok && !c.liveAll {
-		return true, lf.LazyAdditions, lf.LazyDeletions
+		return true, lf.additions, lf.deletions, lf.hash
 	}
 	hunks := scopedHunks(fc, c.scope, c.commit, c.snap.baseRef, c.snap.repoRoot, c.snap.vc, false)
 	additions, deletions = countHunkStats(hunks)
-	return false, additions, deletions
+	return false, additions, deletions, ""
 }
 
 // numstatCounts returns fc's +/- counts from the numstat run, counting lines
@@ -1370,18 +1378,21 @@ func (c scopedLineCounter) count(i int, fc vcs.FileChange) (lazy bool, additions
 // for a file that is not lazy and that numstat does not list, such as a
 // rename git did not detect or a backend whose stat output names it
 // differently; the caller then counts its hunks.
-func (c scopedLineCounter) numstatCounts(fc vcs.FileChange, lazy bool) (additions, deletions int, ok bool) {
+func (c scopedLineCounter) numstatCounts(fc vcs.FileChange, lazy bool) (additions, deletions int, hash string, ok bool) {
 	if !lazy && fc.Status == "deleted" {
-		return 0, 0, true
+		return 0, 0, "", true
 	}
 	_, listed := c.numstats[fc.Path]
 	isNew := fc.Status == "untracked" || fc.Status == "added"
 	if !lazy && !listed && !isNew {
-		return 0, 0, false
+		return 0, 0, "", false
 	}
 	fe := &FileEntry{AbsPath: filepath.Join(c.snap.repoRoot, fc.Path)}
 	populateLazyFile(fe, fc, c.numstats, true)
-	return fe.LazyAdditions, fe.LazyDeletions, true
+	if lazy {
+		hash = fe.ListedHash
+	}
+	return fe.LazyAdditions, fe.LazyDeletions, hash, true
 }
 
 // appendOrphanedCommentedFiles adds an orphaned row for each commented file
