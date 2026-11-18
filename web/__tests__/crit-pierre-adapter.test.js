@@ -193,7 +193,10 @@ test('languageOverride detects the language under a template suffix', function()
   assert.equal(a.languageOverride('.env.example', pierreDetect), 'dotenv');
   assert.equal(a.languageOverride('docker/Dockerfile.sample', pierreDetect), 'dockerfile');
   assert.equal(a.languageOverride('config.h.in', pierreDetect), 'objective-cpp');
-  assert.equal(a.languageOverride('MAIN.PY.TMPL', { getFiletypeFromFileName: function(n) { return n === 'MAIN.PY' ? 'python' : 'text'; } }), 'python');
+  // The suffix matches in any case; the name under it goes to Pierre as is,
+  // and Pierre's detection is case-sensitive (MAIN.PY is plain text there too).
+  assert.equal(a.languageOverride('main.py.TMPL', pierreDetect), 'python');
+  assert.equal(a.languageOverride('MAIN.PY.TMPL', pierreDetect), null);
   assert.equal(a.languageOverride('assets/logo.svg.tmpl', pierreDetect), 'xml');
 });
 
