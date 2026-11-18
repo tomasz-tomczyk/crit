@@ -77,9 +77,12 @@ func checkStaleIntegrations(sc *server.DaemonCLIConfig, srv *Server, cwd string)
 
 // serveCLIArgs is what the review file records as cli_args, so that
 // `crit --session` can restart the daemon in the same mode. A commit range is
-// stored as its "range:<base>..<head>" focus key, which the reconnect turns
-// back into --range. PR/MR keys are not stored: they can name a project
-// ("pr:owner/repo#N") that --pr and --mr do not accept.
+// stored as "range:<base>..<head>", which the reconnect turns back into
+// --range. A head typed as a ref (HEAD, a branch) is stored as that ref, not
+// the commit it resolved to: the session follows the ref each round and
+// re-keys comments to the new head, so a restart must resolve it again or it
+// opens on a stale head without those comments. PR/MR keys are not stored:
+// they can name a project ("pr:owner/repo#N") that --pr and --mr do not accept.
 func serveCLIArgs(sc *server.DaemonCLIConfig) []string {
 	switch {
 	case sc.LiveOrigin != "":
@@ -87,6 +90,9 @@ func serveCLIArgs(sc *server.DaemonCLIConfig) []string {
 	case sc.PreviewFile != "":
 		return []string{"preview", sc.PreviewFile}
 	case sc.Focus != nil && sc.Focus.Kind == session.FocusRange && sc.Focus.ChangeNumber == 0:
+		if sc.Focus.HeadRef != "" {
+			return []string{"range:" + sc.Focus.BaseSHA + ".." + sc.Focus.HeadRef}
+		}
 		return server.FocusKeyArgs(sc)
 	default:
 		return sc.Files

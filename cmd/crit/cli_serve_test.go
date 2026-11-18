@@ -241,6 +241,7 @@ func TestServeSessionKey_Override(t *testing.T) {
 
 func TestServeCLIArgs(t *testing.T) {
 	rangeFocus := &session.Focus{Kind: session.FocusRange, BaseSHA: "abc", HeadSHA: "def"}
+	followFocus := &session.Focus{Kind: session.FocusRange, BaseSHA: "abc", HeadSHA: "def", HeadRef: "HEAD"}
 	prFocus := &session.Focus{Kind: session.FocusRange, Forge: "github", ChangeNumber: 42, RemoteBaseProject: "o/r", BaseSHA: "abc", HeadSHA: "def"}
 	tests := []struct {
 		name string
@@ -250,6 +251,7 @@ func TestServeCLIArgs(t *testing.T) {
 		{"git mode", &server.DaemonCLIConfig{}, nil},
 		{"files", &server.DaemonCLIConfig{Files: []string{"a.md", "b.md"}}, []string{"a.md", "b.md"}},
 		{"range", &server.DaemonCLIConfig{Focus: rangeFocus}, []string{"range:abc..def"}},
+		{"range following HEAD keeps the ref", &server.DaemonCLIConfig{Focus: followFocus}, []string{"range:abc..HEAD"}},
 		{"pr not recorded", &server.DaemonCLIConfig{Focus: prFocus}, nil},
 		{"live", &server.DaemonCLIConfig{LiveOrigin: "http://localhost:3000"}, []string{"live", "http://localhost:3000"}},
 		{"preview", &server.DaemonCLIConfig{PreviewFile: "/tmp/x.html"}, []string{"preview", "/tmp/x.html"}},
