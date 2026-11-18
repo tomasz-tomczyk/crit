@@ -163,6 +163,19 @@ sequenceDiagram
   Server-->>Client: Reply
 MMDFILE
 
+# Template file: the language comes from the name without the `.tmpl` suffix.
+cat > main.py.tmpl << 'PYFILE'
+from app import agents
+
+
+@agents.tool
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+
+agent = agents.Agent(name="$name", tools=[greet])
+PYFILE
+
 git add -A && git commit -q -m "initial commit"
 
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
@@ -176,4 +189,4 @@ e2e_export_fake_home "$DIR"
 
 # Run crit in file mode with explicit files AND a directory
 # --share-url enables the Share button so E2E tests can exercise the share payload
-e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex flow.mmd seq.mmd lib/
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl lib/
