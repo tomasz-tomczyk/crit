@@ -51,7 +51,7 @@ its worker and Shiki with esbuild into split ESM chunks, gzips them
 deterministically and writes `web/pierre/`. `index.html` loads the entry as a
 module and exposes `window.critPierreReady`; `app.js` awaits it before the
 first render. A fine-grained Shiki bundle uses documented factories, keeps
-146 grammars (`SHIKI_LANGS`) and all themes, and uses the JavaScript regex
+148 grammars (`SHIKI_LANGS`) and all themes, and uses the JavaScript regex
 engine. No generated dependency source is rewritten. Budgets:
 `asset-budget.json` (`pierreDirBytes`, entry and worker caps), provenance in
 `ASSETS-PROVENANCE.txt` (directory hash over per-file hashes).
@@ -215,7 +215,8 @@ guarantee AA contrast.
 
 ## Language coverage
 
-146 grammars ship. Pierre detects a file's language from its name;
+148 grammars ship, including Glimmer (`.gjs`/`.gts`, Ember's template-tag
+components). Pierre detects a file's language from its name;
 `LANGUAGE_OVERRIDES` maps `.heex`/`.leex` → HTML, `.svg` → XML, `.gradle` →
 Groovy (Pierre left those as plain text). A template or sample suffix
 (`.tmpl`, `.tpl`, `.template`, `.example`, `.sample`, `.dist`, `.in`) is

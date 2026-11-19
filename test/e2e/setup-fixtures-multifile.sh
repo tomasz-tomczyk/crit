@@ -176,6 +176,22 @@ def greet(name: str) -> str:
 agent = agents.Agent(name="$name", tools=[greet])
 PYFILE
 
+# Ember template-tag component: TypeScript with an embedded <template> block.
+cat > greeting.gts << 'GTSFILE'
+import Component from "@glimmer/component";
+import { on } from "@ember/modifier";
+
+interface Signature { Args: { name: string } }
+
+export default class Greeting extends Component<Signature> {
+  greet = () => alert(`Hello, ${this.args.name}!`);
+
+  <template>
+    <button type="button" {{on "click" this.greet}}>Hi {{@name}}</button>
+  </template>
+}
+GTSFILE
+
 git add -A && git commit -q -m "initial commit"
 
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
@@ -189,4 +205,4 @@ e2e_export_fake_home "$DIR"
 
 # Run crit in file mode with explicit files AND a directory
 # --share-url enables the Share button so E2E tests can exercise the share payload
-e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl lib/
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl greeting.gts lib/
