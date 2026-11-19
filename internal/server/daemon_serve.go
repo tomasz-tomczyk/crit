@@ -32,7 +32,7 @@ func CreateSession(sc *DaemonCLIConfig) (*Session, error) {
 			sess, err = session.NewGitSessionLenient(v, sc.IgnorePatterns)
 		}
 	} else {
-		sess, err = session.NewSessionFromFiles(sc.Files, sc.IgnorePatterns)
+		sess, err = session.NewSessionFromFiles(sc.Files, sc.IgnorePatterns, sc.Lang)
 	}
 	if err != nil {
 		return nil, err

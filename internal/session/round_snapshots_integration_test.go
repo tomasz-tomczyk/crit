@@ -23,7 +23,7 @@ func TestRoundSnapshots_Integration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := NewSessionFromFiles([]string{planPath}, nil)
+	s, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestHandleRoundCompleteFiles_CapturesBeforeReread(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := NewSessionFromFiles([]string{planPath}, nil)
+	s, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestLoadCritJSON_ResumedSession_DoesNotRewriteSidecar(t *testing.T) {
 	}
 
 	// First session: produce a sidecar with R1+R2 snapshots.
-	s1, err := NewSessionFromFiles([]string{planPath}, nil)
+	s1, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestLoadCritJSON_ResumedSession_DoesNotRewriteSidecar(t *testing.T) {
 	// Second "boot": construct a fresh session, set ReviewFilePath BEFORE
 	// loadCritJSON (matching the cli_serve resumed-session path), then
 	// trigger the load path.
-	s2, err := NewSessionFromFiles([]string{planPath}, nil)
+	s2, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatalf("second NewSessionFromFiles: %v", err)
 	}

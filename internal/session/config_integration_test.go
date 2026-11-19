@@ -67,7 +67,7 @@ func TestNewSessionFromFilesWithIgnore(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(dir, "readme.txt"), "hello\n")
 
 	patterns := []string{"generated/"}
-	sess, err := NewSessionFromFiles([]string{dir}, patterns)
+	sess, err := NewSessionFromFiles([]string{dir}, patterns, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -812,7 +812,7 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 			OldPath:  fc.OldPath,
 			AbsPath:  filepath.Join(repoRoot, fc.Path),
 			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
+			FileType: s.fileType(fc.Path),
 			Comments: []Comment{},
 		}
 		// Same eager/lazy split as NewGitSession: range focus is how --pr
@@ -883,7 +883,7 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 			OldPath:  fc.OldPath,
 			AbsPath:  filepath.Join(repoRoot, fc.Path),
 			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
+			FileType: s.fileType(fc.Path),
 			Comments: []Comment{},
 		}
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
@@ -1566,7 +1566,7 @@ func (s *Session) liveAllFileDiff(path string, ignoreWhitespace bool) (map[strin
 	if hunks := liveAllHunks(fc, content, baseRef, repoRoot, ignoreWhitespace, vc); hunks != nil {
 		result["hunks"] = hunks
 	}
-	if detectFileType(path) != "code" {
+	if s.fileType(path) != "code" {
 		result["previous_content"] = gitBaseContentForMarkdown(s, focus, fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, vc)
 	}
 	return result, true

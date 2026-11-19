@@ -99,8 +99,11 @@ func resolveReconnectReviewDir(key string, stale daemon.SessionEntry) (string, e
 
 // daemonArgsForReconnect rebuilds _serve argv including flags not stored in cli_args.
 // noOpen comes from the reconnecting CLI (--no-open or no_open in config).
-func daemonArgsForReconnect(sessionKey string, cliArgs []string, stale daemon.SessionEntry, reviewDir string, noOpen bool) []string {
+func daemonArgsForReconnect(sessionKey string, cliArgs []string, lang string, stale daemon.SessionEntry, reviewDir string, noOpen bool) []string {
 	args := daemonArgsFromCliArgs(sessionKey, cliArgs)
+	if lang != "" {
+		args = append(args, "--lang", lang)
+	}
 	args = appendReconnectPathFlags(sessionKey, args, reviewDir)
 	args = daemon.AppendCommonDaemonFlags(args, daemon.CommonDaemonFlags{
 		Host:                        stale.Host,
@@ -220,7 +223,7 @@ func reconnectDeadSession(key string, stale daemon.SessionEntry, noOpen, quiet b
 	if err := json.Unmarshal(data, &cj); err != nil {
 		return daemon.SessionEntry{}, fmt.Errorf("parsing review for session %s: %w", key, err)
 	}
-	daemonArgs := daemonArgsForReconnect(key, cj.CliArgs, stale, revDir, noOpen)
+	daemonArgs := daemonArgsForReconnect(key, cj.CliArgs, cj.Lang, stale, revDir, noOpen)
 	dir, err := reconnectDir(cj, stale)
 	if err != nil {
 		return daemon.SessionEntry{}, err

@@ -786,7 +786,7 @@ func (s *Session) buildFileEntry(absPath, repoRoot, baseRef string, vc vcs.VCS) 
 		Path:      relPath,
 		AbsPath:   absPath,
 		Status:    "modified",
-		FileType:  detectFileType(absPath),
+		FileType:  s.fileType(absPath),
 		Content:   string(data),
 		FileHash:  fileHash(data),
 		Comments:  []Comment{},

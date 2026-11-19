@@ -139,7 +139,7 @@
   // Pierre FileContents for a whole file (files-mode code view).
   function buildFileContents(P, file, cacheKey) {
     var contents = { name: file.path, contents: file.content || '', cacheKey: cacheKey };
-    var lang = languageOverride(file.path, P);
+    var lang = file.lang || languageOverride(file.path, P);
     return lang ? P.setLanguageOverride(contents, lang) : contents;
   }
 
@@ -181,7 +181,7 @@
         oldFile: { name: model.old_path || file.path, contents: oldContent },
         newFile: { name: file.path, contents: newContent },
       });
-    var lang = languageOverride(file.path, P);
+    var lang = file.lang || languageOverride(file.path, P);
     return lang ? P.setLanguageOverride(diff, lang) : diff;
   }
 

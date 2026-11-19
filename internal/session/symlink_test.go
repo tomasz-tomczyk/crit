@@ -89,7 +89,7 @@ func TestNewSessionFromFiles_SymlinkedRepoRoot(t *testing.T) {
 	planThroughLink := filepath.Join(linkDir, "plan.md")
 	mainThroughLink := filepath.Join(linkDir, "main.go")
 
-	session, err := NewSessionFromFiles([]string{planThroughLink, mainThroughLink}, nil)
+	session, err := NewSessionFromFiles([]string{planThroughLink, mainThroughLink}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}

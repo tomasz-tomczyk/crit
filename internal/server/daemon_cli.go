@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
@@ -45,6 +46,7 @@ type DaemonCLIConfig struct {
 	PlanName                    string
 	ReviewPath                  string
 	VCSOverride                 string
+	Lang                        string
 	Cfg                         config.Config
 	Focus                       *session.Focus
 	RemoteFiles                 bool
@@ -70,6 +72,7 @@ type daemonFlagSet struct {
 	noIgnore                    bool
 	baseBranch                  string
 	vcsOverride                 string
+	lang                        string
 	planDir                     string
 	planName                    string
 	fileArgs                    []string
@@ -103,6 +106,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	noIgnore := fs.Bool("no-ignore", false, "Disable all ignore patterns from config files")
 	baseBranch := fs.String("base-branch", "", "Base branch to diff against (overrides auto-detection)")
 	vcsFlag := fs.String("vcs", "", "VCS backend to use: git, sl/sapling, jj/jujutsu (default: auto-detect)")
+	lang := fs.String("lang", "", "Treat every file under review as this language, e.g. markdown or yaml (file arguments only)")
 	planDir := fs.String("plan-dir", "", "")
 	planName := fs.String("name", "", "")
 	changeSpec := ""
@@ -167,6 +171,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		noIgnore:                    *noIgnore,
 		baseBranch:                  *baseBranch,
 		vcsOverride:                 *vcsFlag,
+		lang:                        strings.ToLower(*lang),
 		planDir:                     *planDir,
 		planName:                    *planName,
 		fileArgs:                    fs.Args(),
@@ -310,6 +315,10 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 		return nil, err
 	}
 
+	if sf.lang != "" && (len(sf.fileArgs) == 0 || f != nil || sf.liveOrigin != "" || sf.previewFile != "") {
+		return nil, errors.New("--lang needs file arguments, e.g. crit --lang markdown slides.qmd")
+	}
+
 	remoteFiles := sf.remoteFiles
 	if remoteFiles && f == nil {
 		fmt.Fprintln(os.Stderr, "Warning: --remote has no effect without --pr, --mr, or --range; ignoring")
@@ -339,6 +348,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 		PlanDir:                     sf.planDir,
 		PlanName:                    sf.planName,
 		VCSOverride:                 resolveVCSOverride(sf.vcsOverride, cfg.VCS),
+		Lang:                        sf.lang,
 		Cfg:                         cfg,
 		Focus:                       f,
 		RemoteFiles:                 remoteFiles,

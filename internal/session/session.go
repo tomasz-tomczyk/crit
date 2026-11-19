@@ -424,6 +424,7 @@ type Session struct {
 	Files          []*FileEntry
 	Mode           string   // "files" (explicit markdown files) or "git" (auto-detected from git)
 	CLIArgs        []string // original file arguments passed on the command line (empty for git mode)
+	Lang           string   // language of every file, from --lang (files mode only)
 	SessionKey     string   // stable ID for reconnect via crit --session (set by daemon)
 	CWD            string   // daemon working directory, recorded in review.json for crit resume (set by daemon)
 	Branch         string
@@ -588,6 +589,7 @@ type CritJSON struct {
 	LastShareHash   string                  `json:"last_share_hash,omitempty"`
 	ReviewComments  []Comment               `json:"review_comments,omitempty"`
 	CliArgs         []string                `json:"cli_args,omitempty"`
+	Lang            string                  `json:"lang,omitempty"`
 	Files           map[string]CritJSONFile `json:"files"`
 
 	// SharedLines maps each comment id to the lines it was sent with in the
@@ -966,7 +968,7 @@ func newGitSession(v vcs.VCS, ignorePatterns []string, requireChanges bool) (*Se
 			OldPath:   fc.OldPath,
 			AbsPath:   absPath,
 			Status:    fc.Status,
-			FileType:  detectFileType(fc.Path),
+			FileType:  s.fileType(fc.Path),
 			Generated: vcs.IsGenerated(fc.Path, s.generatedRules),
 		}
 
@@ -1062,7 +1064,7 @@ func resolveGitContext() (root, branch, baseRef, baseBranchName string, vc vcs.V
 // When a directory is passed, all files within it are included recursively.
 // The base branch is read from DefaultBranch(), which respects defaultBranchOverride
 // set by resolveServerConfig(). See NewSessionFromGit for rationale.
-func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, error) {
+func NewSessionFromFiles(paths []string, ignorePatterns []string, lang string) (*Session, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -1086,6 +1088,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 	s := &Session{
 		VCS:                 vc,
 		Mode:                "files",
+		Lang:                lang,
 		Branch:              branch,
 		BaseRef:             baseRef,
 		BaseBranchName:      baseBranchName,
@@ -1127,7 +1130,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 			Path:      relPath,
 			AbsPath:   absPath,
 			Status:    "modified",
-			FileType:  detectFileType(absPath),
+			FileType:  s.fileType(absPath),
 			Content:   string(data),
 			FileHash:  fileHash(data),
 			Comments:  []Comment{},
@@ -1312,6 +1315,19 @@ func detectFileType(path string) string {
 		return "markdown"
 	}
 	return "code"
+}
+
+// fileType returns the file type of path. When --lang is set, every file gets
+// the type of that language.
+func (s *Session) fileType(path string) string {
+	switch s.Lang {
+	case "":
+		return detectFileType(path)
+	case "markdown", "md":
+		return "markdown"
+	default:
+		return "code"
+	}
 }
 
 // FileByPath returns the FileEntry for a given relative path, or nil.
@@ -2132,7 +2148,7 @@ func (s *Session) EnsureFileEntry(path string) bool {
 		Path:      path,
 		AbsPath:   absPath,
 		Status:    status,
-		FileType:  detectFileType(path),
+		FileType:  s.fileType(path),
 		Content:   string(data),
 		FileHash:  fileHash(data),
 		Comments:  []Comment{},
@@ -2536,7 +2552,7 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 			OldPath:   fc.OldPath,
 			AbsPath:   absPath,
 			Status:    fc.Status,
-			FileType:  detectFileType(fc.Path),
+			FileType:  s.fileType(fc.Path),
 			Comments:  []Comment{},
 			Generated: vcs.IsGenerated(fc.Path, generatedRules),
 		}
@@ -2876,7 +2892,7 @@ func (s *Session) applyOrphanedCritFile(path string, cf CritJSONFile, byPath, by
 	fe := &FileEntry{
 		Path:     path,
 		Status:   "removed",
-		FileType: detectFileType(path),
+		FileType: s.fileType(path),
 		Comments: comments,
 		Orphaned: true,
 	}
@@ -3023,7 +3039,7 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 	return map[string]any{
 		"path":      path,
 		"status":    "modified",
-		"file_type": detectFileType(path),
+		"file_type": s.fileType(path),
 		"content":   string(data),
 		"file_hash": fileHash(data),
 	}, true
@@ -3182,6 +3198,7 @@ type SessionFileInfo struct {
 	OldPath      string `json:"old_path,omitempty"`
 	Status       string `json:"status"`
 	FileType     string `json:"file_type"`
+	Lang         string `json:"lang,omitempty"` // language from --lang, which the web UI uses for highlighting
 	CommentCount int    `json:"comment_count"`
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
@@ -3245,6 +3262,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 			OldPath:      f.OldPath,
 			Status:       f.Status,
 			FileType:     f.FileType,
+			Lang:         s.Lang,
 			CommentCount: visibleCount,
 			Lazy:         f.Lazy,
 			Orphaned:     f.Orphaned,

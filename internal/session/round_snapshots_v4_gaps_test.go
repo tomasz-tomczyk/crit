@@ -201,7 +201,7 @@ func TestWriteFiles_EmptyPreservesAttachments(t *testing.T) {
 	if err := os.WriteFile(planPath, []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewSessionFromFiles([]string{planPath}, nil)
+	s, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestSession_LoadCritJSON_PostSetSessionIsNoOp(t *testing.T) {
 	if err := os.WriteFile(planPath, []byte("a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewSessionFromFiles([]string{planPath}, nil)
+	s, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

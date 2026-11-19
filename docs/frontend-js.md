@@ -220,7 +220,10 @@ guarantee AA contrast.
 Groovy (Pierre left those as plain text). A template or sample suffix
 (`.tmpl`, `.tpl`, `.template`, `.example`, `.sample`, `.dist`, `.in`) is
 dropped before detection, so `main.py.tmpl` highlights as Python and
-`.env.example` as dotenv. Fence names written for
+`.env.example` as dotenv. `crit --lang <name>` gives each file a `lang`, and
+Pierre then highlights every file in that language instead of the detected one.
+A name that Pierre does not bundle leaves the file as plain text, and Pierre
+logs an error in the browser console. Fence names written for
 highlight.js resolve through `FENCE_ALIASES` (`dos` → bat, `arduino` → C++,
 `delphi` → Pascal, `mathematica` → Wolfram, `1c` → BSL, …).
 

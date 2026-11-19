@@ -848,21 +848,28 @@ func TestSession_GetSessionInfo(t *testing.T) {
 
 func TestDetectFileType(t *testing.T) {
 	tests := []struct {
+		lang     string
 		path     string
 		expected string
 	}{
-		{"plan.md", "markdown"},
-		{"README.MD", "markdown"},
-		{"doc.markdown", "markdown"},
-		{"main.go", "code"},
-		{"server.py", "code"},
-		{"index.html", "code"},
-		{"Makefile", "code"},
+		{"", "plan.md", "markdown"},
+		{"", "README.MD", "markdown"},
+		{"", "doc.markdown", "markdown"},
+		{"", "main.go", "code"},
+		{"", "server.py", "code"},
+		{"", "index.html", "code"},
+		{"", "Makefile", "code"},
+		{"", "slides.qmd", "code"},
+		{"markdown", "slides.qmd", "markdown"},
+		{"md", "analysis.Rmd", "markdown"},
+		{"yaml", "pipeline.conf", "code"},
+		{"yaml", "plan.md", "code"},
 	}
 	for _, tc := range tests {
-		got := detectFileType(tc.path)
+		s := &Session{Lang: tc.lang}
+		got := s.fileType(tc.path)
 		if got != tc.expected {
-			t.Errorf("detectFileType(%q) = %q, want %q", tc.path, got, tc.expected)
+			t.Errorf("fileType(%q) with lang %q = %q, want %q", tc.path, tc.lang, got, tc.expected)
 		}
 	}
 }
@@ -1844,7 +1851,7 @@ func TestNewSessionFromFiles_BaseBranch(t *testing.T) {
 	// Set the override — same mechanism as resolveServerConfig()
 	vcs.SetDefaultBranchOverride("base")
 
-	session, err := NewSessionFromFiles([]string{filepath.Join(dir, "feature.go")}, nil)
+	session, err := NewSessionFromFiles([]string{filepath.Join(dir, "feature.go")}, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1870,7 +1877,7 @@ func TestNewSessionFromFiles_UsesRepoRelativePaths(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	session, err := NewSessionFromFiles([]string{"plan.md", "main.go"}, nil)
+	session, err := NewSessionFromFiles([]string{"plan.md", "main.go"}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
@@ -1884,6 +1891,28 @@ func TestNewSessionFromFiles_UsesRepoRelativePaths(t *testing.T) {
 		if strings.Contains(f.Path, "..") {
 			t.Errorf("file path %q contains parent hops", f.Path)
 		}
+	}
+}
+
+func TestNewSessionFromFiles_Lang(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "slides.qmd")
+	writeFile(t, path, "# Slides\n")
+
+	s, err := NewSessionFromFiles([]string{path}, nil, "markdown")
+	if err != nil {
+		t.Fatalf("NewSessionFromFiles: %v", err)
+	}
+	if got := s.Files[0].FileType; got != "markdown" {
+		t.Errorf("FileType = %q, want markdown", got)
+	}
+	if got := s.GetSessionInfo().Files[0].Lang; got != "markdown" {
+		t.Errorf("session info lang = %q, want markdown", got)
+	}
+	s.ReviewFilePath = filepath.Join(dir, ".crit")
+	cj, _ := buildCritJSON(s.snapshotForWrite(s.critJSONPath()))
+	if cj.Lang != "markdown" {
+		t.Errorf("review file lang = %q, want markdown", cj.Lang)
 	}
 }
 
@@ -6129,6 +6158,7 @@ func TestSession_GeneratedFlowsThrough(t *testing.T) {
 	session, err := NewSessionFromFiles(
 		[]string{"api.pb.go", "handwritten.go"},
 		nil,
+		"",
 	)
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)

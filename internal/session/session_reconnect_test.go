@@ -228,7 +228,7 @@ func TestDaemonArgsForReconnect_OutputAndPublicURL(t *testing.T) {
 		ReviewPath: revDir,
 		PublicURL:  "https://crit.example.com",
 	}
-	args := daemonArgsForReconnect(key, []string{"doc.md"}, stale, revDir, false)
+	args := daemonArgsForReconnect(key, []string{"doc.md"}, "", stale, revDir, false)
 	assertDaemonFlag(t, args, "--output", outputDir)
 	assertDaemonFlag(t, args, "--public-url", "https://crit.example.com")
 	if !containsArg(args, "doc.md") {
@@ -253,11 +253,31 @@ func TestDaemonArgsForReconnect_NoOpen(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			args := daemonArgsForReconnect(key, []string{"range:HEAD~1..HEAD"}, daemon.SessionEntry{}, defaultDir, tt.noOpen)
+			args := daemonArgsForReconnect(key, []string{"range:HEAD~1..HEAD"}, "", daemon.SessionEntry{}, defaultDir, tt.noOpen)
 			if got := containsArg(args, "--no-open"); got != tt.noOpen {
 				t.Errorf("args %v: --no-open present = %v, want %v", args, got, tt.noOpen)
 			}
 		})
+	}
+}
+
+func TestDaemonArgsForReconnect_Lang(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	key := "839f3b4cd5d6"
+	defaultDir, err := daemon.ReviewFilePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := daemonArgsForReconnect(key, []string{"slides.qmd"}, "markdown", daemon.SessionEntry{}, defaultDir, false)
+	assertDaemonFlag(t, args, "--lang", "markdown")
+	if !containsArg(args, "slides.qmd") {
+		t.Errorf("args %v missing the file argument", args)
+	}
+
+	args = daemonArgsForReconnect(key, []string{"slides.qmd"}, "", daemon.SessionEntry{}, defaultDir, false)
+	if containsArg(args, "--lang") {
+		t.Errorf("args %v: --lang present without a stored language", args)
 	}
 }
 
@@ -476,7 +496,7 @@ func TestDaemonArgsForReconnect_Host(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := daemon.SessionEntry{Host: "0.0.0.0"}
-	args := daemonArgsForReconnect(key, nil, stale, defaultDir, false)
+	args := daemonArgsForReconnect(key, nil, "", stale, defaultDir, false)
 	assertDaemonFlag(t, args, "--host", "0.0.0.0")
 	foundAllow := false
 	for _, a := range args {

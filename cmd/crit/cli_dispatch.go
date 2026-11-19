@@ -107,6 +107,7 @@ Options:
       --mr <iid|url>          Review a GitLab merge request
       --range <base>..<head>  Review a commit range
       --base-branch <branch>  Override the diff base
+      --lang <name>           Treat every file as this language (e.g. markdown, yaml)
       --no-open               Do not open a browser
   -o, --output <dir>          Crit data root for reviews`},
 	{name: "live", handler: runLive, help: `Usage: crit live [options] <url>
@@ -365,6 +366,7 @@ Options:
   -q, --quiet                 On success, suppress connect/start status, tips, and session summary
       --share-url <url>       Share service URL (e.g. https://crit.md or self-hosted)
       --base-branch <branch>  Base branch to diff against (overrides auto-detection)
+      --lang <name>           Treat every file as this language, e.g. markdown or yaml (file arguments only)
       --scope <mode>          Diff scope for PR/MR review: layer (default) or full-stack
       --session <id>          Reconnect to an existing review session (from stderr or next_command)
       --forge <provider>      Select pull/push provider: auto, github, or gitlab

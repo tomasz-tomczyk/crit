@@ -84,6 +84,7 @@ The recommended way is to run the `/crit` command in your agent after any piece 
 crit                              # auto-detect changed files in your repo
 crit plan.md                      # review a specific file
 crit plan.md api-spec.md          # review multiple files
+crit --lang markdown slides.qmd   # review a Quarto file as markdown
 crit http://localhost:3000        # review a running dev server
 crit landing.html                 # review a static HTML file
 ```
@@ -471,6 +472,7 @@ This covers the review page itself. The HTML file shown by `crit preview` and th
 | `--quiet`       | `-q`  | `quiet`               | On success, suppress connect/start status, tips, and session summary                 |
 | `--base-branch` |       | `base_branch`         | Base branch to diff against            |
 | `--vcs`         |       | `vcs`                 | VCS backend (`git`, `sl`, or `jj`)     |
+| `--lang`        |       |                       | Treat every file under review as this language. `markdown` or `md` shows each file as a markdown document. Any other name, such as `yaml`, sets only the syntax highlighting. Works only with file arguments. |
 | `--no-ignore`   |       |                       | Temporarily bypass all ignore patterns |
 | `--version`     | `-v`  |                       | Print version and exit                 |
 

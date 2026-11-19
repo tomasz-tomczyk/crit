@@ -52,7 +52,7 @@ func TestPlanMode_RoundTrip(t *testing.T) {
 
 	// 2. Create session from managed file
 	currentPath := filepath.Join(storageDir, "current.md")
-	session, err := NewSessionFromFiles([]string{currentPath}, nil)
+	session, err := NewSessionFromFiles([]string{currentPath}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestApplyPlanOverrides(t *testing.T) {
 	path := filepath.Join(dir, "current.md")
 	os.WriteFile(path, []byte(content), 0644)
 
-	session, err := NewSessionFromFiles([]string{path}, nil)
+	session, err := NewSessionFromFiles([]string{path}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}

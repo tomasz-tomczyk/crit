@@ -55,7 +55,7 @@ func TestWriteFiles_EmptyDoesNotDeleteSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := NewSessionFromFiles([]string{planPath}, nil)
+	s, err := NewSessionFromFiles([]string{planPath}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}

@@ -33,7 +33,7 @@ func TestHandleRoundCompleteFiles_DiscoversNewFiles(t *testing.T) {
 	existingPath := filepath.Join(watched, "existing.md")
 	testutil.WriteFile(t, existingPath, "# pre-existing\n")
 
-	sess, err := session.NewSessionFromFiles([]string{watched}, nil)
+	sess, err := session.NewSessionFromFiles([]string{watched}, nil, "")
 	if err != nil {
 		t.Fatalf("NewSessionFromFiles: %v", err)
 	}

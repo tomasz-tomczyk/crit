@@ -758,6 +758,7 @@
       oldPath: fi.old_path || '',
       status: fi.status,
       fileType: fi.file_type,
+      lang: fi.lang || '',
       content: content,
       previousContent: diffRes.previous_content || '',
       diffHunks: diffRes.hunks || [],

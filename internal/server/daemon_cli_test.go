@@ -26,6 +26,38 @@ func TestResolveDaemonCLIConfig_RemoteDefaultsFalse(t *testing.T) {
 	}
 }
 
+func TestResolveDaemonCLIConfig_Lang(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    string
+		wantErr bool
+	}{
+		{name: "unset", args: []string{"slides.qmd"}, want: ""},
+		{name: "lower-cased", args: []string{"--lang", "Markdown", "slides.qmd"}, want: "markdown"},
+		{name: "after the files", args: []string{"pipeline.conf", "--lang", "yaml"}, want: "yaml"},
+		{name: "no files", args: []string{"--lang", "markdown"}, wantErr: true},
+		{name: "live", args: []string{"--lang", "markdown", "--live-origin", "http://localhost:3000", "slides.qmd"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc, err := server.ResolveDaemonCLIConfig(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got %+v", sc)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sc.Lang != tt.want {
+				t.Errorf("Lang = %q, want %q", sc.Lang, tt.want)
+			}
+		})
+	}
+}
+
 func TestFocusKeyArgs_PR(t *testing.T) {
 	sc := &server.DaemonCLIConfig{Focus: &server.Focus{Kind: server.FocusRange, Forge: "github", ChangeNumber: 295}}
 	got := server.FocusKeyArgs(sc)

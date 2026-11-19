@@ -220,3 +220,17 @@ test('buildFileContents and buildFileDiff apply the template-suffix language', f
   assert.equal(diff.lang, 'python');
   assert.deepEqual(calls, ['python', 'python']);
 });
+
+test('buildFileContents and buildFileDiff prefer the file lang from --lang', function() {
+  const calls = [];
+  const P = {
+    getFiletypeFromFileName: pierreDetect.getFiletypeFromFileName,
+    setLanguageOverride: function(item, lang) { calls.push(lang); return Object.assign({}, item, { lang: lang }); },
+    processFile: function(patch, opts) { return { patch: patch, opts: opts }; },
+  };
+  const file = { path: 'templates/main.py.tmpl', status: 'modified', content: 'x: 1\n', lang: 'yaml' };
+  assert.equal(a.buildFileContents(P, file, 'k').lang, 'yaml');
+  const diff = a.buildFileDiff(P, file, [hunk(1, 0, 1, 1, [['add', 'x: 1']])], 'k');
+  assert.equal(diff.lang, 'yaml');
+  assert.deepEqual(calls, ['yaml', 'yaml']);
+});
