@@ -519,10 +519,21 @@
       }
       if (serverStopped) return null;
       var resp = await fetch('/api/finish', { method: 'POST' });
-      if (!resp.ok) throw new Error('Finish review failed: HTTP ' + resp.status);
+      if (!resp.ok) {
+        if (resp.status === 422) {
+          var problem = await resp.json();
+          var errorDialog = document.getElementById('finishErrorDialog');
+          if (errorDialog && problem && problem.hook && problem.source && problem.error) {
+            document.getElementById('finishErrorMessage').textContent = formatPromptProblem(problem);
+            errorDialog.showModal();
+            return null;
+          }
+        }
+        throw new Error('Finish review failed: HTTP ' + resp.status);
+      }
       var data = await resp.json();
       var approved = !!data.approved;
-      var prompt = data.prompt || 'I reviewed the changes, no feedback, good to go!';
+      var prompt = typeof data.prompt === 'string' ? data.prompt : 'I reviewed the changes, no feedback, good to go!';
 
       var dialog = document.getElementById('waitingDialog');
       var headingEl = document.getElementById('waitingHeading');
@@ -1032,6 +1043,66 @@
 
   // ===== project prompt trust =====
 
+  function formatPromptProblem(problem) {
+    return problem.hook + ' (' + problem.source + '): ' + problem.error;
+  }
+
+  function setupPromptChecks(initialConfig, onConfig) {
+    var banner = document.getElementById('promptProblems');
+    var list = document.getElementById('promptProblemList');
+    var recheck = document.getElementById('promptRecheckBtn');
+    var status = document.getElementById('promptRecheckStatus');
+    var cfg;
+
+    function update(config) {
+      cfg = config;
+      onConfig(cfg);
+      if (!banner) return;
+      var problems = cfg.prompt_problems || [];
+      list.replaceChildren();
+      problems.forEach(function (problem) {
+        var item = document.createElement('li');
+        item.textContent = formatPromptProblem(problem);
+        list.appendChild(item);
+      });
+      status.textContent = '';
+      banner.hidden = problems.length === 0;
+    }
+
+    async function refresh() {
+      var response = await fetch('/api/config', { cache: 'no-store' });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      var config = await response.json();
+      update(config);
+      return config;
+    }
+
+    if (recheck) {
+      recheck.addEventListener('click', async function () {
+        recheck.disabled = true;
+        try {
+          await refresh();
+        } catch (_) {
+          status.textContent = 'Could not recheck finish prompts. Try again.';
+        } finally {
+          recheck.disabled = false;
+        }
+      });
+    }
+    update(initialConfig);
+    return {
+      refresh: refresh,
+      confirmTrust: async function () {
+        // Editing a project prompt can invalidate trust until change.
+        try { await refresh(); } catch (_) { /* The Finish endpoint also checks trust. */ }
+        if (!cfg.project_prompts_untrusted) return true;
+        if (!await ensureProjectPromptTrust(cfg)) return false;
+        try { await refresh(); } catch (_) { update(cfg); }
+        return true;
+      },
+    };
+  }
+
   var AGENT_PROMPTS_GUIDE_URL = 'https://github.com/tomasz-tomczyk/crit/blob/main/docs/agent-prompts.md';
 
   var activeProjectPromptTrustResolve = null;
@@ -1194,6 +1265,7 @@
     lockFinishBtnIfStopped,
     startTipRotation,
     stopTipRotation,
+    setupPromptChecks,
     ensureProjectPromptTrust,
     applyProjectPromptTrustUI,
   };

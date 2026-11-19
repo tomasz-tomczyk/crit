@@ -424,6 +424,11 @@ func (s *Server) WaitBackground(timeout time.Duration) bool {
 func (s *Server) SetSession(session *Session) {
 	if session != nil {
 		session.MarkSessionStarted()
+		if s.configConfigured {
+			for _, problem := range s.checkFinishPrompts(session) {
+				fmt.Fprintf(os.Stderr, "Warning: finish prompt %s\n", problem)
+			}
+		}
 	}
 	s.session.Store(session)
 }
@@ -567,11 +572,16 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 	// Integration detection
 	s.addIntegrationStatus(resp)
 
-	for k, v := range s.projectPromptTrustPayload() {
-		resp[k] = v
+	globalPrompts, projectPrompts, trust := s.loadPromptConfig()
+	resp["project_prompts_untrusted"] = trust.Untrusted
+	if trust.HasProjectPrompts {
+		resp["project_prompt_sources"] = trust.Sources
+		resp["project_prompt_content_hash"] = trust.ContentHash
 	}
-	if sess != nil && s.projectPromptsUntrusted() {
-		resp["project_prompt_preview"] = s.renderProjectPromptPreview(sess)
+	mode := finishPromptMode(sess)
+	resp["prompt_problems"] = prompt.Check(globalPrompts, projectPrompts, s.projectDir, s.homeDir, mode, trust.UseProject)
+	if trust.Untrusted {
+		resp["project_prompt_preview"] = prompt.PreviewProjectFinish(projectPrompts, s.projectDir, mode)
 	}
 
 	if sess != nil && sess.ReviewType != "" {
@@ -714,15 +724,19 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	type liveSessionResponse struct {
 		SessionInfo
-		ReviewType string `json:"review_type,omitempty"`
-		Origin     string `json:"origin,omitempty"`
-		ProxyPort  int    `json:"proxy_port,omitempty"`
+		ReviewType     string           `json:"review_type,omitempty"`
+		Origin         string           `json:"origin,omitempty"`
+		ProxyPort      int              `json:"proxy_port,omitempty"`
+		PromptProblems []prompt.Problem `json:"prompt_problems,omitempty"`
 	}
 	resp := liveSessionResponse{SessionInfo: info}
 	if session != nil {
 		resp.ReviewType = session.ReviewType
 		resp.Origin = session.Origin
 		resp.ProxyPort = session.ProxyPort
+		if r.URL.Query().Get("check_prompts") == "1" {
+			resp.PromptProblems = s.checkFinishPrompts(session)
+		}
 	}
 	writeJSON(w, resp)
 }
@@ -2559,7 +2573,7 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.projectPromptsUntrusted() {
+	if _, _, trust := s.loadPromptConfig(); trust.Untrusted {
 		http.Error(w, "project prompt trust required", http.StatusForbidden)
 		return
 	}
@@ -2583,7 +2597,19 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if unresolvedComments > 0 {
 		comments = listUnresolvedComments(sess)
 	}
-	prompt, promptMeta := s.renderFinishPrompts(sess, approved, stats)
+	ctx := s.buildPromptContext(sess, approved, stats)
+	// Recheck the trust hash after flushing the review in case a project
+	// prompt changed while the request was waiting for the write.
+	globalPrompts, projectPrompts, trust := s.loadPromptConfig()
+	if trust.Untrusted {
+		http.Error(w, "project prompt trust required", http.StatusForbidden)
+		return
+	}
+	finish := prompt.RenderFinish(globalPrompts, projectPrompts, s.projectDir, s.homeDir, trust.UseProject, ctx)
+	if finish.Problem != nil {
+		writeJSONStatus(w, http.StatusUnprocessableEntity, finish.Problem)
+		return
+	}
 	nextCommand := session.NextRoundCommand(sess)
 	if !approved {
 		sess.SetWaitingForAgent(true)
@@ -2600,12 +2626,12 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	// as soon as the approved finish response has been processed.
 	finishResp := map[string]any{
 		"status":       "finished",
-		"prompt":       prompt,
+		"prompt":       finish.Prompt,
 		"approved":     approved,
 		"comments":     comments,
 		"next_command": nextCommand,
 		"stats":        stats,
-		"prompt_meta":  promptMeta,
+		"prompt_meta":  finish.Meta,
 	}
 	if ms, enabled := s.cfg.CloseOnApproveAfterMsEnabled(); enabled {
 		finishResp["close_on_approve_after_ms"] = ms
@@ -2618,12 +2644,12 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	// clients can extract it without string matching on the prompt.
 	// Mirror the finish response so review-cycle consumers see the same fields.
 	eventDataMap := map[string]any{
-		"prompt":       prompt,
+		"prompt":       finish.Prompt,
 		"approved":     approved,
 		"stats":        stats,
 		"comments":     comments,
 		"next_command": nextCommand,
-		"prompt_meta":  promptMeta,
+		"prompt_meta":  finish.Meta,
 	}
 	if ms, enabled := s.cfg.CloseOnApproveAfterMsEnabled(); enabled {
 		eventDataMap["close_on_approve_after_ms"] = ms

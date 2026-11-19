@@ -391,7 +391,7 @@
   // (window.crit.share). The controller is created in init() once /api/config
   // resolves, and stored here so other code can call reveal()/closeModal().
   let shareCtl = null;
-  let promptTrustConfig = { project_prompts_untrusted: false };
+  let promptChecks;
 
   let uiState = 'reviewing';
   let waitingOpenedAt = 0;
@@ -1167,13 +1167,9 @@
     });
     shareCtl.reveal();
 
-    promptTrustConfig = {
-      project_prompts_untrusted: !!configRes.project_prompts_untrusted,
-      project_prompt_sources: configRes.project_prompt_sources || [],
-      project_prompt_preview: configRes.project_prompt_preview || '',
-      project_prompt_content_hash: configRes.project_prompt_content_hash || '',
-    };
-    window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
+    promptChecks = window.crit.shared.setupPromptChecks(configRes, function (cfg) {
+      window.crit.shared.applyProjectPromptTrustUI(cfg, document.getElementById('finishBtn'));
+    });
 
     // Update notifications (Crit release + stale integrations)
     pendingUpdates = [];
@@ -7430,9 +7426,7 @@
         unresolvedComments += reviewComments.filter(function(c) { return !c.resolved; }).length;
         unresolvedComments += hiddenUnresolved;
         finishBtn.textContent = unresolvedComments === 0 ? 'Approve' : 'Finish Review';
-        if (!promptTrustConfig.project_prompts_untrusted) {
-          finishBtn.disabled = false;
-        }
+        finishBtn.disabled = false;
         finishBtn.classList.add('btn-primary');
         document.getElementById('waitingEdits').textContent = '';
         waitingOverlay.classList.remove('active');
@@ -7472,15 +7466,7 @@
   async function doFinishReview() {
     return await window.crit.shared.runFinishReview({
       dedup: finishDedup,
-      checkConsent: function () {
-        return window.crit.shared.ensureProjectPromptTrust(promptTrustConfig).then(function (ok) {
-          if (ok) {
-            window.crit.shared.applyProjectPromptTrustUI(promptTrustConfig, document.getElementById('finishBtn'));
-            if (uiState === 'reviewing') setUIState('reviewing');
-          }
-          return ok;
-        });
-      },
+      checkConsent: function () { return promptChecks.confirmTrust(); },
       onApproved: function () { waitingNotApproved = false; setUIState('waiting'); },
       onWaiting: function () { waitingNotApproved = true; setUIState('waiting'); },
       onError: function (err) {

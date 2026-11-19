@@ -9,89 +9,85 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/prompt"
 )
 
-func TestResolveFinishTemplate_ProjectLoadErrorFallsBackToGlobal(t *testing.T) {
-	resolved, err := prompt.ResolveFinishTemplate(
-		map[string]string{prompt.HookFinishApproved: "inline:global"},
-		map[string]string{prompt.HookFinishApproved: "file:missing.md"},
-		t.TempDir(),
-		t.TempDir(),
-		prompt.HookFinishApproved,
-		"files",
-		true,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved == nil {
-		t.Fatal("expected global fallback after project prompt load failure")
-	}
-	if resolved.Text != "global" || resolved.Layer != prompt.LayerGlobal {
-		t.Fatalf("resolved = %+v, want global inline prompt", resolved)
-	}
-}
-
-func TestRenderFinish_MalformedTemplateFallsBackToStock(t *testing.T) {
-	result := prompt.RenderFinish(
-		nil,
-		map[string]string{prompt.HookFinishApproved: "inline:{{"},
-		t.TempDir(),
-		"",
-		true,
-		prompt.Context{Approved: true, Mode: "files"},
-	)
-
-	if !strings.HasPrefix(result.Prompt, "Note: the custom prompt on_finish_approved (project:inline) failed to render") {
-		t.Fatalf("Prompt = %q, want a failure note first", result.Prompt)
-	}
-	if result.Meta == nil || result.Meta.TemplateSource != "stock:on_finish_approved.md" {
-		t.Fatalf("Meta = %+v, want stock source", result.Meta)
+func TestInvalidFinishTemplates(t *testing.T) {
+	for _, tc := range []struct {
+		name, hook, mode, value, source, problem string
+		approved                                 bool
+	}{
+		{"missing file", "on_finish_approved", "files", "file:missing.md", "global:missing.md", "loading template", true},
+		{"parse error", "on_finish_approved", "files", "inline:{{", "global:inline", "parsing template", true},
+		{"execution error", "on_finish_unresolved", "files", "inline:{{len .unresolved_count}}", "global:inline", "executing template", false},
+		{"missing key", "on_finish_unresolved", "files", "inline:{{.renamed_count}}", "global:inline", "renamed_count", false},
+		{"story variant", "on_finish_unresolved:story", "story", "inline:{{.unresolved_count", "global:inline", "parsing template", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			global := map[string]string{tc.hook: tc.value}
+			problems := prompt.Check(global, nil, "", home, tc.mode, false)
+			if len(problems) != 1 || problems[0].Hook != tc.hook || problems[0].Source != tc.source || !strings.Contains(problems[0].Error, tc.problem) {
+				t.Fatalf("Check() = %+v, want %s at %s containing %q", problems, tc.hook, tc.source, tc.problem)
+			}
+			result := prompt.RenderFinish(global, nil, "", home, false, prompt.Context{Approved: tc.approved, Mode: tc.mode})
+			if result.Prompt != "" || result.Meta != nil || result.Problem == nil ||
+				result.Problem.Hook != tc.hook || result.Problem.Source != tc.source || !strings.Contains(result.Problem.Error, tc.problem) {
+				t.Fatalf("RenderFinish() = %+v, problem = %+v, want no prompt and a problem containing %q", result, result.Problem, tc.problem)
+			}
+		})
 	}
 }
 
-func TestRenderFinish_UnresolvedRenderErrorKeepsComments(t *testing.T) {
-	// Parses fine but fails at execution time: len of an int.
+func TestCheck_FindsUnknownFieldsThroughoutTemplate(t *testing.T) {
 	global := map[string]string{
-		prompt.HookFinishUnresolved: "inline:{{len .unresolved_count}}",
+		"on_finish_approved": `inline:{{$root := .}}{{if false}}
+			{{printf "%v" .renamed_count}}
+			{{with .session_stats}}{{.renamed_duration}}{{end}}
+			{{range .files_with_comments}}{{$root.renamed_mode}}{{end}}
+			{{template "details" .}}
+			{{(index . "session_stats").renamed_files}}
+		{{end}}
+		{{define "details"}}{{if false}}{{$.renamed_session}}{{end}}{{end}}
+		{{define "unused"}}{{.renamed_unused}}{{end}}`,
 	}
-	ctx := prompt.Context{
-		Mode:                   "files",
-		UnresolvedCount:        2,
-		CommentsUnresolvedJSON: `[{"id":"c_1","body":"fix the bug"}]`,
-		InternalSessionMode:    "files",
-		NextRoundCmd:           "crit --session abcd",
+	problems := prompt.Check(global, nil, "", t.TempDir(), "files", false)
+	if len(problems) != 1 {
+		t.Fatalf("Check() = %+v, want one problem", problems)
 	}
-	result := prompt.RenderFinish(global, nil, "", t.TempDir(), false, ctx)
-
-	if !strings.HasPrefix(result.Prompt, "Note: the custom prompt on_finish_unresolved (global:inline) failed to render") {
-		t.Fatalf("Prompt = %q, want a failure note first", result.Prompt)
-	}
-	for _, want := range []string{"2 unresolved comments", "fix the bug", "crit --session abcd"} {
-		if !strings.Contains(result.Prompt, want) {
-			t.Errorf("Prompt missing %q: %q", want, result.Prompt)
+	for _, key := range []string{"renamed_count", "renamed_duration", "renamed_mode", "renamed_session", "renamed_files", "renamed_unused"} {
+		if !strings.Contains(problems[0].Error, key) {
+			t.Errorf("Check() error %q omits %q", problems[0].Error, key)
 		}
 	}
-	if result.Meta == nil || result.Meta.Hook != "on_finish_unresolved:files" || result.Meta.TemplateSource != "stock:on_finish_unresolved.md" {
-		t.Fatalf("Meta = %+v, want stock on_finish_unresolved:files", result.Meta)
+}
+
+func TestCheck_RespectsModeTrustAndDotScope(t *testing.T) {
+	global := map[string]string{
+		"on_finish_approved":       `inline:{{template "stats" .session_stats}}{{define "stats"}}{{.duration}}{{end}}{{$value := .}}{{if .approved}}{{$value = .session_stats}}{{end}}{{$value.duration}}`,
+		"on_finish_approved:diff":  "inline:{{.invalid_diff}}",
+		"on_finish_approved:story": "inline:{{.invalid_story}}",
+	}
+	project := map[string]string{
+		"on_finish_approved":   `inline:{{with .session_stats}}{{.duration}}{{else}}{{.mode}}{{end}}`,
+		"on_finish_unresolved": "file:missing.md",
+	}
+	projectDir, home := t.TempDir(), t.TempDir()
+	if problems := prompt.Check(global, project, projectDir, home, "files", false); len(problems) != 0 {
+		t.Fatalf("Check(files, untrusted) = %+v", problems)
+	}
+	if problems := prompt.Check(global, project, projectDir, home, "files", true); len(problems) != 1 || problems[0].Source != "project:missing.md" {
+		t.Fatalf("Check(files, trusted) = %+v, want missing project file", problems)
+	}
+	if problems := prompt.Check(global, project, projectDir, home, "story", true); len(problems) != 1 || problems[0].Hook != "on_finish_approved:story" {
+		t.Fatalf("Check(story, trusted) = %+v, want invalid story prompt only", problems)
 	}
 }
 
-func TestRenderFinish_StoryRenderErrorFallsBackToStockStory(t *testing.T) {
-	project := map[string]string{
-		"on_finish_unresolved:story": "inline:{{.unresolved_count",
+func TestRenderFinish_OptionalStatsAndEmptyTemplate(t *testing.T) {
+	global := map[string]string{
+		"on_finish_approved": `inline:{{if .session_stats}}{{.session_stats.duration}}{{end}}`,
 	}
-	ctx := prompt.Context{
-		Mode:                   "story",
-		UnresolvedCount:        1,
-		CommentsUnresolvedJSON: `[{"id":"c_1","body":"fix"}]`,
-		InternalSessionMode:    "git",
-	}
-	result := prompt.RenderFinish(nil, project, t.TempDir(), "", true, ctx)
-
-	if !strings.Contains(result.Prompt, "story-mode review finished with 1 unresolved comment") {
-		t.Fatalf("Prompt = %q, want stock story prompt", result.Prompt)
-	}
-	if result.Meta == nil || result.Meta.Hook != "on_finish_unresolved:story" || result.Meta.TemplateSource != "stock:on_finish_unresolved.story.md" {
-		t.Fatalf("Meta = %+v, want stock story source", result.Meta)
+	result := prompt.RenderFinish(global, nil, "", t.TempDir(), false, prompt.Context{Approved: true, Mode: "files"})
+	if result.Prompt != "" || result.Meta == nil || result.Problem != nil {
+		t.Fatalf("RenderFinish() = %+v, want an empty rendered prompt from the custom template", result)
 	}
 }
 

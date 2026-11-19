@@ -343,14 +343,7 @@
     els.commentsPanel = document.getElementById('commentsPanel');
     els.panelBody = document.getElementById('commentsPanelBody');
 
-    // --- Share (preview mode only) ---
-    // Preview sessions publish a self-contained HTML snapshot, so the shared
-    // Share flow (window.crit.share) applies. Design/live sessions
-    // (review_type 'live') proxy a running app — there's nothing
-    // self-contained to publish — so the button stays hidden.
-    if (state.isPreview) {
-      installShareController();
-    }
+
   }
 
   // Share modal clipboard icons come from the canonical crit-icons.js module
@@ -398,45 +391,36 @@
     return el;
   }
 
-  function installShareController() {
+  function installShareController(cfg) {
     var shareBtnEl = document.getElementById('shareBtn');
     if (!shareBtnEl) return;
     if (!(window.crit && window.crit.share && window.crit.share.create)) return;
 
-    // Read share config from /api/config (the same endpoint code-review uses).
-    // Build + reveal the controller once config resolves. Until then the
-    // button stays hidden (its index.html default), so there's no flash.
-    fetch('/api/config')
-      .then(function (r) { return r.ok ? r.json() : {}; })
-      .then(function (cfg) {
-        cfg = cfg || {};
-        shareCtl = window.crit.share.create({
-          reviewType: 'preview',
-          canShare: true,
-          shareBtnEl: shareBtnEl,
-          shareURL: cfg.share_url || '',
-          shareTargets: Array.isArray(cfg.share_targets) ? cfg.share_targets : [],
-          shareBaseURL: cfg.share_base_url || '',
-          hostedURL: cfg.hosted_url || '',
-          deleteToken: cfg.delete_token || '',
-          hostedToken: cfg.hosted_token || '',
-          needsShareConsent: cfg.needs_consent || false,
-          authUserName: cfg.auth_user_name || '',
-          proxyAuth: !!cfg.proxy_auth,
-          sharedOrg: cfg.share_org
-            ? { slug: cfg.share_org, name: cfg.share_org_name || cfg.share_org }
-            : null,
-          sharedVisibility: cfg.share_org ? (cfg.share_visibility || '') : '',
-          onCommentsRefreshed: function () { refreshPanel(); return Promise.resolve(); },
-          toast: { show: shareToastShow, dismiss: shareToastDismiss },
-          escapeHtml: (shared && shared.escapeHTML) ? shared.escapeHTML : function (s) { return s == null ? '' : String(s); },
-          getSetting: (shared && shared.getSetting) ? shared.getSetting : function (_k, fb) { return fb; },
-          setSetting: (shared && shared.setSetting) ? shared.setSetting : function () {},
-          icons: { clipboard: SHARE_ICON_CLIPBOARD, check: SHARE_ICON_CHECK },
-        });
-        shareCtl.reveal();
-      })
-      .catch(function () { /* share is optional; leave button hidden */ });
+    shareCtl = window.crit.share.create({
+      reviewType: 'preview',
+      canShare: true,
+      shareBtnEl: shareBtnEl,
+      shareURL: cfg.share_url || '',
+      shareTargets: Array.isArray(cfg.share_targets) ? cfg.share_targets : [],
+      shareBaseURL: cfg.share_base_url || '',
+      hostedURL: cfg.hosted_url || '',
+      deleteToken: cfg.delete_token || '',
+      hostedToken: cfg.hosted_token || '',
+      needsShareConsent: cfg.needs_consent || false,
+      authUserName: cfg.auth_user_name || '',
+      proxyAuth: !!cfg.proxy_auth,
+      sharedOrg: cfg.share_org
+        ? { slug: cfg.share_org, name: cfg.share_org_name || cfg.share_org }
+        : null,
+      sharedVisibility: cfg.share_org ? (cfg.share_visibility || '') : '',
+      onCommentsRefreshed: function () { refreshPanel(); return Promise.resolve(); },
+      toast: { show: shareToastShow, dismiss: shareToastDismiss },
+      escapeHtml: (shared && shared.escapeHTML) ? shared.escapeHTML : function (s) { return s == null ? '' : String(s); },
+      getSetting: (shared && shared.getSetting) ? shared.getSetting : function (_k, fb) { return fb; },
+      setSetting: (shared && shared.setSetting) ? shared.setSetting : function () {},
+      icons: { clipboard: SHARE_ICON_CLIPBOARD, check: SHARE_ICON_CHECK },
+    });
+    shareCtl.reveal();
   }
 
   async function boot() {
@@ -479,6 +463,14 @@
       state.proxyOrigin = 'http://' + proxyHost + ':' + (s.proxy_port || 0);
     }
     buildShell();
+    state.promptChecks = shared.setupPromptChecks({}, function (cfg) {
+      shared.applyProjectPromptTrustUI(cfg, document.getElementById('finishBtn'));
+    });
+    state.promptChecks.refresh().then(function (cfg) {
+      state.config = cfg;
+      // Only preview sessions can share a self-contained snapshot.
+      if (state.isPreview) installShareController(cfg);
+    }).catch(function () { /* Config can be refreshed on Finish. */ });
     // Cache the iframeWindow once buildShell has inserted it.
     state.iframeWindow = els.iframe ? els.iframe.contentWindow : null;
 
@@ -1039,6 +1031,7 @@
     // this wrapper supplies the live-mode dedup flag and uiState wiring.
     return await shared.runFinishReview({
       dedup: finishInFlight,
+      checkConsent: function () { return state.promptChecks.confirmTrust(); },
       onApproved: function () { setUIState('waiting'); },
       onWaiting: function () { setUIState('waiting'); },
       onError: function (err) {

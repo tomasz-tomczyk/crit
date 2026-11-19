@@ -35,18 +35,38 @@ func LoadTemplate(value, baseDir string) (string, error) {
 	}
 }
 
-// Render executes a Go text/template with the given context.
+// Render executes a finish template with strict lookup of context keys.
 func Render(tmplText string, ctx Context) (string, error) {
-	return RenderData(tmplText, ctx.TemplateData())
+	return renderData(tmplText, ctx.TemplateData(), true)
 }
 
 // RenderData executes a Go text/template against a raw snake_case data map
 // (used by hooks that don't have a dedicated Context type, e.g. on_story_generate).
 func RenderData(tmplText string, data map[string]any) (string, error) {
-	tmpl, err := template.New("prompt").Parse(tmplText)
+	return renderData(tmplText, data, false)
+}
+
+func renderData(tmplText string, data map[string]any, finish bool) (string, error) {
+	tmpl, err := parseTemplate(tmplText, finish)
 	if err != nil {
-		return "", fmt.Errorf("parsing template: %w", err)
+		return "", err
 	}
+	return executeTemplate(tmpl, data)
+}
+
+func parseTemplate(text string, finish bool) (*template.Template, error) {
+	tmpl := template.New("prompt")
+	if finish {
+		tmpl.Option("missingkey=error")
+	}
+	parsed, err := tmpl.Parse(text)
+	if err != nil {
+		return nil, fmt.Errorf("parsing template: %w", err)
+	}
+	return parsed, nil
+}
+
+func executeTemplate(tmpl *template.Template, data map[string]any) (string, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("executing template: %w", err)

@@ -15,17 +15,30 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
-func (s *Server) promptTrustState() (prompt.TrustState, error) {
-	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
+func (s *Server) loadPromptConfig() (global, project map[string]string, trust prompt.TrustState) {
+	global, project = config.LoadPromptMaps(s.projectDir)
 	_, projectHooks := config.LoadHookMaps(s.projectDir)
-	return prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
+	trust, err := prompt.EvaluateTrust(s.projectDir, project, projectHooks)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
+	}
+	return global, project, trust
+}
+
+func finishPromptMode(sess *Session) string {
+	mode := prompt.PromptMode(sess.ReviewType, sess.Mode)
+	if mode == "diff" && sess.GetStory() != nil {
+		return "story"
+	}
+	return mode
+}
+
+func (s *Server) checkFinishPrompts(sess *Session) []prompt.Problem {
+	global, project, trust := s.loadPromptConfig()
+	return prompt.Check(global, project, s.projectDir, s.homeDir, finishPromptMode(sess), trust.UseProject)
 }
 
 func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[string]any) prompt.Context {
-	mode := prompt.PromptMode(sess.ReviewType, sess.Mode)
-	if mode == "diff" && sess.GetStory() != nil {
-		mode = "story"
-	}
 	reviewPath := sess.CritJSONPath()
 	quoted := shellQuoteArg(reviewPath)
 	ctx := prompt.Context{
@@ -34,7 +47,7 @@ func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[stri
 		CommentsAllCmd:      "crit comments --json --all " + quoted,
 		NextRoundCmd:        session.NextRoundCommand(sess),
 		SessionKey:          sess.SessionKey,
-		Mode:                mode,
+		Mode:                finishPromptMode(sess),
 		UnresolvedCount:     sess.UnresolvedCommentCount(),
 		TotalCount:          sess.TotalCommentCount(),
 		FilesWithComments:   filesWithUnresolvedComments(sess),
@@ -97,76 +110,6 @@ func filesWithUnresolvedComments(sess *Session) []string {
 		}
 	}
 	return out
-}
-
-func (s *Server) renderFinishPrompts(sess *Session, approved bool, stats map[string]any) (promptStr string, meta *prompt.Meta) {
-	globalPrompts, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	_, projectHooks := config.LoadHookMaps(s.projectDir)
-	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: evaluating project prompt trust: %v\n", err)
-	}
-	ctx := s.buildPromptContext(sess, approved, stats)
-	result := prompt.RenderFinish(globalPrompts, projectPrompts, s.projectDir, s.homeDir, trust.UseProject, ctx)
-	return result.Prompt, result.Meta
-}
-
-func (s *Server) projectPromptsUntrusted() bool {
-	trust, err := s.promptTrustState()
-	if err != nil {
-		return false
-	}
-	return trust.Untrusted
-}
-
-func (s *Server) projectPromptTrustPayload() map[string]any {
-	trust, err := s.promptTrustState()
-	if err != nil {
-		return map[string]any{"project_prompts_untrusted": false}
-	}
-	out := map[string]any{
-		"project_prompts_untrusted": trust.Untrusted,
-	}
-	if trust.HasProjectPrompts {
-		out["project_prompt_sources"] = trust.Sources
-		out["project_prompt_content_hash"] = trust.ContentHash
-	}
-	return out
-}
-
-func (s *Server) renderProjectPromptPreview(sess *Session) string {
-	_, projectPrompts := config.LoadPromptMaps(s.projectDir)
-	_, projectHooks := config.LoadHookMaps(s.projectDir)
-	trust, err := prompt.EvaluateTrust(s.projectDir, projectPrompts, projectHooks)
-	if err != nil || !trust.HasProjectPrompts {
-		return ""
-	}
-	var sections []string
-	for _, spec := range []struct {
-		hook     string
-		approved bool
-	}{
-		{prompt.HookFinishUnresolved, false},
-		{prompt.HookFinishApproved, true},
-	} {
-		ctx := s.buildPromptContext(sess, spec.approved, nil)
-		if !spec.approved && ctx.UnresolvedCount == 0 {
-			ctx.UnresolvedCount = 1
-		}
-		result := prompt.RenderFinish(nil, projectPrompts, s.projectDir, s.homeDir, true, ctx)
-		if result.Prompt == "" || result.Prompt == "Review finished." {
-			continue
-		}
-		if result.Meta == nil || !strings.HasPrefix(result.Meta.TemplateSource, "project:") {
-			continue
-		}
-		label := spec.hook
-		if result.Meta.Hook != "" {
-			label = result.Meta.Hook
-		}
-		sections = append(sections, "=== "+label+" ===\n"+result.Prompt)
-	}
-	return strings.Join(sections, "\n\n")
 }
 
 // runFinishHooks resolves and executes the configured command hook for the

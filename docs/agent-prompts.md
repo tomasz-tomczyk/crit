@@ -150,6 +150,12 @@ Templates receive these variables (snake_case in templates):
 
 **Conditionals:** [Go `text/template` syntax](https://pkg.go.dev/text/template), e.g. `{{if gt .unresolved_count 10}}…{{else}}…{{end}}`.
 
+### Finish prompt checks
+
+Crit checks both finish prompts for the review mode when the daemon starts. The terminal and the review page identify the hook, template source, and error. Edit the prompt on disk and click **Recheck** to see whether the problem is fixed. The project prompt trust dialog also shows problems in the project templates it previews.
+
+Finish templates now use Go's `missingkey=error` option. An evaluated reference to a missing field used to produce `<no value>` and now fails the render. For optional session stats, use `{{with .session_stats}}{{.duration_seconds}}{{end}}`. If the active template fails to load or render during Finish, Crit keeps the review open so you can fix the prompt and try again.
+
 ## Story generation prompt (`on_story_generate`)
 
 `crit story` groups a diff's changed hunks into editorial chapters (see
