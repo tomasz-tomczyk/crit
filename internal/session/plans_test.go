@@ -322,7 +322,7 @@ func TestSavePlanSlug_RoundTrip(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 
-	if err := savePlanSlug("session-1", "auth-flow-2026-03-30"); err != nil {
+	if _, err := savePlanSlug("session-1", "auth-flow-2026-03-30"); err != nil {
 		t.Fatalf("savePlanSlug: %v", err)
 	}
 
@@ -366,6 +366,50 @@ func TestSavePlanSlug_StableAcrossHeadingChanges(t *testing.T) {
 	}
 	if pinned != slug1 {
 		t.Errorf("pinned slug = %q, want original %q", pinned, slug1)
+	}
+}
+
+// Two sessions whose plans share a first heading and a date must get different
+// slugs, or their reviews share one storage directory.
+func TestResolveHookSlug_SeparatesSessionsWithTheSameHeading(t *testing.T) {
+	setHome(t, t.TempDir())
+	content := []byte("# Implementation Plan\n\nSteps")
+
+	first := resolveHookSlug("session-a", content)
+	second := resolveHookSlug("session-b", content)
+	if second != first+"-2" {
+		t.Fatalf("slugs = %q and %q, want the second to be the first with -2", first, second)
+	}
+	if again := resolveHookSlug("session-b", content); again != second {
+		t.Errorf("session-b slug changed from %q to %q", second, again)
+	}
+	if again := resolveHookSlug("session-a", content); again != first {
+		t.Errorf("session-a slug changed from %q to %q", first, again)
+	}
+}
+
+// Without a usable mapping file, the slugs must still differ and stay stable.
+func TestResolveHookSlug_SeparatesSessionsWithoutTheMapping(t *testing.T) {
+	setHome(t, t.TempDir())
+	path, err := planSessionsFile()
+	if err != nil {
+		t.Fatalf("planSessionsFile: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{corrupt json!!!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("# Implementation Plan\n\nSteps")
+
+	first := resolveHookSlug("session-a", content)
+	second := resolveHookSlug("session-b", content)
+	if first == second {
+		t.Fatalf("both sessions got slug %q", first)
+	}
+	if again := resolveHookSlug("session-a", content); again != first {
+		t.Errorf("session-a slug changed from %q to %q", first, again)
 	}
 }
 
@@ -414,7 +458,7 @@ func TestSavePlanSlug_CorruptJSON(t *testing.T) {
 	os.WriteFile(path, []byte("{corrupt json!!!"), 0644)
 
 	// savePlanSlug should return an error instead of silently overwriting
-	err = savePlanSlug("session-1", "my-plan")
+	_, err = savePlanSlug("session-1", "my-plan")
 	if err == nil {
 		t.Fatal("expected error for corrupt JSON, got nil")
 	}
@@ -435,7 +479,8 @@ func TestSavePlanSlug_ConcurrentWrites(t *testing.T) {
 	errs := make(chan error, n)
 	for i := 0; i < n; i++ {
 		go func(i int) {
-			errs <- savePlanSlug(fmt.Sprintf("session-%d", i), fmt.Sprintf("plan-%d", i))
+			_, err := savePlanSlug(fmt.Sprintf("session-%d", i), fmt.Sprintf("plan-%d", i))
+			errs <- err
 		}(i)
 	}
 	for i := 0; i < n; i++ {

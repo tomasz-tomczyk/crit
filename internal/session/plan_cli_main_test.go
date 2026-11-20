@@ -576,7 +576,7 @@ func TestPlanReviewHooks_SendPlanHookName(t *testing.T) {
 			}
 			// Pin the slug (ResolveSlug adds today's date) so the key can't
 			// drift between here and the hook.
-			if err := SavePlanSlug("hook-name-session", "hook-name"); err != nil {
+			if _, err := SavePlanSlug("hook-name-session", "hook-name"); err != nil {
 				t.Fatal(err)
 			}
 			key := PlanSessionKey(cwd, "hook-name")
