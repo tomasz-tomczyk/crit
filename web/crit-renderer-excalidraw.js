@@ -65,12 +65,20 @@
   // (<Family>/index.ts there). The browser fetches a subset only when text
   // uses a character in its range.
   var FONT_DIR = 'fonts/excalidraw/';
-  // Crit's assets sit next to this script: the review page and the preview
-  // canvas page (under /preview-content) both load it from the root.
-  var ASSET_BASE = (function () {
+  // Crit's assets sit next to this script on the CLI (review page and
+  // /preview-content canvas). crit-web bundles this file, so currentScript is
+  // null — it sets window.crit.excalidrawAssetBase (usually '/'). Resolved
+  // lazily so a host can set the override before the first render even when
+  // ESM import hoisting evaluates this file first. Fall back to '/' so
+  // FontFace URLs stay origin-absolute when the canvas iframe is at
+  // /preview-content/ (a '' base would resolve under that path).
+  function assetBase() {
+    if (typeof window !== 'undefined' && window.crit && typeof window.crit.excalidrawAssetBase === 'string') {
+      return window.crit.excalidrawAssetBase;
+    }
     var script = typeof document !== 'undefined' && document.currentScript;
-    return script && script.src ? script.src.replace(/[^/]*$/, '') : '';
-  })();
+    return script && script.src ? script.src.replace(/[^/]*$/, '') : '/';
+  }
   var GOOGLE_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
   var GOOGLE_LATIN_EXT = 'U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
   var FONT_FILES = {
@@ -1481,13 +1489,13 @@
   }
 
   function loadRough() {
-    return loadScript(ASSET_BASE + 'rough.min.js', function () {
+    return loadScript(assetBase() + 'rough.min.js', function () {
       return window.rough && typeof window.rough.svg === 'function' ? window.rough : null;
     });
   }
 
   function loadFreehand() {
-    return loadScript(ASSET_BASE + 'freehand.min.js', function () {
+    return loadScript(assetBase() + 'freehand.min.js', function () {
       var f = window.CritFreehand;
       return f && typeof f.getStroke === 'function' ? f : null;
     });
@@ -1506,7 +1514,7 @@
         var descriptors = {};
         if (face.range) descriptors.unicodeRange = face.range;
         if (face.weight) descriptors.weight = face.weight;
-        document.fonts.add(new FontFace(name, 'url(' + ASSET_BASE + FONT_DIR + face.file + ')', descriptors));
+        document.fonts.add(new FontFace(name, 'url(' + assetBase() + FONT_DIR + face.file + ')', descriptors));
       });
     });
     return true;

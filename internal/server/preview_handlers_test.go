@@ -10,28 +10,29 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
-// Sharing a canvas preview stops before anything reaches crit-web, on the
-// direct Share path and on the proxy-auth relay, with a JSON reason the
-// Share button's toast shows.
-func TestShare_ExcalidrawCanvasPreviewIsRefused(t *testing.T) {
+// Sharing a canvas preview crawls the scene into canvas HTML + assets and
+// reaches crit-web (direct Share) or returns that payload (proxy relay).
+func TestShare_ExcalidrawCanvasPreviewPayload(t *testing.T) {
 	testutil.SetHome(t, t.TempDir())
 	dir := t.TempDir()
 	scene := filepath.Join(dir, "arch.excalidraw")
-	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0o644); err != nil {
+	if err := os.WriteFile(scene, []byte(`{"type":"excalidraw","elements":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	var posted bool
 	critWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("crit-web was called: %s %s", r.Method, r.URL.Path)
+		posted = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"http://example.test/r/tok","token":"tok"}`))
 	}))
 	defer critWeb.Close()
 
 	sess := &Session{
 		Mode: "files", ReviewType: "preview", RepoRoot: dir, OutputDir: dir, Origin: scene, ReviewRound: 1,
-		Files: []*FileEntry{{Path: "arch.excalidraw", AbsPath: scene, FileType: "code", Content: `{"elements":[]}`}},
+		Files: []*FileEntry{{Path: "arch.excalidraw", AbsPath: scene, FileType: "code", Content: `{"type":"excalidraw","elements":[]}`}},
 	}
 	sess.InitTestChannels()
 	s, err := NewServer(sess, frontendFS, critWeb.URL, false, "", "", "test", 0, "")
@@ -42,17 +43,32 @@ func TestShare_ExcalidrawCanvasPreviewIsRefused(t *testing.T) {
 	s.cfg.ShareConsented = true
 	s.authMu.Unlock()
 
-	for _, route := range []struct{ method, path string }{
-		{http.MethodPost, "/api/share"},
-		{http.MethodGet, "/api/share/preview-payload"},
-	} {
-		w := httptest.NewRecorder()
-		s.ServeHTTP(w, httptest.NewRequest(route.method, route.path, nil))
-		var body map[string]string
-		_ = json.Unmarshal(w.Body.Bytes(), &body)
-		if w.Code != http.StatusBadRequest || body["error"] != session.ErrSceneShareUnsupported.Error() {
-			t.Errorf("%s %s = %d %s, want 400 with the reason", route.method, route.path, w.Code, w.Body.String())
-		}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/share/preview-payload", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("preview-payload = %d %s", w.Code, w.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := payload["files"].([]any)
+	if len(files) < 5 {
+		t.Fatalf("payload files = %d, want canvas + assets", len(files))
+	}
+	first, _ := files[0].(map[string]any)
+	content, _ := first["content"].(string)
+	if !strings.Contains(content, `id="crit-excalidraw-scene"`) {
+		t.Fatal("payload entry is not canvas HTML")
+	}
+
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/share", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("share = %d %s", w.Code, w.Body.String())
+	}
+	if !posted {
+		t.Fatal("direct share did not POST to crit-web")
 	}
 }
 

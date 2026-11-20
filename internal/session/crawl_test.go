@@ -1,7 +1,6 @@
 package session
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,16 +24,46 @@ func TestIsExcalidrawScene(t *testing.T) {
 	}
 }
 
-// crit-web can't show a canvas preview yet; crawling one would publish the
-// scene's JSON as the page.
-func TestCrawlPreview_RefusesExcalidrawScene(t *testing.T) {
+// A scene crawl becomes a canvas HTML entry plus the relative scripts/fonts
+// the page needs under crit-web's raw preview tree.
+func TestCrawlPreview_ExcalidrawScene(t *testing.T) {
 	scene := filepath.Join(t.TempDir(), "arch.excalidraw")
-	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0o644); err != nil {
+	if err := os.WriteFile(scene, []byte(`{"type":"excalidraw","elements":[{"id":"a","type":"rectangle","x":0,"y":0,"width":10,"height":10}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	files, err := CrawlPreview(scene, "arch.excalidraw")
-	if !errors.Is(err, ErrSceneShareUnsupported) || files != nil {
-		t.Fatalf("CrawlPreview = %v, %v; want ErrSceneShareUnsupported", files, err)
+	files, err := CrawlPreview(scene, "docs/arch.excalidraw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 5 {
+		t.Fatalf("got %d files, want entry + scripts + fonts", len(files))
+	}
+	if files[0].Path != "docs/arch.excalidraw" {
+		t.Fatalf("entry path = %q, want docs/arch.excalidraw", files[0].Path)
+	}
+	if !strings.Contains(files[0].Content, `id="crit-excalidraw-scene"`) {
+		t.Fatal("entry is not canvas HTML with an inlined scene")
+	}
+	if strings.Contains(files[0].Content, `src="/rough.min.js"`) {
+		t.Fatal("entry still has absolute /rough.min.js (must be relative for share)")
+	}
+	if !strings.Contains(files[0].Content, `src="rough.min.js"`) {
+		t.Fatal("entry missing relative rough.min.js")
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+	for _, want := range []string{
+		"docs/rough.min.js",
+		"docs/freehand.min.js",
+		"docs/crit-renderer-excalidraw.js",
+		"docs/crit-excalidraw-canvas.js",
+		"docs/fonts/excalidraw/SHA256SUMS",
+	} {
+		if !got[want] {
+			t.Errorf("missing share file %s", want)
+		}
 	}
 }
 

@@ -2,7 +2,6 @@ package share
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,25 +10,48 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
-// `crit share --preview arch.excalidraw` stops with the reason before
-// anything is uploaded.
-func TestPostPreviewShare_RefusesExcalidrawScene(t *testing.T) {
+// `crit share --preview arch.excalidraw` uploads a canvas HTML entry (scene
+// inlined) plus the relative scripts/fonts, not the raw JSON.
+func TestPostPreviewShare_ExcalidrawScene(t *testing.T) {
 	scene := filepath.Join(t.TempDir(), "arch.excalidraw")
-	if err := os.WriteFile(scene, []byte(`{"elements":[]}`), 0o644); err != nil {
+	if err := os.WriteFile(scene, []byte(`{"type":"excalidraw","elements":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("crit-web was called: %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != "/api/reviews" {
+			t.Errorf("path = %s, want /api/reviews", r.URL.Path)
+		}
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"http://example.test/r/tok"}`))
 	}))
 	defer srv.Close()
 
-	_, err := postPreviewShare(scene, srv.URL, "", "", "")
-	if !errors.Is(err, session.ErrSceneShareUnsupported) || err.Error() != session.ErrSceneShareUnsupported.Error() {
-		t.Fatalf("err = %v, want just %q", err, session.ErrSceneShareUnsupported)
+	url, err := postPreviewShare(scene, srv.URL, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url != "http://example.test/r/tok" {
+		t.Fatalf("url = %q", url)
+	}
+	if gotBody["review_type"] != "preview" {
+		t.Fatalf("review_type = %v", gotBody["review_type"])
+	}
+	files, _ := gotBody["files"].([]any)
+	if len(files) < 5 {
+		t.Fatalf("files = %d, want canvas entry + assets", len(files))
+	}
+	first, _ := files[0].(map[string]any)
+	content, _ := first["content"].(string)
+	if !strings.Contains(content, `id="crit-excalidraw-scene"`) {
+		t.Fatal("first file is not canvas HTML")
 	}
 }
 
