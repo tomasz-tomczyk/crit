@@ -7,6 +7,66 @@ import (
 	"testing"
 )
 
+func TestIsExcalidrawScene(t *testing.T) {
+	for path, want := range map[string]bool{
+		"arch.excalidraw":         true,
+		"docs/Arch.EXCALIDRAW":    true,
+		"arch.excalidraw.json":    true,
+		"arch.Excalidraw.JSON":    true,
+		"arch.json":               false,
+		"excalidraw.html":         false,
+		"arch.excalidraw.md":      false,
+		"notes/excalidraw/a.html": false,
+	} {
+		if got := IsExcalidrawScene(path); got != want {
+			t.Errorf("IsExcalidrawScene(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// A scene crawl becomes a canvas HTML entry plus the relative scripts/fonts
+// the page needs under crit-web's raw preview tree.
+func TestCrawlPreview_ExcalidrawScene(t *testing.T) {
+	scene := filepath.Join(t.TempDir(), "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"type":"excalidraw","elements":[{"id":"a","type":"rectangle","x":0,"y":0,"width":10,"height":10}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := CrawlPreview(scene, "docs/arch.excalidraw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 5 {
+		t.Fatalf("got %d files, want entry + scripts + fonts", len(files))
+	}
+	if files[0].Path != "docs/arch.excalidraw" {
+		t.Fatalf("entry path = %q, want docs/arch.excalidraw", files[0].Path)
+	}
+	if !strings.Contains(files[0].Content, `id="crit-excalidraw-scene"`) {
+		t.Fatal("entry is not canvas HTML with an inlined scene")
+	}
+	if strings.Contains(files[0].Content, `src="/rough.min.js"`) {
+		t.Fatal("entry still has absolute /rough.min.js (must be relative for share)")
+	}
+	if !strings.Contains(files[0].Content, `src="rough.min.js"`) {
+		t.Fatal("entry missing relative rough.min.js")
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+	for _, want := range []string{
+		"docs/rough.min.js",
+		"docs/freehand.min.js",
+		"docs/crit-renderer-excalidraw.js",
+		"docs/crit-excalidraw-canvas.js",
+		"docs/fonts/excalidraw/SHA256SUMS",
+	} {
+		if !got[want] {
+			t.Errorf("missing share file %s", want)
+		}
+	}
+}
+
 func TestCrawlHTMLFile(t *testing.T) {
 	dir := t.TempDir()
 

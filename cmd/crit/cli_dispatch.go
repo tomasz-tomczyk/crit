@@ -125,9 +125,10 @@ Options:
       --share-url <url>    Share service URL
       --no-open            Do not open a browser
   -q, --quiet              On success, suppress connect/start status, tips, and session summary`},
-	{name: "preview", handler: runPreview, help: `Usage: crit preview [options] <file.html>
+	{name: "preview", handler: runPreview, help: `Usage: crit preview [options] <file.html|file.excalidraw>
 
-Review a local HTML file in preview mode.
+Review a local HTML file in preview mode. An Excalidraw scene opens as a
+canvas: hover an element to outline it, click it to comment on it.
 
 Options:
   -p, --port <port>       Port to listen on
@@ -316,7 +317,7 @@ Review:
   crit                                       Auto-detect changed files via git
   crit <file|dir> [...]                      Review specific files or directories
   crit live <url>                            Review a running web app in live mode
-  crit preview <file.html>                   Review a local HTML file in preview mode
+  crit preview <file.html|file.excalidraw>   Review an HTML file or Excalidraw canvas in preview mode
   crit --pr <num|url>                        Review a GitHub pull request
   crit --mr <iid|url>                        Review a GitLab merge request
   crit --range <base>..<head>                Review a commit range

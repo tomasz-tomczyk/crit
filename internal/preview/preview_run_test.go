@@ -23,7 +23,7 @@ func TestRunPreview_NoFileExits(t *testing.T) {
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
 			t.Fatalf("exit error = %v, want exit code 1; output=%q", err, output)
 		}
-		if got := string(output); !strings.Contains(got, "Usage: crit preview <file.html>") {
+		if got := string(output); !strings.Contains(got, "Usage: crit preview <file.html|file.excalidraw>") {
 			t.Fatalf("stderr = %q, want usage message", got)
 		}
 		return

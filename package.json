@@ -2,11 +2,15 @@
   "name": "crit",
   "private": true,
   "dependencies": {
+    "@excalidraw/laser-pointer": "1.3.2",
     "@pierre/diffs": "1.5.2",
     "@sanity/diff-match-patch": "3.2.1",
     "dompurify": "3.4.17",
     "markdown-it": "15.0.3",
-    "mermaid": "12.2.0"
+    "mermaid": "12.2.0",
+    "perfect-freehand": "1.2.0",
+    "points-on-curve": "1.0.1",
+    "roughjs": "4.6.6"
   },
   "scripts": {
     "update-deps": "node copy-deps.js",

@@ -8,6 +8,8 @@ const SINGLE_PORT = process.env.CRIT_TEST_SINGLE_PORT || '3125';
 const MULTI_PORT = process.env.CRIT_TEST_MULTI_PORT || '3127';
 const RANGE_PORT = process.env.CRIT_TEST_RANGE_PORT || '3128';
 const LIVE_PORT = process.env.CRIT_TEST_LIVE_PORT || '3129';
+// Preview of a lone Excalidraw scene (the canvas page).
+const PREVIEW_PORT = process.env.CRIT_TEST_PREVIEW_PORT || '3126';
 const SHARE_PORT = process.env.CRIT_TEST_SHARE_PORT || '3132';
 // Stub crit-web backends for the share-transport project. Specs talk to them
 // directly for seeding and assertions, so they need the ports too.
@@ -95,6 +97,14 @@ const allFixtureServers: FixtureServer[] = [
     stdout: 'pipe',
   },
   {
+    key: 'preview',
+    command: `bash setup-fixtures-preview.sh ${PREVIEW_PORT}`,
+    url: `http://localhost:${PREVIEW_PORT}/api/session`,
+    reuseExistingServer: true,
+    timeout: 30_000,
+    stdout: 'pipe',
+  },
+  {
     key: 'share',
     command: `bash setup-fixtures-sharetransport.sh ${SHARE_PORT} ${STUB_PORT} ${STUB2_PORT}`,
     url: `http://localhost:${SHARE_PORT}/api/session`,
@@ -157,7 +167,7 @@ export default defineConfig({
   projects: [
     {
       name: 'git-mode',
-      testMatch: /^(?!.*\.(filemode|singlefile|multifile|rangemode|mobile|livemode|sharetransport|perf|huge)\.).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.(filemode|singlefile|multifile|rangemode|mobile|livemode|previewmode|sharetransport|perf|huge)\.).*\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         baseURL: `http://localhost:${GIT_PORT}`,
@@ -218,6 +228,17 @@ export default defineConfig({
         // uses as its postMessage targetOrigin. If the chrome page is loaded
         // via 127.0.0.1, agent-ready postMessages get dropped (origin mismatch).
         baseURL: `http://localhost:${LIVE_PORT}/live`,
+      },
+    },
+    {
+      // A lone Excalidraw scene in preview mode: the canvas page in the
+      // preview iframe, with pins on its elements. `localhost` for the same
+      // reason as live-mode: the agent posts to the origin of its script tag.
+      name: 'preview-mode',
+      testMatch: /\.previewmode\.spec\.ts$/,
+      use: {
+        browserName: 'chromium',
+        baseURL: `http://localhost:${PREVIEW_PORT}`,
       },
     },
     {

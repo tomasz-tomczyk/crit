@@ -8,8 +8,10 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
+	webassets "github.com/tomasz-tomczyk/crit/web"
 	"golang.org/x/net/html"
 )
 
@@ -63,16 +65,17 @@ func relWithin(base, target string) string {
 
 // textExtensions lists file extensions served as plain text (not base64).
 var textExtensions = map[string]bool{
-	".html": true,
-	".htm":  true,
-	".css":  true,
-	".js":   true,
-	".json": true,
-	".svg":  true,
-	".xml":  true,
-	".txt":  true,
-	".map":  true,
-	".mjs":  true,
+	".html":       true,
+	".htm":        true,
+	".css":        true,
+	".js":         true,
+	".json":       true,
+	".svg":        true,
+	".xml":        true,
+	".txt":        true,
+	".map":        true,
+	".mjs":        true,
+	".excalidraw": true, // shared canvas entry is HTML under the scene's path
 }
 
 var (
@@ -126,13 +129,28 @@ func (c *previewCollector) tryAdd(rel string) (isCSS bool, err error) {
 	return strings.HasSuffix(strings.ToLower(rel), ".css"), nil
 }
 
+// IsExcalidrawScene reports whether path names an Excalidraw scene
+// (*.excalidraw or *.excalidraw.json, any case), which preview mode opens as
+// a canvas.
+func IsExcalidrawScene(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".excalidraw") || strings.HasSuffix(lower, ".excalidraw.json")
+}
+
 // CrawlPreview reads an HTML file and all its local asset references,
 // returning them as ShareFile entries suitable for uploading to crit-web.
 // The HTML is the first entry, keyed entryPath (see PreviewEntryPath); assets
 // are keyed relative to entryPath's directory. CSS files are followed one
 // level deep to discover url() and @import refs. Missing assets are silently
 // skipped. Total size is capped at maxPreviewBytes.
+//
+// An Excalidraw scene becomes a canvas HTML page (scene inlined) plus the
+// rough/freehand/renderer/canvas scripts and fonts, keyed next to the entry
+// so relative URLs resolve under crit-web's raw preview tree.
 func CrawlPreview(htmlPath, entryPath string) ([]ShareFile, error) {
+	if IsExcalidrawScene(htmlPath) {
+		return crawlExcalidrawPreview(htmlPath, entryPath)
+	}
 	absHTML, err := filepath.Abs(htmlPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -158,6 +176,44 @@ func CrawlPreview(htmlPath, entryPath string) ([]ShareFile, error) {
 		return nil, err
 	}
 
+	return c.files, nil
+}
+
+// crawlExcalidrawPreview builds a shareable canvas preview: HTML with the
+// scene inlined (under entryPath) plus the scripts and fonts the page loads
+// relatively, so crit-web's sandboxed raw tree can render it.
+func crawlExcalidrawPreview(scenePath, entryPath string) ([]ShareFile, error) {
+	absScene, err := filepath.Abs(scenePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+	scene, err := os.ReadFile(absScene)
+	if err != nil {
+		return nil, fmt.Errorf("read scene: %w", err)
+	}
+	page, err := webassets.BuildExcalidrawCanvasPage(filepath.Base(absScene), scene)
+	if err != nil {
+		return nil, err
+	}
+	c := newPreviewCollector(filepath.Dir(absScene), path.Dir(entryPath))
+	if err := c.add(filepath.Base(absScene), entryPath, page); err != nil {
+		return nil, err
+	}
+	assets, err := webassets.ExcalidrawShareAssets()
+	if err != nil {
+		return nil, err
+	}
+	// Stable order for tests and smaller diffs.
+	names := make([]string, 0, len(assets))
+	for name := range assets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := c.add(name, path.Join(c.keyDir, name), assets[name]); err != nil {
+			return nil, err
+		}
+	}
 	return c.files, nil
 }
 

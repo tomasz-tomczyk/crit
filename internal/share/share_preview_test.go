@@ -13,6 +13,48 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
+// `crit share --preview arch.excalidraw` uploads a canvas HTML entry (scene
+// inlined) plus the relative scripts/fonts, not the raw JSON.
+func TestPostPreviewShare_ExcalidrawScene(t *testing.T) {
+	scene := filepath.Join(t.TempDir(), "arch.excalidraw")
+	if err := os.WriteFile(scene, []byte(`{"type":"excalidraw","elements":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/reviews" {
+			t.Errorf("path = %s, want /api/reviews", r.URL.Path)
+		}
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"http://example.test/r/tok"}`))
+	}))
+	defer srv.Close()
+
+	url, err := postPreviewShare(scene, srv.URL, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url != "http://example.test/r/tok" {
+		t.Fatalf("url = %q", url)
+	}
+	if gotBody["review_type"] != "preview" {
+		t.Fatalf("review_type = %v", gotBody["review_type"])
+	}
+	files, _ := gotBody["files"].([]any)
+	if len(files) < 5 {
+		t.Fatalf("files = %d, want canvas entry + assets", len(files))
+	}
+	first, _ := files[0].(map[string]any)
+	content, _ := first["content"].(string)
+	if !strings.Contains(content, `id="crit-excalidraw-scene"`) {
+		t.Fatal("first file is not canvas HTML")
+	}
+}
+
 // TestParseShareFlagsPreview verifies the --preview flag is parsed into the
 // shareFlags.preview field and does not consume positional file arguments.
 func TestParseShareFlagsPreview(t *testing.T) {

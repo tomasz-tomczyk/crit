@@ -40,3 +40,4 @@ web/*.min.js -text diff
 *.zip  binary
 *.tar  binary
 *.gz   binary
+*.woff2 binary
