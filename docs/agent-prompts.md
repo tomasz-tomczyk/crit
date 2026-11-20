@@ -41,7 +41,7 @@ over the diff and needs different agent instructions.
 
 ## Configuration
 
-**Global:** `~/.crit.config.json` and/or `~/.crit/prompts/`  
+**Global:** the global config file and/or the user prompts directory: `~/.config/crit/config.json` and `~/.config/crit/prompts/` (honouring `$XDG_CONFIG_HOME`), or `~/.crit.config.json` and `~/.crit/prompts/` on existing installs. See [Where Crit keeps its files](../README.md#where-crit-keeps-its-files).  
 **Project:** `.crit.config.json` and/or `.crit/prompts/` in the repo root (committable, team-shared)
 
 ### How paths are resolved
@@ -51,7 +51,7 @@ over the diff and needs different agent instructions.
 1. **Project** `.crit.config.json` `prompts` entry (mode-specific key, then generic)
 2. **Global** `~/.crit.config.json` `prompts` entry (same fallback order)
 3. **Project** conventional file under `.crit/prompts/` (e.g. `on_finish_unresolved.diff.md`, then `on_finish_unresolved.md`)
-4. **Global** conventional file under `~/.crit/prompts/` (same naming)
+4. **Global** conventional file under the user prompts directory, `~/.config/crit/prompts/` or `~/.crit/prompts/` (same naming)
 5. **Stock Crit** built-in defaults (when nothing above matches)
 
 Story mode is the exception: project/global `:story` overrides are checked
@@ -61,7 +61,7 @@ Config `file:` paths and conventional filenames both use `.` instead of `:` for 
 
 You do **not** need a `prompts` map entry when the file already lives at the conventional path. Install stock templates the same way as agent integrations:
 
-- **Global:** `cd ~ && crit install prompts` → copies to `~/.crit/prompts/`
+- **Global:** `cd ~ && crit install prompts` → copies to the user prompts directory (`~/.config/crit/prompts/`, or `~/.crit/prompts/` on existing installs)
 - **Project:** from your repo root, `crit install prompts` → copies to `.crit/prompts/`
 
 Or copy manually from [`integrations/prompts/`](../integrations/prompts/). Crit picks them up automatically (project beats global).

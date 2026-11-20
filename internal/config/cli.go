@@ -33,9 +33,10 @@ func RunConfig(args []string) error {
 func PrintConfigHelp() {
 	fmt.Fprint(os.Stderr, `Usage: crit config [--generate|-g|--migrate]
 
-Show the configuration merged from ~/.crit.config.json and the project
-.crit.config.json as JSON, or print a template with every key and its default
-using --generate. CLI flags and environment variables are not reflected in the
+Show the configuration merged from the global config file
+(~/.config/crit/config.json, or ~/.crit.config.json on existing installs) and
+the project .crit.config.json as JSON, or print a template with every key and
+its default using --generate. CLI flags and environment variables are not reflected in the
 resolved output.
 
 Use --migrate to atomically convert legacy share_url/auth fields to
@@ -44,8 +45,8 @@ share_targets while preserving unknown configuration keys.
 Keys worth knowing:
   output <dir>
       Crit data root for reviews. Reviews live in <dir>/reviews/<key>/, keyed
-      per working directory and branch, the same layout as the default
-      ~/.crit.
+      per working directory and branch, the same layout as the default state
+      directory (~/.local/state/crit, or ~/.crit on existing installs).
 
   plan_approve_mode <mode>
       Claude Code permission mode to switch to after a plan-hook approval, for
