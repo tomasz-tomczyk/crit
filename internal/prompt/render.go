@@ -29,6 +29,7 @@ type Problem struct {
 	Error  string `json:"error"`
 }
 
+// String formats the problem as "hook (source): error" for CLI output.
 func (p Problem) String() string {
 	return fmt.Sprintf("%s (%s): %s", p.Hook, p.Source, p.Error)
 }

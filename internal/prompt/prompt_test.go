@@ -35,21 +35,28 @@ func TestPromptMode(t *testing.T) {
 	}
 }
 
-func TestDiscoverPromptFile_ModeSpecific(t *testing.T) {
+// A mode-specific prompt file wins over the generic one for that mode.
+func TestRenderFinish_DiscoveredModeSpecificFile(t *testing.T) {
 	dir := t.TempDir()
 	promptsDir := filepath.Join(dir, ".crit", "prompts")
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(promptsDir, "on_finish_unresolved.diff.md"), []byte("DIFF TEMPLATE"), 0644); err != nil {
-		t.Fatal(err)
+	for name, body := range map[string]string{
+		"on_finish_unresolved.md":      "GENERIC",
+		"on_finish_unresolved.diff.md": "DIFF TEMPLATE",
+	} {
+		if err := os.WriteFile(filepath.Join(promptsDir, name), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	text, source, ok := prompt.DiscoverPromptFile(dir, prompt.HookFinishUnresolved, "diff", prompt.LayerProject)
-	if !ok || text != "DIFF TEMPLATE" {
-		t.Fatalf("discover = %q %q %v", text, source, ok)
+	ctx := prompt.Context{Mode: "diff", UnresolvedCount: 1, InternalSessionMode: "git"}
+	result := prompt.RenderFinish(nil, nil, dir, "", true, ctx)
+	if result.Prompt != "DIFF TEMPLATE" {
+		t.Fatalf("prompt = %q", result.Prompt)
 	}
-	if source != "project:.crit/prompts/on_finish_unresolved.diff.md" {
-		t.Fatalf("source = %q", source)
+	if result.Meta == nil || result.Meta.TemplateSource != "project:.crit/prompts/on_finish_unresolved.diff.md" {
+		t.Fatalf("meta = %+v", result.Meta)
 	}
 }
 

@@ -31,15 +31,14 @@ func BuildExcalidrawCanvasPage(title string, scene []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal scene: %w", err)
 	}
-	body := strings.NewReplacer(
+	pairs := []string{
 		"{{TITLE}}", html.EscapeString(title),
 		"{{SCENE}}", string(sceneJSON),
-		`src="/rough.min.js"`, `src="rough.min.js"`,
-		`src="/freehand.min.js"`, `src="freehand.min.js"`,
-		`src="/crit-renderer-excalidraw.js"`, `src="crit-renderer-excalidraw.js"`,
-		`src="/crit-excalidraw-canvas.js"`, `src="crit-excalidraw-canvas.js"`,
-	).Replace(string(page))
-	return []byte(body), nil
+	}
+	for _, name := range excalidrawShareScripts {
+		pairs = append(pairs, `src="/`+name+`"`, `src="`+name+`"`)
+	}
+	return []byte(strings.NewReplacer(pairs...).Replace(string(page))), nil
 }
 
 // ExcalidrawShareAssets returns the JS and font files that must sit beside a

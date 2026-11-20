@@ -1,4 +1,4 @@
-package server
+package webassets
 
 import (
 	"slices"
@@ -15,10 +15,10 @@ func TestShippedLanguages(t *testing.T) {
 			t.Errorf("embedded language list is missing %q", want)
 		}
 	}
-	if _, err := compileLanguages(map[string]string{"*.gts": "glimmer-ts", "*.qmd": "markdown"}); err != nil {
-		t.Errorf("compileLanguages: %v", err)
+	if _, err := CompileLanguages(map[string]string{"*.gts": "glimmer-ts", "*.qmd": "markdown"}); err != nil {
+		t.Errorf("CompileLanguages: %v", err)
 	}
-	if _, err := compileLanguages(map[string]string{"*.x": "not-a-grammar"}); err == nil {
-		t.Error("compileLanguages accepted an unknown grammar")
+	if _, err := CompileLanguages(map[string]string{"*.x": "not-a-grammar"}); err == nil {
+		t.Error("CompileLanguages accepted an unknown grammar")
 	}
 }

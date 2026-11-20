@@ -25,7 +25,7 @@ import (
 // for every other remote image; a click loads it in a sandboxed frame served
 // by /remote-image, which has its own policy.
 
-// remoteImagesMeta is the empty tag in index.html that serveHTML fills with
+// remoteImagesMeta is the empty tag in index.html that serveShell fills with
 // the remote_images allowlist, so the frontend matches the policy without
 // waiting for /api/config.
 const remoteImagesMeta = `<meta name="crit-remote-images" content="[]">`

@@ -258,6 +258,26 @@ type ShareFile struct {
 	Status    string `json:"status,omitempty"`
 	Generated bool   `json:"generated,omitempty"`
 	Encoding  string `json:"encoding,omitempty"`
+	// Lang and FileType carry a `languages` config override, the same
+	// values /api/session sends as lang and file_type. Empty when unknown
+	// (crawled preview assets), so crit-web falls back to its own detection.
+	Lang     string `json:"lang,omitempty"`
+	FileType string `json:"file_type,omitempty"`
+}
+
+// ShareLanguage returns the lang and file_type a share sends for path under
+// the `languages` rules: lang is "" unless a rule sets one, and file_type is
+// "markdown" or "code".
+func ShareLanguage(languages config.LanguageRules, path string) (lang, fileType string) {
+	return languages.Lang(path), detectFileType(languages, path)
+}
+
+// shareFileType returns fileType when it is one a share carries, else "".
+func shareFileType(fileType string) string {
+	if fileType == "markdown" || fileType == "code" {
+		return fileType
+	}
+	return ""
 }
 
 // ensureFileLoaded loads a lazy file using the session's current focus.
@@ -2280,6 +2300,8 @@ func (s *Session) LoadShareFilesFromDisk() []ShareFile {
 		orphaned              bool
 		generated             bool
 		hasUnresolvedComments bool
+		lang                  string
+		fileType              string
 	}
 	infos := make([]fileInfo, 0, len(s.Files))
 	for _, f := range s.Files {
@@ -2290,7 +2312,16 @@ func (s *Session) LoadShareFilesFromDisk() []ShareFile {
 				break
 			}
 		}
-		infos = append(infos, fileInfo{path: f.Path, absPath: f.AbsPath, status: f.Status, orphaned: f.Orphaned, generated: f.Generated, hasUnresolvedComments: hasUnresolved})
+		infos = append(infos, fileInfo{
+			path:                  f.Path,
+			absPath:               f.AbsPath,
+			status:                f.Status,
+			orphaned:              f.Orphaned,
+			generated:             f.Generated,
+			hasUnresolvedComments: hasUnresolved,
+			lang:                  s.languages.Lang(f.Path),
+			fileType:              shareFileType(f.FileType),
+		})
 	}
 	s.mu.RUnlock()
 
@@ -2313,7 +2344,14 @@ func (s *Session) LoadShareFilesFromDisk() []ShareFile {
 		if err != nil {
 			continue // file may have been removed since session started
 		}
-		files = append(files, ShareFile{Path: fi.path, Content: string(data), Status: fi.status, Generated: fi.generated})
+		files = append(files, ShareFile{
+			Path:      fi.path,
+			Content:   string(data),
+			Status:    fi.status,
+			Generated: fi.generated,
+			Lang:      fi.lang,
+			FileType:  fi.fileType,
+		})
 	}
 	return files
 }

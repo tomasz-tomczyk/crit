@@ -29,15 +29,6 @@ func hookKeyToFilename(key string) string {
 	return strings.ReplaceAll(key, ":", ".") + ".md"
 }
 
-// DiscoverPromptFile loads the first matching conventional prompt file under baseDir/.crit/prompts/.
-func DiscoverPromptFile(baseDir, hook, mode string, layer Layer) (text, sourceLabel string, ok bool) {
-	t, _ := discoverPromptTemplate(baseDir, hook, mode, layer, false)
-	if t == nil {
-		return "", "", false
-	}
-	return t.text, t.source, true
-}
-
 func discoverPromptTemplate(baseDir, hook, mode string, layer Layer, finish bool) (*resolvedTemplate, *Problem) {
 	specific, generic := ResolveHookKey(hook, mode)
 	keys := []string{specific}
