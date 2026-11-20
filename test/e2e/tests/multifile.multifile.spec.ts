@@ -58,12 +58,12 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('file tree lists all files including directory contents, with nested names and count', async ({ page, request }) => {
-    // 8 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, main.py.tmpl, lib/utils.ex, lib/config.ex
-    await expect(page.locator('.tree-file')).toHaveCount(8);
+    // 9 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, main.py.tmpl, greeting.gts, lib/utils.ex, lib/config.ex
+    await expect(page.locator('.tree-file')).toHaveCount(9);
     // lib/utils.ex and lib/config.ex appear by name
     await expect(page.locator('.tree-file-name', { hasText: 'utils.ex' })).toBeVisible();
     await expect(page.locator('.tree-file-name', { hasText: 'config.ex' })).toBeVisible();
-    await expect(page.locator('#fileTreeStats')).toContainText('8');
+    await expect(page.locator('#fileTreeStats')).toContainText('9');
     // The session is a files-mode session.
     const session = await (await request.get('/api/session')).json();
     expect(session.mode).toBe('files');
@@ -79,7 +79,7 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
-    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl lib/
+    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl greeting.gts lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
     await expect(page.locator('.pierre-file-header').first()).toBeVisible();
     expect(await listOrder(page)).toEqual([
@@ -89,6 +89,7 @@ test.describe('Multi-File Mode — Loading', () => {
       'flow.mmd',
       'seq.mmd',
       'main.py.tmpl',
+      'greeting.gts',
       'lib/config.ex',
       'lib/utils.ex',
     ]);
@@ -115,6 +116,20 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
     await expect(diffLine(section, 1)).toContainText('from app import agents');
     // `.tmpl` alone is plain text; the `.py` before it gives Python tokens
     await expect(section.locator('code[data-code] [data-content] span[style*="--diffs-token"]').first()).toBeVisible();
+  });
+
+  test('Ember .gts file highlights its TypeScript and its <template> block', async ({ page }) => {
+    const section = await revealFile(page, 'greeting.gts');
+    await expect(diffLine(section, 1)).toContainText('import Component');
+    // Distinct token colours in a line; a grammar missing from the bundle
+    // falls back to single-colour plain text.
+    const colours = (line: number) => diffLine(section, line).evaluate(el => new Set(
+      Array.from(el.querySelectorAll('span[style*="--diffs-token-light"]'))
+        .map(s => (s as HTMLElement).style.getPropertyValue('--diffs-token-light').trim())).size);
+    // export default class Greeting extends Component<Signature> {
+    await expect.poll(() => colours(6)).toBeGreaterThanOrEqual(3);
+    // <button type="button" {{on "click" this.greet}}>Hi {{@name}}</button>
+    await expect.poll(() => colours(10)).toBeGreaterThanOrEqual(3);
   });
 
   test('Elixir file renders with code content', async ({ page }) => {
