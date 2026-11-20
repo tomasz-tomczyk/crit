@@ -44,6 +44,7 @@ func (c Context) TemplateData() map[string]any {
 		"comments_json":            c.CommentsJSON,
 		"approved":                 c.Approved,
 		"internal_session_mode":    c.InternalSessionMode,
+		"session_stats":            nil,
 		"plan_hook":                c.PlanHook,
 	}
 	if c.SessionStats != nil {

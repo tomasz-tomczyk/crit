@@ -2590,6 +2590,22 @@ textarea.drag-active {
   color: var(--crit-finish-body-fg);
 }
 
+.prompt-problems:not([hidden]) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px;
+  background: var(--crit-bg-card);
+  border-bottom: 1px solid var(--crit-border);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.prompt-problems ul {
+  margin-inline-start: 20px;
+  white-space: pre-line;
+}
+
 /* ===== Waiting Overlay ===== */
 .waiting-overlay {
   display: none;
@@ -2615,6 +2631,20 @@ textarea.drag-active {
 }
 .waiting-dialog h3 { font-size: 20px; color: var(--crit-green); margin-bottom: 12px; }
 .waiting-dialog p { font-size: 14px; color: var(--crit-editor-fg-secondary); margin-bottom: 8px; }
+
+.finish-error-dialog {
+  margin: auto;
+  padding: 24px;
+  color: var(--crit-editor-fg);
+  overflow: auto;
+}
+.finish-error-dialog::backdrop { background: var(--crit-overlay-bg); }
+.finish-error-dialog h3 { color: var(--crit-editor-fg); }
+.finish-error-dialog p {
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.finish-error-dialog form { margin-top: 16px; }
 
 /* -- Header section -- */
 .waiting-header {

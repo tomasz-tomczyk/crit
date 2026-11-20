@@ -137,6 +137,15 @@
   </div>
 </div>
 
+<section class="prompt-problems" id="promptProblems" aria-label="Finish prompt problems" hidden>
+  <div>
+    <strong>Finish prompt problems</strong>
+    <ul id="promptProblemList" aria-live="polite"></ul>
+    <span id="promptRecheckStatus" role="status"></span>
+  </div>
+  <button type="button" class="btn" id="promptRecheckBtn">Recheck</button>
+</section>
+
 <div id="toc" class="toc toc-hidden">
   <div class="toc-header">
     <span>Contents</span>
@@ -221,6 +230,15 @@
     <div class="pr-panel-body" id="prPanelBody"></div>
   </div>
 </div>
+
+<dialog class="waiting-dialog finish-error-dialog" id="finishErrorDialog" aria-labelledby="finishErrorHeading" aria-describedby="finishErrorMessage">
+  <h3 id="finishErrorHeading">Unable to finish review</h3>
+  <p id="finishErrorMessage"></p>
+  <p>Fix the prompt, then try again.</p>
+  <form method="dialog">
+    <button type="submit" class="btn btn-primary" autofocus>Back to review</button>
+  </form>
+</dialog>
 
 <div class="waiting-overlay" id="waitingOverlay" role="dialog" aria-modal="true" aria-labelledby="waitingHeading">
   <div class="waiting-dialog" id="waitingDialog">

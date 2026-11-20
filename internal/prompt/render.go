@@ -15,146 +15,109 @@ const (
 	LayerProject Layer = "project"
 )
 
-// ResolvedTemplate is a loaded template ready to render.
-type ResolvedTemplate struct {
-	Text   string
-	Hook   string
-	Source string // e.g. project:.crit/prompts/foo.md
-	Layer  Layer
+type resolvedTemplate struct {
+	text   string
+	hook   string
+	source string
+	layer  Layer
 }
 
-// ResolveFinishTemplate picks the effective template for a finish hook.
-// Project values override global. Returns nil when no custom template is configured.
-func ResolveFinishTemplate(globalPrompts, projectPrompts map[string]string, projectDir, homeDir, hook, mode string, useProject bool) (*ResolvedTemplate, error) {
-	if v, key := LookupPrompt(projectPrompts, hook, mode); v != "" && useProject {
-		text, err := LoadTemplate(v, projectDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: loading project prompt %s: %v\n", key, err)
-		} else {
-			return &ResolvedTemplate{
-				Text:   text,
-				Hook:   key,
-				Source: TemplateSource(string(LayerProject), v),
-				Layer:  LayerProject,
-			}, nil
-		}
+// Problem identifies an invalid finish prompt.
+type Problem struct {
+	Hook   string `json:"hook"`
+	Source string `json:"source"`
+	Error  string `json:"error"`
+}
+
+func (p Problem) String() string {
+	return fmt.Sprintf("%s (%s): %s", p.Hook, p.Source, p.Error)
+}
+
+func (t resolvedTemplate) problem(err error) *Problem {
+	return &Problem{Hook: t.hook, Source: t.source, Error: err.Error()}
+}
+
+func resolveCustomTemplate(globalPrompts, projectPrompts map[string]string, projectDir, homeDir, hook, mode string, useProject, finish bool) (*resolvedTemplate, *Problem) {
+	type layerConfig struct {
+		prompts map[string]string
+		dir     string
+		name    Layer
 	}
-	if v, key := LookupPrompt(globalPrompts, hook, mode); v != "" {
-		text, err := LoadTemplate(v, homeDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: loading global prompt %s: %v\n", key, err)
+	var layers []layerConfig
+	if useProject {
+		layers = append(layers, layerConfig{projectPrompts, projectDir, LayerProject})
+	}
+	layers = append(layers, layerConfig{globalPrompts, homeDir, LayerGlobal})
+	for _, layer := range layers {
+		value, key := LookupPrompt(layer.prompts, hook, mode)
+		if value == "" {
+			continue
+		}
+		text, err := LoadTemplate(value, layer.dir)
+		t := &resolvedTemplate{text: text, hook: key, source: TemplateSource(string(layer.name), value), layer: layer.name}
+		if err == nil {
+			return t, nil
+		}
+		if finish {
+			return nil, t.problem(fmt.Errorf("loading template: %w", err))
+		}
+		fmt.Fprintf(os.Stderr, "Warning: loading %s prompt %s: %v\n", layer.name, key, err)
+		if layer.name == LayerGlobal {
 			return nil, nil
 		}
-		return &ResolvedTemplate{
-			Text:   text,
-			Hook:   key,
-			Source: TemplateSource(string(LayerGlobal), v),
-			Layer:  LayerGlobal,
-		}, nil
 	}
-	if useProject {
-		if text, source, ok := DiscoverPromptFile(projectDir, hook, mode, LayerProject); ok {
-			specific, _ := ResolveHookKey(hook, mode)
-			return &ResolvedTemplate{
-				Text:   text,
-				Hook:   specific,
-				Source: source,
-				Layer:  LayerProject,
-			}, nil
+	for _, layer := range layers {
+		if t, problem := discoverPromptTemplate(layer.dir, hook, mode, layer.name, finish); t != nil || problem != nil {
+			return t, problem
 		}
-	}
-	if text, source, ok := DiscoverPromptFile(homeDir, hook, mode, LayerGlobal); ok {
-		specific, _ := ResolveHookKey(hook, mode)
-		return &ResolvedTemplate{
-			Text:   text,
-			Hook:   specific,
-			Source: source,
-			Layer:  LayerGlobal,
-		}, nil
 	}
 	return nil, nil
 }
 
-// ResolveFinishTemplateSpecific is like ResolveFinishTemplate, but does not
-// fall back from a mode-specific hook to the generic hook. Pass mode="" to
-// resolve only the generic hook.
-func ResolveFinishTemplateSpecific(globalPrompts, projectPrompts map[string]string, projectDir, homeDir, hook, mode string, useProject bool) (*ResolvedTemplate, error) {
-	key := hook
-	if mode != "" {
-		key, _ = ResolveHookKey(hook, mode)
-	}
-	if v, ok := projectPrompts[key]; ok && strings.TrimSpace(v) != "" && useProject {
-		text, err := LoadTemplate(v, projectDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: loading project prompt %s: %v\n", key, err)
-		} else {
-			return &ResolvedTemplate{
-				Text:   text,
-				Hook:   key,
-				Source: TemplateSource(string(LayerProject), v),
-				Layer:  LayerProject,
-			}, nil
+func resolveFinishTemplate(globalPrompts, projectPrompts map[string]string, projectDir, homeDir, hook, mode string, useProject bool) (*resolvedTemplate, *Problem) {
+	specific, _ := ResolveHookKey(hook, mode)
+	if mode == "story" {
+		if t, problem := resolveCustomTemplate(globalPrompts, projectPrompts, projectDir, homeDir, specific, "", useProject, true); t != nil || problem != nil {
+			return t, problem
 		}
-	}
-	if v, ok := globalPrompts[key]; ok && strings.TrimSpace(v) != "" {
-		text, err := LoadTemplate(v, homeDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: loading global prompt %s: %v\n", key, err)
-			return nil, nil
+		if text, source, ok := LoadStockTemplateSpecific(hook, mode); ok {
+			return &resolvedTemplate{text: text, hook: specific, source: source}, nil
 		}
-		return &ResolvedTemplate{
-			Text:   text,
-			Hook:   key,
-			Source: TemplateSource(string(LayerGlobal), v),
-			Layer:  LayerGlobal,
-		}, nil
+		mode = ""
+		specific = hook
 	}
-	if useProject {
-		if text, source, ok := DiscoverPromptFileSpecific(projectDir, hook, mode, LayerProject); ok {
-			return &ResolvedTemplate{
-				Text:   text,
-				Hook:   key,
-				Source: source,
-				Layer:  LayerProject,
-			}, nil
-		}
+	if t, problem := resolveCustomTemplate(globalPrompts, projectPrompts, projectDir, homeDir, hook, mode, useProject, true); t != nil || problem != nil {
+		return t, problem
 	}
-	if text, source, ok := DiscoverPromptFileSpecific(homeDir, hook, mode, LayerGlobal); ok {
-		return &ResolvedTemplate{
-			Text:   text,
-			Hook:   key,
-			Source: source,
-			Layer:  LayerGlobal,
-		}, nil
+	if text, source, ok := LoadStockTemplate(hook, mode); ok {
+		return &resolvedTemplate{text: text, hook: specific, source: source}, nil
 	}
 	return nil, nil
 }
 
-// FinishResult holds the rendered finish prompt (stdout, modal, and API).
+// FinishResult holds the rendered finish prompt or a problem with its template.
 type FinishResult struct {
-	Prompt string
-	Meta   *Meta
+	Prompt  string
+	Meta    *Meta
+	Problem *Problem
 }
 
 // RenderFinish produces the finish prompt for stdout, the finish modal, and API JSON.
 func RenderFinish(globalPrompts, projectPrompts map[string]string, projectDir, homeDir string, useProject bool, ctx Context) FinishResult {
-	hook := HookForFinish(ctx.Approved)
-	mode := ctx.Mode
-
-	text, source, hookKey := resolveTemplateText(globalPrompts, projectPrompts, projectDir, homeDir, hook, mode, useProject)
-	if text == "" {
+	t, problem := resolveFinishTemplate(globalPrompts, projectPrompts, projectDir, homeDir, HookForFinish(ctx.Approved), ctx.Mode, useProject)
+	if problem != nil {
+		return FinishResult{Problem: problem}
+	}
+	if t == nil {
 		return FinishResult{Prompt: "Review finished."}
 	}
-
-	rendered, err := Render(text, ctx)
+	rendered, err := Render(t.text, ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: rendering prompt %s: %v\n", hookKey, err)
-		return FinishResult{Prompt: "Review finished."}
+		return FinishResult{Problem: t.problem(err)}
 	}
-
 	return FinishResult{
 		Prompt: strings.TrimRight(rendered, "\n"),
-		Meta:   &Meta{Hook: hookKey, TemplateSource: source},
+		Meta:   &Meta{Hook: t.hook, TemplateSource: t.source},
 	}
 }
 
@@ -170,45 +133,23 @@ type HookResult struct {
 // stock. data supplies the template variables (snake_case keys, as returned
 // by a TemplateData()-shaped map).
 func RenderHook(globalPrompts, projectPrompts map[string]string, projectDir, homeDir string, useProject bool, hook string, data map[string]any) (HookResult, error) {
-	text, source, hookKey := resolveTemplateText(globalPrompts, projectPrompts, projectDir, homeDir, hook, "", useProject)
-	if text == "" {
+	t, _ := resolveCustomTemplate(globalPrompts, projectPrompts, projectDir, homeDir, hook, "", useProject, false)
+	if t == nil {
+		if text, source, ok := LoadStockTemplate(hook, ""); ok {
+			t = &resolvedTemplate{text: text, hook: hook, source: source}
+		}
+	}
+	if t == nil || t.text == "" {
 		return HookResult{}, fmt.Errorf("no template found for hook %q", hook)
 	}
-	rendered, err := RenderData(text, data)
+	rendered, err := RenderData(t.text, data)
 	if err != nil {
-		return HookResult{}, fmt.Errorf("rendering prompt %s: %w", hookKey, err)
+		return HookResult{}, fmt.Errorf("rendering prompt %s: %w", hook, err)
 	}
 	return HookResult{
 		Text: rendered,
-		Meta: &Meta{Hook: hookKey, TemplateSource: source},
+		Meta: &Meta{Hook: hook, TemplateSource: t.source},
 	}, nil
-}
-
-func resolveTemplateText(globalPrompts, projectPrompts map[string]string, projectDir, homeDir, hook, mode string, useProject bool) (text, source, hookKey string) {
-	if mode == "story" {
-		if resolved, _ := ResolveFinishTemplateSpecific(globalPrompts, projectPrompts, projectDir, homeDir, hook, mode, useProject); resolved != nil {
-			return resolved.Text, resolved.Source, resolved.Hook
-		}
-		if stockText, stockSource, ok := LoadStockTemplateSpecific(hook, mode); ok {
-			specific, _ := ResolveHookKey(hook, mode)
-			return stockText, stockSource, specific
-		}
-		if resolved, _ := ResolveFinishTemplateSpecific(globalPrompts, projectPrompts, projectDir, homeDir, hook, "", useProject); resolved != nil {
-			return resolved.Text, resolved.Source, resolved.Hook
-		}
-		if stockText, stockSource, ok := LoadStockTemplateSpecific(hook, ""); ok {
-			return stockText, stockSource, hook
-		}
-		return "", "", ""
-	}
-	if resolved, _ := ResolveFinishTemplate(globalPrompts, projectPrompts, projectDir, homeDir, hook, mode, useProject); resolved != nil {
-		return resolved.Text, resolved.Source, resolved.Hook
-	}
-	if stockText, stockSource, ok := LoadStockTemplate(hook, mode); ok {
-		specific, _ := ResolveHookKey(hook, mode)
-		return stockText, stockSource, specific
-	}
-	return "", "", ""
 }
 
 // ListProjectPromptSources returns human-readable source paths for project prompt config.

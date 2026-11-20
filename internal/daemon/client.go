@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/prompt"
 )
 
 type daemonInitializationError struct {
@@ -35,6 +37,8 @@ func RunReviewClient(entry SessionEntry, sessionKey string, quiet bool) (approve
 		fmt.Fprintf(os.Stderr, "Error: %s\n", daemonInitError(body))
 		os.Exit(1)
 	}
+
+	printPromptProblems(body)
 
 	resp, err := client.Post(entry.ConnURL()+"/api/review-cycle", "application/json", nil)
 	if err != nil {
@@ -95,6 +99,8 @@ func RunReviewClientRaw(entry SessionEntry, sessionKey, planHook string) (approv
 		return false, "crit daemon failed to initialize: " + message
 	}
 
+	printPromptProblems(body)
+
 	resp, err := client.Post(entry.ConnURL()+"/api/review-cycle?plan_hook="+url.QueryEscape(planHook), "application/json", nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: could not reach daemon: %v\n", err)
@@ -136,7 +142,7 @@ func waitForDaemonReady(client *http.Client, host string, port int, sessionKey, 
 	base := fmt.Sprintf("http://%s:%d", connHost, port)
 	deadline := time.Now().Add(5 * time.Minute)
 	for {
-		resp, reqErr := client.Get(base + "/api/session")
+		resp, reqErr := client.Get(base + "/api/session?check_prompts=1")
 		if reqErr != nil {
 			if sessionKey != "" {
 				if msg := ReadDaemonFailure(sessionKey, daemonGeneration); msg != "" {
@@ -157,6 +163,18 @@ func waitForDaemonReady(client *http.Client, host string, port int, sessionKey, 
 			return 0, nil, fmt.Errorf("daemon did not become ready within 5 minutes")
 		}
 		time.Sleep(readinessPollInterval)
+	}
+}
+
+func printPromptProblems(body []byte) {
+	var ready struct {
+		PromptProblems []prompt.Problem `json:"prompt_problems"`
+	}
+	if err := json.Unmarshal(body, &ready); err != nil {
+		return
+	}
+	for _, problem := range ready.PromptProblems {
+		fmt.Fprintf(os.Stderr, "Warning: finish prompt %s\n", problem)
 	}
 }
 

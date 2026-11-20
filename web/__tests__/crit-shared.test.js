@@ -666,12 +666,10 @@ function makeAutoCloseSandbox(fetchImpl) {
   };
   win.navigator = { clipboard: { writeText: async () => {} } };
   const fn = new Function(
-    'window', 'document', 'setTimeout', 'clearTimeout',
+    'window', 'document', 'setTimeout', 'clearTimeout', 'navigator', 'fetch',
     src + '\nreturn window;',
   );
-  fn(win, doc, fakeSetTimeout, fakeClearTimeout);
-  globalThis.fetch = fetchImpl;
-  globalThis.navigator = win.navigator;
+  fn(win, doc, fakeSetTimeout, fakeClearTimeout, win.navigator, fetchImpl);
   return {
     shared: win.crit.shared,
     win,
@@ -764,6 +762,39 @@ test('scheduleAutoClose: announcement says "1 second", not "1 seconds"', () => {
     els.copyStatusEl.textContent,
     'Approved. This tab closes in 1 second. Press Cancel to stay.',
   );
+});
+
+test('runFinishReview: a broken prompt opens the error dialog and can be retried', async () => {
+  let broken = true;
+  const { shared: s, doc, els, win } = makeAutoCloseSandbox(async (url) => {
+    assert.equal(url, '/api/finish');
+    return broken
+      ? { ok: false, status: 422, json: async () => ({ hook: 'on_finish_unresolved', source: 'global:inline', error: 'unknown field' }) }
+      : { ok: true, json: async () => ({ approved: false, prompt: 'Fixed prompt' }) };
+  });
+  const getById = doc.getElementById;
+  const message = doc.createElement('p');
+  let opened = false;
+  doc.getElementById = (id) => {
+    if (id === 'finishErrorDialog') return { showModal: () => { opened = true; } };
+    if (id === 'finishErrorMessage') return message;
+    return getById(id);
+  };
+  let clipboard = '';
+  win.navigator.clipboard.writeText = async (value) => { clipboard = value; };
+  let waiting = false;
+  const opts = { onWaiting: () => { waiting = true; }, onError: (err) => { throw err; } };
+  assert.equal(await s.runFinishReview(opts), null);
+  assert.equal(opened, true);
+  assert.equal(message.textContent, 'on_finish_unresolved (global:inline): unknown field');
+  assert.equal(waiting, false);
+  assert.equal(clipboard, '');
+
+  broken = false;
+  assert.equal((await s.runFinishReview(opts)).prompt, 'Fixed prompt');
+  assert.equal(els.promptEl.textContent, 'Fixed prompt');
+  assert.equal(clipboard, 'Fixed prompt');
+  assert.equal(waiting, true);
 });
 
 test('runFinishReview: approved + close_on_approve_after_ms set schedules the countdown and eventual close', async () => {

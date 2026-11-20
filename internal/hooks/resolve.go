@@ -132,7 +132,7 @@ func LoadCommand(value, baseDir string) (ExecutableCommand, error) {
 }
 
 // ResolveFinishCommand picks the effective executable command for a finish hook.
-// Resolution order mirrors prompt.ResolveFinishTemplate:
+// Resolution order mirrors finish prompt template resolution in internal/prompt:
 //
 //  1. Project config map (when useProject)
 //  2. Global config map
