@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,12 @@ type Config struct {
 	LiveCookieFile        string            `json:"live_cookie_file,omitempty"`
 	LiveCDPURL            string            `json:"live_cdp_url,omitempty"`
 	Prompts               map[string]string `json:"prompts,omitempty"`
+	// Languages maps file patterns (MatchPattern syntax) to the language Crit
+	// reviews matching files as: "markdown" for a document view, "text" for
+	// no highlighting, or a Shiki grammar name. Global and project maps are
+	// unioned; the project wins for the same pattern. Validated at startup
+	// against the grammars in web/pierre/languages.json.
+	Languages map[string]string `json:"languages,omitempty"`
 	// Hooks are shell commands/scripts executed at the same finish lifecycle
 	// points as prompt templates (on_finish_unresolved / on_finish_approved,
 	// optionally mode-suffixed :files/:diff/:live/:preview). Values use the
@@ -204,6 +211,7 @@ func defaultConfig() generatedConfig {
 		GitLabURL:           "https://gitlab.com",
 		Prompts:             map[string]string{},
 		Hooks:               map[string]string{},
+		Languages:           map[string]string{},
 	}
 }
 
@@ -246,6 +254,7 @@ type generatedConfig struct {
 	GitLabURL       string            `json:"gitlab_url"`
 	Prompts         map[string]string `json:"prompts"`
 	Hooks           map[string]string `json:"hooks"`
+	Languages       map[string]string `json:"languages"`
 }
 
 func (c generatedConfig) String() string {
@@ -396,6 +405,7 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	merged.DefaultMarkdownView = preferProjectString(project.DefaultMarkdownView, merged.DefaultMarkdownView)
 	mergeProjectPrompts(&merged, project)
 	mergeProjectHooks(&merged, project)
+	mergeProjectLanguages(&merged, project)
 	return merged
 }
 
@@ -492,6 +502,19 @@ func mergeProjectPrompts(merged *Config, project Config) {
 	for k, v := range project.Prompts {
 		merged.Prompts[k] = v
 	}
+}
+
+// mergeProjectLanguages unions project language patterns onto merged; the
+// project wins for a pattern both files set.
+// It copies into a new map so the global config's map is never written.
+func mergeProjectLanguages(merged *Config, project Config) {
+	if len(project.Languages) == 0 {
+		return
+	}
+	languages := make(map[string]string, len(merged.Languages)+len(project.Languages))
+	maps.Copy(languages, merged.Languages)
+	maps.Copy(languages, project.Languages)
+	merged.Languages = languages
 }
 
 // mergeProjectHooks unions project hook config onto merged (project overrides

@@ -192,6 +192,25 @@ export default class Greeting extends Component<Signature> {
 }
 GTSFILE
 
+# `languages` config: a Quarto file reviewed as a markdown document, and a
+# .conf file (Pierre detects nginx) highlighted as YAML. HOME is this
+# directory (e2e_export_fake_home), so this file is also the global config.
+cat > report.qmd << 'QMDFILE'
+# Quarterly Report
+
+Revenue grew in **every** region.
+QMDFILE
+
+cat > app.conf << 'CONFFILE'
+server:
+  port: 8080
+  debug: true
+CONFFILE
+
+cat > .crit.config.json << 'CFGFILE'
+{ "languages": { "*.qmd": "markdown", "*.conf": "yaml" } }
+CFGFILE
+
 git add -A && git commit -q -m "initial commit"
 
 # Build crit binary outside the fixture dir (skip if CRIT_BIN is set)
@@ -205,4 +224,4 @@ e2e_export_fake_home "$DIR"
 
 # Run crit in file mode with explicit files AND a directory
 # --share-url enables the Share button so E2E tests can exercise the share payload
-e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl greeting.gts lib/
+e2e_serve "$CRIT_BIN" _serve --no-open --port "$PORT" --share-url "http://localhost:19999" plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl greeting.gts report.qmd app.conf lib/

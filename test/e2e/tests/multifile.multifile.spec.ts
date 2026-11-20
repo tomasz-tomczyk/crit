@@ -58,12 +58,12 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('file tree lists all files including directory contents, with nested names and count', async ({ page, request }) => {
-    // 9 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, main.py.tmpl, greeting.gts, lib/utils.ex, lib/config.ex
-    await expect(page.locator('.tree-file')).toHaveCount(9);
+    // 11 files: plan.md, main.go, handler.ex, flow.mmd, seq.mmd, main.py.tmpl, greeting.gts, report.qmd, app.conf, lib/utils.ex, lib/config.ex
+    await expect(page.locator('.tree-file')).toHaveCount(11);
     // lib/utils.ex and lib/config.ex appear by name
     await expect(page.locator('.tree-file-name', { hasText: 'utils.ex' })).toBeVisible();
     await expect(page.locator('.tree-file-name', { hasText: 'config.ex' })).toBeVisible();
-    await expect(page.locator('#fileTreeStats')).toContainText('9');
+    await expect(page.locator('#fileTreeStats')).toContainText('11');
     // The session is a files-mode session.
     const session = await (await request.get('/api/session')).json();
     expect(session.mode).toBe('files');
@@ -79,7 +79,7 @@ test.describe('Multi-File Mode — Loading', () => {
   });
 
   test('preserves CLI argument order (does not sort alphabetically)', async ({ page }) => {
-    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl greeting.gts lib/
+    // Fixture passes: plan.md main.go handler.ex flow.mmd seq.mmd main.py.tmpl greeting.gts report.qmd app.conf lib/
     // Expected order: CLI args in given order, then directory contents (walked alphabetically)
     await expect(page.locator('.pierre-file-header').first()).toBeVisible();
     expect(await listOrder(page)).toEqual([
@@ -90,6 +90,8 @@ test.describe('Multi-File Mode — Loading', () => {
       'seq.mmd',
       'main.py.tmpl',
       'greeting.gts',
+      'report.qmd',
+      'app.conf',
       'lib/config.ex',
       'lib/utils.ex',
     ]);
@@ -144,6 +146,36 @@ test.describe('Multi-File Mode — Code File Rendering', () => {
     const docWrapper = section.locator('.document-wrapper');
     await expect(docWrapper).toBeVisible();
     await expect(section).toContainText('Migration Plan');
+  });
+});
+
+test.describe('Multi-File Mode — languages config', () => {
+  test.beforeEach(async ({ page, request }) => {
+    await clearAllComments(request);
+    await loadPage(page);
+  });
+
+  test('the session reports the configured file type and language', async ({ request }) => {
+    const session = await (await request.get('/api/session')).json();
+    const byPath = Object.fromEntries(session.files.map((f: { path: string }) => [f.path, f]));
+    expect(byPath['report.qmd']).toMatchObject({ file_type: 'markdown' });
+    expect(byPath['report.qmd'].lang).toBeUndefined();
+    expect(byPath['app.conf']).toMatchObject({ file_type: 'code', lang: 'yaml' });
+    expect(byPath['main.go'].lang).toBeUndefined();
+  });
+
+  test('a .qmd file matched as markdown renders as a document', async ({ page }) => {
+    const section = await revealFile(page, 'report.qmd');
+    await expect(section.locator('.document-wrapper')).toBeVisible();
+    await expect(section.locator('.document-wrapper strong')).toHaveText('every');
+  });
+
+  test('a .conf file matched as yaml is tokenized as YAML, not nginx', async ({ page }) => {
+    const section = await revealFile(page, 'app.conf');
+    await expect(diffLine(section, 2)).toContainText('port: 8080');
+    // YAML gives the key its own token ("  port", Pierre folds the indent in);
+    // nginx (Pierre's detection for .conf) makes one "  port: " token.
+    await expect(diffLine(section, 2).locator('span[style*="--diffs-token-light"]', { hasText: /^\s*port$/ })).toHaveCount(1);
   });
 });
 

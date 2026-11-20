@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -847,20 +848,36 @@ func TestSession_GetSessionInfo(t *testing.T) {
 }
 
 func TestDetectFileType(t *testing.T) {
+	languages, err := config.CompileLanguages(map[string]string{
+		"*.qmd":        "markdown",
+		"notes/":       "md",
+		"*.md":         "text",
+		"deploy/*.cfg": "yaml",
+	}, []string{"yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
-		path     string
-		expected string
+		path      string
+		languages config.LanguageRules
+		expected  string
 	}{
-		{"plan.md", "markdown"},
-		{"README.MD", "markdown"},
-		{"doc.markdown", "markdown"},
-		{"main.go", "code"},
-		{"server.py", "code"},
-		{"index.html", "code"},
-		{"Makefile", "code"},
+		{"plan.md", config.LanguageRules{}, "markdown"},
+		{"README.MD", config.LanguageRules{}, "markdown"},
+		{"doc.markdown", config.LanguageRules{}, "markdown"},
+		{"main.go", config.LanguageRules{}, "code"},
+		{"server.py", config.LanguageRules{}, "code"},
+		{"index.html", config.LanguageRules{}, "code"},
+		{"Makefile", config.LanguageRules{}, "code"},
+		{"report.qmd", config.LanguageRules{}, "code"},
+		{"report.qmd", languages, "markdown"},
+		{"notes/todo.txt", languages, "markdown"},
+		{"plan.md", languages, "code"},
+		{"deploy/app.cfg", languages, "code"},
+		{"main.go", languages, "code"},
 	}
 	for _, tc := range tests {
-		got := detectFileType(tc.path)
+		got := detectFileType(tc.languages, tc.path)
 		if got != tc.expected {
 			t.Errorf("detectFileType(%q) = %q, want %q", tc.path, got, tc.expected)
 		}
@@ -1884,6 +1901,45 @@ func TestNewSessionFromFiles_UsesRepoRelativePaths(t *testing.T) {
 		if strings.Contains(f.Path, "..") {
 			t.Errorf("file path %q contains parent hops", f.Path)
 		}
+	}
+}
+
+func TestSetLanguages_ReclassifiesFilesAndSetsLang(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, filepath.Join(dir, "report.qmd"), "# Report\n")
+	writeFile(t, filepath.Join(dir, "app.conf"), "key: value\n")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-m", "init")
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	sess, err := NewSessionFromFiles([]string{"report.qmd", "app.conf", "main.go"}, nil)
+	if err != nil {
+		t.Fatalf("NewSessionFromFiles: %v", err)
+	}
+	languages, err := config.CompileLanguages(map[string]string{"*.qmd": "markdown", "*.conf": "yaml"}, []string{"yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.SetLanguages(languages)
+
+	want := map[string]struct{ fileType, lang string }{
+		"report.qmd": {"markdown", ""},
+		"app.conf":   {"code", "yaml"},
+		"main.go":    {"code", ""},
+	}
+	for _, fi := range sess.GetSessionInfo().Files {
+		w := want[fi.Path]
+		if fi.FileType != w.fileType || fi.Lang != w.lang {
+			t.Errorf("%s: file_type=%q lang=%q, want %q %q", fi.Path, fi.FileType, fi.Lang, w.fileType, w.lang)
+		}
+	}
+	snap, ok := sess.GetFileSnapshot("app.conf")
+	if !ok || snap["lang"] != "yaml" {
+		t.Errorf("GetFileSnapshot(app.conf) lang = %v, want yaml", snap["lang"])
 	}
 }
 

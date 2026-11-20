@@ -37,6 +37,7 @@ type DaemonCLIConfig struct {
 	Author                      string
 	BaseBranch                  string
 	IgnorePatterns              []string
+	Languages                   config.LanguageRules
 	Files                       []string
 	NoIntegrationCheck          bool
 	NoUpdateCheck               bool
@@ -299,6 +300,11 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 		return nil, config.ErrUnauthenticatedNetwork(sf.host, sf.publicURL)
 	}
 
+	languages, err := compileLanguages(cfg.Languages)
+	if err != nil {
+		return nil, err
+	}
+
 	var ignorePatterns []string
 	if !sf.noIgnore {
 		ignorePatterns = cfg.IgnorePatterns
@@ -332,6 +338,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 		Author:                      cfg.Author,
 		BaseBranch:                  sf.baseBranch,
 		IgnorePatterns:              ignorePatterns,
+		Languages:                   languages,
 		NoIntegrationCheck:          cfg.NoIntegrationCheck,
 		NoUpdateCheck:               cfg.NoUpdateCheck,
 		AgentCmd:                    cfg.AgentCmd,

@@ -16,36 +16,40 @@ import { gzipSync } from "zlib";
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { bundledLanguagesInfo, bundledThemesInfo, bundledThemes, normalizeTheme } from "shiki";
+import { EXTENSION_TO_FILE_FORMAT } from "@pierre/diffs";
 import { themePalette } from './crit-theme-palette.mjs';
 
 export const PIERRE_DIR = "web/pierre";
 
-// Shiki grammars shipped in the binary. Shiki bundles 260 grammars (7.8MB raw)
-// and Go embeds files uncompressed, so shipping all of them would push the
-// binary ~9MB past its budget. This covers mainstream languages plus
-// everything Crit's special cases rely on; other files render as plain text.
-// Grammars that embed others (vue → css/ts, markdown fences) still resolve
-// those as static chunk imports. See docs/frontend-js.md for the table vs the
-// previous highlight.js coverage.
-export const SHIKI_LANGS = [
-  "angular-html", "angular-ts", "apache", "applescript", "asm", "astro", "awk", "bat", "bicep", "blade",
-  "c", "cairo", "clarity", "clojure", "cmake", "cobol", "coffee", "cpp", "crystal", "csharp", "css", "csv",
-  "d", "dart", "diff", "docker", "dotenv", "elixir", "elm", "erb", "erlang", "fish", "fortran-free-form",
-  "fsharp", "gherkin", "git-commit", "git-rebase", "gleam", "glimmer-js", "glimmer-ts", "glsl", "go",
-  "graphql", "groovy", "haml",
-  "handlebars", "haskell", "hcl", "hlsl", "html", "html-derivative", "http", "ini", "java", "javascript",
-  "jinja", "json", "json5", "jsonc", "jsonl", "jsx", "julia", "just", "kotlin", "latex", "less", "liquid",
-  "log", "lua", "make", "markdown", "matlab", "mdx", "move", "nginx", "nim", "nix", "nushell",
-  "objective-c", "objective-cpp", "ocaml", "odin", "perl", "php", "postcss", "powershell", "prisma",
-  "proto", "pug", "purescript", "python", "r", "razor", "regexp", "ruby", "rust", "sass", "scala", "scss",
-  "shellscript", "shellsession", "solidity", "sql", "ssh-config", "stylus", "svelte", "swift",
-  "terraform", "tex", "toml", "tsv", "tsx", "twig", "typescript", "v", "vb", "viml", "vue", "vyper",
-  "wasm", "wgsl", "xml", "yaml", "zig",
-  // Languages highlight.js covered that Shiki has (fenced code and files):
-  "actionscript-3", "ada", "asciidoc", "bsl", "common-lisp", "coq", "haxe", "hy", "llvm", "nsis",
-  "openscad", "pascal", "prolog", "puppet", "qml", "sas", "scheme", "smalltalk", "stata", "tcl",
-  "vala", "verilog", "vhdl", "wolfram",
+// Shiki grammars shipped in the binary: every language @pierre/diffs can
+// detect from a file name, plus the few that only appear as markdown fence
+// info strings. Deriving the list from Pierre's own extension table means a
+// file whose language Pierre detects always has a grammar to load; a
+// hand-kept list kept dropping some (Pierre picked the language, the file
+// rendered as plain text). Shiki grammars Pierre never detects stay out to
+// keep the binary small, unless FENCE_LANGS names them. A Pierre bump that
+// maps new extensions grows web/pierre; `make verify-assets` and the asset
+// budget show it. Grammars that embed others (vue → css/ts, markdown fences)
+// still resolve those as static chunk imports.
+const FENCE_LANGS = [
+  "html-derivative", "just", "latex", "objective-c", "shellsession", "coq", "nsis", "openscad",
 ];
+
+const canonicalLang = new Map(bundledLanguagesInfo.flatMap(l => [l.id, ...(l.aliases || [])].map(id => [id, l.id])));
+
+export const SHIKI_LANGS = [...new Set([...Object.values(EXTENSION_TO_FILE_FORMAT), ...FENCE_LANGS].map(id => {
+  const canonical = canonicalLang.get(id);
+  if (!canonical) throw new Error(`Pierre or FENCE_LANGS names ${id}, which Shiki does not bundle`);
+  return canonical;
+}))].sort();
+
+// Every name a file or fence can use for a shipped grammar (ids and aliases),
+// written to web/pierre/languages.json so the Go side can reject a
+// `languages` config value that would render as plain text.
+export const SHIKI_LANG_NAMES = bundledLanguagesInfo
+  .filter(l => SHIKI_LANGS.includes(l.id))
+  .flatMap(l => [l.id, ...(l.aliases || [])])
+  .sort();
 
 // Use Shiki's public fine-grained bundle API instead of rewriting its generated
 // index. Keep all themes, selected grammars, and the JavaScript regex engine.
@@ -129,6 +133,7 @@ export async function buildPierre() {
   // without the Pierre bundle.
   writeFileSync(join(PIERRE_DIR, "palettes.js"),
     `window.crit=window.crit||{};window.crit.palettes=${JSON.stringify(palettes)};\n`);
+  writeFileSync(join(PIERRE_DIR, "languages.json"), JSON.stringify(SHIKI_LANG_NAMES, null, 1) + "\n");
   const result = await build({
     stdin: { contents: ENTRY, resolveDir: process.cwd(), sourcefile: "pierre-entry.js", loader: "js" },
     bundle: true,
