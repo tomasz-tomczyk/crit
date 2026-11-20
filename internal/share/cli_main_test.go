@@ -334,7 +334,7 @@ func TestLoadShareFiles(t *testing.T) {
 	os.WriteFile(p2, []byte("Some notes"), 0644)
 
 	t.Run("loads single file", func(t *testing.T) {
-		files, err := loadShareFiles([]string{p1})
+		files, err := loadShareFiles([]string{p1}, config.LanguageRules{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -347,7 +347,7 @@ func TestLoadShareFiles(t *testing.T) {
 	})
 
 	t.Run("loads multiple files", func(t *testing.T) {
-		files, err := loadShareFiles([]string{p1, p2})
+		files, err := loadShareFiles([]string{p1, p2}, config.LanguageRules{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -363,7 +363,7 @@ func TestLoadShareFiles(t *testing.T) {
 	})
 
 	t.Run("absolute path made relative", func(t *testing.T) {
-		files, err := loadShareFiles([]string{p1})
+		files, err := loadShareFiles([]string{p1}, config.LanguageRules{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -382,8 +382,36 @@ func TestLoadShareFiles(t *testing.T) {
 		}
 	})
 
+	t.Run("languages config sets lang and file_type", func(t *testing.T) {
+		rules, err := config.CompileLanguages(map[string]string{"*.txt": "yaml", "*.md": "text"}, []string{"yaml"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, err := loadShareFiles([]string{p1, p2}, rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// "text" keeps the markdown file a code file with highlighting off.
+		if files[0].Lang != "text" || files[0].FileType != "code" {
+			t.Errorf("plan.md lang=%q file_type=%q, want text code", files[0].Lang, files[0].FileType)
+		}
+		if files[1].Lang != "yaml" || files[1].FileType != "code" {
+			t.Errorf("notes.txt lang=%q file_type=%q, want yaml code", files[1].Lang, files[1].FileType)
+		}
+	})
+
+	t.Run("no rules sends file_type only", func(t *testing.T) {
+		files, err := loadShareFiles([]string{p1}, config.LanguageRules{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if files[0].Lang != "" || files[0].FileType != "markdown" {
+			t.Errorf("lang=%q file_type=%q, want empty markdown", files[0].Lang, files[0].FileType)
+		}
+	})
+
 	t.Run("empty list returns nil", func(t *testing.T) {
-		files, err := loadShareFiles(nil)
+		files, err := loadShareFiles(nil, config.LanguageRules{})
 		if err != nil {
 			t.Fatal(err)
 		}

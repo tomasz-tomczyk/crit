@@ -157,6 +157,12 @@ func shareFileEntries(files []ShareFile) []map[string]any {
 		if f.Encoding != "" {
 			entry["encoding"] = f.Encoding
 		}
+		if f.Lang != "" {
+			entry["lang"] = f.Lang
+		}
+		if f.FileType != "" {
+			entry["file_type"] = f.FileType
+		}
 		entries[i] = entry
 	}
 	return entries

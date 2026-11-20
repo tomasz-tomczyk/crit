@@ -12,6 +12,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/focus"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
+	webassets "github.com/tomasz-tomczyk/crit/web"
 )
 
 // PrintHelpFn is wired from cmd/crit for flag-set usage text.
@@ -300,7 +301,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 		return nil, config.ErrUnauthenticatedNetwork(sf.host, sf.publicURL)
 	}
 
-	languages, err := compileLanguages(cfg.Languages)
+	languages, err := webassets.CompileLanguages(cfg.Languages)
 	if err != nil {
 		return nil, err
 	}

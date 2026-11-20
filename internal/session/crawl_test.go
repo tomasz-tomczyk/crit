@@ -44,26 +44,30 @@ func TestCrawlPreview_ExcalidrawScene(t *testing.T) {
 	if !strings.Contains(files[0].Content, `id="crit-excalidraw-scene"`) {
 		t.Fatal("entry is not canvas HTML with an inlined scene")
 	}
-	if strings.Contains(files[0].Content, `src="/rough.min.js"`) {
-		t.Fatal("entry still has absolute /rough.min.js (must be relative for share)")
-	}
-	if !strings.Contains(files[0].Content, `src="rough.min.js"`) {
-		t.Fatal("entry missing relative rough.min.js")
+	// Every script must be relative so the share's raw tree can host it.
+	if strings.Contains(files[0].Content, `src="/`) {
+		t.Error("entry still has an absolute script src (must be relative for share)")
 	}
 	got := map[string]bool{}
 	for _, f := range files {
 		got[f.Path] = true
 	}
-	for _, want := range []string{
-		"docs/rough.min.js",
-		"docs/freehand.min.js",
-		"docs/crit-renderer-excalidraw.js",
-		"docs/crit-excalidraw-canvas.js",
-		"docs/fonts/excalidraw/SHA256SUMS",
-	} {
-		if !got[want] {
-			t.Errorf("missing share file %s", want)
+	scripts := []string{
+		"rough.min.js",
+		"freehand.min.js",
+		"crit-renderer-excalidraw.js",
+		"crit-excalidraw-canvas.js",
+	}
+	for _, name := range scripts {
+		if !strings.Contains(files[0].Content, `src="`+name+`"`) {
+			t.Errorf("entry missing relative script src %q", name)
 		}
+		if !got["docs/"+name] {
+			t.Errorf("missing share file docs/%s", name)
+		}
+	}
+	if !got["docs/fonts/excalidraw/SHA256SUMS"] {
+		t.Error("missing share file docs/fonts/excalidraw/SHA256SUMS")
 	}
 }
 

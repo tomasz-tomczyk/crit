@@ -1386,13 +1386,25 @@ func (c scopedLineCounter) count(i int, fc vcs.FileChange) (lazy bool, additions
 // for a file that is not lazy and that numstat does not list, such as a
 // rename git did not detect or a backend whose stat output names it
 // differently; the caller then counts its hunks.
+//
+// Only a lazy file needs a hash, and the session's lazy stub already carries
+// one: SyncWorkingTree re-hashed it just before the listing. The file is read
+// from disk only when numstat does not list it or the stub has no hash.
 func (c scopedLineCounter) numstatCounts(fc vcs.FileChange, lazy bool) (additions, deletions int, hash string, ok bool) {
 	if !lazy && fc.Status == "deleted" {
 		return 0, 0, "", true
 	}
-	_, listed := c.numstats[fc.Path]
+	ns, listed := c.numstats[fc.Path]
+	if listed && !lazy {
+		return ns.Additions, ns.Deletions, "", true
+	}
+	if listed {
+		if h := c.snap.lazyFiles[fc.Path].hash; h != "" {
+			return ns.Additions, ns.Deletions, h, true
+		}
+	}
 	isNew := fc.Status == "untracked" || fc.Status == "added"
-	if !lazy && !listed && !isNew {
+	if !lazy && !isNew {
 		return 0, 0, "", false
 	}
 	fe := &FileEntry{AbsPath: filepath.Join(c.snap.repoRoot, fc.Path)}

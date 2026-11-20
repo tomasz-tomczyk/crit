@@ -587,7 +587,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 		resp["project_prompt_preview"] = prompt.PreviewProjectFinish(projectPrompts, s.projectDir, mode)
 	}
 
-	if sess != nil && sess.ReviewType != "" {
+	if sess.ReviewType != "" {
 		resp["review_type"] = sess.ReviewType
 	}
 
@@ -1051,7 +1051,7 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 // button path (handleShare) and the proxy-auth relay (handlePreviewPayload).
 func (s *Server) shareFilesForSession() (files []ShareFile, reviewType string, err error) {
 	sess := s.session.Load()
-	if sess != nil && sess.ReviewType == "preview" {
+	if sess.ReviewType == "preview" {
 		files, err = session.CrawlPreview(sess.Origin, s.previewEntryPath(sess))
 		if err != nil {
 			return nil, "", fmt.Errorf("crawling preview assets: %w", err)

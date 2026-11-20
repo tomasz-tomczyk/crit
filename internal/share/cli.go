@@ -19,6 +19,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
+	webassets "github.com/tomasz-tomczyk/crit/web"
 	"golang.org/x/term"
 )
 
@@ -180,7 +181,10 @@ func shareUsageError() error {
 	return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 }
 
-func loadShareFiles(paths []string) ([]ShareFile, error) {
+// loadShareFiles reads paths for `crit share`, tagging each with the lang and
+// file_type the `languages` rules give it so the share renders as the local
+// review would.
+func loadShareFiles(paths []string, languages config.LanguageRules) ([]ShareFile, error) {
 	var files []ShareFile
 	wd, err := mustGetwd()
 	if err != nil {
@@ -197,7 +201,8 @@ func loadShareFiles(paths []string) ([]ShareFile, error) {
 				relPath = rel
 			}
 		}
-		files = append(files, ShareFile{Path: relPath, Content: string(content)})
+		lang, fileType := session.ShareLanguage(languages, relPath)
+		files = append(files, ShareFile{Path: relPath, Content: string(content), Lang: lang, FileType: fileType})
 	}
 	return files, nil
 }
@@ -341,7 +346,13 @@ func RunShare(args []string) error { //nolint:gocyclo // CLI dispatcher
 	cfg := LoadShareConfig()
 	applyShareConfigDefaults(&sf, cfg)
 
-	files, err := loadShareFiles(sf.files)
+	languages, err := webassets.CompileLanguages(cfg.Languages)
+	if err != nil {
+		// The review page refuses to start on a bad rule; a share still goes
+		// out, with crit-web detecting each file's language itself.
+		fmt.Fprintf(os.Stderr, "Warning: ignoring languages config: %v\n", err)
+	}
+	files, err := loadShareFiles(sf.files, languages)
 	if err != nil {
 		return err
 	}

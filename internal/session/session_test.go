@@ -1941,6 +1941,28 @@ func TestSetLanguages_ReclassifiesFilesAndSetsLang(t *testing.T) {
 	if !ok || snap["lang"] != "yaml" {
 		t.Errorf("GetFileSnapshot(app.conf) lang = %v, want yaml", snap["lang"])
 	}
+
+	// A share carries the same overrides, so crit-web renders it alike.
+	shared := sess.LoadShareFilesFromDisk()
+	if len(shared) != len(want) {
+		t.Fatalf("share files = %d, want %d", len(shared), len(want))
+	}
+	for _, sf := range shared {
+		w := want[sf.Path]
+		if sf.FileType != w.fileType || sf.Lang != w.lang {
+			t.Errorf("share %s: file_type=%q lang=%q, want %q %q", sf.Path, sf.FileType, sf.Lang, w.fileType, w.lang)
+		}
+		if sf.Path != "app.conf" {
+			continue
+		}
+		data, err := json.Marshal(sf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), `"lang":"yaml"`) || !strings.Contains(string(data), `"file_type":"code"`) {
+			t.Errorf("share JSON = %s, want lang and file_type keys", data)
+		}
+	}
 }
 
 // TestParseUnifiedDiff_WithANSIColors verifies that ANSI color codes in git diff
@@ -6396,5 +6418,139 @@ func TestComment_DriftedOnRound_OmitWhenZero(t *testing.T) {
 	}
 	if bytes.Contains(b, []byte("drifted_on_round")) {
 		t.Fatalf("zero value should be omitted: %s", b)
+	}
+}
+
+// Regression #1202: a file that is "added" on the branch and was added in the
+// pinned commit must show that commit's diff and content, not the working
+// tree's (HEAD) version of the file.
+func TestGetFileDiffSnapshotScoped_CommitPin_AddedFileUsesCommitContent(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-b", "feature")
+	commitAt(t, dir, "bar", "bar\n", "add bar")
+	addCommit := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "bar", "new bar\n", "update bar")
+	updateCommit := gitT(t, dir, "rev-parse", "HEAD")
+
+	newSession := func(baseRef string) *Session {
+		return &Session{
+			Mode:     "git",
+			RepoRoot: dir,
+			BaseRef:  baseRef,
+			VCS:      &vcs.GitVCS{},
+			Files: []*FileEntry{{
+				Path:      "bar",
+				Status:    "added",
+				Content:   "new bar\n",
+				DiffHunks: vcs.FileDiffUnifiedNewFile("new bar\n"),
+			}},
+			subscribers: make(map[chan SSEEvent]struct{}),
+		}
+	}
+
+	tests := []struct {
+		name         string
+		commit       string
+		wantLines    []DiffLine
+		wantContent  string
+		wantPrevious string
+	}{
+		{
+			name:        "commit that adds the file",
+			commit:      addCommit,
+			wantLines:   []DiffLine{{Type: "add", Content: "bar"}},
+			wantContent: "bar\n",
+		},
+		{
+			name:         "commit that modifies the file",
+			commit:       updateCommit,
+			wantLines:    []DiffLine{{Type: "del", Content: "bar"}, {Type: "add", Content: "new bar"}},
+			wantContent:  "new bar\n",
+			wantPrevious: "bar\n",
+		},
+		{
+			name:        "commit range ending at the adding commit",
+			commit:      base + ".." + addCommit,
+			wantLines:   []DiffLine{{Type: "add", Content: "bar"}},
+			wantContent: "bar\n",
+		},
+	}
+	// The base is a SHA after a round, but a branch name ("main") at startup.
+	for _, baseRef := range []string{base, "main"} {
+		s := newSession(baseRef)
+		for _, tt := range tests {
+			t.Run(baseRef+"/"+tt.name, func(t *testing.T) {
+				for _, scope := range []string{"", "branch", "all"} {
+					result, ok := s.GetFileDiffSnapshotScoped("bar", scope, tt.commit, false)
+					if !ok {
+						t.Fatalf("scope %q: expected snapshot", scope)
+					}
+					if got := snapshotDiffLines(result); !slices.Equal(got, tt.wantLines) {
+						t.Fatalf("scope %q: lines = %+v, want %+v", scope, got, tt.wantLines)
+					}
+					if c, _ := result["content"].(string); c != tt.wantContent {
+						t.Errorf("scope %q: content = %q, want %q", scope, c, tt.wantContent)
+					}
+					if p, _ := result["previous_content"].(string); p != tt.wantPrevious {
+						t.Errorf("scope %q: previous_content = %q, want %q", scope, p, tt.wantPrevious)
+					}
+				}
+			})
+		}
+	}
+}
+
+// snapshotDiffLines flattens a file diff snapshot's hunks to type+content.
+func snapshotDiffLines(result map[string]any) []DiffLine {
+	hunks, _ := result["hunks"].([]DiffHunk)
+	var got []DiffLine
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			got = append(got, DiffLine{Type: l.Type, Content: l.Content})
+		}
+	}
+	return got
+}
+
+// Regression #1202: on a large review the session holds some files as lazy
+// stubs with branch-wide counts. A commit pin must count that commit's
+// change, not reuse the stub.
+func TestGetSessionInfoScoped_CommitPin_LazyFileCountsCommit(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "bar", "bar\n", "add bar")
+	commitAt(t, dir, "bar", "new bar\nmore\n", "update bar")
+	updateCommit := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		BaseRef:  base,
+		VCS:      &vcs.GitVCS{},
+		Files: []*FileEntry{{
+			Path:          "bar",
+			Status:        "added",
+			Lazy:          true,
+			LazyAdditions: 2,
+			ListedHash:    "working-tree-hash",
+			Comments:      []Comment{},
+		}},
+		subscribers: make(map[chan SSEEvent]struct{}),
+	}
+
+	info := s.GetSessionInfoScoped("", updateCommit)
+	if len(info.Files) != 1 {
+		t.Fatalf("files = %+v, want just bar", info.Files)
+	}
+	got := info.Files[0]
+	if got.Additions != 2 || got.Deletions != 1 {
+		t.Errorf("counts = +%d -%d, want +2 -1 (the commit's change)", got.Additions, got.Deletions)
+	}
+	if !got.Lazy {
+		t.Error("a session-lazy file should stay lazy under a commit pin")
+	}
+	if got.FileHash != "" {
+		t.Errorf("file hash = %q, want none (the stub's hash is the working tree's)", got.FileHash)
 	}
 }
