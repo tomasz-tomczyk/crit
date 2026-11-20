@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,27 @@ func finishPromptMode(sess *Session) string {
 func (s *Server) checkFinishPrompts(sess *Session) []prompt.Problem {
 	global, project, trust := s.loadPromptConfig()
 	return prompt.Check(global, project, s.projectDir, s.homeDir, finishPromptMode(sess), trust.UseProject)
+}
+
+// renderFinishPrompt renders the finish prompt for /api/finish. When it
+// cannot, it writes the error response and returns ok=false: 403 if project
+// prompts became untrusted, or 422 with the prompt problem so the review
+// stays open.
+func (s *Server) renderFinishPrompt(w http.ResponseWriter, sess *Session, approved bool, stats map[string]any) (prompt.FinishResult, bool) {
+	ctx := s.buildPromptContext(sess, approved, stats)
+	// Recheck the trust hash after flushing the review in case a project
+	// prompt changed while the request was waiting for the write.
+	globalPrompts, projectPrompts, trust := s.loadPromptConfig()
+	if trust.Untrusted {
+		http.Error(w, "project prompt trust required", http.StatusForbidden)
+		return prompt.FinishResult{}, false
+	}
+	finish := prompt.RenderFinish(globalPrompts, projectPrompts, s.projectDir, s.homeDir, trust.UseProject, ctx)
+	if finish.Problem != nil {
+		writeJSONStatus(w, http.StatusUnprocessableEntity, finish.Problem)
+		return prompt.FinishResult{}, false
+	}
+	return finish, true
 }
 
 func (s *Server) buildPromptContext(sess *Session, approved bool, stats map[string]any) prompt.Context {

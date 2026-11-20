@@ -2597,17 +2597,8 @@ func (s *Server) handleFinish(w http.ResponseWriter, r *http.Request) {
 	if unresolvedComments > 0 {
 		comments = listUnresolvedComments(sess)
 	}
-	ctx := s.buildPromptContext(sess, approved, stats)
-	// Recheck the trust hash after flushing the review in case a project
-	// prompt changed while the request was waiting for the write.
-	globalPrompts, projectPrompts, trust := s.loadPromptConfig()
-	if trust.Untrusted {
-		http.Error(w, "project prompt trust required", http.StatusForbidden)
-		return
-	}
-	finish := prompt.RenderFinish(globalPrompts, projectPrompts, s.projectDir, s.homeDir, trust.UseProject, ctx)
-	if finish.Problem != nil {
-		writeJSONStatus(w, http.StatusUnprocessableEntity, finish.Problem)
+	finish, ok := s.renderFinishPrompt(w, sess, approved, stats)
+	if !ok {
 		return
 	}
 	nextCommand := session.NextRoundCommand(sess)
