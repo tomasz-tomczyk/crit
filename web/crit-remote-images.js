@@ -9,7 +9,9 @@
 // click loads the image in a sandboxed frame served by /remote-image.
 //
 // Reads: <meta name="crit-remote-images"> (the allowlist, filled in by the
-// server so it always matches the policy). Exposes window.crit.remoteImages.
+// server so it always matches the policy; an optional data-hint attribute
+// replaces the placeholder's "how to allow a host" tooltip line, and an empty
+// value drops it). Exposes window.crit.remoteImages.
 (function () {
   'use strict';
 
@@ -29,7 +31,17 @@
   // or /remote-image refused the URL) shows the error instead of spinning.
   var LOAD_TIMEOUT_MS = 20000;
 
+  var DEFAULT_HINT = 'Add the host to remote_images in ~/.crit.config.json to load images from it automatically.';
+
   var patterns = readPatterns();
+  var hint = readHint();
+
+  function readHint() {
+    if (typeof document === 'undefined') return DEFAULT_HINT;
+    var meta = document.querySelector('meta[name="crit-remote-images"]');
+    if (!meta || !meta.hasAttribute('data-hint')) return DEFAULT_HINT;
+    return meta.getAttribute('data-hint');
+  }
 
   function readPatterns() {
     if (typeof document === 'undefined') return [];
@@ -116,7 +128,7 @@
     var btn = doc.createElement('button');
     btn.type = 'button';
     btn.className = 'crit-remote-image-load';
-    btn.title = (alt ? alt + '\n' : '') + String(src).trim() + '\nClick to load. Add the host to remote_images in ~/.crit.config.json to load images from it automatically.';
+    btn.title = (alt ? alt + '\n' : '') + String(src).trim() + '\nClick to load.' + (hint ? ' ' + hint : '');
     btn.setAttribute('aria-label', 'Load remote image' + (alt ? ' "' + alt + '"' : '') + ' from ' + host);
     btn.innerHTML = ICON_IMAGE;
     var label = doc.createElement('span');
@@ -152,9 +164,29 @@
     var blockedSrc = src != null && isBlocked(src, list) ? src : null;
     if (!blockedSrc && !src && filtered && filtered.removed.length) blockedSrc = filtered.removed[0];
     if (!blockedSrc) return;
-    var ph = placeholderFor(img.ownerDocument, blockedSrc, img.getAttribute('alt') || '',
-      img.getAttribute('width'), img.getAttribute('height'));
-    img.parentNode.replaceChild(ph, img);
+    var doc = img.ownerDocument;
+    var alt = img.getAttribute('alt') || '';
+    var ph = placeholderFor(doc, blockedSrc, alt, img.getAttribute('width'), img.getAttribute('height'));
+    var link = img.parentNode.closest ? img.parentNode.closest('a') : null;
+    if (!link) {
+      img.parentNode.replaceChild(ph, img);
+      return;
+    }
+    // A linked image ([![badge](img)](url)): a button inside a link is
+    // invalid and its click would follow the link. Keep the link, with the
+    // alt text standing in for the image (or the URL when nothing else is
+    // left to click), and put the placeholder right after it, after any
+    // placeholders already moved out of the same link.
+    img.parentNode.replaceChild(doc.createTextNode(alt), img);
+    if (!link.textContent.trim() && !link.querySelector('img, svg, picture, video')) {
+      link.textContent = link.getAttribute('href') || 'Link';
+    }
+    var after = link;
+    while (after.nextSibling && after.nextSibling.nodeType === 1 &&
+      after.nextSibling.classList.contains('crit-remote-image')) {
+      after = after.nextSibling;
+    }
+    after.parentNode.insertBefore(ph, after.nextSibling);
   }
 
   function rewriteMedia(el, list) {
@@ -264,7 +296,14 @@
     if (width && height) sizeFrame(frame, +width, +height);
     frame.src = frameURL(src, alt);
     placeholder.classList.add('is-loading');
+    // The button goes away with replaceChildren; keep keyboard focus here
+    // rather than letting it fall back to the page.
+    var hadFocus = placeholder.contains(doc.activeElement);
     placeholder.replaceChildren(frame);
+    if (hadFocus) {
+      placeholder.setAttribute('tabindex', '-1');
+      placeholder.focus({ preventScroll: true });
+    }
     var failIfStillLoading = function () {
       if (frame.isConnected && placeholder.classList.contains('is-loading')) showError(frame);
     };
@@ -319,8 +358,9 @@
     if (!btn) return;
     var placeholder = btn.closest('.crit-remote-image');
     if (!placeholder) return;
-    // Capture phase: a placeholder can sit inside a link or a commentable
-    // line, and loading the image should not follow the link or open a form.
+    // Capture phase: a placeholder can sit inside a commentable line, and
+    // loading the image should not open a comment form there. (rewriteImg
+    // puts a linked image's placeholder after the link, never inside it.)
     e.preventDefault();
     e.stopPropagation();
     load(placeholder);
@@ -337,7 +377,6 @@
     hostAllowed: hostAllowed,
     hostOf: hostOf,
     normalizePatterns: normalizePatterns,
-    patterns: function () { return patterns.slice(); },
   };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};

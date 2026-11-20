@@ -65,19 +65,18 @@
   // (<Family>/index.ts there). The browser fetches a subset only when text
   // uses a character in its range.
   var FONT_DIR = 'fonts/excalidraw/';
-  // Crit's assets sit next to this script on the CLI (review page and
-  // /preview-content canvas). crit-web bundles this file, so currentScript is
-  // null — it sets window.crit.excalidrawAssetBase (usually '/'). Resolved
-  // lazily so a host can set the override before the first render even when
-  // ESM import hoisting evaluates this file first. Fall back to '/' so
-  // FontFace URLs stay origin-absolute when the canvas iframe is at
-  // /preview-content/ (a '' base would resolve under that path).
+  // Where rough.js, freehand and the fonts are served. The CLI serves them at
+  // the site root (review page and /preview-content canvas alike), so the
+  // default is '/': origin-absolute, so FontFace URLs do not resolve under
+  // /preview-content/ in the canvas iframe. A host that serves them
+  // elsewhere sets window.crit.excalidrawAssetBase (crit-web sets '/').
+  // Read at render time, so a host can set it after this file has run
+  // (ESM import hoisting can evaluate this file first).
   function assetBase() {
     if (typeof window !== 'undefined' && window.crit && typeof window.crit.excalidrawAssetBase === 'string') {
       return window.crit.excalidrawAssetBase;
     }
-    var script = typeof document !== 'undefined' && document.currentScript;
-    return script && script.src ? script.src.replace(/[^/]*$/, '') : '/';
+    return '/';
   }
   var GOOGLE_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
   var GOOGLE_LATIN_EXT = 'U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
@@ -239,10 +238,10 @@
       // How far along its arrow a label was dragged, as a fraction of the
       // arrow's length; null keeps it in the middle (placeArrowLabels).
       el.labelPosition = typeof raw.labelPosition === 'number' && isFinite(raw.labelPosition) ? raw.labelPosition : null;
-      var lines = el.text.split('\n');
+      var textLines = el.text.split('\n');
       // Hand-written scenes may omit the size Excalidraw measures.
-      if (!el.width) el.width = Math.max.apply(null, lines.map(function (l) { return l.length; })) * el.fontSize * 0.55;
-      if (!el.height) el.height = lines.length * el.fontSize * el.lineHeight;
+      if (!el.width) el.width = Math.max.apply(null, textLines.map(function (l) { return l.length; })) * el.fontSize * 0.55;
+      if (!el.height) el.height = textLines.length * el.fontSize * el.lineHeight;
     }
     if (el.type === 'image') {
       el.fileId = str(raw.fileId, null);
@@ -1290,7 +1289,7 @@
     });
     g.appendChild(hitArea('rect', { width: el.width, height: el.height }));
     // anchorFor quotes the first line, so a comment says which text it is on.
-    var first = el.text.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0];
+    var first = lines(el.text)[0];
     if (first) g.setAttribute('data-excalidraw-quote', first);
   }
 
@@ -1389,7 +1388,10 @@
     return id;
   }
 
-  // The scene as an <svg> with its background, PADDING around the elements.
+  // The scene as { svg, origin }: an <svg> with its background, PADDING
+  // around the elements, and the scene point at its top-left corner. The
+  // bounds are taken once, after arrow labels are placed, so the origin
+  // always matches what is drawn.
   // Each element is a <g data-excalidraw-index> holding what draws it.
   // freehand (window.CritFreehand) is needed only for freedraw elements.
   // With `anchors`, each element's hit area also gets an id, its Excalidraw
@@ -1458,7 +1460,7 @@
       }
       svg.appendChild(g);
     });
-    return svg;
+    return { svg: svg, origin: { x: b.minX - PADDING, y: b.minY - PADDING } };
   }
 
   // One shared load per script, started by the first render that needs it.
@@ -1558,11 +1560,11 @@
       freedraw ? loadFreehand() : null,
       o.waitForFonts === false ? null : fonts,
     ]).then(function (libs) {
-      var b = sceneBounds(scene.elements);
+      var drawn = drawScene(scene, libs[0], o.theme, libs[1], !!o.anchors);
       return {
-        svg: drawScene(scene, libs[0], o.theme, libs[1], !!o.anchors),
+        svg: drawn.svg,
         background: paint(scene.background, o.theme === 'dark'),
-        origin: { x: b.minX - PADDING, y: b.minY - PADDING },
+        origin: drawn.origin,
         gridSize: scene.gridSize,
       };
     });

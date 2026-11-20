@@ -11,6 +11,8 @@ import { addComment, clearAllComments, loadPage, mdSection, roundComplete, sessi
 const REMOTE_HOST = 'remote-images.test';
 const MD_IMAGE = `![Status badge](https://${REMOTE_HOST}/md.png?d=secret-md)`;
 const RAW_IMAGE = `<img src="https://${REMOTE_HOST}/raw.png?d=secret-raw" alt="Raw image" width="40" height="20">`;
+const LINKED_BADGE = `[![Linked badge](https://${REMOTE_HOST}/linked.png?d=secret-linked)](https://example.test/ci)`;
+const VIDEO = `<video src="https://${REMOTE_HOST}/clip.mp4?d=secret-video" controls></video>`;
 const PICTURE = `<picture><source srcset="https://${REMOTE_HOST}/source.png?d=secret-source"><img src="https://${REMOTE_HOST}/fallback.png?d=secret-fallback" alt="Picture image"></picture>`;
 // 40x20 PNG.
 const PNG = Buffer.from(
@@ -144,10 +146,40 @@ test.describe('Remote images — click to load', () => {
     expect(seen.cspErrors).toEqual([]);
   });
 
-  test('the review page sends a CSP that blocks remote images', async ({ request }) => {
-    const res = await request.get('/');
-    const policy = res.headers()['content-security-policy'] || '';
-    expect(policy).toContain("img-src 'self' data: blob:;");
-    expect(policy).toContain("connect-src 'self'");
+  test('a linked image keeps its link and gets its placeholder outside it', async ({ page, request }) => {
+    await writePlan(request, LINKED_BADGE);
+    const seen = watch(page);
+    await page.route(`https://${REMOTE_HOST}/**`, route => route.fulfill({ contentType: 'image/png', body: PNG }));
+    await loadPage(page);
+    const section = await mdSection(page);
+
+    // The link stays reachable, named by the image's alt text, and holds no button.
+    await expect(section.getByRole('link', { name: 'Linked badge' })).toHaveAttribute('href', 'https://example.test/ci');
+    await expect(section.locator('a button, a .crit-remote-image')).toHaveCount(0);
+    expect(seen.remoteRequests).toEqual([]);
+
+    // Loading from the keyboard keeps focus on the image's place.
+    const load = section.getByRole('button', { name: /Load remote image "Linked badge"/ });
+    await load.focus();
+    await page.keyboard.press('Enter');
+    await expect(section.locator('iframe.crit-remote-image-frame')).toHaveCount(1);
+    await expect(section.locator('.crit-remote-image')).toBeFocused();
+    expect(seen.remoteRequests).toEqual([`https://${REMOTE_HOST}/linked.png?d=secret-linked`]);
+    expect(page.url()).not.toContain('example.test');
+  });
+
+  test('a remote video becomes a link and fetches nothing', async ({ page, request }) => {
+    await writePlan(request, VIDEO);
+    const seen = watch(page);
+    await loadPage(page);
+    const section = await mdSection(page);
+
+    const link = section.locator('.crit-remote-media-link');
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveAttribute('href', `https://${REMOTE_HOST}/clip.mp4?d=secret-video`);
+    await expect(link).toContainText(`Remote video from ${REMOTE_HOST}`);
+    await expect(section.locator('video')).toHaveCount(0);
+    expect(seen.remoteRequests).toEqual([]);
+    expect(seen.cspErrors).toEqual([]);
   });
 });

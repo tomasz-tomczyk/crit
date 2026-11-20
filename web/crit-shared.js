@@ -362,10 +362,10 @@
   // countdown started by an earlier call.
   var _autoCloseRun = null;
 
-  // Announce on the shared polite live region. The per-second countdown text
-  // deliberately does NOT live here — repeating it every tick would flood a
+  // Announce on the shared polite live region (#copyStatus). The auto-close
+  // per-second countdown text deliberately does NOT live here — repeating it every tick would flood a
   // screen reader; callers announce once when state changes.
-  function announceAutoClose(text) {
+  function announceStatus(text) {
     var el = document.getElementById('copyStatus');
     if (!el) return;
     el.textContent = '';
@@ -432,7 +432,7 @@
       // Copy-prompt button so keyboard/AT users don't get dropped on <body>.
       var clip = document.getElementById('waitingClipboard');
       if (clip && typeof clip.focus === 'function') clip.focus();
-      announceAutoClose('Auto-close cancelled. This tab will stay open.');
+      announceStatus('Auto-close cancelled. This tab will stay open.');
     }
 
     if (cancelBtn) {
@@ -448,7 +448,7 @@
     // and announce the countdown once (never per tick).
     if (cancelBtn && typeof cancelBtn.focus === 'function') cancelBtn.focus();
     var totalSecs = Math.ceil(ms / 1000);
-    announceAutoClose(
+    announceStatus(
       'Approved. This tab closes in ' + totalSecs +
       (totalSecs === 1 ? ' second' : ' seconds') + '. Press Cancel to stay.',
     );
@@ -471,7 +471,7 @@
           }
           // role="timer" is aria-live "off", so the new text is silent on its
           // own; announce the terminal state on the polite region instead.
-          announceAutoClose('Approved — you can close this tab.');
+          announceStatus('Approved — you can close this tab.');
         }, 50);
         run.timers.push(closedCheckId);
         return;
@@ -1079,9 +1079,18 @@
 
     if (recheck) {
       recheck.addEventListener('click', async function () {
+        // Read before disabling: a disabled button drops focus.
+        var hadFocus = document.activeElement === recheck;
         recheck.disabled = true;
         try {
           await refresh();
+          if (banner.hidden) {
+            // The banner, and the focused Recheck button with it, just went
+            // away: keep keyboard users on the next step and say why.
+            var finish = document.getElementById('finishBtn');
+            if (hadFocus && finish) finish.focus();
+            announceStatus('No finish prompt problems');
+          }
         } catch (_) {
           status.textContent = 'Could not recheck finish prompts. Try again.';
         } finally {
@@ -1097,7 +1106,8 @@
         try { await refresh(); } catch (_) { /* The Finish endpoint also checks trust. */ }
         if (!cfg.project_prompts_untrusted) return true;
         if (!await ensureProjectPromptTrust(cfg)) return false;
-        try { await refresh(); } catch (_) { update(cfg); }
+        // Trusted just now; without a fresh config, reflect that ourselves.
+        try { await refresh(); } catch (_) { update(Object.assign({}, cfg, { project_prompts_untrusted: false })); }
         return true;
       },
     };

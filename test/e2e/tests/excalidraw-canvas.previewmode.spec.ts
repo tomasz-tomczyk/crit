@@ -139,8 +139,15 @@ test.describe('Excalidraw canvas preview', () => {
     await canvas.getByRole('button', { name: 'Zoom in' }).click();
     await expect(canvas.locator('#crit-canvas-zoom')).toHaveText('125%');
 
+    // The reset button's name follows the zoom it shows.
+    await expect(canvas.locator('#crit-canvas-zoom')).toHaveAttribute('aria-label', 'Reset zoom (currently 125%)');
+
     await canvas.getByRole('button', { name: 'Switch light or dark canvas' }).click();
     await expect(canvas.locator('html')).toHaveAttribute('data-canvas-theme', 'dark');
     await expect(canvas.locator('#crit-canvas-zoom')).toHaveText('125%');
+
+    // Space on a toolbar button presses it rather than starting a pan.
+    await canvas.getByRole('button', { name: 'Zoom in' }).press('Space');
+    await expect(canvas.locator('#crit-canvas-zoom')).toHaveText('156%');
   });
 });

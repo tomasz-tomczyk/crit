@@ -477,7 +477,7 @@ test('in preview mode each element\'s hit area is an anchor named after it', () 
   const saved = global.document;
   global.document = fakeDocument();
   try {
-    const svg = excalidraw.drawScene(s, loadRough(), 'light', loadFreehand(), true);
+    const svg = excalidraw.drawScene(s, loadRough(), 'light', loadFreehand(), true).svg;
     const byId = id => svg.all().find(n => n.getAttribute('id') === id);
     assert.equal(svg.getAttribute('pointer-events'), 'none', 'only hit areas take the pointer');
     assert.equal(svg.children[0].hasAttribute('id'), false, 'the empty canvas is no anchor');
@@ -493,6 +493,34 @@ test('in preview mode each element\'s hit area is an anchor named after it', () 
     assert.ok(html.indexOf(' d="') > html.indexOf(' aria-label='), 'geometry comes after identity');
   } finally {
     global.document = saved;
+  }
+});
+
+test('renderScene\'s origin is the drawn top-left corner after arrow labels move', async () => {
+  // The label is saved far from its arrow and is wider than everything else,
+  // so placing it on the arrow moves the scene's left edge.
+  const source = scene([
+    { id: 'a', type: 'arrow', x: 0, y: 0, points: [[0, 0], [200, 0]] },
+    { id: 'l', type: 'text', x: 300, y: 300, width: 400, height: 20, text: 'wide label', containerId: 'a' },
+  ]);
+  const savedDocument = global.document;
+  const savedWindow = global.window;
+  global.document = fakeDocument();
+  global.window = { rough: loadRough() };
+  try {
+    const out = await excalidraw.renderScene(source, { theme: 'light' });
+    // Placed: centered on the arrow's middle (100, 0), so x = 100 - 400 / 2.
+    const placed = excalidraw.parseScene(source).elements;
+    excalidraw.placeArrowLabels(placed, loadRough().generator());
+    assert.equal(placed[1].x, -100);
+    const b = excalidraw.sceneBounds(placed);
+    assert.deepEqual(out.origin, { x: b.minX - 10, y: b.minY - 10 });
+    assert.ok(out.origin.x <= -110, 'the moved label widens the scene to the left: ' + out.origin.x);
+    // The drawing is as wide as those bounds, so the origin lines up with it.
+    assert.equal(out.svg.getAttribute('width'), String(Math.ceil(b.maxX - b.minX + 20)));
+  } finally {
+    global.document = savedDocument;
+    global.window = savedWindow;
   }
 });
 
