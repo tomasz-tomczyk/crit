@@ -1497,7 +1497,8 @@ func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseR
 	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
 		return vcs.FileDiffUnifiedNewFile(content)
 	}
-	if status == "added" && addedFileRendersWhole(scope) {
+	// content is the file at the branch tip, so a pinned commit needs its own diff.
+	if status == "added" && commit == "" && addedFileRendersWhole(scope) {
 		return vcs.FileDiffUnifiedNewFile(content)
 	}
 	return scopedHunks(vcs.FileChange{Path: path, OldPath: oldPath, Status: status}, scope, commit, baseRef, repoRoot, v, ignoreWhitespace)
