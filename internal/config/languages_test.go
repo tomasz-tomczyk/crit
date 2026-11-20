@@ -13,8 +13,9 @@ func TestCompileLanguages(t *testing.T) {
 		wantErr   []string
 	}{
 		{name: "empty", languages: nil},
-		{name: "known grammar, markdown, md and text", languages: map[string]string{
+		{name: "known grammar, markdown, md, text, its aliases and auto", languages: map[string]string{
 			"*.conf": "YAML", "*.qmd": "markdown", "*.Rmd": "md", "*.log": "text",
+			"*.out": "plaintext", "*.txt": "txt", "*.raw": "plain", "*.cfg": "auto",
 		}},
 		{name: "unknown names reported together with suggestions", languages: map[string]string{
 			"*.gts": "glimmer", "*.conf": "yaml2", "*.x": "zzz",
@@ -25,6 +26,8 @@ func TestCompileLanguages(t *testing.T) {
 		}},
 		{name: "empty pattern and value", languages: map[string]string{"": "yaml", "*.y": " "},
 			wantErr: []string{`empty pattern for "yaml"`, `"*.y": empty language`}},
+		{name: "malformed glob", languages: map[string]string{"[abc": "yaml", "conf/[x": "toml"},
+			wantErr: []string{`"[abc": invalid pattern`, `"conf/[x": invalid pattern`}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,7 +56,12 @@ func TestLanguageRules_MostSpecificPatternWins(t *testing.T) {
 		"*.conf":        "toml",
 		"deploy/*.conf": "yaml",
 		"docs/":         "markdown",
-	}, []string{"toml", "yaml"})
+		"nginx.conf":    "nginx",
+		"*/*.conf":      "ini",
+		"*.qmd":         "markdown",
+		"*.md":          "plaintext",
+		"vendor/":       "auto",
+	}, []string{"toml", "yaml", "nginx", "ini"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +71,17 @@ func TestLanguageRules_MostSpecificPatternWins(t *testing.T) {
 	}{
 		{"app.conf", "code", "toml", true},
 		{"deploy/app.conf", "code", "yaml", true},
+		{"other/app.conf", "code", "ini", true},
 		{"docs/guide.txt", "markdown", "", true},
 		{"main.go", "", "", false},
+		// An exact name beats a glob, even a longer one.
+		{"nginx.conf", "code", "nginx", true},
+		{"etc/nginx.conf", "code", "nginx", true},
+		// Patterns match case-insensitively, like extension detection.
+		{"Report.QMD", "markdown", "", true},
+		{"README.MD", "code", "text", true},
+		// "auto" keeps detection: no file type or language from the rules.
+		{"vendor/x.conf", "", "", false},
 	}
 	for _, tc := range tests {
 		fileType, ok := rules.FileType(tc.path)

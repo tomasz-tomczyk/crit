@@ -11127,6 +11127,7 @@
     clone.oldPath = file.oldPath;
     clone.status = file.status;
     clone.fileType = file.fileType;
+    clone.lang = file.lang;
     clone.content = file.content;
     clone.previousContent = file.previousContent;
     clone.comments = file.comments;

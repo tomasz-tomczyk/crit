@@ -170,15 +170,12 @@ test.describe('Multi-File Mode — languages config', () => {
     await expect(section.locator('.document-wrapper strong')).toHaveText('every');
   });
 
-  test('a .conf file matched as yaml highlights keys and values apart', async ({ page }) => {
+  test('a .conf file matched as yaml is tokenized as YAML, not nginx', async ({ page }) => {
     const section = await revealFile(page, 'app.conf');
     await expect(diffLine(section, 2)).toContainText('port: 8080');
-    // Distinct token colours on `  port: 8080`: YAML colours the key and the
-    // number differently.
-    const colours = (line: number) => diffLine(section, line).evaluate(el => new Set(
-      Array.from(el.querySelectorAll('span[style*="--diffs-token-light"]'))
-        .map(s => (s as HTMLElement).style.getPropertyValue('--diffs-token-light').trim())).size);
-    await expect.poll(() => colours(2)).toBeGreaterThanOrEqual(2);
+    // YAML gives the key its own token ("  port", Pierre folds the indent in);
+    // nginx (Pierre's detection for .conf) makes one "  port: " token.
+    await expect(diffLine(section, 2).locator('span[style*="--diffs-token-light"]', { hasText: /^\s*port$/ })).toHaveCount(1);
   });
 });
 

@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { pathToFileURL } = require('node:url');
 const path = require('node:path');
+const { readFileSync } = require('node:fs');
 
 const buildPierre = pathToFileURL(path.join(__dirname, '..', '..', 'scripts', 'build-pierre.mjs')).href;
 
@@ -15,6 +16,13 @@ test('every language Pierre detects from a file name has a bundled grammar', asy
   const { SHIKI_LANG_NAMES } = await import(buildPierre);
   const missing = [...new Set(Object.values(EXTENSION_TO_FILE_FORMAT))].filter(l => !SHIKI_LANG_NAMES.includes(l));
   assert.deepEqual(missing, []);
+});
+
+// The Go side validates the `languages` config against the committed list.
+test('web/pierre/languages.json matches the build', async () => {
+  const { SHIKI_LANG_NAMES } = await import(buildPierre);
+  const committed = JSON.parse(readFileSync(path.join(__dirname, '..', 'pierre', 'languages.json'), 'utf8'));
+  assert.deepEqual(committed, SHIKI_LANG_NAMES);
 });
 
 test('Ember template-tag files resolve to a bundled grammar', async () => {

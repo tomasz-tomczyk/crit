@@ -1068,6 +1068,7 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 				OldPath:      f.OldPath,
 				Status:       f.Status,
 				FileType:     f.FileType,
+				Lang:         s.languages.Lang(f.Path),
 				CommentCount: n,
 				Orphaned:     true,
 				Generated:    f.Generated,
