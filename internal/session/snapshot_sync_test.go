@@ -146,6 +146,36 @@ func TestGetSessionInfoScoped_BranchKeepsCommentedFileThatLeftTheBranch(t *testi
 	}
 }
 
+// A commented untracked file that is deleted before the next round has left
+// every diff, so the working-tree scopes must still list it as an orphan.
+func TestGetSessionInfoScoped_WorkingTreeScopesKeepCommentedFileThatLeftTheReview(t *testing.T) {
+	dir := newAllScopeRepo(t)
+	writeFile(t, filepath.Join(dir, "draft.go"), "package sample\n\nfunc draft() {}\n")
+	chdirForTest(t, dir)
+	sess := startAllScopeSession(t)
+
+	if _, ok := sess.AddComment("draft.go", 3, 3, "", "fold this into app.go", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on draft.go failed")
+	}
+
+	sess.WriteFiles()
+	if err := os.Remove(filepath.Join(dir, "draft.go")); err != nil {
+		t.Fatal(err)
+	}
+	sess.handleRoundCompleteGit()
+
+	for _, scope := range []string{"unstaged", "staged"} {
+		info := sess.GetSessionInfoScoped(scope, "")
+		fi, ok := fileInfoByPath(info, "draft.go")
+		if !ok || !fi.Orphaned || fi.CommentCount != 1 {
+			t.Errorf("%s: draft.go = %+v (listed=%v), want an orphaned row with 1 comment", scope, fi, ok)
+		}
+		if info.HiddenUnresolved != 0 {
+			t.Errorf("%s: HiddenUnresolved = %d, want 0", scope, info.HiddenUnresolved)
+		}
+	}
+}
+
 // An orphaned phantom that comes back as an uncommitted file must clear
 // Orphaned on refresh, so Branch does not keep listing it as a removed row.
 func TestGetSessionInfoScoped_BranchDropsOrphanThatReturnedUncommitted(t *testing.T) {

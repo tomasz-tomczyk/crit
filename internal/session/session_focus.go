@@ -1038,7 +1038,7 @@ type scopedSessionSnapshot struct {
 	// the diff (the same rows GetSessionInfo shows).
 	commentedFiles []SessionFileInfo
 	// removedFiles is the part of commentedFiles that has left the review
-	// (the file is in no diff), so scope "branch" keeps them as rows too.
+	// (the file is in no diff), so the working-tree scopes keep them as rows too.
 	removedFiles []SessionFileInfo
 }
 
@@ -1279,8 +1279,8 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	info.Files = snap.scopedFileInfos(changes, scope, commit)
 	if liveAll {
 		info.Files = appendOrphanedCommentedFiles(info.Files, snap.commentedFiles)
-	} else if scope == "branch" && commit == "" {
-		// A file that left the branch is in no diff, so without its row
+	} else if commit == "" {
+		// A file that left the review is in no diff, so without its row
 		// its comments could not be seen or resolved here.
 		info.Files = appendOrphanedCommentedFiles(info.Files, snap.removedFiles)
 	}
