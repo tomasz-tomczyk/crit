@@ -215,6 +215,10 @@
     } catch (_) { /* ignore */ }
   })();
 
+  // A page that moves its content without changing the DOM (the Excalidraw
+  // canvas pans and zooms with a transform) dispatches this so pins follow.
+  window.addEventListener('crit-agent:reposition', repositionResolvedPins);
+
   // Boot Phase D pieces, then signal ready.
   if (document.body) {
     bootMarkers();

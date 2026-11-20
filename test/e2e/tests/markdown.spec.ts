@@ -102,8 +102,6 @@ test.describe('Markdown Rendering — plan.md', () => {
     // Verify blockquote content from plan.md
     await expect(section.locator('blockquote', { hasText: 'Dorothy' })).toBeVisible();
 
-    // a blockquote line carrying only the > marker stays inside the quote
-
     // The "Open Questions" quote in plan.md separates its two paragraphs with a
     // bare ">" line. That line belongs to no markdown token, so it used to leak
     // into the document as an escaped literal ">".

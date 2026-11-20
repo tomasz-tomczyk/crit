@@ -342,8 +342,6 @@
     els.resizer = document.getElementById('critLiveResizer');
     els.commentsPanel = document.getElementById('commentsPanel');
     els.panelBody = document.getElementById('commentsPanelBody');
-
-
   }
 
   // Share modal clipboard icons come from the canonical crit-icons.js module
@@ -1819,11 +1817,12 @@
         var pending = 2;
         function done() { pending--; if (pending === 0) renderAllPanes(); }
         try {
-          fetch('/api/config').then(function (r) { return r.ok ? r.json() : {}; }).then(function (c) {
-            state.config = c || {};
+          // A failed fetch keeps what we already have rather than blanking it.
+          fetch('/api/config').then(function (r) { return r.ok ? r.json() : null; }).then(function (c) {
+            if (c) state.config = c;
           }).catch(function () {}).finally(done);
-          fetch('/api/session').then(function (r) { return r.ok ? r.json() : {}; }).then(function (s) {
-            state.session = s || {};
+          fetch('/api/session').then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
+            if (s) state.session = s;
           }).catch(function () {}).finally(done);
         } catch (_) {
           // best-effort

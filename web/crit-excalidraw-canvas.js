@@ -136,26 +136,17 @@
       return !target || target === bg || target === stage || target === root || target === document.body || target === document;
     }
 
-    // The agent's hover outline: a fixed box it adds to the page. Hidden
-    // over the empty canvas and while panning.
-    var agentBox = null;
+    // The agent's hover outline (#crit-agent-overlay, a fixed box it adds
+    // to the page). Hidden over the empty canvas and while panning.
     function hideAgentBox() {
-      if (!agentBox || !agentBox.isConnected) {
-        agentBox = null;
-        for (var el = root.firstElementChild; el; el = el.nextElementSibling) {
-          if (el.style && el.style.position === 'fixed' && el.style.zIndex === '2147483600') { agentBox = el; break; }
-        }
-      }
+      var agentBox = document.getElementById('crit-agent-overlay');
       if (agentBox) agentBox.style.display = 'none';
     }
 
     // The agent repositions its pins when the page's children change. Panning
-    // and zooming only move the drawing, so add and remove a node to tell it.
-    function nudgeAgent() {
-      var tick = document.createElement('i');
-      tick.hidden = true;
-      document.body.appendChild(tick);
-      document.body.removeChild(tick);
+    // and zooming only move the drawing, so ask it to directly.
+    function repositionAgentPins() {
+      window.dispatchEvent(new Event('crit-agent:reposition'));
     }
 
     // After the drawing moves under a still pointer, let the agent outline
@@ -175,13 +166,15 @@
         svg.setAttribute('width', state.size.width * state.zoom);
         svg.setAttribute('height', state.size.height * state.zoom);
         state.paintedZoom = state.zoom;
-        zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+        var percent = Math.round(state.zoom * 100) + '%';
+        zoomLabel.textContent = percent;
+        zoomLabel.setAttribute('aria-label', 'Reset zoom (currently ' + percent + ')');
       }
       svg.style.transform = 'translate(' + state.pan.x + 'px, ' + state.pan.y + 'px)';
       var g = gridFor(state.gridSize, state.zoom, state.pan, state.origin);
       bg.style.backgroundSize = g.step + 'px ' + g.step + 'px';
       bg.style.backgroundPosition = (g.x - g.step / 2) + 'px ' + (g.y - g.step / 2) + 'px';
-      nudgeAgent();
+      repositionAgentPins();
       refreshHover();
     }
 
@@ -255,6 +248,12 @@
         if (button) act(button.getAttribute('data-action'));
       }, true);
     });
+
+    // Enter and Space press an island button. In Comment mode the agent
+    // swallows them on buttons, so keep them from it here too.
+    window.addEventListener('keydown', function (e) {
+      if ((e.key === 'Enter' || e.key === ' ') && inIslands(e.target)) e.stopImmediatePropagation();
+    }, true);
 
     window.addEventListener('pointerdown', function (e) {
       state.suppressClick = false;
@@ -333,6 +332,8 @@
 
     window.addEventListener('keydown', function (e) {
       if (!state.svg || e.ctrlKey || e.metaKey || e.altKey || typing(e)) return;
+      // Space on a toolbar button or a pin presses it; panning would cancel that.
+      if (e.key === ' ' && (inIslands(e.target) || (e.target.closest && e.target.closest('button, [role="button"]')))) return;
       if (e.key === ' ') {
         if (!state.space) {
           state.space = true;

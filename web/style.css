@@ -1493,6 +1493,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   border-color: var(--crit-brand);
   color: var(--crit-fg-primary);
 }
+.crit-remote-image:focus-visible,
 .crit-remote-image-load:focus-visible {
   outline: 2px solid var(--crit-brand);
   outline-offset: 1px;
