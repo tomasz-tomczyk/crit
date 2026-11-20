@@ -1364,12 +1364,16 @@ func (c scopedLineCounter) count(i int, fc vcs.FileChange) (lazy bool, additions
 			return lazy, additions, deletions, hash
 		}
 	}
-	if lf, ok := c.snap.lazyFiles[fc.Path]; ok && !c.liveAll {
+	lf, sessionLazy := c.snap.lazyFiles[fc.Path]
+	if sessionLazy && !c.liveAll && c.commit == "" {
 		return true, lf.additions, lf.deletions, lf.hash
 	}
 	hunks := scopedHunks(fc, c.scope, c.commit, c.snap.baseRef, c.snap.repoRoot, c.snap.vc, false)
 	additions, deletions = countHunkStats(hunks)
-	return false, additions, deletions, ""
+	// A session-lazy file stays lazy under a commit pin so the page still
+	// loads it on demand, but its counts are the commit's, not the branch's
+	// (#1202). It has no hash: the stub's is the working tree's.
+	return sessionLazy && c.commit != "", additions, deletions, ""
 }
 
 // numstatCounts returns fc's +/- counts from the numstat run, counting lines
@@ -1493,12 +1497,16 @@ func (s *Session) loadScopedFileState(path, scope, commit string) (status, conte
 }
 
 func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseRef, repoRoot string, v vcs.VCS, ignoreWhitespace bool) []vcs.DiffHunk {
-	// Pure content-based diffs don't need VCS.
-	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
-		return vcs.FileDiffUnifiedNewFile(content)
-	}
-	if status == "added" && addedFileRendersWhole(scope) {
-		return vcs.FileDiffUnifiedNewFile(content)
+	// Pure content-based diffs don't need VCS. They render the working-tree
+	// content, so they never apply to a commit pin: a file added in a pinned
+	// commit must show that commit's version, not HEAD's.
+	if commit == "" {
+		if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
+			return vcs.FileDiffUnifiedNewFile(content)
+		}
+		if status == "added" && addedFileRendersWhole(scope) {
+			return vcs.FileDiffUnifiedNewFile(content)
+		}
 	}
 	return scopedHunks(vcs.FileChange{Path: path, OldPath: oldPath, Status: status}, scope, commit, baseRef, repoRoot, v, ignoreWhitespace)
 }
@@ -1656,6 +1664,34 @@ func (s *Session) GetFileDiffSnapshotScoped(path, scope, commit string, ignoreWh
 			result["previous_content"] = previousContent
 			result["content"] = scopedContent
 		}
+	} else if previousContent, commitContent, ok := commitDiffContents(path, oldPath, commit, repoRoot, vc); ok {
+		result["previous_content"] = previousContent
+		result["content"] = commitContent
 	}
 	return result, true
+}
+
+// commitDiffContents returns the old- and new-side content for a commit pin,
+// so the page draws the hunks on the file as it was in that commit rather
+// than on the working tree. ok is false for the virtual working-tree commit,
+// whose new side is the working tree. The old side of a single commit is its
+// first parent, which only Git addresses as sha^; other backends leave it
+// empty (it only feeds the rendered markdown diff).
+func commitDiffContents(path, oldPath, commit, repoRoot string, v vcs.VCS) (previousContent, content string, ok bool) {
+	if v == nil || commit == virtualWorkingTreeCommitSHA {
+		return "", "", false
+	}
+	if oldPath == "" {
+		oldPath = path
+	}
+	if base, head, rangeOK := vcs.SplitCommitRange(commit); rangeOK {
+		previousContent, _ = v.FileContentAtRef(oldPath, base, repoRoot)
+		content, _ = v.FileContentAtRef(path, head, repoRoot)
+		return previousContent, content, true
+	}
+	if v.Name() == "git" {
+		previousContent, _ = v.FileContentAtRef(oldPath, commit+"^", repoRoot)
+	}
+	content, _ = v.FileContentAtRef(path, commit, repoRoot)
+	return previousContent, content, true
 }
