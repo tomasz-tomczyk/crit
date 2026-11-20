@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -182,6 +183,44 @@ func TestPlanExitHooksRemainEnabled(t *testing.T) {
 	for path, marker := range cases {
 		if content := readIntegrationForPolicyTest(t, path); !strings.Contains(content, marker) {
 			t.Fatalf("%s no longer contains plan-exit marker %q", path, marker)
+		}
+	}
+}
+
+// TestIntegrationAuthorsMatchAgent guards against a skill copied from another
+// integration keeping that agent's --author literal (issue #1201: pi's
+// crit-cli said 'Hermes', github-copilot's said 'Copilot').
+func TestIntegrationAuthorsMatchAgent(t *testing.T) {
+	want := map[string]string{
+		"aider":          "Aider",
+		"ampcode":        "Amp",
+		"claude-code":    "Claude Code",
+		"cline":          "Cline",
+		"codex":          "Codex",
+		"cursor":         "Cursor",
+		"gemini":         "Gemini",
+		"github-copilot": "GitHub Copilot",
+		"grok":           "Grok",
+		"hermes":         "Hermes",
+		"omo":            "OMO",
+		"omp":            "omp",
+		"opencode":       "OpenCode",
+		"pi":             "Pi",
+		"qwen":           "Qwen",
+		"windsurf":       "Windsurf",
+	}
+	authorRe := regexp.MustCompile(`--author '([^']+)'`)
+	for path := range integrationHashes {
+		agent := strings.SplitN(strings.TrimPrefix(path, "integrations/"), "/", 2)[0]
+		for _, m := range authorRe.FindAllStringSubmatch(readIntegrationForPolicyTest(t, path), -1) {
+			expected, ok := want[agent]
+			if !ok {
+				t.Errorf("%s uses --author '%s' but integrations/%s has no expected author in this test", path, m[1], agent)
+				break
+			}
+			if m[1] != expected {
+				t.Errorf("%s uses --author '%s', want '%s'", path, m[1], expected)
+			}
 		}
 	}
 }
