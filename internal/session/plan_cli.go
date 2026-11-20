@@ -211,10 +211,12 @@ func resolveHookSlug(sessionID string, content []byte) string {
 			return existing
 		}
 		slug := ResolveSlug(content)
-		if err := SavePlanSlug(sessionID, slug); err != nil {
+		pinned, err := SavePlanSlug(sessionID, slug)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "crit plan-hook: warning: could not save slug mapping: %v\n", err)
+			return slug + "-" + sessionSlugSuffix(sessionID)
 		}
-		return slug
+		return pinned
 	}
 	return ResolveSlug(content)
 }
