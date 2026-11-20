@@ -37,6 +37,7 @@ func CreateSession(sc *DaemonCLIConfig) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	sess.SetLanguages(sc.Languages)
 	if sc.BaseBranch != "" && sess.VCS != nil {
 		sess.VCS.SetDefaultBranchOverride(sc.BaseBranch)
 	}

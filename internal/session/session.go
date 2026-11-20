@@ -432,6 +432,9 @@ type Session struct {
 	RepoRoot       string
 	OutputDir      string // custom output directory for the review file (empty = RepoRoot)
 	ReviewFilePath string // centralized review file path (~/.crit/reviews/<key>.json)
+	// languages is the compiled `languages` config. SetLanguages sets it once,
+	// before the session is served; it is read without the lock afterwards.
+	languages      config.LanguageRules
 	PlanDir        string // managed storage dir for plan mode (empty for git/files)
 	ReviewRound    int
 	IgnorePatterns []string
@@ -966,7 +969,7 @@ func newGitSession(v vcs.VCS, ignorePatterns []string, requireChanges bool) (*Se
 			OldPath:   fc.OldPath,
 			AbsPath:   absPath,
 			Status:    fc.Status,
-			FileType:  detectFileType(fc.Path),
+			FileType:  detectFileType(config.LanguageRules{}, fc.Path),
 			Generated: vcs.IsGenerated(fc.Path, s.generatedRules),
 		}
 
@@ -1127,7 +1130,7 @@ func NewSessionFromFiles(paths []string, ignorePatterns []string) (*Session, err
 			Path:      relPath,
 			AbsPath:   absPath,
 			Status:    "modified",
-			FileType:  detectFileType(absPath),
+			FileType:  detectFileType(config.LanguageRules{}, relPath),
 			Content:   string(data),
 			FileHash:  fileHash(data),
 			Comments:  []Comment{},
@@ -1305,13 +1308,31 @@ func isBinaryExtension(ext string) bool {
 	return false
 }
 
-// detectFileType returns "markdown" for .md files, "code" for everything else.
-func detectFileType(path string) string {
+// detectFileType returns the file type a `languages` rule sets for path, or
+// else "markdown" for .md files and "code" for everything else.
+func detectFileType(languages config.LanguageRules, path string) string {
+	if fileType, ok := languages.FileType(path); ok {
+		return fileType
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".md" || ext == ".markdown" || ext == ".mdown" {
 		return "markdown"
 	}
 	return "code"
+}
+
+// SetLanguages applies the `languages` config: files a rule matches are
+// reclassified now, and files added later go through the same rules. Call it
+// once, before the session is served.
+func (s *Session) SetLanguages(languages config.LanguageRules) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.languages = languages
+	for _, f := range s.Files {
+		if f.FileType == "markdown" || f.FileType == "code" {
+			f.FileType = detectFileType(languages, f.Path)
+		}
+	}
 }
 
 // FileByPath returns the FileEntry for a given relative path, or nil.
@@ -2132,7 +2153,7 @@ func (s *Session) EnsureFileEntry(path string) bool {
 		Path:      path,
 		AbsPath:   absPath,
 		Status:    status,
-		FileType:  detectFileType(path),
+		FileType:  detectFileType(s.languages, path),
 		Content:   string(data),
 		FileHash:  fileHash(data),
 		Comments:  []Comment{},
@@ -2536,7 +2557,7 @@ func (s *Session) ChangeBaseBranch(branch string) error { //nolint:gocyclo // in
 			OldPath:   fc.OldPath,
 			AbsPath:   absPath,
 			Status:    fc.Status,
-			FileType:  detectFileType(fc.Path),
+			FileType:  detectFileType(s.languages, fc.Path),
 			Comments:  []Comment{},
 			Generated: vcs.IsGenerated(fc.Path, generatedRules),
 		}
@@ -2876,7 +2897,7 @@ func (s *Session) applyOrphanedCritFile(path string, cf CritJSONFile, byPath, by
 	fe := &FileEntry{
 		Path:     path,
 		Status:   "removed",
-		FileType: detectFileType(path),
+		FileType: detectFileType(s.languages, path),
 		Comments: comments,
 		Orphaned: true,
 	}
@@ -2979,6 +3000,7 @@ func (s *Session) GetFileSnapshot(path string) (map[string]any, bool) {
 		"path":      f.Path,
 		"status":    f.Status,
 		"file_type": f.FileType,
+		"lang":      s.languages.Lang(f.Path),
 		"content":   f.Content,
 		"file_hash": f.FileHash,
 	}, true
@@ -3023,7 +3045,8 @@ func (s *Session) GetFileSnapshotFromDisk(path string) (map[string]any, bool) {
 	return map[string]any{
 		"path":      path,
 		"status":    "modified",
-		"file_type": detectFileType(path),
+		"file_type": detectFileType(s.languages, path),
+		"lang":      s.languages.Lang(path),
 		"content":   string(data),
 		"file_hash": fileHash(data),
 	}, true
@@ -3178,10 +3201,13 @@ type SessionInfo struct {
 
 // SessionFileInfo is a summary of a file for the session API response.
 type SessionFileInfo struct {
-	Path         string `json:"path"`
-	OldPath      string `json:"old_path,omitempty"`
-	Status       string `json:"status"`
-	FileType     string `json:"file_type"`
+	Path     string `json:"path"`
+	OldPath  string `json:"old_path,omitempty"`
+	Status   string `json:"status"`
+	FileType string `json:"file_type"`
+	// Lang is the highlighting language a `languages` rule sets; empty
+	// leaves detection to the frontend.
+	Lang         string `json:"lang,omitempty"`
 	CommentCount int    `json:"comment_count"`
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
@@ -3245,6 +3271,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 			OldPath:      f.OldPath,
 			Status:       f.Status,
 			FileType:     f.FileType,
+			Lang:         s.languages.Lang(f.Path),
 			CommentCount: visibleCount,
 			Lazy:         f.Lazy,
 			Orphaned:     f.Orphaned,

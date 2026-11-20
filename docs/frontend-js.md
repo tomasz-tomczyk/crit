@@ -51,7 +51,7 @@ its worker and Shiki with esbuild into split ESM chunks, gzips them
 deterministically and writes `web/pierre/`. `index.html` loads the entry as a
 module and exposes `window.critPierreReady`; `app.js` awaits it before the
 first render. A fine-grained Shiki bundle uses documented factories, keeps
-148 grammars (`SHIKI_LANGS`) and all themes, and uses the JavaScript regex
+the grammars in `SHIKI_LANGS` and all themes, and uses the JavaScript regex
 engine. No generated dependency source is rewritten. Budgets:
 `asset-budget.json` (`pierreDirBytes`, entry and worker caps), provenance in
 `ASSETS-PROVENANCE.txt` (directory hash over per-file hashes).
@@ -215,15 +215,22 @@ guarantee AA contrast.
 
 ## Language coverage
 
-148 grammars ship, including Glimmer (`.gjs`/`.gts`, Ember's template-tag
-components). Pierre detects a file's language from its name;
+`SHIKI_LANGS` is derived at build time: every language Pierre's
+`EXTENSION_TO_FILE_FORMAT` can detect (so a detected language always has a
+grammar), plus `FENCE_LANGS`, the few names only markdown fences use
+(`latex`, `shellsession`, `objective-c`, …). The build also writes
+`web/pierre/languages.json`, every shipped grammar id and alias, which the Go
+side checks the `languages` config against. Pierre detects a file's language
+from its name;
 `LANGUAGE_OVERRIDES` maps `.heex`/`.leex` → HTML, `.svg` → XML, `.gradle` →
 Groovy (Pierre left those as plain text). A template or sample suffix
 (`.tmpl`, `.tpl`, `.template`, `.example`, `.sample`, `.dist`, `.in`) is
 dropped before detection, so `main.py.tmpl` highlights as Python and
 `.env.example` as dotenv. Fence names written for
 highlight.js resolve through `FENCE_ALIASES` (`dos` → bat, `arduino` → C++,
-`delphi` → Pascal, `mathematica` → Wolfram, `1c` → BSL, …).
+`delphi` → Pascal, `mathematica` → Wolfram, `1c` → BSL, …). A `languages`
+config rule wins over all of this: the server sends the rule's language as the
+file's `lang`, and `crit-pierre-adapter.js` applies it before detection.
 
 Compared with the previous highlight.js bundle (193 languages + HEEx, Vue,
 Astro), 115 keep highlighting. These 81 have no Shiki grammar and render as
@@ -237,5 +244,6 @@ pony, processing, profile, purebasic, q, reasonml, rib, roboconf, routeros,
 rsl, ruleslanguage, scilab, smali, sml, sqf, stan, step21, subunit,
 taggerscript, tap, thrift, tp, wren, xl, xquery, zephir.
 
-Shiki has grammars Crit could add (about 110 more); each costs binary size
-(`pierreDirBytes`). Add to `SHIKI_LANGS` and re-run `npm run update-deps`.
+Shiki grammars that no file name maps to stay out of the binary. To ship one
+for fenced code, add it to `FENCE_LANGS` in `scripts/build-pierre.mjs` and
+re-run `npm run update-deps`; each costs binary size (`pierreDirBytes`).

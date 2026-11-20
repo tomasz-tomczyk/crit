@@ -653,6 +653,7 @@
         oldPath: fi.old_path || '',
         status: fi.status,
         fileType: fi.file_type,
+        lang: fi.lang || '',
         content: '',
         previousContent: '',
         comments: (commentsByPath && commentsByPath[fi.path]) || [],
@@ -715,6 +716,7 @@
         path: fi.path,
         status: fi.status,
         fileType: fi.file_type,
+        lang: fi.lang || '',
         content: '',
         previousContent: '',
         diffHunks: [],
@@ -758,6 +760,7 @@
       oldPath: fi.old_path || '',
       status: fi.status,
       fileType: fi.file_type,
+      lang: fi.lang || '',
       content: content,
       previousContent: diffRes.previous_content || '',
       diffHunks: diffRes.hunks || [],
@@ -2376,7 +2379,7 @@
     // loadSingleFile returns no comments, so the placeholder keeps its list.
     load: function(file, signal) {
       return loadSingleFile({
-        path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType,
+        path: file.path, old_path: file.oldPath, status: file.status, file_type: file.fileType, lang: file.lang,
         additions: file.additions, deletions: file.deletions, generated: file.generated,
       }, currentFileDataScope(), signal).then(function(loaded) {
         if (!loaded || file.viewMode !== 'rendered-diff') return loaded;
@@ -11154,6 +11157,7 @@
       old_path: file.oldPath,
       status: file.status,
       file_type: file.fileType,
+      lang: file.lang,
       additions: file.additions,
       deletions: file.deletions,
     }, currentFileDataScope()).then(function (loaded) {

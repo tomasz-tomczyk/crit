@@ -812,7 +812,7 @@ func (s *Session) buildFilesForFocus(f Focus, v vcs.VCS, repoRoot string) ([]*Fi
 			OldPath:  fc.OldPath,
 			AbsPath:  filepath.Join(repoRoot, fc.Path),
 			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
+			FileType: detectFileType(s.languages, fc.Path),
 			Comments: []Comment{},
 		}
 		// Same eager/lazy split as NewGitSession: range focus is how --pr
@@ -883,7 +883,7 @@ func (s *Session) buildFilesForWorkingTree(v vcs.VCS, repoRoot string) ([]*FileE
 			OldPath:  fc.OldPath,
 			AbsPath:  filepath.Join(repoRoot, fc.Path),
 			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
+			FileType: detectFileType(s.languages, fc.Path),
 			Comments: []Comment{},
 		}
 		if len(changes) > lazyFileThreshold && i >= lazyFileThreshold {
@@ -1021,6 +1021,7 @@ type scopedSessionSnapshot struct {
 	branch           string
 	reviewRound      int
 	ignorePatterns   []string
+	languages        config.LanguageRules
 	commentCounts    map[string]int
 	unresolvedCounts map[string]int
 	totalUnresolved  int
@@ -1102,6 +1103,7 @@ func (s *Session) snapshotForScoped() scopedSessionSnapshot {
 		branch:           s.Branch,
 		reviewRound:      s.ReviewRound,
 		ignorePatterns:   s.IgnorePatterns,
+		languages:        s.languages,
 		commentCounts:    commentCounts,
 		unresolvedCounts: unresolvedCounts,
 		totalUnresolved:  totalUnresolved,
@@ -1321,7 +1323,8 @@ func (snap *scopedSessionSnapshot) scopedFileInfos(changes []vcs.FileChange, sco
 			Path:         fc.Path,
 			OldPath:      fc.OldPath,
 			Status:       fc.Status,
-			FileType:     detectFileType(fc.Path),
+			FileType:     detectFileType(snap.languages, fc.Path),
+			Lang:         snap.languages.Lang(fc.Path),
 			CommentCount: snap.commentCounts[fc.Path],
 			Generated:    vcs.IsGenerated(fc.Path, snap.generatedRules),
 		}
@@ -1566,7 +1569,7 @@ func (s *Session) liveAllFileDiff(path string, ignoreWhitespace bool) (map[strin
 	if hunks := liveAllHunks(fc, content, baseRef, repoRoot, ignoreWhitespace, vc); hunks != nil {
 		result["hunks"] = hunks
 	}
-	if detectFileType(path) != "code" {
+	if detectFileType(s.languages, path) != "code" {
 		result["previous_content"] = gitBaseContentForMarkdown(s, focus, fc.Path, fc.OldPath, fc.Status, baseRef, repoRoot, vc)
 	}
 	return result, true

@@ -220,3 +220,18 @@ test('buildFileContents and buildFileDiff apply the template-suffix language', f
   assert.equal(diff.lang, 'python');
   assert.deepEqual(calls, ['python', 'python']);
 });
+
+test('a file.lang from the languages config wins over detection', function() {
+  const overrides = [];
+  const P = Object.assign({
+    processFile() { return { kind: 'diff' }; },
+    setLanguageOverride(target, lang) { overrides.push(lang); return target; },
+  }, pierreDetect);
+  a.buildFileContents(P, { path: 'app.conf', content: 'a: 1\n', lang: 'yaml' }, 'k1');
+  a.buildFileContents(P, { path: 'icons/logo.svg', content: '<svg/>', lang: 'html' }, 'k2');
+  a.buildFileContents(P, { path: 'icons/logo.svg', content: '<svg/>' }, 'k3');
+  a.buildFileContents(P, { path: 'main.py', content: 'x = 1\n', lang: '' }, 'k4');
+  const hunks = [hunk(1, 1, 1, 1, [['del', 'a: 0'], ['add', 'a: 1']])];
+  a.buildFileDiff(P, { path: 'app.conf', status: 'modified', content: 'a: 1\n', lang: 'yaml' }, hunks, 'k5');
+  assert.deepEqual(overrides, ['yaml', 'html', 'xml', 'yaml']);
+});

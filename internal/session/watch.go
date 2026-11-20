@@ -123,7 +123,7 @@ func (s *Session) RefreshFileList() {
 		}
 	}
 
-	built := buildRefreshedFileList(existing, changes, repoRoot, numstats)
+	built := buildRefreshedFileList(existing, changes, repoRoot, numstats, s.languages)
 	hashLazyUpdates(built.updates, lazyEntries)
 
 	// Assign under write lock
@@ -200,7 +200,7 @@ type refreshedFileList struct {
 // buildRefreshedFileList maps VCS changes onto existing FileEntries, carrying
 // comments across renames via OldPath (#917). Pure aside from reading new
 // file contents from disk for newly discovered paths.
-func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileChange, repoRoot string, numstats map[string]vcs.NumstatEntry) refreshedFileList {
+func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileChange, repoRoot string, numstats map[string]vcs.NumstatEntry, languages config.LanguageRules) refreshedFileList {
 	var out refreshedFileList
 	for i, fc := range changes {
 		absPath := filepath.Join(repoRoot, fc.Path)
@@ -239,7 +239,7 @@ func buildRefreshedFileList(existing map[string]*FileEntry, changes []vcs.FileCh
 			OldPath:  fc.OldPath,
 			AbsPath:  absPath,
 			Status:   fc.Status,
-			FileType: detectFileType(fc.Path),
+			FileType: detectFileType(languages, fc.Path),
 			Comments: []Comment{},
 		}
 
@@ -786,7 +786,7 @@ func (s *Session) buildFileEntry(absPath, repoRoot, baseRef string, vc vcs.VCS) 
 		Path:      relPath,
 		AbsPath:   absPath,
 		Status:    "modified",
-		FileType:  detectFileType(absPath),
+		FileType:  detectFileType(s.languages, relPath),
 		Content:   string(data),
 		FileHash:  fileHash(data),
 		Comments:  []Comment{},
