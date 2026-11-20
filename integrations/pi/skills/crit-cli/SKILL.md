@@ -61,7 +61,7 @@ The JSON status output exposes the candidates in `sessions`.
       "author": "User Name",
       "resolved": false,
       "replies": [
-        { "id": "rp_b4a5c6", "body": "Thanks, addressed the minor issues", "author": "Hermes" }
+        { "id": "rp_b4a5c6", "body": "Thanks, addressed the minor issues", "author": "Pi" }
       ]
     }
   ],
@@ -78,7 +78,7 @@ The JSON status output exposes the candidates in `sessions`.
           "author": "User Name",
           "resolved": false,
           "replies": [
-            { "id": "rp_c7d8e9", "body": "Fixed by extracting to helper", "author": "Hermes" }
+            { "id": "rp_c7d8e9", "body": "Fixed by extracting to helper", "author": "Pi" }
           ]
         }
       ]
@@ -98,25 +98,25 @@ Field rules:
 
 ```bash
 # Review-level (general feedback)
-crit comment --author 'Hermes' '<body>'
+crit comment --author 'Pi' '<body>'
 
 # File-level (whole file, no line numbers)
-crit comment --author 'Hermes' <path> '<body>'
+crit comment --author 'Pi' <path> '<body>'
 
 # Line (single line or range)
-crit comment --author 'Hermes' <path>:<line> '<body>'
-crit comment --author 'Hermes' <path>:<start>-<end> '<body>'
+crit comment --author 'Pi' <path>:<line> '<body>'
+crit comment --author 'Pi' <path>:<start>-<end> '<body>'
 
 # DOM pin (live review or HTML preview). File:line is rejected there.
-crit comment --author 'Hermes' --selector '<css>' '<body>'
-crit comment --author 'Hermes' --selector '<css>' --route <path> '<body>'
+crit comment --author 'Pi' --selector '<css>' '<body>'
+crit comment --author 'Pi' --selector '<css>' --route <path> '<body>'
 
 # Reply to an existing comment
-crit comment --reply-to <id> --author 'Hermes' '<body>'
+crit comment --reply-to <id> --author 'Pi' '<body>'
 ```
 
 Hard rules:
-- **Always pass `--author 'Hermes'`** so comments are attributed correctly.
+- **Always pass `--author 'Pi'`** so comments are attributed correctly.
 - **Always single-quote the body** — double quotes break on backticks and shell metachars.
 - **Line numbers reference the file on disk** (1-indexed), not diff line numbers.
 - **Reply bodies support markdown** — use code fences and inline code where helpful.
@@ -136,13 +136,13 @@ echo '[
   {"file": "src/auth.go", "line": "50-55", "body": "Extract to helper"},
   {"reply_to": "c_a1b2c3", "body": "Fixed — added null check"},
   {"reply_to": "r_f1e2d3", "body": "Done"}
-]' | crit comment --json --author 'Hermes'
+]' | crit comment --json --author 'Pi'
 ```
 
 **For multi-paragraph bodies, prefer `--file`.** A literal newline inside a `"body"` string breaks JSON parsing, and shell-quoted heredocs make this easy to introduce by accident. Write the JSON to a temp file (use your file-edit tool), then:
 
 ```bash
-crit comment --json --file /tmp/crit-bulk.json --author 'Hermes'
+crit comment --json --file /tmp/crit-bulk.json --author 'Pi'
 ```
 
 `--file -` is an explicit "read stdin" if you ever need it.
@@ -169,7 +169,7 @@ Scope inference (when `scope` omitted): has `reply_to` → reply; no `file`/`pat
 Comment IDs are unique per session, but the same ID can collide across files. If `crit comment` errors with "comment found in multiple files", disambiguate with `--path`:
 
 ```bash
-crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'Hermes' 'Fixed the null check'
+crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'Pi' 'Fixed the null check'
 ```
 
 In `--json` mode, set the `file` field on the entry. Review-level IDs (`r_…`) are globally unique and never need this.
@@ -179,7 +179,7 @@ In `--json` mode, set the `file` field on the entry. Review-level IDs (`r_…`) 
 Plan reviews (via `crit plan` or the ExitPlanMode hook) store the review file in `~/.crit/plans/<slug>/`. **Always pass `--plan <slug>`** — without it, `crit comment` looks in the project root and won't find the comments. The slug is shown in the review feedback prompt.
 
 ```bash
-crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Hermes' 'Updated the plan'
+crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Pi' 'Updated the plan'
 ```
 
 ## GitHub PR / GitLab MR Integration

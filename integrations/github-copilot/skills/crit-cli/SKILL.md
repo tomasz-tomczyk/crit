@@ -61,7 +61,7 @@ The JSON status output exposes the candidates in `sessions`.
       "author": "User Name",
       "resolved": false,
       "replies": [
-        { "id": "rp_b4a5c6", "body": "Thanks, addressed the minor issues", "author": "Copilot" }
+        { "id": "rp_b4a5c6", "body": "Thanks, addressed the minor issues", "author": "GitHub Copilot" }
       ]
     }
   ],
@@ -78,7 +78,7 @@ The JSON status output exposes the candidates in `sessions`.
           "author": "User Name",
           "resolved": false,
           "replies": [
-            { "id": "rp_c7d8e9", "body": "Fixed by extracting to helper", "author": "Copilot" }
+            { "id": "rp_c7d8e9", "body": "Fixed by extracting to helper", "author": "GitHub Copilot" }
           ]
         }
       ]
@@ -98,25 +98,25 @@ Field rules:
 
 ```bash
 # Review-level (general feedback)
-crit comment --author 'Copilot' '<body>'
+crit comment --author 'GitHub Copilot' '<body>'
 
 # File-level (whole file, no line numbers)
-crit comment --author 'Copilot' <path> '<body>'
+crit comment --author 'GitHub Copilot' <path> '<body>'
 
 # Line (single line or range)
-crit comment --author 'Copilot' <path>:<line> '<body>'
-crit comment --author 'Copilot' <path>:<start>-<end> '<body>'
+crit comment --author 'GitHub Copilot' <path>:<line> '<body>'
+crit comment --author 'GitHub Copilot' <path>:<start>-<end> '<body>'
 
 # DOM pin (live review or HTML preview). File:line is rejected there.
-crit comment --author 'Copilot' --selector '<css>' '<body>'
-crit comment --author 'Copilot' --selector '<css>' --route <path> '<body>'
+crit comment --author 'GitHub Copilot' --selector '<css>' '<body>'
+crit comment --author 'GitHub Copilot' --selector '<css>' --route <path> '<body>'
 
 # Reply to an existing comment
-crit comment --reply-to <id> --author 'Copilot' '<body>'
+crit comment --reply-to <id> --author 'GitHub Copilot' '<body>'
 ```
 
 Hard rules:
-- **Always pass `--author 'Copilot'`** (or your agent name) so comments are attributed correctly.
+- **Always pass `--author 'GitHub Copilot'`** (or your agent name) so comments are attributed correctly.
 - **Always single-quote the body** — double quotes break on backticks and shell metachars.
 - **Line numbers reference the file on disk** (1-indexed), not diff line numbers.
 - **Reply bodies support markdown** — use code fences and inline code where helpful.
@@ -169,7 +169,7 @@ Scope inference (when `scope` omitted): has `reply_to` → reply; no `file`/`pat
 If `crit comment` errors with "comment found in multiple files", IDs collided across files. Disambiguate with `--path`:
 
 ```bash
-crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'Copilot' 'Fixed the null check'
+crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'GitHub Copilot' 'Fixed the null check'
 ```
 
 In `--json` mode, set the `file` field on the entry. Review-level IDs (`r_…`) are globally unique and never need this.
@@ -179,7 +179,7 @@ In `--json` mode, set the `file` field on the entry. Review-level IDs (`r_…`) 
 Plan reviews (via `crit plan` or the ExitPlanMode hook) store the review file in `~/.crit/plans/<slug>/`. **Always pass `--plan <slug>`** — without it, `crit comment` looks in the project root and won't find the comments. The slug is shown in the review feedback prompt.
 
 ```bash
-crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Copilot' 'Updated the plan'
+crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'GitHub Copilot' 'Updated the plan'
 ```
 
 ## GitHub PR sync

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -182,6 +183,31 @@ func TestPlanExitHooksRemainEnabled(t *testing.T) {
 	for path, marker := range cases {
 		if content := readIntegrationForPolicyTest(t, path); !strings.Contains(content, marker) {
 			t.Fatalf("%s no longer contains plan-exit marker %q", path, marker)
+		}
+	}
+}
+
+// TestIntegrationAuthorsConsistentPerAgent guards against a skill copied from
+// another integration keeping that agent's --author literal (issue #1201: pi's
+// crit-cli said 'Hermes', github-copilot's said 'Copilot').
+func TestIntegrationAuthorsConsistentPerAgent(t *testing.T) {
+	authorRe := regexp.MustCompile(`--author '([^']+)'`)
+	// agent dir -> author literal -> first file using it
+	byAgent := map[string]map[string]string{}
+	for path := range integrationHashes {
+		agent := strings.SplitN(strings.TrimPrefix(path, "integrations/"), "/", 2)[0]
+		for _, m := range authorRe.FindAllStringSubmatch(readIntegrationForPolicyTest(t, path), -1) {
+			if byAgent[agent] == nil {
+				byAgent[agent] = map[string]string{}
+			}
+			if _, ok := byAgent[agent][m[1]]; !ok {
+				byAgent[agent][m[1]] = path
+			}
+		}
+	}
+	for agent, authors := range byAgent {
+		if len(authors) > 1 {
+			t.Errorf("integrations/%s uses more than one --author literal: %v", agent, authors)
 		}
 	}
 }
