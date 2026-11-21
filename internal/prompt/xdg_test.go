@@ -44,12 +44,14 @@ func TestRenderHook_GlobalFileUnderXDGConfigHome(t *testing.T) {
 }
 
 // The XDG location wins over the legacy one once the user has moved prompts
-// there, and the label stays relative to home for the default location.
+// there. A config directory under home keeps the source label relative.
 func TestRenderHook_GlobalXDGFileWinsOverLegacy(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetFreshHome(t, home)
+	cfgHome := filepath.Join(home, ".config")
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	writePrompt(t, filepath.Join(home, ".crit", "prompts"), "on_story_generate.md", "LEGACY FILE")
-	writePrompt(t, filepath.Join(home, ".config", "crit", "prompts"), "on_story_generate.md", "XDG FILE")
+	writePrompt(t, filepath.Join(cfgHome, "crit", "prompts"), "on_story_generate.md", "XDG FILE")
 
 	res, err := prompt.RenderHook(nil, nil, t.TempDir(), home, true, prompt.HookStoryGenerate, storyData())
 	if err != nil {
