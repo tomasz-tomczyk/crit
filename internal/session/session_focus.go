@@ -1038,7 +1038,7 @@ type scopedSessionSnapshot struct {
 	// the diff (the same rows GetSessionInfo shows).
 	commentedFiles []SessionFileInfo
 	// removedFiles is the part of commentedFiles that has left the review
-	// (the file is in no diff), so scope "branch" keeps them as rows too.
+	// (the file is in no diff), so the working-tree scopes keep them as rows too.
 	removedFiles []SessionFileInfo
 }
 
@@ -1230,8 +1230,9 @@ func countHunkStats(hunks []vcs.DiffHunk) (additions, deletions int) {
 // range focus, delegates to GetSessionInfo (the round snapshot).
 // All other scopes (including "all") run fresh git queries to pick up work
 // done after the round started. "all" also keeps commented files that left the
-// diff as orphaned rows, as GetSessionInfo does; "branch" keeps those that
-// left the review entirely.
+// diff as orphaned rows, as GetSessionInfo does. The other working-tree scopes
+// (branch, staged, unstaged) keep only those that left the review entirely:
+// such a file is in no diff, so no scope would otherwise show its comments.
 // When commit is non-empty, files and diffs are scoped to that single commit.
 func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
@@ -1279,8 +1280,8 @@ func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	info.Files = snap.scopedFileInfos(changes, scope, commit)
 	if liveAll {
 		info.Files = appendOrphanedCommentedFiles(info.Files, snap.commentedFiles)
-	} else if scope == "branch" && commit == "" {
-		// A file that left the branch is in no diff, so without its row
+	} else if commit == "" {
+		// A file that left the review is in no diff, so without its row
 		// its comments could not be seen or resolved here.
 		info.Files = appendOrphanedCommentedFiles(info.Files, snap.removedFiles)
 	}
