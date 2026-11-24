@@ -158,23 +158,24 @@
     // (diff ↔ file for markdown Document view); setItems swaps the record in
     // place instead, with the other items passed back unchanged. Pierre's
     // scroll anchor skips the replaced record, so if the reader was on this
-    // file its top is put back where it was.
+    // file its top is held where it was: a scroll request made before
+    // setItems keeps Pierre from capturing that anchor, and Pierre resolves
+    // it against the new layout. (Measuring the new element right after
+    // setItems is not reliable: it is not positioned yet.)
     function publish(file) {
       var item = itemFor(file);
       var prev = itemsByPath.get(file.path);
       itemsByPath.set(file.path, item);
       if (!prev || prev.type === item.type) {
+        holdDocumentPosition();
         viewer.updateItem(item);
         return;
       }
       var before = renderedTop(file.path);
-      viewer.setItems(order.map(function(p) { return itemsByPath.get(p); }));
-      if (before === null) return;
-      viewer.render(true);
-      var after = renderedTop(file.path);
-      if (after !== null && Math.abs(after - before) >= 1) {
-        viewer.scrollTo({ type: 'position', position: Math.max(0, viewer.getScrollTop() + after - before) });
+      if (before !== null) {
+        viewer.scrollTo({ type: 'item', id: file.path, align: 'start', offset: before - root.getBoundingClientRect().top });
       }
+      viewer.setItems(order.map(function(p) { return itemsByPath.get(p); }));
     }
 
     // On-screen top of a mounted item's element, or null when not rendered.
@@ -219,7 +220,8 @@
       return context && context.item ? context.item.id : null;
     }
 
-    function renderAnnotation(annotation, context) {
+    // CodeView passes (annotation, displayed file or diff, item context).
+    function renderAnnotation(annotation, _fileOrDiff, context) {
       var m = annotation.metadata;
       var key = m.kind + ':' + m.id;
       var el = elements.get(key);
@@ -237,6 +239,20 @@
       // measured no scroll cost with them on, and clicks right after a
       // scroll (tree jump, then click a line) land.
       pointerEventsOnScroll: true,
+      // Find is Pierre's search panel. Its own Cmd/Ctrl+F only listens inside
+      // the CodeView; app.js opens it from anywhere on the page instead.
+      searchOptions: { disableShortcuts: true },
+      onSearchStateChange: function(state) {
+        if (opts.onSearchStateChange) opts.onSearchStateChange(state);
+      },
+      // Search opens a collapsed file when it lands on a match. Keep the
+      // opened record (and a version past Pierre's) so the next publish
+      // doesn't fold it again, and let the page update its own state.
+      onItemCollapsedChange: function(_prev, next) {
+        if ((versions.get(next.id) || 0) < (next.version || 0)) versions.set(next.id, next.version);
+        itemsByPath.set(next.id, next);
+        if (opts.onItemCollapsedChange) opts.onItemCollapsedChange(next.id, !!next.collapsed);
+      },
       itemMetrics: opts.itemMetrics,
       layout: opts.layout,
       unsafeCSS: opts.unsafeCSS,
@@ -285,7 +301,28 @@
     // setOptions replaces the whole options object, so keep the source of truth here.
     function updateOptions(patch) {
       options = Object.assign({}, options, patch);
+      holdDocumentPosition();
       viewer.setOptions(options);
+    }
+
+    // Pierre anchors the scroll to a line of the item at the top. A rendered
+    // document is an empty file whose one line sits under the document, so
+    // when a layout reset (new options, setItems) forgets the document's
+    // measured height, that anchor moves by the whole document and the
+    // reader lands files away (Pierre 1.7). When the reader is inside a
+    // document, hold the item itself: a pending scroll request also stops
+    // Pierre capturing its line anchor.
+    function holdDocumentPosition() {
+      var rootTop = root.getBoundingClientRect().top;
+      var hit = null;
+      viewer.getRenderedItems().forEach(function(r) {
+        if (hit || !r.element) return;
+        var box = r.element.getBoundingClientRect();
+        if (box.top <= rootTop + 1 && box.bottom > rootTop) hit = { id: r.id, top: box.top };
+      });
+      var item = hit && itemsByPath.get(hit.id);
+      if (!item || item.type !== 'file' || item.file.contents !== '') return;
+      viewer.scrollTo({ type: 'item', id: hit.id, align: 'start', offset: hit.top - rootTop });
     }
     var viewer = new P.CodeView(options, opts.workerPool);
     viewer.setup(root);
@@ -346,6 +383,7 @@
       Array.from(elements.keys()).forEach(function(key) {
         if (key.indexOf('form:') !== 0 && key.indexOf('document:') !== 0) forgetAnnotation(key);
       });
+      holdDocumentPosition();
       order = files.map(function(f) { return f.path; });
       itemsByPath = new Map();
       var items = files.map(function(f) {

@@ -1,20 +1,24 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loadPage, clearAllComments, revealFile, openLineComment } from './helpers';
+import { loadPage, clearAllComments, revealFile, openLineComment, fileHeader } from './helpers';
 
-// Find in diff: stepping, match case and Esc ordering on the git fixture.
-// login.feature adds `alice@example.com` twice and `Welcome back, Alice`
-// once; no other code file mentions alice.
+// Find is Pierre's CodeView search panel; Crit opens it from anywhere on the
+// page and keeps its own file state in step. Git fixture: login.feature adds
+// `alice@example.com` twice and `Welcome back, Alice` once; no other code
+// file mentions alice.
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
-const bar = (page: Page) => page.locator('.crit-find-bar');
-const input = (page: Page) => page.locator('.crit-find-input');
-const count = (page: Page) => page.locator('.crit-find-count');
-const caseBtn = (page: Page) => page.locator('.crit-find-case');
+const panel = (page: Page) => page.locator('[data-search-panel-overlay]');
+const input = (page: Page) => panel(page).locator('input[data-search]');
+const count = (page: Page) => panel(page).locator('[data-matches]');
+const caseBtn = (page: Page) => panel(page).getByRole('button', { name: 'Match Case' });
+
+// Blur to body, as after a click on a non-focusable part of the page.
+const blur = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
 async function openFind(page: Page) {
-  await page.locator('#filesContainer').click({ position: { x: 5, y: 5 } });
+  await blur(page);
   await page.keyboard.press(`${MOD}+f`);
-  await expect(bar(page)).toBeVisible();
+  await expect(input(page)).toBeVisible();
   await expect(input(page)).toBeFocused();
 }
 
@@ -22,96 +26,61 @@ test.beforeEach(async ({ request }) => {
   await clearAllComments(request);
 });
 
-test('Enter, Shift+Enter and Cmd/Ctrl+G step through matches; match case narrows them', async ({ page }) => {
+test('Cmd/Ctrl+F opens find from the page; Enter, Shift+Enter and Cmd/Ctrl+G step; match case narrows', async ({ page }) => {
   await loadPage(page);
   await openFind(page);
   await input(page).fill('Alice');
-  await expect(count(page)).toHaveText('1 of 3');
+  await expect(count(page)).toHaveText('1/3');
 
   await page.keyboard.press('Enter');
-  await expect(count(page)).toHaveText('2 of 3');
+  await expect(count(page)).toHaveText('2/3');
   await page.keyboard.press('Shift+Enter');
-  await expect(count(page)).toHaveText('1 of 3');
+  await expect(count(page)).toHaveText('1/3');
   await page.keyboard.press('Shift+Enter');
-  await expect(count(page)).toHaveText('3 of 3');
+  await expect(count(page)).toHaveText('3/3');
+
+  // Find-again works with focus outside the panel too.
+  await blur(page);
   await page.keyboard.press(`${MOD}+g`);
-  await expect(count(page)).toHaveText('1 of 3');
+  await expect(count(page)).toHaveText('1/3');
   await page.keyboard.press(`${MOD}+Shift+g`);
-  await expect(count(page)).toHaveText('3 of 3');
+  await expect(count(page)).toHaveText('3/3');
 
   await caseBtn(page).click();
   await expect(caseBtn(page)).toHaveAttribute('aria-pressed', 'true');
-  await expect(count(page)).toHaveText('1 of 1');
+  await expect(count(page)).toHaveText(/\/1$/);
+});
+
+test('typed letters reach the search box instead of firing page shortcuts', async ({ page }) => {
+  await loadPage(page);
+  await openFind(page);
+  // Real key presses (fill() would skip the page's keydown handlers); every
+  // letter, so a single-key shortcut can't swallow one.
+  const text = 'the quick brown fox jumps over the lazy dog';
+  await page.keyboard.type(text);
+  await expect(input(page)).toHaveValue(text);
   await expect(input(page)).toBeFocused();
-
-  await page.keyboard.press('Alt+c');
-  await expect(caseBtn(page)).toHaveAttribute('aria-pressed', 'false');
-  await expect(count(page)).toHaveText(/ of 3$/);
 });
 
-test('Esc closes the bar and returns focus to where find was opened', async ({ page }) => {
-  await loadPage(page);
-  await expect(page.locator('#commitDropdown')).toBeVisible();
-  const opener = page.locator('#commitDropdownBtn');
-  await opener.focus();
-  await page.keyboard.press(`${MOD}+f`);
-  await expect(input(page)).toBeFocused();
-
-  await page.keyboard.press('Escape');
-  await expect(bar(page)).toBeHidden();
-  await expect(opener).toBeFocused();
-  await expect(page.locator('#commitDropdown')).not.toHaveClass(/open/);
-});
-
-// Blur to body, as after a click on a non-focusable part of the page.
-const blur = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-
-// Keyboard-focused diff rows (Pierre marks them [data-selected-line]).
-const selectedRows = (page: Page) =>
-  page.locator('diffs-container [data-content] > [data-selected-line][data-line]').count();
-
-test('Esc closes an open menu before the find bar', async ({ page }) => {
+test('Esc in the panel closes it and clears the highlights', async ({ page }) => {
   await loadPage(page);
   await openFind(page);
   await input(page).fill('Alice');
-  await expect(count(page)).toHaveText('1 of 3');
+  await expect(count(page)).toHaveText('1/3');
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has('diffs-search-current'))).toBe(true);
 
-  await page.click('#commitDropdownBtn');
-  await expect(page.locator('#commitDropdown')).toHaveClass(/open/);
-  // From body, both the menu and the bar would take Esc: the menu goes first.
-  await blur(page);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#commitDropdown')).not.toHaveClass(/open/);
-  await expect(bar(page)).toBeVisible();
-
-  // With nothing else open, Esc from the page closes the bar.
-  await page.keyboard.press('Escape');
-  await expect(bar(page)).toBeHidden();
+  await input(page).press('Escape');
+  await expect(panel(page)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() =>
+    (CSS.highlights.get('diffs-search-match')?.size ?? 0) + (CSS.highlights.get('diffs-search-current')?.size ?? 0),
+  )).toBe(0);
 });
 
-test('Esc closes only the bar and keeps the focused line; the next Esc clears it', async ({ page }) => {
+test('Esc in a comment textarea cancels the form and leaves find open', async ({ page }) => {
   await loadPage(page);
   await openFind(page);
   await input(page).fill('Alice');
-  await expect(count(page)).toHaveText('1 of 3');
-
-  await blur(page);
-  await page.keyboard.press('j');
-  await expect.poll(() => selectedRows(page)).toBeGreaterThan(0);
-
-  await page.keyboard.press('Escape');
-  await expect(bar(page)).toBeHidden();
-  await expect.poll(() => selectedRows(page)).toBeGreaterThan(0);
-
-  await page.keyboard.press('Escape');
-  await expect.poll(() => selectedRows(page)).toBe(0);
-});
-
-test('Esc in a comment textarea cancels the form and leaves the bar open', async ({ page }) => {
-  await loadPage(page);
-  await openFind(page);
-  await input(page).fill('Alice');
-  await expect(count(page)).toHaveText('1 of 3');
+  await expect(count(page)).toHaveText('1/3');
 
   const item = await revealFile(page, 'login.feature');
   const form = await openLineComment(page, item, 2);
@@ -119,5 +88,25 @@ test('Esc in a comment textarea cancels the form and leaves the bar open', async
   await expect(textarea).toBeFocused();
   await textarea.press('Escape');
   await expect(item.locator('.comment-form')).toHaveCount(0);
-  await expect(bar(page)).toBeVisible();
+  await expect(input(page)).toBeVisible();
+});
+
+test('a match in a collapsed file opens it, and its header shows it open', async ({ page }) => {
+  await loadPage(page);
+  await revealFile(page, 'login.feature');
+  const header = fileHeader(page, 'login.feature');
+  await header.locator('.file-header-chevron').click();
+  await expect(header).toHaveClass(/collapsed/);
+
+  await openFind(page);
+  await input(page).fill('Alice');
+  await expect(count(page)).toHaveText('1/3');
+  await expect(header).not.toHaveClass(/collapsed/);
+  await expect(header.locator('.file-header-chevron')).toHaveAttribute('aria-expanded', 'true');
+
+  // Crit recorded the change: a later re-render keeps the file open.
+  await input(page).press('Escape');
+  await page.keyboard.press(`${MOD}+f`);
+  await input(page).press('Escape');
+  await expect(header).not.toHaveClass(/collapsed/);
 });

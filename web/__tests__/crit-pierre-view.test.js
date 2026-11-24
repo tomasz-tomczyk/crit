@@ -56,7 +56,7 @@ function file(path, extra) {
 function makeView(fake, overrides) {
   return createPierreView(Object.assign({
     pierre: fake.P,
-    root: {},
+    root: { getBoundingClientRect: () => ({ top: 0, bottom: 500 }) },
     annotations: () => [],
     loadFile: () => Promise.resolve(null),
     buildHeader: () => ({}),
@@ -122,10 +122,19 @@ test('annotation elements are cached by kind:id so drafts survive re-renders', f
   const render = fake.options().renderAnnotation;
   const ctx = { item: { id: 'a.go' } };
   const ann = { metadata: { kind: 'form', id: 'k1' } };
-  const first = render(ann, ctx);
-  const again = render(ann, ctx);
+  const first = render(ann, null, ctx);
+  const again = render(ann, null, ctx);
   assert.equal(first, again, 'same element returned for the same form');
   assert.equal(builds, 1);
+});
+
+test('renderAnnotation reads the file path from the third (CodeView context) argument', function() {
+  const fake = fakePierre();
+  const paths = [];
+  makeView(fake, { buildAnnotation: (kind, path) => { paths.push(path); return { tag: 'el' }; } });
+  const fileOrDiff = { name: 'displayed.go' };
+  fake.options().renderAnnotation({ metadata: { kind: 'thread', id: 'p1' } }, fileOrDiff, { item: { id: 'a.go' } });
+  assert.deepEqual(paths, ['a.go']);
 });
 
 test('refreshFile invalidates only the named annotation keys', function() {
@@ -135,11 +144,11 @@ test('refreshFile invalidates only the named annotation keys', function() {
   view.setFiles([file('a.go')]);
   const render = fake.options().renderAnnotation;
   const ctx = { item: { id: 'a.go' } };
-  const thread = render({ metadata: { kind: 'thread', id: 't1' } }, ctx);
-  const form = render({ metadata: { kind: 'form', id: 'f1' } }, ctx);
+  const thread = render({ metadata: { kind: 'thread', id: 't1' } }, null, ctx);
+  const form = render({ metadata: { kind: 'form', id: 'f1' } }, null, ctx);
   view.refreshFile(file('a.go'), ['thread:t1']);
-  assert.notEqual(render({ metadata: { kind: 'thread', id: 't1' } }, ctx), thread, 'thread rebuilt');
-  assert.equal(render({ metadata: { kind: 'form', id: 'f1' } }, ctx), form, 'open form kept');
+  assert.notEqual(render({ metadata: { kind: 'thread', id: 't1' } }, null, ctx), thread, 'thread rebuilt');
+  assert.equal(render({ metadata: { kind: 'form', id: 'f1' } }, null, ctx), form, 'open form kept');
 });
 
 test('annotation metadata objects are stable across publishes', function() {
@@ -168,6 +177,37 @@ test('switching a file between diff and document view swaps the item type in pla
   assert.ok(!fake.log.some(e => e[0] === 'updateItem' && e[1] === 'plan.md'), 'updateItem cannot change a type');
 });
 
+test('a full setFiles or new options hold a reader inside a rendered document at the same offset', function() {
+  const fake = fakePierre();
+  const md = file('plan.md', { fileType: 'markdown', viewMode: 'document' });
+  const view = makeView(fake, { isDocumentView: f => f.viewMode === 'document' });
+  view.setFiles([md]);
+  fake.P.CodeView.prototype.getRenderedItems = function() {
+    return [{ id: 'plan.md', element: { getBoundingClientRect: () => ({ top: -900, bottom: 1300 }) } }];
+  };
+  fake.log.length = 0;
+  view.setFiles([md]);
+  view.setRenderOptions({ overflow: 'wrap' });
+  const holds = fake.log.filter(e => e[0] === 'scrollTo').map(e => e[1]);
+  assert.deepEqual(holds, [
+    { type: 'item', id: 'plan.md', align: 'start', offset: -900 },
+    { type: 'item', id: 'plan.md', align: 'start', offset: -900 },
+  ]);
+  assert.ok(fake.log.findIndex(e => e[0] === 'scrollTo') < fake.log.findIndex(e => e[0] === 'setItems'), 'held before setItems');
+});
+
+test('a reader inside a code diff is left to Pierre\'s own anchor', function() {
+  const fake = fakePierre();
+  const view = makeView(fake);
+  view.setFiles([file('a.go')]);
+  fake.P.CodeView.prototype.getRenderedItems = function() {
+    return [{ id: 'a.go', element: { getBoundingClientRect: () => ({ top: -50, bottom: 400 }) } }];
+  };
+  fake.log.length = 0;
+  view.setFiles([file('a.go')]);
+  assert.ok(!fake.log.some(e => e[0] === 'scrollTo'));
+});
+
 test('scroll and selection map Crit sides to Pierre sides', async function() {
   const fake = fakePierre();
   const view = makeView(fake);
@@ -190,7 +230,7 @@ test('hoveredPath names the mounted item under the mouse pointer', function() {
   const fake = fakePierre();
   let hovered = null;
   fake.P.CodeView.prototype.getRenderedItems = function() {
-    return ['a.go', 'b.go', 'c.go'].map(id => ({ id, element: { matches: sel => sel === ':hover' && id === hovered } }));
+    return ['a.go', 'b.go', 'c.go'].map(id => ({ id, element: { matches: sel => sel === ':hover' && id === hovered, getBoundingClientRect: () => ({ top: 100, bottom: 200 }) } }));
   };
   const view = makeView(fake);
   view.setFiles([file('a.go'), file('b.go'), file('c.go')]);
@@ -268,11 +308,11 @@ test('a full setFiles rebuilds thread cards but keeps open forms', function() {
   view.setFiles([file('a.go')]);
   const render = fake.options().renderAnnotation;
   const ctx = { item: { id: 'a.go' } };
-  const thread = render({ metadata: { kind: 'thread', id: 't1' } }, ctx);
-  const form = render({ metadata: { kind: 'form', id: 'f1' } }, ctx);
+  const thread = render({ metadata: { kind: 'thread', id: 't1' } }, null, ctx);
+  const form = render({ metadata: { kind: 'form', id: 'f1' } }, null, ctx);
   view.setFiles([file('a.go')]);
-  assert.notEqual(render({ metadata: { kind: 'thread', id: 't1' } }, ctx), thread, 'thread rebuilt from the new model');
-  assert.equal(render({ metadata: { kind: 'form', id: 'f1' } }, ctx), form, 'form element (and its typing) kept');
+  assert.notEqual(render({ metadata: { kind: 'thread', id: 't1' } }, null, ctx), thread, 'thread rebuilt from the new model');
+  assert.equal(render({ metadata: { kind: 'form', id: 'f1' } }, null, ctx), form, 'form element (and its typing) kept');
 });
 
 test('re-publishing a file reuses its parsed diff until the content changes', function() {
@@ -344,7 +384,7 @@ test('file-level annotations keep their order when Pierre appends a new one afte
     },
   }).setFiles([file('a.md')]);
   const ctx = { item: { id: 'a.md' } };
-  annotations.forEach(a => fake.options().renderAnnotation(a, ctx));
+  annotations.forEach(a => fake.options().renderAnnotation(a, null, ctx));
   // Pierre's DOM order: the document first, then the thread and the form appended after it.
   host.appendChild(built['document:a.md'].wrapper);
   host.appendChild(built['thread:t1'].wrapper);

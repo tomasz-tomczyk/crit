@@ -53,6 +53,17 @@ test('min-light comments get darker but stay grey; tokyo-night comments get ligh
   assert.ok(Math.abs(h1 - h0) < 12);
 });
 
+test('a Pierre-resolved theme ({ ..., textmate }) has its nested TextMate rules boosted and renamed', async () => {
+  const { bundledThemes, normalizeTheme } = await import('shiki');
+  const comment = theme => theme.settings.find(r => [].concat(r.scope || []).includes('comment') && r.settings && r.settings.foreground).settings.foreground;
+  const textmate = normalizeTheme((await bundledThemes['min-light']()).default);
+  const resolved = { name: textmate.name, type: textmate.type, fg: textmate.fg, bg: textmate.bg, colors: textmate.colors, textmate };
+  const copy = boost.boostTheme(resolved, 'min-light--crit-boost');
+  assert.equal(copy.name, 'min-light--crit-boost');
+  assert.equal(copy.textmate.name, 'min-light--crit-boost');
+  assert.ok(boost.oklch(comment(copy.textmate))[0] < boost.oklch(boost.parse(comment(textmate), '#ffffff'))[0]);
+});
+
 test('themes() registers each boosted theme once and leaves the pair alone when off', () => {
   const registered = [];
   const P = { registerCustomTheme: (name, loader) => registered.push([name, loader]), resolveTheme: () => Promise.resolve({}) };

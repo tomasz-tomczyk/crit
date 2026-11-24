@@ -127,6 +127,11 @@
     });
     if (copy.fg) copy.fg = fix(copy.fg);
     if (copy.colors && copy.colors['editor.foreground']) copy.colors['editor.foreground'] = fix(copy.colors['editor.foreground']);
+    // Pierre's resolveTheme (1.6+) wraps the TextMate theme:
+    // { name, type, fg, bg, colors, textmate }. The token rules live in the
+    // nested theme, which also needs the new name, or Shiki keeps using the
+    // original registered under the old one.
+    if (copy.textmate) copy.textmate = boostTheme(copy.textmate, name);
     return copy;
   }
 

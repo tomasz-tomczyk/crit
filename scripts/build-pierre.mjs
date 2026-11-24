@@ -13,7 +13,7 @@
 // can rebuild and require a clean git diff on every platform.
 import { build } from "esbuild";
 import { gzipSync } from "zlib";
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { bundledLanguagesInfo, bundledThemesInfo, bundledThemes, normalizeTheme } from "shiki";
 import { EXTENSION_TO_FILE_FORMAT } from "@pierre/diffs";
@@ -78,12 +78,28 @@ const fineGrainedShiki = {
         export const { codeToHtml } = createSingletonShorthands(createHighlighter);
       ` };
     });
-    // Pierre only imports shiki/wasm for preferredHighlighter 'shiki-wasm';
-    // Crit uses the JS regex engine, so keep the ~230 KB WASM chunk out.
+    // Pierre resolves grammars through shiki/langs' bundledLanguages; point it
+    // at the same trimmed set so it does not pull every Shiki grammar.
+    b.onResolve({ filter: /^shiki\/langs$/ }, () => ({ path: "shiki", namespace: "crit-shiki" }));
+    // Pierre only imports shiki/wasm for preferredHighlighter 'shiki-wasm' and
+    // @pierre/highlights for 'highlights'; Crit pins 'shiki-js' (JS regex
+    // engine), so keep both WASM payloads (~230 KB + ~400 KB) out.
     b.onResolve({ filter: /^shiki\/wasm$/ }, () => ({ path: "shiki-wasm-stub", namespace: "crit-stub" }));
-    b.onLoad({ filter: /.*/, namespace: "crit-stub" }, () => ({ contents: "export default null;", loader: "js" }));
+    b.onResolve({ filter: /^@pierre\/highlights(\/.*)?$/ }, () => ({ path: "highlights-stub", namespace: "crit-stub" }));
+    b.onLoad({ filter: /^shiki-wasm-stub$/, namespace: "crit-stub" }, () => ({ contents: "export default null;", loader: "js" }));
+    b.onLoad({ filter: /^highlights-stub$/, namespace: "crit-stub" }, () => ({ contents: HIGHLIGHTS_STUB, loader: "js" }));
   },
 };
+
+// Stand-in for @pierre/highlights (Pierre's WASM highlighter). Pierre only
+// reaches it when preferredHighlighter is 'highlights'; Crit never sets that.
+const HIGHLIGHTS_STUB = `
+const off = () => { throw new Error("@pierre/highlights is not bundled in Crit; use preferredHighlighter 'shiki-js'"); };
+export class LiveTokenizer { constructor() { off(); } }
+export const codeToTokens = off;
+export const isSupportedLanguage = () => false;
+export const themes = {};
+`;
 
 const ENTRY = `\
 import {
@@ -121,6 +137,14 @@ window.PierreDiffs = {
 };
 `;
 
+const critEntry = {
+  name: "crit-pierre-entry",
+  setup(b) {
+    b.onResolve({ filter: /^crit-pierre-entry$/ }, () => ({ path: "crit-pierre-entry", namespace: "crit-entry" }));
+    b.onLoad({ filter: /.*/, namespace: "crit-entry" }, () => ({ contents: ENTRY, resolveDir: process.cwd(), loader: "js" }));
+  },
+};
+
 export async function buildPierre() {
   const palettes = await Promise.all(bundledThemesInfo.map(async info => {
     const theme = normalizeTheme((await bundledThemes[info.id]()).default);
@@ -134,8 +158,15 @@ export async function buildPierre() {
   writeFileSync(join(PIERRE_DIR, "palettes.js"),
     `window.crit=window.crit||{};window.crit.palettes=${JSON.stringify(palettes)};\n`);
   writeFileSync(join(PIERRE_DIR, "languages.json"), JSON.stringify(SHIKI_LANG_NAMES, null, 1) + "\n");
+  // One build, two entries: the page bundle and the highlight worker share
+  // chunks, and each Shiki grammar/theme stays a lazy chunk. Pierre's
+  // worker-portable.js is not used: since 1.6 it inlines every theme plus the
+  // Oniguruma and Highlights WASM (~500 KB gzip).
   const result = await build({
-    stdin: { contents: ENTRY, resolveDir: process.cwd(), sourcefile: "pierre-entry.js", loader: "js" },
+    entryPoints: [
+      { in: "crit-pierre-entry", out: "pierre-diffs" },
+      { in: "@pierre/diffs/worker/worker.js", out: "pierre-worker" },
+    ],
     bundle: true,
     format: "esm",
     splitting: true,
@@ -143,17 +174,12 @@ export async function buildPierre() {
     platform: "browser",
     target: "es2022",
     outdir: PIERRE_DIR,
-    entryNames: "pierre-diffs",
     chunkNames: "chunk-[hash]",
     legalComments: "none",
-    plugins: [fineGrainedShiki],
+    plugins: [critEntry, fineGrainedShiki],
     metafile: true,
     logLevel: "warning",
   });
-  // The portable worker has no static imports; its only dynamic import is the
-  // Oniguruma WASM chunk used by the 'shiki-wasm' engine, which Crit does not
-  // select (it uses the JS regex engine), so the WASM chunk is not shipped.
-  copyFileSync("node_modules/@pierre/diffs/dist/worker/worker-portable.js", join(PIERRE_DIR, "pierre-worker.js"));
   for (const name of readdirSync(PIERRE_DIR).filter(n => n.endsWith(".js"))) {
     const path = join(PIERRE_DIR, name);
     writeFileSync(`${path}.gz`, deterministicGzip(readFileSync(path)));
