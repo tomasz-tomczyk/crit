@@ -13,7 +13,7 @@
 # its LICENSES.txt carries the font licenses.
 #
 # sha256 path npm-sources path-in-package kind
-cd37898f9782adf54820c413191b5691803f0f137c799d6edcfd38523b4c2c31 web/dompurify.min.js dompurify@3.4.17 dist/purify.min.js copy
+8053ee2a6a09f9d50f7fcd6fb7f07072f52c7f3fa9aa12147cab4feaf65ee970 web/dompurify.min.js dompurify@3.4.18 dist/purify.min.js copy
 391f2aa638e75e6c7859d0a5c5650ef0956722a45998f17e05b83bc655778e1e web/markdown-it.min.js markdown-it@15.0.3 dist/browser/markdown-it.umd.min.js copy
 336df803d87a38b70a01e736e666c8f7601d2ce42f5e47c8fafe5d721074b9a3 web/mermaid.min.js mermaid@12.3.0 dist/mermaid.min.js copy
 6853af8619532f3939b156cd16824d2e14f31e71d3df306ad5558eeafacab194 web/rough.min.js roughjs@4.6.6 bundled/rough.js copy
