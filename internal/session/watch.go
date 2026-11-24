@@ -453,17 +453,15 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 			copy(files, s.Files)
 			s.mu.RUnlock()
 
-			changed, agentEdit := false, false
+			changed := false
 			for _, f := range files {
-				fileChanged, waiting := s.applyFileEdit(f, lastMod)
-				changed = changed || fileChanged
-				agentEdit = agentEdit || (fileChanged && waiting)
+				if s.applyFileEdit(f, lastMod) {
+					changed = true
+				}
 			}
 
 			if changed {
-				if agentEdit {
-					s.IncrementEdits()
-				}
+				s.IncrementEdits()
 				s.notify(SSEEvent{
 					Type:    "edit-detected",
 					Content: strconv.Itoa(s.GetPendingEdits()),
@@ -476,27 +474,28 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 }
 
 // applyFileEdit reads f from disk when its mtime has moved and, if the content
-// changed, updates it. It reports whether the content changed and whether the
-// session was waiting for the agent at that moment.
+// changed, updates it. It reports whether the content changed.
 //
-// An edit made while the reviewer is still reviewing is part of the round: it
-// keeps the round's diff base and is not counted as an agent edit (#1082). The
-// next base is taken at the agent's first edit after Finish. Without a base
-// yet (round 1, or after cleanup) an edit still takes one.
-func (s *Session) applyFileEdit(f *FileEntry, lastMod map[string]time.Time) (changed, waiting bool) {
+// For a markdown file it also records the next round's diff base: the content
+// before the round's first edit, taken again at the agent's first edit after
+// Finish so that edits the reviewer made during the round are part of the
+// base. The current round's base (PreviousContent) is left alone until
+// round-complete, so an edit during review does not change the Diff view's
+// base (#1082).
+func (s *Session) applyFileEdit(f *FileEntry, lastMod map[string]time.Time) bool {
 	info, err := os.Stat(f.AbsPath)
 	if err != nil {
-		return false, false
+		return false
 	}
 	modTime := info.ModTime()
 	if modTime.Equal(lastMod[f.Path]) {
-		return false, false
+		return false
 	}
 	lastMod[f.Path] = modTime
 
 	data, err := os.ReadFile(f.AbsPath)
 	if err != nil {
-		return false, false
+		return false
 	}
 	hash := fileHash(data)
 
@@ -506,17 +505,46 @@ func (s *Session) applyFileEdit(f *FileEntry, lastMod map[string]time.Time) (cha
 	// Without this, a comment added between a read-lock check and this
 	// write lock would be silently discarded.
 	if hash == f.FileHash {
-		return false, false
+		return false
 	}
-	waiting = s.waitingForAgent
-	if f.FileType == "markdown" && s.pendingEdits == 0 && (waiting || f.PreviousContent == "") {
-		f.PreviousContent = f.Content
-		f.PreviousComments = make([]Comment, len(f.Comments))
-		copy(f.PreviousComments, f.Comments)
+	if f.FileType == "markdown" && (!f.hasNextBase || (s.waitingForAgent && !f.nextBaseFromAgent)) {
+		f.nextBase = f.Content
+		f.nextBaseComments = make([]Comment, len(f.Comments))
+		copy(f.nextBaseComments, f.Comments)
+		f.hasNextBase = true
+		f.nextBaseFromAgent = s.waitingForAgent
 	}
 	f.Content = string(data)
 	f.FileHash = hash
-	return true, waiting
+	return true
+}
+
+// clearNextBase drops the next round's diff base. Caller holds s.mu.
+func (f *FileEntry) clearNextBase() {
+	f.nextBase = ""
+	f.nextBaseComments = nil
+	f.hasNextBase = false
+	f.nextBaseFromAgent = false
+}
+
+// takeNextRoundBases sets each markdown file's diff base for the round that
+// is starting: the base applyFileEdit recorded, or, for a file the watcher saw
+// no edit to, its content as the round ends (an edit the watcher has not
+// polled yet is still on disk only, so rereadFileContents shows it as a
+// change). Files mode only; caller holds s.mu.
+func (s *Session) takeNextRoundBases() {
+	for _, f := range s.Files {
+		if f.FileType != "markdown" || f.Status == "deleted" || f.Lazy {
+			continue
+		}
+		if f.hasNextBase {
+			f.PreviousContent = f.nextBase
+			f.PreviousComments = f.nextBaseComments
+		} else {
+			f.PreviousContent = f.Content
+		}
+		f.clearNextBase()
+	}
 }
 
 // carryForwardComment builds a Comment for the next review round from
@@ -894,6 +922,12 @@ func (s *Session) handleRoundCompleteFiles() {
 	// re-reading existing contents, so the new files participate in the
 	// rest of the round-complete pipeline (snapshot capture, SSE notify).
 	s.refreshFilesFromCLIDirs()
+
+	// Carry-forward maps comments from PreviousContent, so the new bases
+	// must be in place first.
+	s.mu.Lock()
+	s.takeNextRoundBases()
+	s.mu.Unlock()
 
 	s.loadResolvedComments()
 	s.carryForwardComments()

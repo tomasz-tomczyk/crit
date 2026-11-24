@@ -122,12 +122,13 @@ func TestWatchFileMtimes_ReviewerEditKeepsRoundDiffBase(t *testing.T) {
 	if got := diffBase(); got != round1 {
 		t.Errorf("mid-round edit replaced the round 2 base: got %q; want %q", got, round1)
 	}
-	if n := s.GetPendingEdits(); n != 0 {
-		t.Errorf("mid-round edit counted as an agent edit: pending edits = %d; want 0", n)
-	}
 
-	// Finish round 2: the agent's edit takes the base as the reviewer left it.
+	// Finish round 2: the edit count starts again, and the agent's edit takes
+	// the base as the reviewer left it.
 	s.setWaitingForAgent(true)
+	if n := s.GetPendingEdits(); n != 0 {
+		t.Errorf("pending edits after Finish = %d; want 0 (the reviewer's edit is not the agent's)", n)
+	}
 	writeFileNewMtime(t, path, round3)
 	waitForSSE(t, events, "edit-detected")
 	if n := s.GetPendingEdits(); n != 1 {
@@ -137,6 +138,62 @@ func TestWatchFileMtimes_ReviewerEditKeepsRoundDiffBase(t *testing.T) {
 	waitForSSE(t, events, "file-changed")
 	if got := diffBase(); got != liveEdit {
 		t.Errorf("round 3 base = %q; want %q", got, liveEdit)
+	}
+}
+
+// TestWatchFileMtimes_RoundCompleteWithoutFinish covers rounds the agent
+// starts without the reviewer pressing Finish (it re-runs crit, or calls
+// round-complete directly). Each round diffs from the content the round
+// started with, and a file the round did not change has no diff.
+func TestWatchFileMtimes_RoundCompleteWithoutFinish(t *testing.T) {
+	round1 := "# Plan\n\nalpha\n"
+	round2 := "# Plan\n\nbeta\n"
+	round3 := "# Plan\n\ngamma\n"
+
+	s := newTestSession(t)
+	s.Mode = "files"
+	s.pollInterval = testPollInterval
+	path := s.Files[0].AbsPath
+	writeFile(t, path, round1)
+	s.Files[0].Content = round1
+	for _, f := range s.Files {
+		f.FileHash = fileHash([]byte(f.Content))
+	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
+
+	diff := func() (string, int) {
+		t.Helper()
+		d, ok := s.GetFileDiffSnapshot("plan.md", false)
+		if !ok {
+			t.Fatal("plan.md diff missing")
+		}
+		return d["previous_content"].(string), len(d["hunks"].([]vcs.DiffHunk))
+	}
+
+	for _, step := range []struct{ next, wantBase string }{
+		{round2, round1},
+		{round3, round2},
+	} {
+		writeFileNewMtime(t, path, step.next)
+		waitForSSE(t, events, "edit-detected")
+		s.SignalRoundComplete()
+		waitForSSE(t, events, "file-changed")
+		if base, _ := diff(); base != step.wantBase {
+			t.Errorf("base after round-complete = %q; want %q", base, step.wantBase)
+		}
+	}
+	if n := s.GetLastRoundEdits(); n != 1 {
+		t.Errorf("last round edits = %d; want 1", n)
+	}
+
+	// A round that leaves the file alone has no diff.
+	s.SignalRoundComplete()
+	waitForSSE(t, events, "file-changed")
+	if base, hunks := diff(); base != round3 || hunks != 0 {
+		t.Errorf("unchanged round: base = %q, %d hunks; want %q, 0 hunks", base, hunks, round3)
 	}
 }
 
@@ -239,8 +296,6 @@ func TestWatchFileMtimes_ConcurrentAddDuringChange(t *testing.T) {
 		},
 		subscribers:   make(map[chan SSEEvent]struct{}),
 		roundComplete: make(chan struct{}, 1),
-		// Agent edits after Finish, so the watcher counts them.
-		waitingForAgent: true,
 	}
 
 	stopWatcher := startWatcher(t, s.watchFileMtimes)
