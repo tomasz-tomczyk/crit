@@ -110,7 +110,7 @@
         break;
       }
     }
-    return { filePath: filePath, startLine: startLine, endLine: endLine, side: side, quote: quote, quoteOffset: quoteOffset };
+    return { filePath: filePath, startLine: startLine, endLine: endLine, side: side, quote: quote, quoteOffset: quoteOffset, range: live };
   }
 
   function lineInRoot(root, line, side) {

@@ -84,6 +84,28 @@
       html += '</table>';
     });
 
+    // Comment templates with a key, last: their keys change here too, under
+    // the same refusals as in the template's editor.
+    var templates = opts.templates;
+    if (templates) {
+      shortcutsView = { pane: pane, opts: opts };
+      watchTemplates(templates);
+      var keyed = templates.getTemplateItems().filter(function (t) { return t.shortcut; });
+      if (keyed.length) {
+        html += '<div class="shortcuts-group-label">Comment templates</div>';
+        html += '<table class="shortcuts-table">';
+        keyed.forEach(function (t) {
+          var label = templates.templateLabel(t);
+          html += '<tr><td><button type="button" class="shortcut-binding" data-template-index="' + t.index
+            + '" data-shortcut-action="' + escapeHTML('Comment "' + label + '"')
+            + '" aria-pressed="false" aria-label="Change the shortcut of the template ' + escapeHTML(label) + '">' + bindingHTML(t.shortcut) + '</button></td>'
+            + '<td>' + (t.emoji ? '<span class="shortcut-template-emoji" aria-hidden="true">' + escapeHTML(t.emoji) + '</span>' : '')
+            + 'Comment the selection: ' + escapeHTML(label) + '</td></tr>';
+        });
+        html += '</table>';
+      }
+    }
+
     pane.innerHTML = html;
 
     function rerender() {
@@ -98,11 +120,17 @@
     });
 
     pane.querySelectorAll('.shortcut-binding').forEach(function (button) {
+      var templateIndex = button.dataset.templateIndex === undefined ? -1 : Number(button.dataset.templateIndex);
+      function currentBinding() {
+        if (templateIndex < 0) return shortcuts.getBinding(button.dataset.shortcutId);
+        var item = templates.getTemplateItems()[templateIndex];
+        return item ? item.shortcut : '';
+      }
       function restoreBindingLabel() {
         button.classList.remove('is-capturing');
         button.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-label', 'Change shortcut for ' + (button.dataset.shortcutAction || 'shortcut'));
-        button.innerHTML = bindingHTML(shortcuts.getBinding(button.dataset.shortcutId));
+        button.innerHTML = bindingHTML(currentBinding());
       }
 
       button.addEventListener('click', function () {
@@ -141,8 +169,20 @@
           if (shared && shared.showToast) shared.showToast(message, { kind: 'error' });
         }
 
+        if (templateIndex >= 0) {
+          var refusal = templates.shortcutConflict(binding, templateIndex);
+          if (refusal) { showError(refusal); return; }
+          templates.updateTemplate(templateIndex, { shortcut: binding });
+          rerender();
+          return;
+        }
         if (isReservedBinding(binding)) {
           showError(binding + ' is reserved by Crit.');
+          return;
+        }
+        var owner = templates && binding ? templates.findByShortcut(binding) : null;
+        if (owner) {
+          showError(binding + ' already comments “' + templates.templateLabel(owner) + '”.');
           return;
         }
         var conflict = shortcuts.findConflict(id, binding);
@@ -516,6 +556,50 @@
     }
   }
 
+  function switchHTML(id, ariaLabel, checked) {
+    return '<label class="comments-panel-switch"><input type="checkbox" id="' + id + '" aria-label="' + escapeHTML(ariaLabel) + '"'
+      + (checked ? ' checked' : '') + '><span class="comments-panel-switch-track"><span class="comments-panel-switch-thumb"></span></span></label>';
+  }
+
+  // "One-click comments beside Comment · 2 in the toolbar" for Hide comment templates.
+  function toolbarTemplatesHint(templates) {
+    var shown = templates.getPinnedTemplates().length;
+    return 'One-click comments beside Comment · ' + shown + ' in the toolbar';
+  }
+
+  // Keeps the count of Settings and the Shortcuts list current while the
+  // Comment templates tab changes templates. Registered once.
+  var templatesWatched = false;
+  var shortcutsView = null; // { pane, opts } of the last Shortcuts render
+  function watchTemplates(templates) {
+    if (templatesWatched || !templates || !templates.onChange) return;
+    templatesWatched = true;
+    templates.onChange(function () {
+      var count = document.getElementById('toolbarTemplatesCount');
+      if (count) count.textContent = toolbarTemplatesHint(templates);
+      if (shortcutsView && shortcutsView.pane.isConnected && !shortcutsView.pane.querySelector('.is-capturing')) {
+        renderShortcutsPane(shortcutsView.pane, shortcutsView.opts);
+      }
+    });
+  }
+
+  // The Comment templates tab: what templates do, then their list.
+  function renderTemplatesPane(pane, templates, options) {
+    if (!pane || !templates) return;
+    watchTemplates(templates);
+    pane.textContent = '';
+    var intro = document.createElement('p');
+    intro.className = 'settings-templates-intro';
+    intro.textContent = 'Insert a template from the comment form, or show it in the selection toolbar to comment a selection in one click. '
+      + 'Drag to reorder: the toolbar and the form follow this order. Their shortcuts also show in the Shortcuts tab.';
+    pane.appendChild(intro);
+    var list = document.createElement('div');
+    list.className = 'settings-templates';
+    list.id = 'settingsTemplates';
+    pane.appendChild(list);
+    templates.renderSettingsList(list, options);
+  }
+
   function renderSettingsTab(pane, opts) {
     if (!pane) return;
     opts = opts || {};
@@ -659,6 +743,61 @@
     }
 
     html += '</div>'; // close settings-display-group
+
+    // ---------- Selection toolbar ----------
+    // On or off; where it shows, what Comment shows, the keys and the comment
+    // templates it carries fold under Advanced.
+    if (hooks.selectionToolbar) {
+      var toolbarOn = getSetting('selectionToolbarEnabled', true) !== false;
+      var toolbarPlacement = getSetting('selectionToolbar', hooks.selectionToolbar.DEFAULT_PLACEMENT);
+      var toolbarStyle = getSetting('selectionToolbarButtonStyle', 'both');
+      var toolbarShortcuts = getSetting('selectionToolbarShortcuts', true) !== false;
+      var toolbarTemplates = getSetting('selectionToolbarTemplates', true) !== false;
+      html += '<div class="settings-section-label">Selection toolbar</div>';
+      html += '<div class="settings-display-group">';
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Enable selection toolbar'
+        + '<span class="settings-display-hint">A Comment button beside selected text. <kbd>c</kbd> works either way.</span></span>';
+      html += switchHTML('toolbarEnabledToggle', 'Enable the selection toolbar', toolbarOn);
+      html += '</div>';
+      html += '<details class="settings-advanced" id="toolbarAdvanced"' + (toolbarOn ? '' : ' hidden') + '>';
+      html += '<summary class="settings-advanced-summary">Advanced</summary>';
+      html += '<div class="settings-advanced-body">';
+      html += '<div class="settings-display-row">';
+      html += '<label class="settings-display-label" for="selectionToolbarSelect">Toolbar position</label>';
+      html += '<select class="settings-select" id="selectionToolbarSelect">';
+      hooks.selectionToolbar.PLACEMENT_OPTIONS.forEach(function (o) {
+        html += '<option value="' + o.id + '"' + (o.id === toolbarPlacement ? ' selected' : '') + '>' + o.name + '</option>';
+      });
+      html += '</select></div>';
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Button style</span>';
+      html += '<div class="settings-pill settings-pill--toolbar-style" id="toolbarStylePill" role="group" aria-label="Comment button style">';
+      html += '<div class="settings-pill-indicator" id="toolbarStyleIndicator"></div>';
+      hooks.selectionToolbar.BUTTON_STYLES.forEach(function (o) {
+        html += '<button type="button" class="settings-pill-btn' + (o.id === toolbarStyle ? ' active' : '')
+          + '" data-toolbar-style="' + o.id + '">' + esc(o.name) + '</button>';
+      });
+      html += '</div></div>';
+      html += '<div class="settings-display-row">';
+      // Hide switches, off by default like "Hide resolved comments": the
+      // stored settings keep saying what shows.
+      html += '<span class="settings-display-label">Hide Comment shortcut'
+        + '<span class="settings-display-hint">No <kbd>c</kbd> badge on the Comment button. Each comment template sets its own.</span></span>';
+      html += switchHTML('toolbarShortcutsToggle', 'Hide the Comment shortcut in the selection toolbar', !toolbarShortcuts);
+      html += '</div>';
+      if (hooks.commentTemplates) {
+        html += '<div class="settings-display-row">';
+        html += '<span class="settings-display-label">Hide comment templates'
+          + '<span class="settings-display-hint" id="toolbarTemplatesCount">' + esc(toolbarTemplatesHint(hooks.commentTemplates)) + '</span></span>';
+        html += '<span class="settings-display-controls">';
+        html += '<button type="button" class="btn btn-sm" id="manageTemplatesBtn">Manage comment templates</button>';
+        html += switchHTML('toolbarTemplatesToggle', 'Hide comment templates in the selection toolbar', !toolbarTemplates);
+        html += '</span></div>';
+      }
+      html += '</div></details>';
+      html += '</div>';
+    }
 
     // ---------- Configuration ----------
     var anyConfigCard = show.account || show.agent || show.share || (show.customCSS && !!cfg.custom_css_path);
@@ -879,6 +1018,53 @@
         }).finally(function() { select.disabled = false; });
       });
     });
+
+    // Read by the selection toolbar each time it shows: no reload needed.
+    var enabledToggle = pane.querySelector('#toolbarEnabledToggle');
+    if (enabledToggle) {
+      enabledToggle.addEventListener('change', function () {
+        setSetting('selectionToolbarEnabled', enabledToggle.checked);
+        var advanced = pane.querySelector('#toolbarAdvanced');
+        if (advanced) advanced.hidden = !enabledToggle.checked;
+      });
+    }
+    var toolbarSelect = pane.querySelector('#selectionToolbarSelect');
+    if (toolbarSelect) {
+      toolbarSelect.addEventListener('change', function () {
+        setSetting('selectionToolbar', toolbarSelect.value);
+      });
+    }
+    if (hooks.selectionToolbar) {
+      var styleIds = hooks.selectionToolbar.BUTTON_STYLES.map(function (o) { return o.id; });
+      pane.querySelectorAll('[data-toolbar-style]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var style = btn.dataset.toolbarStyle;
+          setSetting('selectionToolbarButtonStyle', style);
+          pane.querySelectorAll('[data-toolbar-style]').forEach(function (b) {
+            b.classList.toggle('active', b.dataset.toolbarStyle === style);
+          });
+          updatePillIndicator(pane, 'toolbarStyleIndicator', styleIds, style);
+        });
+      });
+      updatePillIndicator(pane, 'toolbarStyleIndicator', styleIds, getSetting('selectionToolbarButtonStyle', 'both'));
+    }
+    var shortcutsToggle = pane.querySelector('#toolbarShortcutsToggle');
+    if (shortcutsToggle) {
+      shortcutsToggle.addEventListener('change', function () {
+        setSetting('selectionToolbarShortcuts', !shortcutsToggle.checked);
+      });
+    }
+    var templatesToggle = pane.querySelector('#toolbarTemplatesToggle');
+    if (templatesToggle) {
+      templatesToggle.addEventListener('change', function () {
+        setSetting('selectionToolbarTemplates', !templatesToggle.checked);
+      });
+    }
+    var manageBtn = pane.querySelector('#manageTemplatesBtn');
+    if (manageBtn && hooks.openCommentTemplates) {
+      manageBtn.addEventListener('click', function () { hooks.openCommentTemplates(); });
+    }
+    if (hooks.commentTemplates) watchTemplates(hooks.commentTemplates);
     wireConfigCardActions(pane, hooks);
   }
 
@@ -888,6 +1074,7 @@
     renderAboutPane: renderAboutPane,
     renderUpdatesPane: renderUpdatesPane,
     renderSettingsTab: renderSettingsTab,
+    renderTemplatesPane: renderTemplatesPane,
     fontFamilyStack: fontFamilyStack,
   };
 })();

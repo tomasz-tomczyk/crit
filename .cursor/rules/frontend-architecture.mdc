@@ -44,12 +44,12 @@ All custom JS uses the IIFE + dual-export pattern:
 | `crit-renderer.js` | `window.crit.renderer` | ContentRenderer registry (register/deregister/current) |
 | `crit-sse.js` | `window.crit.sse` | SSE client factory (createSSE) |
 | `crit-draft.js` | `window.crit.draft` | Autosave drafts to localStorage |
-| `crit-comment-templates.js` | `window.crit.commentTemplates` | Template bar + saved-snippet CRUD |
+| `crit-comment-templates.js` | `window.crit.commentTemplates` | Comment templates: CRUD and metadata (title, emoji, shortcut, toolbar display, pin), storage injected by `configure()`, template bar, Comment templates tab list with its in-place editor; vendored by crit-web |
 | `crit-comment-form.js` | `window.crit.commentForm` | Shared comment form creation |
 | `crit-comment-card.js` | `window.crit.commentCard` | Comment card rendering + reply threading |
 | `crit-comment-card-helpers.js` | `window.crit.commentCardHelpers` | Author colors, timestamps, markdown rendering |
 | `crit-settings-overlay.js` | `window.crit.settingsOverlay` | Settings dialog lifecycle |
-| `crit-settings-panes.js` | `window.crit.settingsPanes` | Settings tab content |
+| `crit-settings-panes.js` | `window.crit.settingsPanes` | Settings tab content, Comment templates tab, template shortcuts in Shortcuts |
 
 ## Code-Review Modules (used only by code-review mode)
 
@@ -61,6 +61,7 @@ All custom JS uses the IIFE + dual-export pattern:
 | `crit-diff-renderer.js` | `window.crit.diffRenderer` | Word-level diff for the rendered markdown diff (files mode rounds) |
 | `crit-pierre-adapter.js` | `window.crit.pierreAdapter` | Pure mapping: Crit hunks/comments/forms → Pierre diffs, annotations, themes |
 | `crit-pierre-view.js` | `window.crit.pierreView` | The review list on Pierre CodeView (items, lazy hydration, annotation cache, jumps) |
+| `crit-selection-toolbar.js` | `window.crit.selectionToolbar` | Toolbar on a mouse selection: pinned template buttons and Comment (trigger, placement and Comment button style per Settings > Selection toolbar, dismissal); vendored by crit-web |
 
 ## ContentRenderer Interface
 

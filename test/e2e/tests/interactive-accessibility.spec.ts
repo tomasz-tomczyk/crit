@@ -16,10 +16,15 @@ test.describe('Interactive accessibility', () => {
 
     const overlay = page.locator('#settingsOverlay');
     const settingsTab = page.locator('#tab-settings');
+    const templatesTab = page.locator('#tab-templates');
     const shortcutsTab = page.locator('#tab-shortcuts');
     await expect(overlay).toHaveClass(/active/);
     await expect(settingsTab).toBeFocused();
 
+    await page.keyboard.press('ArrowRight');
+    await expect(templatesTab).toBeFocused();
+    await expect(templatesTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#templatesPane')).toHaveClass(/active/);
     await page.keyboard.press('ArrowRight');
     await expect(shortcutsTab).toBeFocused();
     await expect(shortcutsTab).toHaveAttribute('aria-selected', 'true');
