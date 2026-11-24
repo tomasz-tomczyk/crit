@@ -348,10 +348,25 @@ func TestRunMigrateXDG_Args(t *testing.T) {
 	}
 	home := t.TempDir()
 	testutil.SetFreshHome(t, home)
+	// Explicit XDG folders, so this runs on Windows too (where the XDG
+	// defaults do not apply).
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	for _, args := range [][]string{nil, {"--dry-run"}, {"-n"}} {
 		if err := RunMigrateXDG(args); err != nil {
 			t.Errorf("RunMigrateXDG(%q) on a fresh home: %v", args, err)
 		}
+	}
+}
+
+// Windows without XDG variables keeps the legacy layout: nothing to move to.
+func TestRunMigrateXDG_WindowsWithoutXDG(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the XDG defaults apply outside Windows")
+	}
+	testutil.SetFreshHome(t, t.TempDir())
+	if err := RunMigrateXDG(nil); err == nil || !errors.Is(err, ErrNoXDG) {
+		t.Fatalf("err = %v, want ErrNoXDG", err)
 	}
 }
 
