@@ -9,6 +9,14 @@ function card(page: Page, id: string): Locator {
   return page.locator(`#filesContainer .comment-card[data-comment-id="${id}"]`);
 }
 
+// A fresh page load at /#<id>. Going to /#<id> from an open review only
+// changes the hash (a hashchange, not a load), so leave the page first.
+// loadPage before this sets the settings cookie the fixture needs.
+async function openLink(page: Page, id: string) {
+  await page.goto('about:blank');
+  await page.goto('/#' + id);
+}
+
 test.describe('Comment links', () => {
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
@@ -19,7 +27,7 @@ test.describe('Comment links', () => {
     const target = await addComment(request, 'server.go', 1, 'Linked comment');
 
     await loadPage(page);
-    await page.goto('/#' + target.id);
+    await openLink(page, target.id);
     await expect(card(page, target.id)).toBeInViewport();
   });
 
@@ -51,7 +59,7 @@ test.describe('Comment links', () => {
     const target = await addComment(request, 'config.yaml', 1, 'The main explanation');
     const linker = await addComment(request, 'server.go', 1, `Same problem as [the first one](#${target.id}).`);
     await loadPage(page);
-    await page.goto('/#' + linker.id);
+    await openLink(page, linker.id);
     await expect(card(page, linker.id)).toBeInViewport();
     await expect(card(page, target.id)).not.toBeInViewport();
 

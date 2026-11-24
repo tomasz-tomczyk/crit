@@ -205,56 +205,80 @@
 
   // ===== Comment Links =====
   // A comment's link is the page URL with the comment id as the fragment
-  // (#c_1a2b3c, or #r_… for a review-level comment). The browser never sends
-  // the fragment to the server, so the link keeps whatever host the reviewer
-  // used: localhost, tailscale serve, --public-url.
-  const COMMENT_HASH_ID = /^(?:c|r)_[a-f0-9]{6,}$/;
-
+  // (#c_1a2b3c, #r_… for a review-level comment, #web-3 for one pulled from
+  // crit-web). The browser never sends the fragment to the server, so the
+  // link keeps whatever host the reviewer used: localhost, tailscale serve,
+  // --public-url.
   function commentLinkURL(commentId) {
-    return location.href.split('#')[0] + '#' + commentId;
+    return location.href.split('#')[0] + '#' + encodeURIComponent(commentId);
+  }
+
+  // Go to the comment a link names. Returns false when no loaded comment has
+  // that id, so the caller can treat the fragment as a heading instead. The
+  // id is looked up rather than matched by format: comments pulled from
+  // crit-web or a forge carry other id shapes.
+  function goToLinkedComment(id) {
+    const owner = files.find(function(f) {
+      return (f.comments || []).some(function(c) { return c.id === id; });
+    });
+    if (!owner && !reviewComments.some(function(c) { return c.id === id; })) return false;
+    // In story view the card lives in its chapter, so open that chapter first.
+    if (owner && storyActive()) scrollToComment(id, owner.path);
+    else scrollToCommentRef(id);
+    return true;
+  }
+
+  function copyWithTextarea(text) {
+    const previous = document.activeElement;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    try {
+      ta.select();
+      if (!document.execCommand('copy')) throw new Error('copy failed');
+    } finally {
+      ta.remove();
+      if (previous && previous.focus) previous.focus({ preventScroll: true });
+    }
   }
 
   // navigator.clipboard needs a secure context. A plain-http tailnet address
-  // (crit --host 100.x.y.z) is not one, so fall back to execCommand there.
+  // (crit --host 100.x.y.z) is not one, so fall back to execCommand there,
+  // and also when the clipboard API refuses (permission, unfocused page).
   function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(text);
+      return navigator.clipboard.writeText(text).catch(function() { copyWithTextarea(text); });
     }
-    return new Promise(function(resolve, reject) {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      ta.remove();
-      if (ok) resolve(); else reject(new Error('copy failed'));
+    return new Promise(function(resolve) {
+      copyWithTextarea(text);
+      resolve();
     });
+  }
+
+  function setCommentLinkButtonState(btn, copied) {
+    const label = copied ? 'Link copied' : 'Copy link to comment';
+    btn.classList.toggle('comment-link-copied', copied);
+    btn.innerHTML = copied ? ICON_CHECK_SMALL : ICON_LINK;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
   }
 
   function createCommentLinkButton(commentId) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'comment-link-btn';
-    btn.title = 'Copy link to comment';
-    btn.setAttribute('aria-label', 'Copy link to comment');
-    btn.innerHTML = ICON_LINK;
+    setCommentLinkButtonState(btn, false);
     btn.addEventListener('click', function(e) {
       e.stopPropagation();
       // The address bar shows the link too, so it is there to copy by hand
       // when the clipboard is unavailable.
-      history.replaceState(null, '', '#' + commentId);
+      history.replaceState(null, '', '#' + encodeURIComponent(commentId));
       copyText(commentLinkURL(commentId)).then(function() {
-        btn.classList.add('comment-link-copied');
-        btn.innerHTML = ICON_CHECK_SMALL;
-        btn.title = 'Link copied';
-        setTimeout(function() {
-          btn.classList.remove('comment-link-copied');
-          btn.innerHTML = ICON_LINK;
-          btn.title = 'Copy link to comment';
-        }, 1500);
+        setCommentLinkButtonState(btn, true);
+        setTimeout(function() { setCommentLinkButtonState(btn, false); }, 1500);
       }).catch(function() { return; });
     });
     return btn;
@@ -262,15 +286,17 @@
 
   // A markdown link to a comment inside a comment body ([see](#c_1a2b3c))
   // jumps in-page. Handled here rather than by hashchange so clicking the
-  // same link twice still scrolls.
+  // same link twice still scrolls. A comment-ref chip inside the link has
+  // already handled the click.
   document.addEventListener('click', function(e) {
+    if (e.defaultPrevented) return;
     const a = e.target.closest && e.target.closest('.comment-body a[href^="#"]');
     if (!a) return;
-    const id = decodeURIComponent(a.getAttribute('href').slice(1));
-    if (!COMMENT_HASH_ID.test(id)) return;
+    let id;
+    try { id = decodeURIComponent(a.getAttribute('href').slice(1)); } catch { return; }
+    if (!goToLinkedComment(id)) return;
     e.preventDefault();
-    history.replaceState(null, '', '#' + id);
-    scrollToCommentRef(id);
+    history.replaceState(null, '', '#' + encodeURIComponent(id));
   });
 
   // ===== Attachment Image Src Rewrite =====
@@ -1478,9 +1504,11 @@
     updateViewedCount();
     restoreDrafts();
     applyHideResolved();
-    scrollToHashHeading();
     // Story layer (opt-in). No-op when session.story is absent.
     applyStoryPresence();
+    // After the story layout is in place, so a comment link opens the
+    // chapter that holds the comment.
+    scrollToHashHeading();
     updateDiffModeToggle();
   }
 
@@ -8302,10 +8330,7 @@
     const hash = window.location.hash;
     if (!hash || hash === '#') return;
     const id = decodeURIComponent(hash.slice(1));
-    if (COMMENT_HASH_ID.test(id)) {
-      scrollToCommentRef(id);
-      return;
-    }
+    if (goToLinkedComment(id)) return;
     // Ids and names in a document's raw HTML carry a user-content- prefix
     // (document-html.js), so #foo also finds the author's id="foo" or
     // name="foo", as on GitHub.

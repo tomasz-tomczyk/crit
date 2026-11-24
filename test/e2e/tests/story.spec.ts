@@ -411,6 +411,20 @@ test.describe('Story mode', () => {
     await expect(ch2Card).toContainText('Story E2E: dashboard logging comment');
   });
 
+  test('opening a comment link opens the chapter that holds the comment', async ({ page, request }) => {
+    await postStory(request);
+    // ch2 owns routes.go's old_start=48 hunk (new-side lines 52-58).
+    const comment = await addComment(request, 'routes.go', 55, 'Story E2E: linked comment');
+    await loadPage(page);
+    // A fresh load at /#<id>, not a hash change on the open page.
+    await page.goto('about:blank');
+    await page.goto('/#' + comment.id);
+
+    await expect(page).toHaveURL(/#story\/ch2$/);
+    const card = storyPane(page).locator(`.comment-card[data-comment-id="${comment.id}"]`);
+    await expect(card).toBeInViewport();
+  });
+
   test('clicking a comment on a viewed (collapsed) file group expands it', async ({ page, request }) => {
     await postStory(request);
     // ch2 owns routes.go's old_start=48 hunk (new-side lines 52-58).
