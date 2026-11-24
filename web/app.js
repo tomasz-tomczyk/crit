@@ -139,20 +139,69 @@
     }, { once: true });
   }
 
+  // Links between comments and text: a comment reference chip goes to its
+  // comment, a quoted comment's line label goes to its quote (goToQuote).
+  const COMMENT_LINK = '.comment-ref, .comment-line-ref[role="link"]';
+  function followCommentLink(link) {
+    if (link.dataset.refId) scrollToCommentRef(link.dataset.refId);
+    else goToQuote(link.closest('.comment-card').dataset.commentId);
+  }
+
   document.addEventListener('click', function(e) {
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
-    e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+    const link = e.target.closest && e.target.closest(COMMENT_LINK);
+    if (link) {
+      e.preventDefault();
+      followCommentLink(link);
+      return;
+    }
+    // A quote highlight goes to its comment. Deferred so a double or triple
+    // click that selects text inside the highlight doesn't jump. A link in
+    // the highlight keeps its own click, and the innermost highlight wins, so
+    // a draft's highlight inside a saved one doesn't jump away from the form.
+    if (e.defaultPrevented || e.detail !== 1 || !e.target.closest) return;
+    if (e.target.closest('a[href]')) return;
+    const mark = e.target.closest('mark.quote-highlight');
+    if (mark && !mark.dataset.commentId.startsWith('draft-')) {
+      setTimeout(function() {
+        if (window.getSelection().isCollapsed) scrollToCommentRef(mark.dataset.commentId);
+      }, 300);
+    }
   });
 
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
+    const link = e.target.closest && e.target.closest(COMMENT_LINK);
+    if (!link) return;
     e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+    followCommentLink(link);
   });
+
+  // Scroll to and flash a comment's quote highlight in the rendered document.
+  // A diagram label's highlight is an SVG <tspan>, so match any element.
+  function goToQuote(commentId) {
+    const marks = document.querySelectorAll('#filesContainer .quote-highlight[data-comment-id="' + CSS.escape(commentId) + '"]');
+    if (marks.length === 0) return;
+    // Same alignment as scrollToCommentRef: a smooth scroll is cut short when
+    // files mount on the way, and a newer jump supersedes this one.
+    const seq = ++pierreJumpSeq;
+    marks.forEach(function(m) { restartFlash(m, 'comment-ref-flash'); });
+    scrollPierreElementIntoView(marks[0], function() { return seq === pierreJumpSeq; });
+  }
+
+  // In a rendered document, a quoted comment's line label links to its quote.
+  // Code view and story view have no highlight in #filesContainer to go to,
+  // and neither does a resolved comment (no highlight is drawn for it) or a
+  // drifted one (its quote is gone from the file).
+  function linkLineRefToQuote(card, comment, filePath) {
+    const file = getFileByPath(filePath);
+    if (!comment.quote || comment.resolved || comment.drifted) return;
+    if (!file || !pierreIsDocumentView(file) || storyActive()) return;
+    const label = card.querySelector('.comment-line-ref');
+    if (!label) return;
+    label.tabIndex = 0;
+    label.setAttribute('role', 'link');
+    label.title = 'Go to the quoted text';
+  }
 
   // ===== Attachment Image Src Rewrite =====
   // Markdown stored in review.json uses canonical relative paths
@@ -5787,6 +5836,7 @@
       showLineRef: true,
       showReplyInput: true,
     });
+    linkLineRefToQuote(parts.card, comment, filePath);
 
     const editBtn = document.createElement('button');
     editBtn.title = 'Edit';
@@ -6885,6 +6935,7 @@
       showLineRef: true,
       showReplyInput: true,
     });
+    linkLineRefToQuote(parts.card, comment, filePath);
 
     const unresolveBtn = document.createElement('button');
     unresolveBtn.className = 'resolve-btn resolve-btn--active';
