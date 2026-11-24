@@ -265,6 +265,80 @@ test('a chip carries an edit button only when onEdit is given', () => {
   assert.equal(hasEdit(without.children[0]), false);
 });
 
+// --- Storage limits and duplicates ---
+
+// A storage that drops a write over 4096 bytes once encoded, as a browser
+// drops an oversized cookie, and records the toasts.
+function limitedSandbox() {
+  var sb = makeSandbox();
+  var values = {};
+  sb.toasts = [];
+  sb.values = values;
+  sb.api.configure({
+    storage: {
+      get: function (key) { return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null; },
+      set: function (key, value) {
+        if ((key + '=' + encodeURIComponent(value)).length <= 4096) values[key] = value;
+      },
+    },
+    toast: function (message) { sb.toasts.push(message); },
+  });
+  return sb;
+}
+
+test('metadata is keyed by a short hash, not the template text', () => {
+  var sb = limitedSandbox();
+  var long = 'Please add a test that covers this branch. '.repeat(3).trim();
+  sb.api.addTemplate(long, { title: 'Tests', pinned: true });
+  var meta = sb.values['crit-template-meta'];
+  assert.equal(meta.indexOf('covers this branch'), -1);
+  assert.equal(sb.api.getTemplateItems().filter(function (i) { return i.text === long; })[0].title, 'Tests');
+});
+
+test('metadata keeps only the fields that differ from the defaults', () => {
+  var sb = limitedSandbox();
+  sb.api.addTemplate('Plain', { title: '', emoji: '', shortcut: '', display: 'emoji', pinned: false, hideShortcut: false });
+  var items = JSON.parse(sb.values['crit-template-meta']).items;
+  assert.equal(Object.keys(items).length, 2); // the two defaults only
+});
+
+test('many long templates keep their metadata, and a write that does not fit is refused with a toast', () => {
+  var sb = limitedSandbox();
+  var saved = 0;
+  for (var i = 0; i < 40; i++) {
+    var text = 'Template ' + i + ': ' + 'x'.repeat(90);
+    if (sb.api.addTemplate(text, { title: 'T' + i, emoji: '🧪', pinned: true })) saved++;
+  }
+  assert.ok(saved >= 15, 'saved ' + saved);
+  var items = sb.api.getTemplateItems();
+  // Every stored template kept its title: nothing was saved half way.
+  items.slice(2).forEach(function (item) { assert.ok(item.title, item.text); });
+  assert.equal(items.length, saved + 2);
+  if (saved < 40) assert.match(sb.toasts[0], /full/);
+});
+
+test('addTemplate refuses a text another template has', () => {
+  var sb = limitedSandbox();
+  assert.equal(sb.api.addTemplate('Nit', { shortcut: 'Alt+n' }), true);
+  assert.equal(sb.api.addTemplate(' Nit ', { shortcut: 'Alt+m' }), false);
+  assert.match(sb.toasts[0], /already exists: "Nit"/);
+  var nits = sb.api.getTemplateItems().filter(function (i) { return i.text === 'Nit'; });
+  assert.equal(nits.length, 1);
+  assert.equal(nits[0].shortcut, 'Alt+n');
+});
+
+test('updateTemplate refuses to rename a template onto another one\'s text', () => {
+  var sb = limitedSandbox();
+  sb.api.getTemplateItems();
+  assert.equal(sb.api.updateTemplate(0, { text: 'Rejected' }), false);
+  assert.match(sb.toasts[0], /already exists/);
+  var items = sb.api.getTemplateItems();
+  assert.deepEqual(items.map(function (i) { return i.text; }), ['Accepted', 'Rejected']);
+  assert.deepEqual(items.map(function (i) { return i.shortcut; }), ['Alt+p', 'Alt+c']);
+  // Keeping its own text is not a duplicate.
+  assert.equal(sb.api.updateTemplate(0, { text: 'Accepted', title: 'Yes' }), true);
+});
+
 test('CommonJS module.exports matches window.crit.commentTemplates', () => {
   var sb = makeSandbox();
   assert.strictEqual(sb.mod.exports, sb.win.crit.commentTemplates);

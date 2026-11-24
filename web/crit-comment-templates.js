@@ -6,10 +6,12 @@
 //
 // Storage keys (cookies in the CLI, localStorage in crit-web):
 //   `crit-templates`     template texts (separate from crit-settings — user-defined, can be longer).
-//   `crit-template-meta` title, emoji, shortcut, display and pin per template
-//     text, plus the `seeded` flag. Kept apart so `crit-templates` keeps its
-//     shape: localhost cookies are shared across ports, and builds without
-//     these templates read it too.
+//   `crit-template-meta` title, emoji, shortcut, display and pin per template,
+//     keyed by a short hash of its text (metaKey), plus the `seeded` flag.
+//     Kept apart so `crit-templates` keeps its shape: localhost cookies are
+//     shared across ports, and builds without these templates read it too.
+//     Entries hold only the fields that differ from the defaults, so the
+//     cookie stays well under the browser's 4 KB limit.
 
 (function () {
   'use strict';
@@ -126,8 +128,54 @@
     return [];
   }
 
+  // Writes `value` and reads it back: a browser drops a cookie over 4 KB
+  // without an error, so a write that did not stick returns false.
+  function store(key, value) {
+    env.storage.set(key, value);
+    return env.storage.get(key) === value;
+  }
+
+  var FULL_MESSAGE = 'Comment templates are full. Remove or shorten a template to save this one.';
+
   function saveTemplates(templates) {
-    env.storage.set('crit-templates', JSON.stringify(templates));
+    return store('crit-templates', JSON.stringify(templates));
+  }
+
+  // The metadata key of a template text: FNV-1a, base 36. Texts are unique
+  // (addTemplate and updateTemplate refuse a duplicate), and a key is a few
+  // bytes where the text could be hundreds.
+  function metaKey(text) {
+    var hash = 0x811c9dc5;
+    for (var i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(36);
+  }
+
+  function metaEntry(meta, text) {
+    var key = metaKey(text);
+    return Object.prototype.hasOwnProperty.call(meta.items, key) ? meta.items[key] : {};
+  }
+
+  // The fields of `entry` that differ from a template's defaults.
+  function compactEntry(entry) {
+    var out = {};
+    if (entry.title) out.title = entry.title;
+    if (entry.emoji) out.emoji = entry.emoji;
+    if (entry.shortcut) out.shortcut = entry.shortcut;
+    if (entry.display && entry.display !== 'emoji') out.display = entry.display;
+    if (entry.pinned) out.pinned = true;
+    if (entry.hideShortcut) out.hideShortcut = true;
+    return out;
+  }
+
+  // Index of the template whose text is `text`, other than `except`, or -1.
+  function indexOfText(templates, text, except) {
+    for (var i = 0; i < templates.length; i++) {
+      if (i !== except && templates[i] === text) return i;
+    }
+    return -1;
   }
 
   function getMeta() {
@@ -146,12 +194,22 @@
 
   // Writes the metadata of the texts still in `templates` only, so entries of
   // templates removed elsewhere (another build, the form's template bar) go.
+  // Returns false when the write did not stick.
   function saveMeta(meta, templates) {
     var items = {};
     templates.forEach(function (text) {
-      if (Object.prototype.hasOwnProperty.call(meta.items, text)) items[text] = meta.items[text];
+      var entry = compactEntry(metaEntry(meta, text));
+      if (Object.keys(entry).length) items[metaKey(text)] = entry;
     });
-    env.storage.set(META_KEY, JSON.stringify({ seeded: meta.seeded, items: items }));
+    return store(META_KEY, JSON.stringify({ seeded: meta.seeded, items: items }));
+  }
+
+  // Saves both cookies, metadata first: when it does not fit, nothing
+  // changes. Shows the "full" message and returns false on failure.
+  function saveAll(meta, templates) {
+    if (saveMeta(meta, templates) && saveTemplates(templates)) return true;
+    env.toast(FULL_MESSAGE);
+    return false;
   }
 
   function ensureSeeded() {
@@ -160,8 +218,9 @@
     var templates = getTemplates();
     DEFAULT_TEMPLATES.forEach(function (d) {
       if (templates.indexOf(d.text) === -1) templates.push(d.text);
-      if (!Object.prototype.hasOwnProperty.call(meta.items, d.text)) {
-        meta.items[d.text] = { emoji: d.emoji, pinned: d.pinned, display: d.display, shortcut: d.shortcut };
+      var key = metaKey(d.text);
+      if (!Object.prototype.hasOwnProperty.call(meta.items, key)) {
+        meta.items[key] = { emoji: d.emoji, pinned: d.pinned, display: d.display, shortcut: d.shortcut };
       }
     });
     meta.seeded = true;
@@ -193,7 +252,7 @@
     ensureSeeded();
     var meta = getMeta();
     return getTemplates().map(function (text, index) {
-      var entry = Object.prototype.hasOwnProperty.call(meta.items, text) ? meta.items[text] : {};
+      var entry = metaEntry(meta, text);
       return {
         index: index,
         text: text,
@@ -248,45 +307,61 @@
     return entry;
   }
 
-  // Appends a template, with optional { title, emoji, shortcut, display, pinned }; returns
-  // false for an empty text.
+  // The message for a text another template already has.
+  function duplicateMessage(templates, index) {
+    var meta = getMeta();
+    var label = cleanText(metaEntry(meta, templates[index]).title) || templates[index];
+    return 'A template with this text already exists: "' + label + '".';
+  }
+
+  // Appends a template, with optional { title, emoji, shortcut, display, pinned }.
+  // Returns false, after a toast when it is not obvious why, for an empty
+  // text, a text another template has, or templates too big to store.
   function addTemplate(text, changes) {
     var value = typeof text === 'string' ? text.trim() : '';
     if (!value) return false;
     ensureSeeded();
     var templates = getTemplates();
+    var existing = indexOfText(templates, value, -1);
+    if (existing !== -1) {
+      env.toast(duplicateMessage(templates, existing));
+      return false;
+    }
     templates.push(value);
     var meta = getMeta();
-    if (changes) meta.items[value] = applyChanges({}, changes);
-    saveTemplates(templates);
-    saveMeta(meta, templates);
+    if (changes) meta.items[metaKey(value)] = applyChanges({}, changes);
+    if (!saveAll(meta, templates)) return false;
     notifyChange();
     return true;
   }
 
   // Applies { text?, title?, emoji?, shortcut?, display?, pinned? } to the template at `index`;
   // a new text takes the template's metadata with it. Returns false when
-  // nothing can be saved (bad index, empty text).
+  // nothing can be saved (bad index, empty text, another template's text,
+  // templates too big to store).
   function updateTemplate(index, changes) {
     var templates = getTemplates();
     if (index < 0 || index >= templates.length) return false;
     var meta = getMeta();
-    var oldText = templates[index];
-    var entry = Object.assign({}, Object.prototype.hasOwnProperty.call(meta.items, oldText) ? meta.items[oldText] : {});
+    var entry = Object.assign({}, metaEntry(meta, templates[index]));
     if (typeof changes.text === 'string') {
       var text = changes.text.trim();
       if (!text) return false;
+      var existing = indexOfText(templates, text, index);
+      if (existing !== -1) {
+        env.toast(duplicateMessage(templates, existing));
+        return false;
+      }
       templates[index] = text;
     }
-    meta.items[templates[index]] = applyChanges(entry, changes);
-    saveTemplates(templates);
-    saveMeta(meta, templates);
+    meta.items[metaKey(templates[index])] = applyChanges(entry, changes);
+    if (!saveAll(meta, templates)) return false;
     notifyChange();
     return true;
   }
 
-  // Moves the template at `from` to position `to`; metadata, keyed by text,
-  // follows. The toolbar and the chips show templates in this order.
+  // Moves the template at `from` to position `to`; metadata, keyed by the
+  // text's hash, follows. The toolbar and the chips show templates in this order.
   function moveTemplate(from, to) {
     var templates = getTemplates();
     if (from === to || from < 0 || to < 0 || from >= templates.length || to >= templates.length) return false;
@@ -768,6 +843,7 @@
     if (!container) return;
     var o = options || {};
     var expand = o.expand === undefined ? null : o.expand;
+    var editing = expand !== null;
     function redraw(next) { renderSettingsList(container, next); }
     var dragFrom = -1;
     function clearDropMarks() {
@@ -801,12 +877,21 @@
       handle.setAttribute('role', 'button');
       handle.tabIndex = 0;
       handle.innerHTML = GRIP_ICON;
-      handle.title = 'Drag to reorder (or Up / Down)';
       handle.setAttribute('aria-label', 'Move "' + label + '", ' + (item.index + 1) + ' of ' + items.length);
+      // Reordering redraws the list, which would drop the open editor's
+      // unsaved edits: the handles wait until it is saved or cancelled.
+      if (editing) {
+        handle.classList.add('is-disabled');
+        handle.setAttribute('aria-disabled', 'true');
+        handle.title = 'Save or cancel the open template first';
+      } else {
+        handle.title = 'Drag to reorder (or Up / Down)';
+      }
       // Only a drag from the handle moves a row: a click elsewhere stays a click.
-      handle.addEventListener('pointerdown', function () { row.draggable = true; });
+      handle.addEventListener('pointerdown', function () { if (!editing) row.draggable = true; });
       handle.addEventListener('pointerup', function () { row.draggable = false; });
       handle.addEventListener('keydown', function (e) {
+        if (editing) return;
         var to = e.key === 'ArrowUp' ? item.index - 1 : e.key === 'ArrowDown' ? item.index + 1 : -1;
         if (to < 0 || to >= items.length) return;
         e.preventDefault();
@@ -841,7 +926,7 @@
         var to = item.index + (dropsAfter(row, e) ? 1 : 0);
         if (dragFrom < to) to -= 1;
         moveTemplate(dragFrom, to);
-        redraw({ expand: expand === 'new' ? 'new' : undefined });
+        redraw();
       });
 
       var emoji = document.createElement('span');

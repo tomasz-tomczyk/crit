@@ -3239,6 +3239,9 @@ textarea.drag-active {
   cursor: grab;
 }
 .settings-template-handle:hover { color: var(--crit-editor-fg); }
+/* While a template editor is open: reordering would drop its edits. */
+.settings-template-handle.is-disabled { cursor: not-allowed; opacity: 0.4; }
+.settings-template-handle.is-disabled:hover { color: var(--crit-editor-fg-muted); }
 .settings-template-handle:focus-visible {
   outline: 2px solid var(--crit-brand);
   outline-offset: 1px;

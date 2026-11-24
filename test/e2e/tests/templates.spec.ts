@@ -193,6 +193,31 @@ test.describe('Comment Templates — Git Mode', () => {
     await expect(chips(page).locator('.template-chip-label')).toHaveText(['Rejected', 'Out of scope', 'Accepted']);
   });
 
+  test('reordering waits while an editor is open, so its unsaved edits stay', async ({ page }) => {
+    await openTemplatesTab(page);
+    await rows(page).nth(0).locator('.settings-template-action').click();
+    await editor(page).locator('.settings-template-name-input').fill('Looks good');
+    // The editor took row 0's place: the only row left is Rejected.
+    const handle = rows(page).nth(0).locator('.settings-template-handle');
+    await expect(handle).toHaveAttribute('aria-disabled', 'true');
+    await handle.focus();
+    await page.keyboard.press('ArrowUp');
+    await expect(editor(page).locator('.settings-template-name-input')).toHaveValue('Looks good');
+    await editor(page).locator('button', { hasText: 'Save' }).click();
+    await expect(rows(page).locator('.settings-template-name')).toHaveText(['Looks good', 'Rejected']);
+    await expect(rows(page).nth(0).locator('.settings-template-handle')).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('a template with the same text as another is refused, and the editor stays open', async ({ page }) => {
+    await openTemplatesTab(page);
+    await pane(page).locator('.settings-template-new').click();
+    await editor(page).locator('.settings-template-text-input').fill('Rejected');
+    await editor(page).locator('button', { hasText: 'Save' }).click();
+    await expect(page.locator('.mini-toast--error')).toContainText('already exists');
+    await expect(editor(page)).toBeVisible();
+    await expect(rows(page)).toHaveCount(2);
+  });
+
   test('Hide shortcut in selection toolbar shows for a template with a key in the toolbar', async ({ page }) => {
     await openTemplatesTab(page);
     await rows(page).nth(0).locator('.settings-template-action').click();
