@@ -122,6 +122,7 @@ Hard rules:
 - **Always single-quote the body** — double quotes break on backticks and shell metachars.
 - **Line numbers reference the file on disk** (1-indexed), not diff line numbers.
 - **Reply bodies support markdown** — use code fences and inline code where helpful.
+- **Point at another comment by its id.** `crit comment` prints the new id (`Added comment c_1a2b3c on …`). Write `c_1a2b3c`, or a link like `[the first case](#c_1a2b3c)`, in a body and the reviewer can click it to jump to that comment. When one problem repeats, explain it once and point the other comments at it. Don't write full URLs: you don't know which host the reviewer opened.
 - **Only pass `--resolve` when the user explicitly asks.** Never resolve proactively.
 - **Live reviews and HTML preview** do not take `<path>:<line>`. Pin with `--selector <css>`. `--route` is the page path (default `/` for live, `/preview-content` for preview). In `--json`, use `"selector"` and `"route"`.
 </important>

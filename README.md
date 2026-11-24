@@ -193,6 +193,8 @@ crit comment --clear   # remove the review file
 
 Comments are appended to the review file (stored in `~/.crit/reviews/`) and created automatically if it doesn't exist. Run `crit status` to see active review session IDs and paths. If multiple sessions match the same directory and branch, select one with `--session <id>` on `crit comment`, `crit comments`, `crit share`, `crit push`, or `crit pull`; an unqualified command fails instead of guessing.
 
+`crit comment` prints the new comment's id (`Added comment c_1a2b3c on src/auth.go:42`). Write that id, or a link like `[see here](#c_1a2b3c)`, in another comment and the reviewer can click it to jump there. In the browser, the link icon on a comment copies a URL to it (`http://<host>/#c_1a2b3c`) that you can send to someone else who can reach the review, for example over Tailscale.
+
 ### Share for Async Review
 
 Want a second opinion before handing off to the agent? Click the Share button to upload your review and get a public URL anyone can open in a browser, no install needed. Each reviewer's comments are color-coded by author. Unpublish anytime.

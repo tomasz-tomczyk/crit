@@ -83,6 +83,11 @@ Always pass `--author 'omp'`. Single-quote bodies to protect backticks and
 shell metacharacters. Source lines are 1-indexed file-on-disk lines, not
 diff line numbers. Reply bodies support markdown.
 
+To point at another comment, write its id (`crit comment` prints it, e.g.
+`c_1a2b3c`) or a link like `[the first case](#c_1a2b3c)`. The reviewer can
+click it to jump there. Explain a repeated problem once and point the other
+comments at it. Don't write full URLs: you don't know the reviewer's host.
+
 Only use `--resolve` when the user explicitly asks. The same restriction
 applies to the `resolve` field in JSON.
 
