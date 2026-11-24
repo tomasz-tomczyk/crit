@@ -6951,7 +6951,7 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 
 /* ---------- Mobile pass ---------- */
 @media (max-width: 768px) {
-  body.crit-story-active #storyRoot { display: block; }
+  body.crit-story-active #storyRoot { display: flex; flex-direction: column; }
   body.crit-story-active .crit-story-rail-resizer { display: none !important; }
   .crit-story-rail {
     position: fixed; top: var(--header-height, 44px); bottom: 0; left: 0; width: 82vw !important; max-width: 320px; z-index: 40;
