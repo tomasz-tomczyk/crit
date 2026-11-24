@@ -85,10 +85,12 @@ test.describe('Story mode on a phone', () => {
     await expect(page.locator('#mobileFilePickerBar')).toBeHidden();
 
     // The pane ends at the bottom of the window, so the window has nothing
-    // to scroll and the chapter's last lines are not pushed below it.
-    await expect.poll(() => page.evaluate(() => ({
-      overflow: document.documentElement.scrollHeight - window.innerHeight,
-      gap: Math.round(window.innerHeight - document.getElementById('storyPane')!.getBoundingClientRect().bottom),
-    }))).toEqual({ overflow: 0, gap: 0 });
+    // to scroll and the chapter's last lines are not pushed below it. The
+    // header height is fractional, so allow a pixel of rounding.
+    await expect.poll(() => page.evaluate(() => {
+      const overflow = document.documentElement.scrollHeight - window.innerHeight;
+      const gap = window.innerHeight - document.getElementById('storyPane')!.getBoundingClientRect().bottom;
+      return overflow <= 1 && Math.abs(gap) <= 1;
+    })).toBe(true);
   });
 });
