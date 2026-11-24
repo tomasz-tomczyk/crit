@@ -224,6 +224,15 @@ type FileEntry struct {
 	PreviousContent  string    `json:"-"`
 	PreviousComments []Comment `json:"-"`
 
+	// Files and plan mode: the diff base for the next round, taken at Finish
+	// (or at the round's first edit when the agent starts a round without
+	// one) and moved into PreviousContent at round-complete. Keeping it
+	// separate means an edit during the round does not change this round's
+	// diff base (#1082). See setNextBase and takeNextRoundBases.
+	nextBase         string
+	nextBaseComments []Comment
+	hasNextBase      bool
+
 	// Lazy loading: when true, Content and DiffHunks are not yet populated.
 	// Call ensureLoaded() before accessing them. Only used when >lazyFileThreshold files.
 	// Content, FileHash, DiffHunks and Lazy are published together under
@@ -2423,9 +2432,23 @@ func (s *Session) PlanHook() string {
 }
 
 // setWaitingForAgent marks whether the session is in the "waiting for agent edits" phase.
+// Entering it (Finish) resets the edit count, so the waiting screen counts only
+// the agent's edits, not edits made while the reviewer was still reviewing.
+// In files and plan mode it also takes each markdown file's next diff base:
+// the content as the reviewer finished it.
 func (s *Session) setWaitingForAgent(v bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if v && !s.waitingForAgent {
+		s.pendingEdits = 0
+		if s.Mode != "git" {
+			for _, f := range s.Files {
+				if f.FileType == "markdown" && f.Status != "deleted" && !f.Lazy {
+					f.setNextBase()
+				}
+			}
+		}
+	}
 	s.waitingForAgent = v
 }
 
@@ -2498,6 +2521,7 @@ func (s *Session) ClearAllComments() {
 		f.Comments = []Comment{}
 		f.PreviousComments = nil
 		f.PreviousContent = ""
+		f.clearNextBase()
 		filtered = append(filtered, f)
 	}
 	s.Files = filtered
@@ -2507,8 +2531,8 @@ func (s *Session) ClearAllComments() {
 	s.lastCritJSONMtime = time.Time{}
 	s.pendingWrite = false
 	s.waitingForAgent = false
-	// Cleanup also resets the watcher's round state. A detected fixture edit
-	// must not suppress the next markdown PreviousContent snapshot.
+	// Cleanup also resets the watcher's round state (with each file's next
+	// base, cleared above), so a detected fixture edit does not carry over.
 	s.pendingEdits = 0
 	s.lastRoundEdits = 0
 	critPath := s.critJSONPath()

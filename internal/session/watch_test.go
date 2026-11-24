@@ -72,6 +72,182 @@ func TestWatchFileMtimes_ClearAllCommentsPreservesNextRoundDiff(t *testing.T) {
 	}
 }
 
+// TestWatchFileMtimes_ReviewerEditKeepsRoundDiffBase covers #1082: an edit
+// made while the reviewer is still reviewing (not waiting for the agent) is
+// part of the round. It updates the content but keeps the round's diff base
+// and does not count as an agent edit. The next base is taken at the agent's
+// first edit after Finish, so it includes the reviewer's edit.
+func TestWatchFileMtimes_ReviewerEditKeepsRoundDiffBase(t *testing.T) {
+	round1 := "# Plan\n\nRound one text\n\nTypo here\n"
+	round2 := "# Plan\n\nRound TWO text\n\nTypo here\n"
+	liveEdit := "# Plan\n\nRound TWO text\n\nTypo fixed\n"
+	round3 := "# Plan\n\nRound THREE text\n\nTypo fixed\n"
+
+	s := newTestSession(t)
+	s.Mode = "files"
+	s.pollInterval = testPollInterval
+	path := s.Files[0].AbsPath
+	writeFile(t, path, round1)
+	s.Files[0].Content = round1
+	for _, f := range s.Files {
+		f.FileHash = fileHash([]byte(f.Content))
+	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
+
+	// Round 1: the reviewer finishes, the agent edits, the round completes.
+	s.setWaitingForAgent(true)
+	writeFileNewMtime(t, path, round2)
+	waitForSSE(t, events, "edit-detected")
+	s.SignalRoundComplete()
+	waitForSSE(t, events, "file-changed")
+
+	diffBase := func() string {
+		t.Helper()
+		d, ok := s.GetFileDiffSnapshot("plan.md", false)
+		if !ok {
+			t.Fatal("plan.md diff missing")
+		}
+		return d["previous_content"].(string)
+	}
+	if got := diffBase(); got != round1 {
+		t.Fatalf("round 2 base = %q; want %q", got, round1)
+	}
+
+	// Round 2: the reviewer edits the file while still reviewing.
+	writeFileNewMtime(t, path, liveEdit)
+	waitForSSE(t, events, "edit-detected")
+	if got := diffBase(); got != round1 {
+		t.Errorf("mid-round edit replaced the round 2 base: got %q; want %q", got, round1)
+	}
+
+	// Finish round 2: the edit count starts again, and the agent's edit takes
+	// the base as the reviewer left it.
+	s.setWaitingForAgent(true)
+	if n := s.GetPendingEdits(); n != 0 {
+		t.Errorf("pending edits after Finish = %d; want 0 (the reviewer's edit is not the agent's)", n)
+	}
+	writeFileNewMtime(t, path, round3)
+	waitForSSE(t, events, "edit-detected")
+	if n := s.GetPendingEdits(); n != 1 {
+		t.Errorf("pending edits after agent edit = %d; want 1", n)
+	}
+	s.SignalRoundComplete()
+	waitForSSE(t, events, "file-changed")
+	if got := diffBase(); got != liveEdit {
+		t.Errorf("round 3 base = %q; want %q", got, liveEdit)
+	}
+}
+
+// TestWatchFileMtimes_ReviewerEditToFileAgentLeavesAlone: the reviewer edits
+// notes.md during the round, presses Finish, and the agent edits only
+// plan.md. The next round must not show the reviewer's own edit to notes.md
+// as a change.
+func TestWatchFileMtimes_ReviewerEditToFileAgentLeavesAlone(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	notesPath := filepath.Join(dir, "notes.md")
+	writeFile(t, planPath, "# Plan\n\nv1\n")
+	writeFile(t, notesPath, "# Notes\n\nTypo here\n")
+	s := &Session{
+		Mode:         "files",
+		RepoRoot:     dir,
+		ReviewRound:  1,
+		pollInterval: testPollInterval,
+		Files: []*FileEntry{
+			{Path: "plan.md", AbsPath: planPath, Status: "modified", FileType: "markdown",
+				Content: "# Plan\n\nv1\n", FileHash: fileHash([]byte("# Plan\n\nv1\n")), Comments: []Comment{}},
+			{Path: "notes.md", AbsPath: notesPath, Status: "modified", FileType: "markdown",
+				Content: "# Notes\n\nTypo here\n", FileHash: fileHash([]byte("# Notes\n\nTypo here\n")), Comments: []Comment{}},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
+
+	fixed := "# Notes\n\nTypo fixed\n"
+	writeFileNewMtime(t, notesPath, fixed)
+	waitForSSE(t, events, "edit-detected")
+	s.setWaitingForAgent(true)
+	writeFileNewMtime(t, planPath, "# Plan\n\nv2\n")
+	waitForSSE(t, events, "edit-detected")
+	s.SignalRoundComplete()
+	waitForSSE(t, events, "file-changed")
+
+	d, ok := s.GetFileDiffSnapshot("notes.md", false)
+	if !ok {
+		t.Fatal("notes.md diff missing")
+	}
+	if base, hunks := d["previous_content"], len(d["hunks"].([]vcs.DiffHunk)); base != fixed || hunks != 0 {
+		t.Errorf("notes.md: base = %q, %d hunks; want %q, 0 hunks", base, hunks, fixed)
+	}
+	d, _ = s.GetFileDiffSnapshot("plan.md", false)
+	if base := d["previous_content"]; base != "# Plan\n\nv1\n" {
+		t.Errorf("plan.md base = %q; want v1", base)
+	}
+}
+
+// TestWatchFileMtimes_RoundCompleteWithoutFinish covers rounds the agent
+// starts without the reviewer pressing Finish (it re-runs crit, or calls
+// round-complete directly). Each round diffs from the content the round
+// started with, and a file the round did not change has no diff.
+func TestWatchFileMtimes_RoundCompleteWithoutFinish(t *testing.T) {
+	round1 := "# Plan\n\nalpha\n"
+	round2 := "# Plan\n\nbeta\n"
+	round3 := "# Plan\n\ngamma\n"
+
+	s := newTestSession(t)
+	s.Mode = "files"
+	s.pollInterval = testPollInterval
+	path := s.Files[0].AbsPath
+	writeFile(t, path, round1)
+	s.Files[0].Content = round1
+	for _, f := range s.Files {
+		f.FileHash = fileHash([]byte(f.Content))
+	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
+
+	diff := func() (string, int) {
+		t.Helper()
+		d, ok := s.GetFileDiffSnapshot("plan.md", false)
+		if !ok {
+			t.Fatal("plan.md diff missing")
+		}
+		return d["previous_content"].(string), len(d["hunks"].([]vcs.DiffHunk))
+	}
+
+	for _, step := range []struct{ next, wantBase string }{
+		{round2, round1},
+		{round3, round2},
+	} {
+		writeFileNewMtime(t, path, step.next)
+		waitForSSE(t, events, "edit-detected")
+		s.SignalRoundComplete()
+		waitForSSE(t, events, "file-changed")
+		if base, _ := diff(); base != step.wantBase {
+			t.Errorf("base after round-complete = %q; want %q", base, step.wantBase)
+		}
+	}
+	if n := s.GetLastRoundEdits(); n != 1 {
+		t.Errorf("last round edits = %d; want 1", n)
+	}
+
+	// A round that leaves the file alone has no diff.
+	s.SignalRoundComplete()
+	waitForSSE(t, events, "file-changed")
+	if base, hunks := diff(); base != round3 || hunks != 0 {
+		t.Errorf("unchanged round: base = %q, %d hunks; want %q, 0 hunks", base, hunks, round3)
+	}
+}
+
 // TestWatchFileMtimes_CommentNotLostOnFileChange verifies that a comment added
 // concurrently with the file watcher detecting a content change is not silently
 // discarded. This exercises the fix for the race where:
