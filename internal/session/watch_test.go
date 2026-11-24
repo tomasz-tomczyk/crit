@@ -2058,3 +2058,17 @@ func TestRemapCommentsToContent_QuoteChangedWithoutAnchorMarksDrifted(t *testing
 		t.Errorf("anchorless quoted comment: Drifted=false, want true after quote words change")
 	}
 }
+
+func TestRemapCommentsToContent_DeletedLastLineStaysAtEnd(t *testing.T) {
+	oldContent := "# Plan\n\nKeep this paragraph.\nRemove this footer."
+	newContent := "# Plan\n\nFirst addition.\nSecond addition.\nKeep this paragraph."
+	comments := []Comment{{
+		ID: "c_footer", StartLine: 4, EndLine: 4, Body: "Review the footer.",
+		Anchor: "Remove this footer.", Scope: "line",
+	}}
+
+	got, moved := remapCommentsToContent(comments, oldContent, newContent)
+	if !moved || got[0].StartLine != 5 || got[0].EndLine != 5 || !got[0].Drifted {
+		t.Fatalf("comment = %+v, moved = %v; want a drifted comment on line 5", got[0], moved)
+	}
+}

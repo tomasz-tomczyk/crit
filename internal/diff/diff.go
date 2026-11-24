@@ -187,45 +187,28 @@ func lcsBackwardRow(old, new []string) []int {
 
 // MapOldLineToNew builds a mapping from old line numbers to new line numbers
 // using the diff entries. For unchanged lines it maps directly. For removed
-// lines it maps to the nearest subsequent new line in the new document.
+// lines it maps to the next new line, the last new line for trailing deletions,
+// or zero if the new document is empty.
 // Returns a map[int]int where key=old line, value=new line.
 func MapOldLineToNew(entries []DiffEntry) map[int]int {
 	m := make(map[int]int)
-	// First pass: map all unchanged lines directly
+	nextNewLine := 0
 	for _, e := range entries {
 		if e.Type == "unchanged" {
 			m[e.OldLine] = e.NewLine
 		}
+		if e.NewLine > 0 {
+			nextNewLine = e.NewLine
+		}
 	}
-	// Second pass (reverse): for removed lines, find the next new line after them.
-	// Walking backwards, we track the next new line we'll encounter going forward.
-	nextNewLine := 0
+	// Walk backward from the last new line so trailing deletions have a fallback.
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := entries[i]
 		if e.NewLine > 0 {
 			nextNewLine = e.NewLine
 		}
 		if e.Type == "removed" {
-			if _, ok := m[e.OldLine]; !ok {
-				m[e.OldLine] = nextNewLine
-			}
-		}
-	}
-	// If nextNewLine is still 0 for some removed lines (all content was removed
-	// with no new lines at all), find the last new line as fallback.
-	if nextNewLine == 0 {
-		lastNewLine := 0
-		for _, e := range entries {
-			if e.NewLine > 0 {
-				lastNewLine = e.NewLine
-			}
-		}
-		if lastNewLine > 0 {
-			for _, e := range entries {
-				if e.Type == "removed" && m[e.OldLine] == 0 {
-					m[e.OldLine] = lastNewLine
-				}
-			}
+			m[e.OldLine] = nextNewLine
 		}
 	}
 	return m
