@@ -28,6 +28,9 @@ func TestParsePortRange(t *testing.T) {
 		{in: "47800-", wantErr: true},
 		{in: "-47800", wantErr: true},
 		{in: "1-2-3", wantErr: true},
+		{in: "+80", wantErr: true},
+		{in: "47800-+47819", wantErr: true},
+		{in: "47800 - 47819", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

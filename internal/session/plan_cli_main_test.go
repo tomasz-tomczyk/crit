@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
@@ -27,6 +28,30 @@ func TestResolvePlanConfig_NameAndFile(t *testing.T) {
 	}
 	if pc.filePath != path {
 		t.Errorf("filePath = %q, want %q", pc.filePath, path)
+	}
+}
+
+func TestResolvePlanConfig_Port(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(path, []byte("# Test Plan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rng := config.PortRange{First: 47800, Last: 47819}
+	tests := []struct {
+		args []string
+		want config.PortRange
+	}{
+		{args: []string{"--name", "p", "--port", "47800-47819", path}, want: rng},
+		{args: []string{"--name", "p", "-p", "47800-47819", path}, want: rng},
+		{args: []string{"--name", "p", "-p", "4100", path}, want: config.SinglePort(4100)},
+		{args: []string{"--name", "p", path}, want: config.PortRange{}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args[2:len(tt.args)-1], " "), func(t *testing.T) {
+			if got := resolvePlanConfig(tt.args).port; got != tt.want {
+				t.Fatalf("port = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

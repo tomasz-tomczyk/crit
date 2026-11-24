@@ -359,19 +359,31 @@ func TestAuditListenOutputEndToEnd(t *testing.T) {
 }
 
 func TestAuditListenPortEndToEnd(t *testing.T) {
-	homeDir := t.TempDir()
-	testutil.SetHome(t, homeDir)
-	if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"),
-		[]byte(`{"port": 3000}`), 0o644); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name    string
+		global  string
+		project string
+		want    PortRange
+	}{
+		{name: "project port wins", global: `{"port": 3000}`, project: `{"port": 8080}`, want: SinglePort(8080)},
+		{name: "project range wins", global: `{"port": 3000}`, project: `{"port": "47800-47819"}`, want: PortRange{First: 47800, Last: 47819}},
+		{name: "global range kept", global: `{"port": "47800-47819"}`, project: `{}`, want: PortRange{First: 47800, Last: 47819}},
 	}
-	projectDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"),
-		[]byte(`{"port": 8080}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := LoadConfig(projectDir).Port; got != SinglePort(8080) {
-		t.Errorf("Port = %v, want 8080 (project wins end-to-end)", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			homeDir := t.TempDir()
+			testutil.SetHome(t, homeDir)
+			if err := os.WriteFile(filepath.Join(homeDir, ".crit.config.json"), []byte(tt.global), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			projectDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(projectDir, ".crit.config.json"), []byte(tt.project), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got := LoadConfig(projectDir).Port; got != tt.want {
+				t.Errorf("Port = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

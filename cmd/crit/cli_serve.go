@@ -103,38 +103,29 @@ func serveCLIArgs(sc *server.DaemonCLIConfig) []string {
 // (withProxy) it also binds the live proxy listener on the API port + 1, so
 // both ports are held before anything else can take the second one.
 func bindPorts(host string, req config.PortRange, withProxy bool) (api, proxy net.Listener, err error) {
-	if req.IsRange() {
+	switch {
+	case req.IsRange():
 		return bindPortsInRange(host, req, withProxy)
+	case req.IsZero():
+		return bindPortPair(host, 0, withProxy)
+	default:
+		return bindFixedPort(host, req.First, withProxy)
 	}
-	api, err = bindFixedPort(host, req.First)
-	if err != nil || !withProxy {
-		return api, nil, err
-	}
-	proxyPort := api.Addr().(*net.TCPAddr).Port + 1
-	proxy, err = listenTCP(proxyListenHost(host), proxyPort)
-	if err != nil {
-		_ = api.Close()
-		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
-	}
-	return api, proxy, nil
 }
 
-// bindFixedPort binds one port, or a random one when port is 0. A fixed port
-// is tried 3 times, 500 ms apart, so a restarting daemon can release it.
-func bindFixedPort(host string, port int) (net.Listener, error) {
-	var err error
+// bindFixedPort tries one port (and its proxy port) 3 times, 500 ms apart,
+// so a restarting daemon has time to release both.
+func bindFixedPort(host string, port int, withProxy bool) (api, proxy net.Listener, err error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		var ln net.Listener
-		ln, err = listenTCP(host, port)
+		if attempt > 0 {
+			time.Sleep(500 * time.Millisecond)
+		}
+		api, proxy, err = bindPortPair(host, port, withProxy)
 		if err == nil {
-			return ln, nil
+			return api, proxy, nil
 		}
-		if port == 0 {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
 	}
-	return nil, err
+	return nil, nil, err
 }
 
 // bindPortsInRange makes one pass over the range and takes the first free
@@ -147,23 +138,32 @@ func bindPortsInRange(host string, req config.PortRange, withProxy bool) (api, p
 		if withProxy && port+1 > req.Last {
 			break
 		}
-		api, lastErr = listenTCP(host, port)
-		if lastErr != nil {
-			continue
-		}
-		if !withProxy {
-			return api, nil, nil
-		}
-		proxy, lastErr = listenTCP(proxyListenHost(host), port+1)
+		api, proxy, lastErr = bindPortPair(host, port, withProxy)
 		if lastErr == nil {
 			return api, proxy, nil
 		}
-		_ = api.Close()
 	}
 	if withProxy {
 		return nil, nil, fmt.Errorf("no two consecutive free ports in %s for the API and live proxy (last error: %w)", req, lastErr)
 	}
 	return nil, nil, fmt.Errorf("no free port in %s (last error: %w)", req, lastErr)
+}
+
+// bindPortPair binds the API on port (0 = random) and, in live mode, the
+// proxy on the bound API port + 1. If the proxy bind fails, the API
+// listener is closed.
+func bindPortPair(host string, port int, withProxy bool) (api, proxy net.Listener, err error) {
+	api, err = listenTCP(host, port)
+	if err != nil || !withProxy {
+		return api, nil, err
+	}
+	proxyPort := api.Addr().(*net.TCPAddr).Port + 1
+	proxy, err = listenTCP(proxyListenHost(host), proxyPort)
+	if err != nil {
+		_ = api.Close()
+		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
+	}
+	return api, proxy, nil
 }
 
 func listenTCP(host string, port int) (net.Listener, error) {

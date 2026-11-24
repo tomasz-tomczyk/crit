@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
 )
@@ -131,6 +132,46 @@ func TestBindPorts(t *testing.T) {
 				t.Errorf("proxy port = %d, want %d", got, listenerPort(api)+1)
 			}
 		})
+	}
+}
+
+func TestBindPorts_FixedLivePortWaitsForProxyPort(t *testing.T) {
+	base := freePortBlock(t, 2)
+	held, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", base+1))
+	if err != nil {
+		t.Skipf("port %d taken: %v", base+1, err)
+	}
+	// Release between the first attempt (0 ms) and the second (500 ms): the
+	// first attempt fails, and a later one must bind both ports.
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		_ = held.Close()
+		close(released)
+	}()
+	defer func() { <-released }()
+
+	api, proxy, err := bindPorts("127.0.0.1", config.SinglePort(base), true)
+	if err != nil {
+		t.Fatalf("bindPorts: %v", err)
+	}
+	defer closeAll(api, proxy)
+	if listenerPort(api) != base || listenerPort(proxy) != base+1 {
+		t.Fatalf("bound %d/%d, want %d/%d", listenerPort(api), listenerPort(proxy), base, base+1)
+	}
+}
+
+func TestProxyListenHost(t *testing.T) {
+	tests := []struct{ host, want string }{
+		{host: "", want: "127.0.0.1"},
+		{host: "127.0.0.1", want: "127.0.0.1"},
+		{host: "0.0.0.0", want: "0.0.0.0"},
+		{host: "::1", want: "::1"},
+	}
+	for _, tt := range tests {
+		if got := proxyListenHost(tt.host); got != tt.want {
+			t.Errorf("proxyListenHost(%q) = %q, want %q", tt.host, got, tt.want)
+		}
 	}
 }
 

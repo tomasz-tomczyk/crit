@@ -432,6 +432,46 @@ func TestMergeGHComments_LivePinNotDeduped(t *testing.T) {
 	}
 }
 
+func TestParseLiveCLIFlags_Port(t *testing.T) {
+	rng := config.PortRange{First: 47800, Last: 47819}
+	tests := []struct {
+		args []string
+		want config.PortRange
+	}{
+		{args: []string{"--port", "47800-47819", "http://localhost:3000"}, want: rng},
+		{args: []string{"-p", "47800-47819", "http://localhost:3000"}, want: rng},
+		{args: []string{"-p", "4100", "http://localhost:3000"}, want: config.SinglePort(4100)},
+		{args: []string{"http://localhost:3000"}, want: config.PortRange{}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			if got := parseLiveCLIFlags(tt.args).port; got != tt.want {
+				t.Fatalf("port = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseServerFlags_Port(t *testing.T) {
+	rng := config.PortRange{First: 47800, Last: 47819}
+	tests := []struct {
+		args []string
+		want config.PortRange
+	}{
+		{args: []string{"--port", "47800-47819", "plan.md"}, want: rng},
+		{args: []string{"-p", "47800-47819", "plan.md"}, want: rng},
+		{args: []string{"plan.md", "--port", "4100"}, want: config.SinglePort(4100)},
+		{args: []string{"plan.md"}, want: config.PortRange{}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			if got := parseServerFlags(tt.args).port; got != tt.want {
+				t.Fatalf("port = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseServerFlags_LiveOrigin(t *testing.T) {
 	f := parseServerFlags([]string{"--live-origin", "http://localhost:3000"})
 	if f.liveOrigin != "http://localhost:3000" {

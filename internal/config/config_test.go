@@ -1189,6 +1189,47 @@ func TestLoadConfigFile_DefaultMarkdownViewInvalid(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFile_InvalidPortKeepsOtherKeys(t *testing.T) {
+	// encoding/json stops at a custom unmarshaler error, so a bad port placed
+	// before other keys must not drop them.
+	for _, port := range []string{`70000`, `-1`, `"47819-47800"`, `"abc"`, `true`} {
+		t.Run(port, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), ".crit.config.json")
+			raw := `{"port": ` + port + `, "author": "after", "auth_token": "tok", "no_open": true, "ignore_patterns": ["*.gen"]}`
+			if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, presence, err := LoadConfigFile(configPath)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !cfg.Port.IsZero() {
+				t.Errorf("Port = %v, want zero (ignored)", cfg.Port)
+			}
+			if cfg.Author != "after" || cfg.AuthToken != "tok" || !cfg.NoOpen || !presence.NoOpen {
+				t.Errorf("keys after port lost: author=%q auth_token=%q no_open=%v", cfg.Author, cfg.AuthToken, cfg.NoOpen)
+			}
+			if !reflect.DeepEqual(cfg.IgnorePatterns, []string{"*.gen"}) {
+				t.Errorf("ignore_patterns = %v, want [*.gen]", cfg.IgnorePatterns)
+			}
+		})
+	}
+}
+
+func TestLoadConfigFile_PortRangeShownByConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), ".crit.config.json")
+	if err := os.WriteFile(configPath, []byte(`{"port": "47800-47819"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cfg.String(), `"port": "47800-47819"`) {
+		t.Errorf("String() does not show the port range:\n%s", cfg.String())
+	}
+}
+
 func TestMergeConfigs_DefaultMarkdownViewProjectOverrides(t *testing.T) {
 	tests := []struct {
 		name    string

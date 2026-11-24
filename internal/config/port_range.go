@@ -47,6 +47,9 @@ func ParsePortRange(s string) (PortRange, error) {
 }
 
 func parsePort(s string) (int, error) {
+	if s == "" || strings.Trim(s, "0123456789") != "" {
+		return 0, fmt.Errorf("not a number")
+	}
 	p, err := strconv.Atoi(s)
 	if err != nil {
 		return 0, fmt.Errorf("not a number")

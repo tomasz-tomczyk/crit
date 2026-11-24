@@ -321,6 +321,19 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 	_, presence.NotifyOnRoundReady = raw["notify_on_round_ready"]
 	_, presence.ShareConsented = raw["share_consented"]
 
+	// encoding/json stops at the first error from a custom unmarshaler, so a
+	// bad port would drop every key after it. Check it alone and drop it.
+	if rawPort, ok := raw["port"]; ok {
+		var port PortRange
+		if portErr := port.UnmarshalJSON(rawPort); portErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: invalid port %s in %s (%v); ignoring\n", rawPort, path, portErr)
+			delete(raw, "port")
+			if data, err = json.Marshal(raw); err != nil {
+				return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
+			}
+		}
+	}
+
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 	}
