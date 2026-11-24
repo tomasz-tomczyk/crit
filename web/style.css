@@ -1895,6 +1895,8 @@ svg[id^="crit-mermaid-"] foreignObject > div {
 .comment-actions button:hover svg { opacity: 1; }
 .comment-actions button:hover { color: var(--crit-editor-fg); }
 .comment-actions .delete-btn:hover { color: var(--crit-red); }
+.comment-actions .comment-link-btn.comment-link-copied { color: var(--crit-green); }
+.comment-actions .comment-link-btn.comment-link-copied svg { opacity: 1; }
 .comment-actions .resolve-btn {
   gap: 3px;
   font-size: 11px;

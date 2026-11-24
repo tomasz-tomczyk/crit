@@ -203,6 +203,76 @@
     label.title = 'Go to the quoted text';
   }
 
+  // ===== Comment Links =====
+  // A comment's link is the page URL with the comment id as the fragment
+  // (#c_1a2b3c, or #r_… for a review-level comment). The browser never sends
+  // the fragment to the server, so the link keeps whatever host the reviewer
+  // used: localhost, tailscale serve, --public-url.
+  const COMMENT_HASH_ID = /^(?:c|r)_[a-f0-9]{6,}$/;
+
+  function commentLinkURL(commentId) {
+    return location.href.split('#')[0] + '#' + commentId;
+  }
+
+  // navigator.clipboard needs a secure context. A plain-http tailnet address
+  // (crit --host 100.x.y.z) is not one, so fall back to execCommand there.
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) resolve(); else reject(new Error('copy failed'));
+    });
+  }
+
+  function createCommentLinkButton(commentId) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'comment-link-btn';
+    btn.title = 'Copy link to comment';
+    btn.setAttribute('aria-label', 'Copy link to comment');
+    btn.innerHTML = ICON_LINK;
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      // The address bar shows the link too, so it is there to copy by hand
+      // when the clipboard is unavailable.
+      history.replaceState(null, '', '#' + commentId);
+      copyText(commentLinkURL(commentId)).then(function() {
+        btn.classList.add('comment-link-copied');
+        btn.innerHTML = ICON_CHECK_SMALL;
+        btn.title = 'Link copied';
+        setTimeout(function() {
+          btn.classList.remove('comment-link-copied');
+          btn.innerHTML = ICON_LINK;
+          btn.title = 'Copy link to comment';
+        }, 1500);
+      }).catch(function() { return; });
+    });
+    return btn;
+  }
+
+  // A markdown link to a comment inside a comment body ([see](#c_1a2b3c))
+  // jumps in-page. Handled here rather than by hashchange so clicking the
+  // same link twice still scrolls.
+  document.addEventListener('click', function(e) {
+    const a = e.target.closest && e.target.closest('.comment-body a[href^="#"]');
+    if (!a) return;
+    const id = decodeURIComponent(a.getAttribute('href').slice(1));
+    if (!COMMENT_HASH_ID.test(id)) return;
+    e.preventDefault();
+    history.replaceState(null, '', '#' + id);
+    scrollToCommentRef(id);
+  });
+
   // ===== Attachment Image Src Rewrite =====
   // Markdown stored in review.json uses canonical relative paths
   // (`attachments/<uuid>.<ext>`) — never absolute URLs. Each render target
@@ -570,6 +640,7 @@
   const ICON_FILE = window.crit.icons.ICON_FILE;
   const ICON_COPY_PATH = window.crit.icons.ICON_COPY_PATH;
   const ICON_COPY_PATH_CHECK = window.crit.icons.ICON_COPY_PATH_CHECK;
+  const ICON_LINK = window.crit.icons.ICON_LINK;
 
   function formKey(form) {
     if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
@@ -5821,7 +5892,9 @@
       iconChevron: ICON_CHEVRON,
       linkifyDom: linkifyCommentRefsInDom,
     }, opts.deps || {});
-    return window.crit.commentCard.buildCommentCard(comment, filePath, merged);
+    const parts = window.crit.commentCard.buildCommentCard(comment, filePath, merged);
+    parts.actions.appendChild(createCommentLinkButton(comment.id));
+    return parts;
   }
 
   function createCommentElement(comment, filePath) {
@@ -8229,6 +8302,10 @@
     const hash = window.location.hash;
     if (!hash || hash === '#') return;
     const id = decodeURIComponent(hash.slice(1));
+    if (COMMENT_HASH_ID.test(id)) {
+      scrollToCommentRef(id);
+      return;
+    }
     // Ids and names in a document's raw HTML carry a user-content- prefix
     // (document-html.js), so #foo also finds the author's id="foo" or
     // name="foo", as on GitHub.
