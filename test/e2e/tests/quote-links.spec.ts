@@ -34,7 +34,6 @@ test.describe('Quoted text and its comment', () => {
     const label = card.locator('.comment-line-ref');
     await expect(label).toHaveAttribute('role', 'link');
     await expectClassAddedTo(page, FLASH, () => label.click(), quoted.id);
-    await expect(mark).toHaveClass(new RegExp(FLASH));
     await expect(mark).toBeInViewport();
 
     await label.focus();
@@ -64,7 +63,25 @@ test.describe('Quoted text and its comment', () => {
 
     // A jump flashes the card some time after the click (it may scroll the
     // list first), so wait out that window before checking nothing flashed.
+    // This checks that something does not happen, so there is no state to
+    // wait on instead.
     await page.waitForTimeout(1500);
     expect(await classAdditions(page, FLASH)).toEqual([]);
+  });
+
+  test('a resolved comment has no highlight, so its label is not a link', async ({ page, request }) => {
+    const path = await getMdPath(request);
+    const quoted = await seed(request, path, 5, 'Which keys?', 'API key authentication');
+    const res = await request.put(`/api/comment/${quoted.id}/resolve?path=${encodeURIComponent(path)}`, {
+      data: { resolved: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    await loadPage(page);
+    const doc = await switchToDocumentView(page);
+
+    const card = doc.locator(`.comment-card[data-comment-id="${quoted.id}"]`);
+    await expect(card).toBeAttached();
+    await expect(doc.locator(`.quote-highlight[data-comment-id="${quoted.id}"]`)).toHaveCount(0);
+    await expect(card.locator('.comment-line-ref')).not.toHaveAttribute('role', 'link');
   });
 });

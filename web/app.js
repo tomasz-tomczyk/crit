@@ -155,9 +155,13 @@
       return;
     }
     // A quote highlight goes to its comment. Deferred so a double or triple
-    // click that selects text inside the highlight doesn't jump.
-    const mark = e.target.closest && e.target.closest('mark.quote-highlight:not([data-comment-id^="draft-"])');
-    if (mark && e.detail === 1) {
+    // click that selects text inside the highlight doesn't jump. A link in
+    // the highlight keeps its own click, and the innermost highlight wins, so
+    // a draft's highlight inside a saved one doesn't jump away from the form.
+    if (e.defaultPrevented || e.detail !== 1 || !e.target.closest) return;
+    if (e.target.closest('a[href]')) return;
+    const mark = e.target.closest('mark.quote-highlight');
+    if (mark && !mark.dataset.commentId.startsWith('draft-')) {
       setTimeout(function() {
         if (window.getSelection().isCollapsed) scrollToCommentRef(mark.dataset.commentId);
       }, 300);
@@ -173,18 +177,25 @@
   });
 
   // Scroll to and flash a comment's quote highlight in the rendered document.
+  // A diagram label's highlight is an SVG <tspan>, so match any element.
   function goToQuote(commentId) {
-    const marks = document.querySelectorAll('#filesContainer mark.quote-highlight[data-comment-id="' + CSS.escape(commentId) + '"]');
+    const marks = document.querySelectorAll('#filesContainer .quote-highlight[data-comment-id="' + CSS.escape(commentId) + '"]');
     if (marks.length === 0) return;
-    marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-    marks.forEach(flashCommentRefCard);
+    // Same alignment as scrollToCommentRef: a smooth scroll is cut short when
+    // files mount on the way, and a newer jump supersedes this one.
+    const seq = ++pierreJumpSeq;
+    marks.forEach(function(m) { restartFlash(m, 'comment-ref-flash'); });
+    scrollPierreElementIntoView(marks[0], function() { return seq === pierreJumpSeq; });
   }
 
   // In a rendered document, a quoted comment's line label links to its quote.
-  // Code view and story view have no highlight in #filesContainer to go to.
+  // Code view and story view have no highlight in #filesContainer to go to,
+  // and neither does a resolved comment (no highlight is drawn for it) or a
+  // drifted one (its quote is gone from the file).
   function linkLineRefToQuote(card, comment, filePath) {
     const file = getFileByPath(filePath);
-    if (!comment.quote || !file || !pierreIsDocumentView(file) || storyActive()) return;
+    if (!comment.quote || comment.resolved || comment.drifted) return;
+    if (!file || !pierreIsDocumentView(file) || storyActive()) return;
     const label = card.querySelector('.comment-line-ref');
     if (!label) return;
     label.tabIndex = 0;
