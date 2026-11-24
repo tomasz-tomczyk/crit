@@ -453,46 +453,17 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 			copy(files, s.Files)
 			s.mu.RUnlock()
 
-			changed := false
+			changed, agentEdit := false, false
 			for _, f := range files {
-				info, err := os.Stat(f.AbsPath)
-				if err != nil {
-					continue
-				}
-				modTime := info.ModTime()
-				if modTime.Equal(lastMod[f.Path]) {
-					continue
-				}
-				lastMod[f.Path] = modTime
-
-				data, err := os.ReadFile(f.AbsPath)
-				if err != nil {
-					continue
-				}
-				hash := fileHash(data)
-
-				s.mu.Lock()
-				// Re-check hash under write lock to avoid racing with AddComment.
-				// Without this, a comment added between a read-lock check and this
-				// write lock would be silently discarded.
-				if hash == f.FileHash {
-					s.mu.Unlock()
-					continue
-				}
-				// Snapshot on first edit of a round (markdown files)
-				if f.FileType == "markdown" && s.pendingEdits == 0 {
-					f.PreviousContent = f.Content
-					f.PreviousComments = make([]Comment, len(f.Comments))
-					copy(f.PreviousComments, f.Comments)
-				}
-				f.Content = string(data)
-				f.FileHash = hash
-				s.mu.Unlock()
-				changed = true
+				fileChanged, waiting := s.applyFileEdit(f, lastMod)
+				changed = changed || fileChanged
+				agentEdit = agentEdit || (fileChanged && waiting)
 			}
 
 			if changed {
-				s.IncrementEdits()
+				if agentEdit {
+					s.IncrementEdits()
+				}
 				s.notify(SSEEvent{
 					Type:    "edit-detected",
 					Content: strconv.Itoa(s.GetPendingEdits()),
@@ -502,6 +473,50 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 			s.handleRoundCompleteFiles()
 		}
 	}
+}
+
+// applyFileEdit reads f from disk when its mtime has moved and, if the content
+// changed, updates it. It reports whether the content changed and whether the
+// session was waiting for the agent at that moment.
+//
+// An edit made while the reviewer is still reviewing is part of the round: it
+// keeps the round's diff base and is not counted as an agent edit (#1082). The
+// next base is taken at the agent's first edit after Finish. Without a base
+// yet (round 1, or after cleanup) an edit still takes one.
+func (s *Session) applyFileEdit(f *FileEntry, lastMod map[string]time.Time) (changed, waiting bool) {
+	info, err := os.Stat(f.AbsPath)
+	if err != nil {
+		return false, false
+	}
+	modTime := info.ModTime()
+	if modTime.Equal(lastMod[f.Path]) {
+		return false, false
+	}
+	lastMod[f.Path] = modTime
+
+	data, err := os.ReadFile(f.AbsPath)
+	if err != nil {
+		return false, false
+	}
+	hash := fileHash(data)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Re-check hash under write lock to avoid racing with AddComment.
+	// Without this, a comment added between a read-lock check and this
+	// write lock would be silently discarded.
+	if hash == f.FileHash {
+		return false, false
+	}
+	waiting = s.waitingForAgent
+	if f.FileType == "markdown" && s.pendingEdits == 0 && (waiting || f.PreviousContent == "") {
+		f.PreviousContent = f.Content
+		f.PreviousComments = make([]Comment, len(f.Comments))
+		copy(f.PreviousComments, f.Comments)
+	}
+	f.Content = string(data)
+	f.FileHash = hash
+	return true, waiting
 }
 
 // carryForwardComment builds a Comment for the next review round from
