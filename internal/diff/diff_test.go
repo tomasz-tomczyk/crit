@@ -331,6 +331,28 @@ func TestDiffEntriesToHunks_SeparateHunks(t *testing.T) {
 	}
 }
 
+func TestMapOldLineToNew_TrailingRemovals(t *testing.T) {
+	tests := []struct {
+		name     string
+		old, new string
+		want     map[int]int
+	}{
+		{"last line removed", "a\nb\nc", "a\nb", map[int]int{1: 1, 2: 2, 3: 2}},
+		{"last lines removed", "a\nb\nc\nd", "a\nb", map[int]int{1: 1, 2: 2, 3: 2, 4: 2}},
+		{"lines added above a removed last line", "a\nb", "x\ny\na", map[int]int{1: 3, 2: 3}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := MapOldLineToNew(ComputeLineDiff(tt.old, tt.new))
+			for oldLine, want := range tt.want {
+				if m[oldLine] != want {
+					t.Errorf("m[%d] = %d, want %d", oldLine, m[oldLine], want)
+				}
+			}
+		})
+	}
+}
+
 func TestMapOldLineToNew_AllRemoved(t *testing.T) {
 	// Old: a, b, c  →  New: (empty)
 	entries := ComputeLineDiff("a\nb\nc", "")
