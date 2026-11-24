@@ -265,11 +265,20 @@ func sessionSlugSuffix(sessionID string) string {
 	return hex.EncodeToString(hash[:])[:6]
 }
 
+// isPlanSessionsParseError reports whether err from readPlanSessions means the
+// file exists but is not a valid mapping.
+func isPlanSessionsParseError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
+}
+
 // savePlanSlug pins a slug to a session_id and returns the slug it stored: a slug
 // another session holds gets a -2, -3, ... suffix. Prunes entries older than 7 days.
-// Uses advisory file locking to prevent concurrent read-modify-write races,
-// and returns an error if the existing file contains corrupt JSON rather than
-// silently overwriting it.
+// Uses advisory file locking to prevent concurrent read-modify-write races.
+// A file that does not parse is replaced with a new mapping: writes go through
+// AtomicWriteFile under the lock, so such a file holds nothing to recover, and
+// failing every call would move each session onto the fallback slug.
 func savePlanSlug(sessionID, slug string) (string, error) {
 	path, err := planSessionsFile()
 	if err != nil {
@@ -284,7 +293,11 @@ func savePlanSlug(sessionID, slug string) (string, error) {
 
 	m, err := readPlanSessions(path)
 	if err != nil {
-		return "", err
+		if !isPlanSessionsParseError(err) {
+			return "", err
+		}
+		fmt.Fprintf(os.Stderr, "crit: warning: %v; starting a new plan-sessions mapping\n", err)
+		m = make(map[string]planSessionMapping)
 	}
 
 	// Prune stale entries
