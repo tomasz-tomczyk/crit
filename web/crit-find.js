@@ -14,6 +14,11 @@
   const HIGHLIGHT_ALL = 'crit-find';
   const HIGHLIGHT_CURRENT = 'crit-find-current';
   const MAX_MATCHES = 10000;
+  // Find must hydrate every lazy file because its contents are not available
+  // in the initial session. Keep enough requests in flight that a deep match
+  // does not spend the whole Playwright budget waiting behind the earlier
+  // files, while retaining a bound on browser/server pressure.
+  const FIND_LOAD_CONCURRENCY = 12;
 
   // Styles injected into Pierre's shadow roots (append to unsafeCSS).
   const UNSAFE_CSS =
@@ -261,7 +266,7 @@
         });
       };
       const workers = [];
-      for (let i = 0; i < 4; i++) workers.push(worker());
+      for (let i = 0; i < FIND_LOAD_CONCURRENCY; i++) workers.push(worker());
       loadRun = Promise.all(workers).then(function() {
         loadRun = null;
         renderCount();
