@@ -2388,8 +2388,8 @@ textarea.drag-active {
   color: var(--crit-editor-fg-muted);
 }
 .template-chip-edit:hover { color: var(--crit-brand); }
-/* Pinned templates lead the bar and keep a brand border. */
-.template-chip--pinned { border-color: var(--crit-brand); }
+/* Pinned templates lead the bar and keep a soft brand border. */
+.template-chip--pinned { border-color: color-mix(in srgb, var(--crit-brand) 35%, var(--crit-border)); }
 
 .template-chip:hover {
   border-color: var(--crit-brand);
