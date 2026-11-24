@@ -98,7 +98,10 @@
   // Whether `selection` was made backwards (its focus before its anchor).
   function isBackward(selection) {
     if (!selection) return false;
-    if (typeof selection.direction === 'string') return selection.direction === 'backward';
+    // Chromium reports "none" for some mouse selections (seen on text with
+    // dir="auto"): only a definite direction wins over anchor and focus.
+    if (selection.direction === 'backward') return true;
+    if (selection.direction === 'forward') return false;
     const anchor = selection.anchorNode;
     const focus = selection.focusNode;
     if (!anchor || !focus) return false;

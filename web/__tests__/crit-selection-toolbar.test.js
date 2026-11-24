@@ -133,6 +133,9 @@ test('reads the selection direction, natively or from its anchor and focus', () 
   const before = { compareDocumentPosition: () => 2 };
   assert.equal(isBackward({ anchorNode: before, focusNode: {}, anchorOffset: 0, focusOffset: 0 }), true);
   assert.equal(isBackward(null), false);
+  // Chromium's "none" falls back to anchor and focus.
+  assert.equal(isBackward({ direction: 'none', anchorNode: node, focusNode: node, anchorOffset: 30, focusOffset: 8 }), true);
+  assert.equal(isBackward({ direction: 'none', anchorNode: node, focusNode: node, anchorOffset: 8, focusOffset: 30 }), false);
 });
 
 test('exposes the placements a reader can choose', () => {
