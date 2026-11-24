@@ -90,14 +90,14 @@ func bulkEntryForm(e BulkCommentEntry) string {
 // appendCommentScoped adds a comment to the session.CritJSON struct in memory with
 // HeadSHA / DiffScope stamping. Does not write to disk.
 // scope.DiffScope == "" produces today's working-tree behavior.
-func appendCommentScoped(cj *session.CritJSON, filePath string, startLine, endLine int, body, author, userID string, scope session.InheritedScope) {
-	appendQuotedCommentScoped(cj, filePath, startLine, endLine, body, "", nil, author, userID, scope)
+func appendCommentScoped(cj *session.CritJSON, filePath string, startLine, endLine int, body, author, userID string, scope session.InheritedScope) string {
+	return appendQuotedCommentScoped(cj, filePath, startLine, endLine, body, "", nil, author, userID, scope)
 }
 
 // appendQuotedCommentScoped is appendCommentScoped for a comment on part of
 // the line range: quote is the selected text and quoteOffset, when set, its
 // position as the web UI records it (see session.Comment.QuoteOffset).
-func appendQuotedCommentScoped(cj *session.CritJSON, filePath string, startLine, endLine int, body, quote string, quoteOffset *int, author, userID string, scope session.InheritedScope) {
+func appendQuotedCommentScoped(cj *session.CritJSON, filePath string, startLine, endLine int, body, quote string, quoteOffset *int, author, userID string, scope session.InheritedScope) string {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -127,6 +127,7 @@ func appendQuotedCommentScoped(cj *session.CritJSON, filePath string, startLine,
 	}, scope.AsFocus())
 	cf.Comments = append(cf.Comments, c)
 	cj.Files[filePath] = cf
+	return c.ID
 }
 
 // readAnchorFromDisk reads the file from disk and extracts lines startLine..endLine
@@ -239,22 +240,25 @@ func addCommentToCritJSONScoped(filePath string, startLine, endLine int, body, a
 	if err != nil {
 		return err
 	}
-	return addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope)
+	_, err = addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope)
+	return err
 }
 
-func addCommentToCritJSONAtPath(filePath string, startLine, endLine int, body, author, userID, critPath string, scope session.InheritedScope) error {
+func addCommentToCritJSONAtPath(filePath string, startLine, endLine int, body, author, userID, critPath string, scope session.InheritedScope) (string, error) {
 	if isAbsoluteOrTraversal(filePath) {
-		return fmt.Errorf("path %q must be relative and within the repository", filePath)
+		return "", fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
 	cleaned := filepath.Clean(filePath)
 	// Review JSON is a cross-platform artefact (synced via crit-web, GitHub, share),
 	// so paths are stored with forward slashes regardless of host OS.
 	cleaned = filepath.ToSlash(cleaned)
 
-	return updateCritJSON(critPath, func(cj *session.CritJSON) error {
-		appendCommentScoped(cj, cleaned, startLine, endLine, body, author, userID, scope)
+	var id string
+	err := updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		id = appendCommentScoped(cj, cleaned, startLine, endLine, body, author, userID, scope)
 		return nil
 	})
+	return id, err
 }
 
 // updateCritJSON loads the review file, applies fn and saves the result,
@@ -702,14 +706,17 @@ func addReviewCommentToCritJSONScoped(body, author, userID, outputDir string, sc
 	if err != nil {
 		return err
 	}
-	return addReviewCommentToCritJSONAtPath(body, author, userID, critPath, scope)
+	_, err = addReviewCommentToCritJSONAtPath(body, author, userID, critPath, scope)
+	return err
 }
 
-func addReviewCommentToCritJSONAtPath(body, author, userID, critPath string, scope session.InheritedScope) error {
-	return updateCritJSON(critPath, func(cj *session.CritJSON) error {
-		appendReviewCommentScoped(cj, body, author, userID, scope)
+func addReviewCommentToCritJSONAtPath(body, author, userID, critPath string, scope session.InheritedScope) (string, error) {
+	var id string
+	err := updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		id = appendReviewCommentScoped(cj, body, author, userID, scope)
 		return nil
 	})
+	return id, err
 }
 
 // addFileCommentToCritJSONScoped adds a file-level comment to the review file
@@ -719,27 +726,30 @@ func addFileCommentToCritJSONScoped(filePath, body, author, userID, outputDir st
 	if err != nil {
 		return err
 	}
-	return addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath, scope)
+	_, err = addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath, scope)
+	return err
 }
 
-func addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath string, scope session.InheritedScope) error {
+func addFileCommentToCritJSONAtPath(filePath, body, author, userID, critPath string, scope session.InheritedScope) (string, error) {
 	if isAbsoluteOrTraversal(filePath) {
-		return fmt.Errorf("path %q must be relative and within the repository", filePath)
+		return "", fmt.Errorf("path %q must be relative and within the repository", filePath)
 	}
 	cleaned := filepath.Clean(filePath)
 	// Review JSON is a cross-platform artefact (synced via crit-web, GitHub, share),
 	// so paths are stored with forward slashes regardless of host OS.
 	cleaned = filepath.ToSlash(cleaned)
 
-	return updateCritJSON(critPath, func(cj *session.CritJSON) error {
-		appendFileCommentScoped(cj, cleaned, body, author, userID, scope)
+	var id string
+	err := updateCritJSON(critPath, func(cj *session.CritJSON) error {
+		id = appendFileCommentScoped(cj, cleaned, body, author, userID, scope)
 		return nil
 	})
+	return id, err
 }
 
 // appendReviewCommentScoped adds a review-level comment to the session.CritJSON struct
 // in memory, stamping DiffScope/HeadSHA from scope.
-func appendReviewCommentScoped(cj *session.CritJSON, body, author, userID string, scope session.InheritedScope) {
+func appendReviewCommentScoped(cj *session.CritJSON, body, author, userID string, scope session.InheritedScope) string {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -753,11 +763,12 @@ func appendReviewCommentScoped(cj *session.CritJSON, body, author, userID string
 		UpdatedAt: now,
 	}, scope.AsFocus())
 	cj.ReviewComments = append(cj.ReviewComments, c)
+	return c.ID
 }
 
 // appendFileCommentScoped adds a file-level comment (scope: "file", lines: 0)
 // to the session.CritJSON struct in memory, stamping DiffScope/HeadSHA from scope.
-func appendFileCommentScoped(cj *session.CritJSON, filePath, body, author, userID string, scope session.InheritedScope) {
+func appendFileCommentScoped(cj *session.CritJSON, filePath, body, author, userID string, scope session.InheritedScope) string {
 	now := time.Now().UTC().Format(time.RFC3339)
 	cj.UpdatedAt = now
 
@@ -780,4 +791,5 @@ func appendFileCommentScoped(cj *session.CritJSON, filePath, body, author, userI
 	}, scope.AsFocus())
 	cf.Comments = append(cf.Comments, c)
 	cj.Files[filePath] = cf
+	return c.ID
 }

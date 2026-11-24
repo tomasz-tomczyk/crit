@@ -61,10 +61,11 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 
 	if len(f.args) == 1 {
 		body := f.args[0]
-		if err := addReviewCommentToCritJSONAtPath(body, f.author, f.userID, f.reviewPath, scope); err != nil {
+		id, err := addReviewCommentToCritJSONAtPath(body, f.author, f.userID, f.reviewPath, scope)
+		if err != nil {
 			return err
 		}
-		fmt.Println("Added review comment")
+		fmt.Printf("Added review comment %s\n", id)
 		return nil
 	}
 
@@ -78,10 +79,11 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 		candidatePath := f.args[0]
 		if fileExistsOnDiskOrReview(candidatePath, f.reviewPath) {
 			body := strings.Join(f.args[1:], " ")
-			if err := addFileCommentToCritJSONAtPath(candidatePath, body, f.author, f.userID, f.reviewPath, scope); err != nil {
+			id, err := addFileCommentToCritJSONAtPath(candidatePath, body, f.author, f.userID, f.reviewPath, scope)
+			if err != nil {
 				return err
 			}
-			fmt.Printf("Added file comment on %s\n", candidatePath)
+			fmt.Printf("Added file comment %s on %s\n", id, candidatePath)
 			return nil
 		}
 	}
@@ -323,10 +325,11 @@ func runCommentLineLevelAtPath(loc string, commentArgs []string, author, userID,
 		return fmt.Errorf("invalid line spec in %q", loc)
 	}
 	body := strings.Join(commentArgs[1:], " ")
-	if err := addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope); err != nil {
+	id, err := addCommentToCritJSONAtPath(filePath, startLine, endLine, body, author, userID, critPath, scope)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("Added comment on %s:%s\n", filePath, lineSpec)
+	fmt.Printf("Added comment %s on %s:%s\n", id, filePath, lineSpec)
 	return nil
 }
 
