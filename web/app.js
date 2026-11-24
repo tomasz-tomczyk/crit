@@ -1107,7 +1107,14 @@
       if (h) document.documentElement.style.setProperty('--header-height', h.getBoundingClientRect().height + 'px');
     }
     updateHeaderHeight();
-    window.addEventListener('resize', updateHeaderHeight);
+    // The header can grow after load (branch info, story toggle, wrapping
+    // onto a second row on a phone), not only when the window resizes.
+    const headerEl = document.querySelector('.header');
+    if (headerEl && typeof ResizeObserver === 'function') {
+      new ResizeObserver(updateHeaderHeight).observe(headerEl);
+    } else {
+      window.addEventListener('resize', updateHeaderHeight);
+    }
 
     showFilesMessage('Loading...');
 

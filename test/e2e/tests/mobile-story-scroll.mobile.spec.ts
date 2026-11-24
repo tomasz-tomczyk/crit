@@ -75,4 +75,20 @@ test.describe('Story mode on a phone', () => {
       return pane.scrollHeight - pane.clientHeight - pane.scrollTop;
     })).toBeLessThanOrEqual(1);
   });
+
+  test('the story fills the window without the page scrolling', async ({ page, request }) => {
+    await expect(await request.post('/api/story', { data: { story: STORY } })).toBeOK();
+    await loadPage(page);
+    await expect(page.locator('#crit-story-view-overview')).toBeVisible();
+
+    // The file picker jumps through the flat diff, which story mode hides.
+    await expect(page.locator('#mobileFilePickerBar')).toBeHidden();
+
+    // The pane ends at the bottom of the window, so the window has nothing
+    // to scroll and the chapter's last lines are not pushed below it.
+    await expect.poll(() => page.evaluate(() => ({
+      overflow: document.documentElement.scrollHeight - window.innerHeight,
+      gap: Math.round(window.innerHeight - document.getElementById('storyPane')!.getBoundingClientRect().bottom),
+    }))).toEqual({ overflow: 0, gap: 0 });
+  });
 });
