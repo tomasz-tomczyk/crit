@@ -8,7 +8,7 @@
     "dompurify": "3.4.17",
     "markdown-it": "15.0.3",
     "mermaid": "12.2.0",
-    "perfect-freehand": "1.2.0",
+    "perfect-freehand": "1.2.3",
     "points-on-curve": "1.0.1",
     "roughjs": "4.6.6"
   },
