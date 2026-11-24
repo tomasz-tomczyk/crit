@@ -91,6 +91,31 @@ test('Esc in a comment textarea cancels the form and leaves find open', async ({
   await expect(input(page)).toBeVisible();
 });
 
+test('Esc that closes the search panel leaves an open comment form alone', async ({ page }) => {
+  await loadPage(page);
+  const item = await revealFile(page, 'login.feature');
+  // An empty form: crit cancels it on Esc without asking first.
+  await openLineComment(page, item, 2);
+  await openFind(page);
+  await input(page).fill('Alice');
+  await expect(count(page)).toHaveText('1/3');
+
+  await input(page).press('Escape');
+  await expect(panel(page)).toHaveCount(0);
+  await expect(item.locator('.comment-form')).toHaveCount(1);
+});
+
+test('Cmd/Ctrl+G is left alone while Settings covers the list', async ({ page }) => {
+  await loadPage(page);
+  await openFind(page);
+  await input(page).fill('Alice');
+  await expect(count(page)).toHaveText('1/3');
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.keyboard.press(`${MOD}+g`);
+  await expect(count(page)).toHaveText('1/3');
+});
+
 test('a match in a collapsed file opens it, and its header shows it open', async ({ page }) => {
   await loadPage(page);
   await revealFile(page, 'login.feature');

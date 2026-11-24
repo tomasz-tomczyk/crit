@@ -180,8 +180,9 @@ test('switching a file between diff and document view swaps the item type in pla
 test('a full setFiles or new options hold a reader inside a rendered document at the same offset', function() {
   const fake = fakePierre();
   const md = file('plan.md', { fileType: 'markdown', viewMode: 'document' });
-  const view = makeView(fake, { isDocumentView: f => f.viewMode === 'document' });
+  const view = makeView(fake, { isDocumentView: f => f.viewMode === 'document', buildAnnotation: () => ({ tag: 'doc' }) });
   view.setFiles([md]);
+  fake.options().renderAnnotation({ metadata: { kind: 'document', id: 'plan.md' } }, null, { item: { id: 'plan.md' } });
   fake.P.CodeView.prototype.getRenderedItems = function() {
     return [{ id: 'plan.md', element: { getBoundingClientRect: () => ({ top: -900, bottom: 1300 }) } }];
   };
@@ -194,6 +195,27 @@ test('a full setFiles or new options hold a reader inside a rendered document at
     { type: 'item', id: 'plan.md', align: 'start', offset: -900 },
   ]);
   assert.ok(fake.log.findIndex(e => e[0] === 'scrollTo') < fake.log.findIndex(e => e[0] === 'setItems'), 'held before setItems');
+});
+
+test('updating another file does not hold the document being read (a jump in flight survives)', function() {
+  const fake = fakePierre();
+  const md = file('plan.md', { fileType: 'markdown', viewMode: 'document' });
+  const view = makeView(fake, {
+    isDocumentView: f => f.viewMode === 'document',
+    annotations: f => f.viewMode === 'document' ? [{ side: 'additions', lineNumber: 0, metadata: { kind: 'document', id: f.path } }] : [],
+    buildAnnotation: () => ({ tag: 'doc' }),
+  });
+  view.setFiles([md, file('a.go')]);
+  fake.options().renderAnnotation({ metadata: { kind: 'document', id: 'plan.md' } }, null, { item: { id: 'plan.md' } });
+  fake.P.CodeView.prototype.getRenderedItems = function() {
+    return [{ id: 'plan.md', element: { getBoundingClientRect: () => ({ top: -300, bottom: 900 }) } }];
+  };
+  fake.log.length = 0;
+  view.refreshFile(file('a.go', { content: 'changed' }), []);
+  assert.ok(!fake.log.some(e => e[0] === 'scrollTo'), 'another file updating leaves pending jumps alone');
+  view.refreshFile(md, []);
+  assert.deepEqual(fake.log.filter(e => e[0] === 'scrollTo').map(e => e[1]),
+    [{ type: 'item', id: 'plan.md', align: 'start', offset: -300 }], 'the document being read is held');
 });
 
 test('a reader inside a code diff is left to Pierre\'s own anchor', function() {

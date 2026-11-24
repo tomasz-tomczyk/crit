@@ -167,7 +167,7 @@
       var prev = itemsByPath.get(file.path);
       itemsByPath.set(file.path, item);
       if (!prev || prev.type === item.type) {
-        holdDocumentPosition();
+        holdDocumentPosition(file.path);
         viewer.updateItem(item);
         return;
       }
@@ -311,8 +311,10 @@
     // measured height, that anchor moves by the whole document and the
     // reader lands files away (Pierre 1.7). When the reader is inside a
     // document, hold the item itself: a pending scroll request also stops
-    // Pierre capturing its line anchor.
-    function holdDocumentPosition() {
+    // Pierre capturing its line anchor. The request replaces any jump in
+    // flight (a tree click, a search match), so for one item's update
+    // (`onlyPath`) hold only when that item is the document being read.
+    function holdDocumentPosition(onlyPath) {
       var rootTop = root.getBoundingClientRect().top;
       var hit = null;
       viewer.getRenderedItems().forEach(function(r) {
@@ -320,8 +322,7 @@
         var box = r.element.getBoundingClientRect();
         if (box.top <= rootTop + 1 && box.bottom > rootTop) hit = { id: r.id, top: box.top };
       });
-      var item = hit && itemsByPath.get(hit.id);
-      if (!item || item.type !== 'file' || item.file.contents !== '') return;
+      if (!hit || (onlyPath && hit.id !== onlyPath) || !elements.has('document:' + hit.id)) return;
       viewer.scrollTo({ type: 'item', id: hit.id, align: 'start', offset: hit.top - rootTop });
     }
     var viewer = new P.CodeView(options, opts.workerPool);

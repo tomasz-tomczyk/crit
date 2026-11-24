@@ -2625,7 +2625,8 @@
       // file's body; Pierre's estimate must include it or scroll positions
       // drift 1px per open file. The top border replaces the header's own.
       itemMetrics: { paddingTop: 0, paddingBottom: 1 },
-      onSearchStateChange: function(state) { if (state) pierreFindLoadPending(); },
+      // Load lazy files once there is something to find (not on an empty open).
+      onSearchStateChange: function(state) { if (state && state.text) pierreFindLoadPending(); },
       onItemCollapsedChange: pierreFindOpenedFile,
       annotations: pierreAnnotationsFor,
       prepareHunks: pierrePreparedHunks,
@@ -3088,12 +3089,16 @@
   let pierreFindLoadRun = null;
   function pierreFindLoadPending() {
     if (pierreFindLoadRun || !pierreFindOpen()) return;
+    // One run per view: a rebuilt list starts its own (disposePierreView
+    // drops this one), and the loop stops when the view it loads into goes.
+    const view = pierreView;
     const tried = new Set();
     const step = function() {
-      const file = pierreFindOpen() && files.find(function(f) { return f.lazy && !f.orphaned && !tried.has(f.path); });
-      if (!file) { pierreFindLoadRun = null; return null; }
+      const file = pierreView === view && pierreFindOpen() &&
+        files.find(function(f) { return f.lazy && !f.orphaned && !tried.has(f.path); });
+      if (!file) { if (pierreFindLoadRun && pierreView === view) pierreFindLoadRun = null; return null; }
       tried.add(file.path);
-      return Promise.resolve(pierreView.ensureLoaded(file.path)).catch(function() { return null; }).then(step);
+      return Promise.resolve(view.ensureLoaded(file.path)).catch(function() { return null; }).then(step);
     };
     pierreFindLoadRun = Promise.resolve().then(step);
   }
@@ -3111,11 +3116,13 @@
       // While search is open Pierre closes it on any Esc inside the
       // CodeView and stops the event, so a comment form there could not
       // cancel. Pierre skips events already marked handled: do that for
-      // text fields outside the panel (the panel's input is the host here).
+      // text fields in the review list (the panel's own input shows up as
+      // the panel host here, so it is not one of them).
       if (e.key === 'Escape') {
         const t = e.target;
-        if (pierreFindOpen() && t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') &&
-            !(t.closest && t.closest('[data-search-panel-overlay]'))) e.preventDefault();
+        const list = document.getElementById('filesContainer');
+        const textField = t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && /^(text|search|url|email|)$/.test(t.type || '')));
+        if (pierreFindOpen() && textField && list && list.contains(t)) e.preventDefault();
         return;
       }
       const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
@@ -3127,7 +3134,7 @@
         if (pierreFindOpen() && active && active.closest && active.closest('[data-search-panel-overlay]')) return;
         e.preventDefault();
         pierreView.viewer.openSearch();
-      } else if (key === 'g' && pierreFindOpen()) {
+      } else if (key === 'g' && pierreFindOpen() && pierreFindActive()) {
         // Pierre's find-again also only listens inside the CodeView.
         e.preventDefault();
         e.stopPropagation();
@@ -3136,11 +3143,6 @@
     }, true);
   })();
 
-  // ----- Quote highlights inside Pierre (CSS Custom Highlight API) -----
-  // Comments created from a text selection carry `quote` (+ quote_offset).
-  // Pierre owns the code DOM (shadow roots, virtualized), so instead of
-  // wrapping text in <mark> we register Ranges with CSS.highlights; the
-  // ::highlight(crit-quote) rule is injected into Pierre via unsafeCSS.
   // The search panel and its match highlights take Crit's colours; the
   // override variables are Pierre's documented hooks.
   const PIERRE_FIND_CSS = ':host {' +
@@ -3151,6 +3153,11 @@
     '--diffs-widget-fg: var(--crit-fg-primary);' +
     '--diffs-widget-border: var(--crit-border);' +
     '}';
+  // ----- Quote highlights inside Pierre (CSS Custom Highlight API) -----
+  // Comments created from a text selection carry `quote` (+ quote_offset).
+  // Pierre owns the code DOM (shadow roots, virtualized), so instead of
+  // wrapping text in <mark> we register Ranges with CSS.highlights; the
+  // ::highlight(crit-quote) rule is injected into Pierre via unsafeCSS.
   const PIERRE_UNSAFE_CSS = window.crit.pierreDOM.unsafeCSS + PIERRE_FIND_CSS;
   const pierreDecorations = window.crit.pierreDOM.createDecorations();
 
@@ -3358,6 +3365,7 @@
       container.parentNode.insertBefore(conversation, container);
     }
     if (pierreView) { pierreView.destroy(); pierreView = null; }
+    pierreFindLoadRun = null;
     // The next view creates its own ResizeObserver. Ours must be created after
     // it to run after Pierre's scroll fix, so drop it with the view.
     if (pierreDocumentResizeObserver) { pierreDocumentResizeObserver.disconnect(); pierreDocumentResizeObserver = null; }
