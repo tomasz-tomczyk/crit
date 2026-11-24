@@ -146,6 +146,37 @@ func resolveCurrentPRHead(id forge.ChangeID, inRange, dryRun bool) (string, erro
 	return info.HeadRefOid, nil
 }
 
+// checkPinnedCommit fails when --commit names a commit that is not part of
+// the PR. GitHub would only reject the review (422) after the push started,
+// with edits and deletes still to run, so this runs before anything is
+// posted, on dry runs too. GitHub lists at most prCommitsListLimit commits;
+// past that a miss is a warning, not an error.
+func checkPinnedCommit(ctx pushContext) error {
+	if ctx.commitSHA == "" {
+		return nil
+	}
+	shas, err := fetchPRCommitSHAs(ctx.id)
+	if err != nil {
+		if ctx.flags.dryRun {
+			fmt.Fprintf(os.Stderr, "Note: could not list PR #%d commits; --commit not checked in this dry-run: %v\n", ctx.id.Number, err)
+			return nil
+		}
+		return fmt.Errorf("checking --commit against PR #%d: %w", ctx.id.Number, err)
+	}
+	for _, sha := range shas {
+		if strings.EqualFold(sha, ctx.commitSHA) {
+			return nil
+		}
+	}
+	short := shortSHAString(ctx.commitSHA)
+	if len(shas) >= prCommitsListLimit {
+		fmt.Fprintf(os.Stderr, "Warning: PR #%d has %d or more commits and GitHub lists only the first %d; could not check that %s is one of them\n",
+			ctx.id.Number, prCommitsListLimit, prCommitsListLimit, short)
+		return nil
+	}
+	return fmt.Errorf("commit %s is not part of PR #%d; nothing was posted", short, ctx.id.Number)
+}
+
 // pushContext captures everything runPush needs after parsing flags +
 // loading the review file. Splitting this out keeps runPush itself short
 // and the cyclomatic complexity inside Go Report Card limits.
@@ -251,6 +282,9 @@ func runPushDryRun(ctx pushContext, b PushBuckets) {
 	fmt.Println(SummarizeBuckets(ctx.prNumber, b))
 	fmt.Println()
 	fmt.Print(DetailedDryRun(b))
+	if len(b.Postable) == 0 && pushHasVerdictOrBody(ctx) {
+		fmt.Printf("Would submit %s with no inline comments.\n", reviewAction(ctx))
+	}
 	fmt.Printf("Use `crit push --pr %d` to confirm.\n", ctx.prNumber)
 }
 
@@ -310,12 +344,47 @@ func RunPushLive(ctx pushContext, b PushBuckets) int { //nolint:gocyclo // CLI p
 		return 1
 	}
 
-	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
+	reviewed := !postFailed && pushPostsReview(ctx, b)
+	verdict := ""
+	if reviewed && pushHasVerdictOrBody(ctx) {
+		verdict = "Submitted " + reviewAction(ctx)
+	}
+	printPushSummary(verdict, posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
 
-	if pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
+	// With --commit the review is the point of the push: a rejected review
+	// (e.g. GitHub's 422 for a commit_id outside the PR) must fail CI even
+	// when edits, deletes, or an orphan export succeeded.
+	if postFailed && ctx.commitSHA != "" {
+		return 1
+	}
+	if !reviewed && pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
 		return 1
 	}
 	return 0
+}
+
+// pushHasVerdictOrBody reports whether the review carries something besides
+// inline comments: an approve / request-changes verdict or a -m body. Such a
+// review is posted even with no inline comments, like GitLab's bulk publish.
+// An empty event (tests building pushContext directly) means COMMENT.
+func pushHasVerdictOrBody(ctx pushContext) bool {
+	return (ctx.event != "" && ctx.event != "COMMENT") || ctx.flags.message != ""
+}
+
+// pushPostsReview reports whether this push creates a GitHub review.
+func pushPostsReview(ctx pushContext, b PushBuckets) bool {
+	return len(b.Postable) > 0 || pushHasVerdictOrBody(ctx)
+}
+
+// reviewAction names what the review submits, for summary and dry-run text.
+func reviewAction(ctx pushContext) string {
+	switch ctx.event {
+	case "APPROVE":
+		return "approval"
+	case "REQUEST_CHANGES":
+		return "change request"
+	}
+	return "review message"
 }
 
 // writePushOrphanExport writes the off-PR (full-stack + unmapped) bucket
@@ -345,7 +414,7 @@ func writePushOrphanExport(ctx pushContext, b PushBuckets) string {
 // the failure was specifically an auth-rotation 401, and the path-to-id
 // mapping for body-hash bookkeeping.
 func runPushPostReview(ctx pushContext, b PushBuckets, rewrite BodyRewriter) (int, bool, bool, map[string]int64) {
-	if len(b.Postable) == 0 {
+	if !pushPostsReview(ctx, b) {
 		return 0, false, false, nil
 	}
 	ghComments := BucketsToGHComments(b.Postable, rewrite)
@@ -382,12 +451,24 @@ func pushShouldExitFailure(posted, patched, deleted int, exportPath string, post
 
 // printPushSummary writes the one-line stdout summary describing what
 // happened. Adapts wording to the actual outcome (no orphans, no posts, etc).
-func printPushSummary(posted, patched, deleted, orphans int, exportPath string) {
-	if posted == 0 && patched == 0 && deleted == 0 && orphans == 0 {
+// verdict is non-empty when a review with a verdict or body was submitted
+// (e.g. "Submitted approval"); it leads the line.
+func printPushSummary(verdict string, posted, patched, deleted, orphans int, exportPath string) {
+	if verdict == "" && posted == 0 && patched == 0 && deleted == 0 && orphans == 0 {
 		fmt.Println("No comments to push.")
 		return
 	}
-	parts := []string{fmt.Sprintf("Posted %d comments", posted)}
+	var parts []string
+	if verdict != "" {
+		parts = append(parts, verdict)
+	}
+	if posted > 0 || verdict == "" {
+		verb := "Posted"
+		if verdict != "" {
+			verb = "posted"
+		}
+		parts = append(parts, fmt.Sprintf("%s %d comments", verb, posted))
+	}
 	if patched > 0 {
 		parts = append(parts, fmt.Sprintf("edited %d", patched))
 	}
@@ -501,6 +582,10 @@ func RunPush(args []string) error {
 	if pushBlockedByFullStackScope(ctx.cj.ActiveDiffScope) {
 		fmt.Fprintln(os.Stderr, "Error: "+fullStackPushGateMessage)
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
+	}
+
+	if err := checkPinnedCommit(ctx); err != nil {
+		return err
 	}
 
 	inRange := ctx.cj.ActiveDiffScope != ""

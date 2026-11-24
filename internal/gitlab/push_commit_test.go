@@ -93,7 +93,7 @@ func TestRunPushPinnedCommitFailsBeforeStaging(t *testing.T) {
 				{stdout: mrWithHead(currentSHA)},
 				{stdout: `[{"head_commit_sha":"` + currentSHA + `","base_commit_sha":"b","start_commit_sha":"s"}]`},
 			},
-			wantErr: "commit aaaaaaaaaaaa is not a version of MR !7",
+			wantErr: "commit aaaaaaa is not a version of MR !7",
 		},
 		{
 			name:  "approve when the MR head moved",
@@ -102,7 +102,7 @@ func TestRunPushPinnedCommitFailsBeforeStaging(t *testing.T) {
 				{},
 				{stdout: mrWithHead(currentSHA)},
 			},
-			wantErr: "MR !7 head moved past aaaaaaaaaaaa (now cccccccccccc); approval not submitted",
+			wantErr: "MR !7 head moved past aaaaaaa (now ccccccc); approval not submitted",
 		},
 	}
 	for _, tt := range tests {
@@ -146,7 +146,7 @@ func TestRunPushPinnedCommitApprovesWithPinnedSHA(t *testing.T) {
 		{
 			name:    "head moved during publish",
 			approve: commandResponse{stderr: "glab: 409 Conflict (HTTP 409)", exitCode: 1},
-			wantErr: "comments published, but MR !7 head moved past aaaaaaaaaaaa; approval not submitted",
+			wantErr: "comments published, but MR !7 head moved past aaaaaaa; approval not submitted",
 		},
 	}
 	for _, tt := range tests {

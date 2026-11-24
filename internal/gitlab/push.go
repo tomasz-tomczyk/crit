@@ -361,8 +361,8 @@ func findMRVersion(ctx context.Context, repo forge.RepoContext, id forge.ChangeI
 }
 
 func shortSHA(sha string) string {
-	if len(sha) > 12 {
-		return sha[:12]
+	if len(sha) > 7 {
+		return sha[:7]
 	}
 	return sha
 }

@@ -152,7 +152,7 @@ Requires `gh` CLI installed and authenticated.
 - `crit push --dry-run` shows what would be posted without creating the review
 - `crit push --event approve` submits an approval; `--event request-changes` requests changes (default: `comment`)
 - `crit push -m 'message'` adds a review-level body message
-- `crit push --commit <sha>` pins the review to the commit that was reviewed (useful in CI); accepts anything `git rev-parse` resolves. GitHub gets `commit_id`; GitLab positions notes on that MR version and refuses `--event approve` unless it is still the MR head
+- `crit push --commit <sha>` pins the review to the commit that was reviewed; accepts anything `git rev-parse` resolves. In CI pass the PR/MR head SHA (`${{ github.event.pull_request.head.sha }}`; GitLab `$CI_MERGE_REQUEST_SOURCE_BRANCH_SHA` in merged results pipelines, `$CI_COMMIT_SHA` otherwise): in a GitHub `pull_request` run `HEAD` / `$GITHUB_SHA` is a merge commit outside the PR. GitHub: the pin must be one of the PR's commits (checked up front), and the review, approval included, is recorded on it via `commit_id`. GitLab: notes are positioned on that MR version, and `--event approve` is refused unless the pin is still the MR head
 - PR number auto-detected from current branch, or pass explicitly: `crit pull 42`
 - Any code path that imports comments from an external source (GitHub PR, crit-web) into the local review file MUST dedup against local state first: `buildLocalIDSet` + `buildLocalFingerprintIndex` + `dropDuplicateWebComment`. This applies to direct HTTP paths AND browser relay paths. Calling `mergeWebComments` without pre-filtering causes duplicate comments on repeated pull.
 </important>

@@ -510,6 +510,25 @@ func versionAtLeast(version string, wantMajor, wantMinor, wantPatch int) bool {
 	return patch >= wantPatch
 }
 
+// prCommitsListLimit is the most commits GitHub's "list commits on a pull
+// request" endpoint returns, however many pages are requested.
+const prCommitsListLimit = 250
+
+// fetchPRCommitSHAs lists the SHAs of the PR's commits (at most
+// prCommitsListLimit of them).
+func fetchPRCommitSHAs(id forge.ChangeID) ([]string, error) {
+	out, err := exec.Command("gh", ghAPIArgs(id,
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/commits", id.Number),
+		"--paginate",
+		"--jq",
+		".[].sha",
+	)...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing PR #%d commits: %w", id.Number, err)
+	}
+	return strings.Fields(string(out)), nil
+}
+
 func fetchPRCommentsWithSlurp(id forge.ChangeID) ([]ghComment, error) {
 	out, err := exec.Command("gh", ghAPIArgs(id,
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", id.Number),
