@@ -1335,6 +1335,17 @@ body.dragging { user-select: none; cursor: grabbing; }
   max-width: 100%;
   height: auto;
 }
+/* Mermaid lays an HTML label out on one line and wraps it only when it
+   measures exactly its wrapping width, which fractional display scaling
+   misses: the label is then cut off at the box edge (#1203). Wrapping always
+   gives the layout Mermaid picks at 100% scaling. `normal` rather than
+   Mermaid's `break-spaces` keeps unwrapped labels the size they were before.
+   The selector also matches Mermaid's scratch copy, so the box is sized for
+   the wrapped label. */
+svg[id^="crit-mermaid-"] foreignObject > div {
+  display: table !important;
+  white-space: normal !important;
+}
 .crit-render-source {
   text-align: left;
 }
