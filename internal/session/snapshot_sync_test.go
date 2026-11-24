@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -148,6 +149,9 @@ func TestGetSessionInfoScoped_BranchKeepsCommentedFileThatLeftTheBranch(t *testi
 
 // A commented untracked file that is deleted before the next round has left
 // every diff, so the working-tree scopes must still list it as an orphan.
+// The agent's other work (a replacement file, a staged edit) keeps staged and
+// unstaged in the scope picker, as in #1180; without it the UI falls back to
+// "all" and never asks for these scopes.
 func TestGetSessionInfoScoped_WorkingTreeScopesKeepCommentedFileThatLeftTheReview(t *testing.T) {
 	dir := newAllScopeRepo(t)
 	writeFile(t, filepath.Join(dir, "draft.go"), "package sample\n\nfunc draft() {}\n")
@@ -162,13 +166,53 @@ func TestGetSessionInfoScoped_WorkingTreeScopesKeepCommentedFileThatLeftTheRevie
 	if err := os.Remove(filepath.Join(dir, "draft.go")); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(dir, "final.go"), "package sample\n\nfunc final() {}\n")
+	writeFile(t, filepath.Join(dir, "app.go"), strings.Replace(allScopeSample, "\"base\"", "\"staged\"", 1))
+	gitT(t, dir, "add", "app.go")
 	sess.handleRoundCompleteGit()
 
 	for _, scope := range []string{"unstaged", "staged"} {
 		info := sess.GetSessionInfoScoped(scope, "")
+		if !slices.Contains(info.AvailableScopes, scope) {
+			t.Fatalf("%s missing from AvailableScopes %v", scope, info.AvailableScopes)
+		}
 		fi, ok := fileInfoByPath(info, "draft.go")
 		if !ok || !fi.Orphaned || fi.CommentCount != 1 {
 			t.Errorf("%s: draft.go = %+v (listed=%v), want an orphaned row with 1 comment", scope, fi, ok)
+		}
+		if info.HiddenUnresolved != 0 {
+			t.Errorf("%s: HiddenUnresolved = %d, want 0", scope, info.HiddenUnresolved)
+		}
+	}
+}
+
+// A commented file that leaves the branch (its commit is amended away) must
+// also stay listed under staged and unstaged while they have other changes.
+func TestGetSessionInfoScoped_WorkingTreeScopesKeepCommentedFileThatLeftTheBranch(t *testing.T) {
+	dir := newAllScopeRepo(t)
+	writeFile(t, filepath.Join(dir, "added.go"), "package sample\n\nfunc added() {}\n")
+	gitT(t, dir, "add", "added.go")
+	gitT(t, dir, "commit", "-m", "add added.go")
+	chdirForTest(t, dir)
+	sess := startAllScopeSession(t)
+
+	if _, ok := sess.AddComment("added.go", 3, 3, "", "drop this", "", "reviewer", ""); !ok {
+		t.Fatal("AddComment on added.go failed")
+	}
+
+	sess.WriteFiles()
+	gitT(t, dir, "rm", "-q", "added.go")
+	gitT(t, dir, "commit", "--amend", "--allow-empty", "-m", "branch without added.go")
+	writeFile(t, filepath.Join(dir, "staged.go"), "package sample\n\nfunc staged() {}\n")
+	gitT(t, dir, "add", "staged.go")
+	writeFile(t, filepath.Join(dir, "loose.go"), "package sample\n\nfunc loose() {}\n")
+	sess.handleRoundCompleteGit()
+
+	for _, scope := range []string{"staged", "unstaged"} {
+		info := sess.GetSessionInfoScoped(scope, "")
+		fi, ok := fileInfoByPath(info, "added.go")
+		if !ok || !fi.Orphaned || fi.CommentCount != 1 {
+			t.Errorf("%s: added.go = %+v (listed=%v), want an orphaned row with 1 comment", scope, fi, ok)
 		}
 		if info.HiddenUnresolved != 0 {
 			t.Errorf("%s: HiddenUnresolved = %d, want 0", scope, info.HiddenUnresolved)

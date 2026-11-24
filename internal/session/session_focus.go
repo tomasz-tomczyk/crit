@@ -1230,8 +1230,9 @@ func countHunkStats(hunks []vcs.DiffHunk) (additions, deletions int) {
 // range focus, delegates to GetSessionInfo (the round snapshot).
 // All other scopes (including "all") run fresh git queries to pick up work
 // done after the round started. "all" also keeps commented files that left the
-// diff as orphaned rows, as GetSessionInfo does; "branch" keeps those that
-// left the review entirely.
+// diff as orphaned rows, as GetSessionInfo does. The other working-tree scopes
+// (branch, staged, unstaged) keep only those that left the review entirely:
+// such a file is in no diff, so no scope would otherwise show its comments.
 // When commit is non-empty, files and diffs are scoped to that single commit.
 func (s *Session) GetSessionInfoScoped(scope, commit string) SessionInfo {
 	if commit == "" && (scope == "" || s.Mode == "files" || s.Mode == "plan") {
