@@ -224,14 +224,14 @@ type FileEntry struct {
 	PreviousContent  string    `json:"-"`
 	PreviousComments []Comment `json:"-"`
 
-	// Files mode: the diff base for the next round, collected while this
-	// round runs and moved into PreviousContent at round-complete (see
-	// applyFileEdit and takeNextRoundBases). Keeping it separate means an
-	// edit during the round does not change this round's diff base (#1082).
-	nextBase          string
-	nextBaseComments  []Comment
-	hasNextBase       bool
-	nextBaseFromAgent bool // taken from an edit after Finish
+	// Files and plan mode: the diff base for the next round, taken at Finish
+	// (or at the round's first edit when the agent starts a round without
+	// one) and moved into PreviousContent at round-complete. Keeping it
+	// separate means an edit during the round does not change this round's
+	// diff base (#1082). See setNextBase and takeNextRoundBases.
+	nextBase         string
+	nextBaseComments []Comment
+	hasNextBase      bool
 
 	// Lazy loading: when true, Content and DiffHunks are not yet populated.
 	// Call ensureLoaded() before accessing them. Only used when >lazyFileThreshold files.
@@ -2434,11 +2434,20 @@ func (s *Session) PlanHook() string {
 // setWaitingForAgent marks whether the session is in the "waiting for agent edits" phase.
 // Entering it (Finish) resets the edit count, so the waiting screen counts only
 // the agent's edits, not edits made while the reviewer was still reviewing.
+// In files and plan mode it also takes each markdown file's next diff base:
+// the content as the reviewer finished it.
 func (s *Session) setWaitingForAgent(v bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v && !s.waitingForAgent {
 		s.pendingEdits = 0
+		if s.Mode != "git" {
+			for _, f := range s.Files {
+				if f.FileType == "markdown" && f.Status != "deleted" && !f.Lazy {
+					f.setNextBase()
+				}
+			}
+		}
 	}
 	s.waitingForAgent = v
 }

@@ -476,12 +476,11 @@ func (s *Session) watchFileMtimes(stop <-chan struct{}) {
 // applyFileEdit reads f from disk when its mtime has moved and, if the content
 // changed, updates it. It reports whether the content changed.
 //
-// For a markdown file it also records the next round's diff base: the content
-// before the round's first edit, taken again at the agent's first edit after
-// Finish so that edits the reviewer made during the round are part of the
-// base. The current round's base (PreviousContent) is left alone until
-// round-complete, so an edit during review does not change the Diff view's
-// base (#1082).
+// The current round's diff base (PreviousContent) is left alone until
+// round-complete, so an edit during review does not change it (#1082). The
+// next base is normally taken at Finish (setWaitingForAgent). When the agent
+// starts a round without one, the content before the round's first edit is
+// the next base.
 func (s *Session) applyFileEdit(f *FileEntry, lastMod map[string]time.Time) bool {
 	info, err := os.Stat(f.AbsPath)
 	if err != nil {
@@ -507,16 +506,21 @@ func (s *Session) applyFileEdit(f *FileEntry, lastMod map[string]time.Time) bool
 	if hash == f.FileHash {
 		return false
 	}
-	if f.FileType == "markdown" && (!f.hasNextBase || (s.waitingForAgent && !f.nextBaseFromAgent)) {
-		f.nextBase = f.Content
-		f.nextBaseComments = make([]Comment, len(f.Comments))
-		copy(f.nextBaseComments, f.Comments)
-		f.hasNextBase = true
-		f.nextBaseFromAgent = s.waitingForAgent
+	if f.FileType == "markdown" && !f.hasNextBase {
+		f.setNextBase()
 	}
 	f.Content = string(data)
 	f.FileHash = hash
 	return true
+}
+
+// setNextBase takes the file's current content and comments as the next
+// round's diff base. Caller holds s.mu.
+func (f *FileEntry) setNextBase() {
+	f.nextBase = f.Content
+	f.nextBaseComments = make([]Comment, len(f.Comments))
+	copy(f.nextBaseComments, f.Comments)
+	f.hasNextBase = true
 }
 
 // clearNextBase drops the next round's diff base. Caller holds s.mu.
@@ -524,7 +528,6 @@ func (f *FileEntry) clearNextBase() {
 	f.nextBase = ""
 	f.nextBaseComments = nil
 	f.hasNextBase = false
-	f.nextBaseFromAgent = false
 }
 
 // takeNextRoundBases sets each markdown file's diff base for the round that
@@ -939,8 +942,8 @@ func (s *Session) handleRoundCompleteFiles() {
 	// Restore phantom entries for files that disappeared but have comments in the review file.
 	s.restoreOrphanedComments()
 
-	// Re-read all file contents and update hashes.
-	// (snapshot markdown PreviousContent in case watcher hasn't polled yet)
+	// Re-read all file contents and update hashes. Edits the watcher has not
+	// polled yet are picked up here; takeNextRoundBases already set the base.
 	//
 	// Capture the round we are about to commit BEFORE rereadFileContents and
 	// BEFORE incrementing ReviewRound. On the first round-complete after boot,

@@ -141,6 +141,57 @@ func TestWatchFileMtimes_ReviewerEditKeepsRoundDiffBase(t *testing.T) {
 	}
 }
 
+// TestWatchFileMtimes_ReviewerEditToFileAgentLeavesAlone: the reviewer edits
+// notes.md during the round, presses Finish, and the agent edits only
+// plan.md. The next round must not show the reviewer's own edit to notes.md
+// as a change.
+func TestWatchFileMtimes_ReviewerEditToFileAgentLeavesAlone(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	notesPath := filepath.Join(dir, "notes.md")
+	writeFile(t, planPath, "# Plan\n\nv1\n")
+	writeFile(t, notesPath, "# Notes\n\nTypo here\n")
+	s := &Session{
+		Mode:         "files",
+		RepoRoot:     dir,
+		ReviewRound:  1,
+		pollInterval: testPollInterval,
+		Files: []*FileEntry{
+			{Path: "plan.md", AbsPath: planPath, Status: "modified", FileType: "markdown",
+				Content: "# Plan\n\nv1\n", FileHash: fileHash([]byte("# Plan\n\nv1\n")), Comments: []Comment{}},
+			{Path: "notes.md", AbsPath: notesPath, Status: "modified", FileType: "markdown",
+				Content: "# Notes\n\nTypo here\n", FileHash: fileHash([]byte("# Notes\n\nTypo here\n")), Comments: []Comment{}},
+		},
+		subscribers:   make(map[chan SSEEvent]struct{}),
+		roundComplete: make(chan struct{}, 1),
+	}
+	events := s.Subscribe()
+	defer s.Unsubscribe(events)
+	stopWatcher := startWatcher(t, s.watchFileMtimes)
+	defer stopWatcher()
+
+	fixed := "# Notes\n\nTypo fixed\n"
+	writeFileNewMtime(t, notesPath, fixed)
+	waitForSSE(t, events, "edit-detected")
+	s.setWaitingForAgent(true)
+	writeFileNewMtime(t, planPath, "# Plan\n\nv2\n")
+	waitForSSE(t, events, "edit-detected")
+	s.SignalRoundComplete()
+	waitForSSE(t, events, "file-changed")
+
+	d, ok := s.GetFileDiffSnapshot("notes.md", false)
+	if !ok {
+		t.Fatal("notes.md diff missing")
+	}
+	if base, hunks := d["previous_content"], len(d["hunks"].([]vcs.DiffHunk)); base != fixed || hunks != 0 {
+		t.Errorf("notes.md: base = %q, %d hunks; want %q, 0 hunks", base, hunks, fixed)
+	}
+	d, _ = s.GetFileDiffSnapshot("plan.md", false)
+	if base := d["previous_content"]; base != "# Plan\n\nv1\n" {
+		t.Errorf("plan.md base = %q; want v1", base)
+	}
+}
+
 // TestWatchFileMtimes_RoundCompleteWithoutFinish covers rounds the agent
 // starts without the reviewer pressing Finish (it re-runs crit, or calls
 // round-complete directly). Each round diffs from the content the round
