@@ -69,6 +69,12 @@ test.describe('Files changed mid-round — File Mode', () => {
     });
     await serverToggle.click();
     await expect.poll(serverCollapsed).toBe(true);
+    // The tree jump and the collapse each ask Pierre for a scroll, which it
+    // keeps until it settles; a native scroll before then is undone. Wait
+    // for the list to stop moving.
+    const scrollTop = () => page.locator('#filesContainer').evaluate(el => el.scrollTop);
+    let last = -1;
+    await expect.poll(async () => { const now = await scrollTop(); const still = now === last; last = now; return still; }, { intervals: [150] }).toBe(true);
 
     // Read a plan.md block mid-screen, then edit plan.md ABOVE it: its start
     // line shifts, so the restore has to find it by its text.

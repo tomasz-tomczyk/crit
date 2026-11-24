@@ -44,7 +44,9 @@ test('documents and placeholders drop the empty code row; loading stubs keep the
   assert.equal(dom.isFileLevelOnly(host(['diff-deleted-placeholder', 'pierre-loading'])), false);
   assert.equal(dom.isFileLevelOnly(host([])), false);
   // The rule that keeps Pierre from counting the empty row next to the content.
-  assert.ok(dom.unsafeCSS.includes(':host([data-crit-document]) [data-content] > [data-line] { display: none; }'));
+  // It shrinks the row to 1px: a 0px row stops Pierre measuring the document.
+  assert.ok(dom.unsafeCSS.includes(':host([data-crit-document]) [data-content] > [data-line] { box-sizing: border-box; height: 1px;'));
+  assert.ok(!dom.unsafeCSS.includes(':host([data-crit-document]) [data-content] > [data-line] { display: none; }'));
 });
 
 test('cached rendering retains quotes when the returned host attaches in the same task', async t => {

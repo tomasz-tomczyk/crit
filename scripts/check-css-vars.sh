@@ -10,8 +10,8 @@ set -e
 # --diffs-* are read by @pierre/diffs inside its shadow root;
 # --diffs-token-light/-dark are also set inline on Shiki token spans in
 # fenced code (web/crit-code-highlight.js).
-# --crit-find-* are read by the find highlights injected into Pierre
-# (web/crit-find.js).
+# --crit-find-* colour Pierre's search highlights (PIERRE_UNSAFE_CSS in
+# web/app.js).
 DEAD_VAR_ALLOWLIST="
 --crit-find-bg --crit-find-current-bg --crit-find-current-fg
 --font-sans --header-height --file-tree-width --comments-panel-width --story-rail-width --p

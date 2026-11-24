@@ -37,12 +37,15 @@
     // isFileLevelOnly) have no code lines; do not reserve a gutter.
     ':host([data-crit-document]) [data-gutter] { display: none; }' +
     // The content grid inherits both columns once it spans them, so keep the
-    // document on its own row and drop the empty line under it. Otherwise the
+    // document on its own row and shrink the empty line under it. Otherwise the
     // line sits beside the document at the same height and Pierre adds both
     // to the item height, which throws off every later file's position.
+    // The line stays 1px rather than display:none: Pierre (1.7) treats a
+    // 0px row as not yet laid out and then skips measuring the document.
     ':host([data-crit-document]) [data-content] { grid-column: 1 / -1; }' +
     ':host([data-crit-document]) [data-content] > * { grid-column: 1 / -1; }' +
-    ':host([data-crit-document]) [data-content] > [data-line] { display: none; }' +
+    ':host([data-crit-document]) [data-content] > [data-line] {' +
+    ' box-sizing: border-box; height: 1px; min-height: 0; padding: 0; line-height: 0; overflow: hidden; visibility: hidden; }' +
     // Match Crit's quoted-text cue without wrapping renderer-owned tokens.
     // Highlight pseudos support text-decoration rather than border-bottom.
     '::highlight(' + PIERRE_QUOTE_HIGHLIGHT + ') { background-color: var(--crit-quote-highlight-bg);' +

@@ -1183,7 +1183,7 @@
     // state included).
     if (!pierreView) return;
     pierreView.setCollapsed(file, file.viewed ? true : file.collapsed);
-    critFind.filesChanged();
+    pierreFindLoadPending();
   }
 
   // Wraps crit.shared.waitForSession with the app.js-specific UI:
@@ -1729,7 +1729,7 @@
         const anyExpanded = files.some(function(f) { return !f.collapsed; });
         if (pierreViewActive() && pierreView) {
           pierreView.setAllCollapsed(files, anyExpanded);
-          critFind.filesChanged();
+          pierreFindLoadPending();
         } else {
           for (let i = 0; i < files.length; i++) {
             files[i].collapsed = anyExpanded;
@@ -2491,7 +2491,7 @@
     function toggle() {
       const refocus = document.activeElement === chevron;
       pierreView.setCollapsed(file, !file.collapsed);
-      critFind.filesChanged();
+      pierreFindLoadPending();
       header.classList.toggle('collapsed', !!file.collapsed);
       chevron.setAttribute('aria-expanded', String(!file.collapsed));
       if (refocus) keepChevronFocus(filePath);
@@ -2593,9 +2593,6 @@
             disposePierreView();
             renderAllFiles();
             if (storyActive()) renderStory();
-            // A find jump made while the workers were starting went to the
-            // old view; make it again in the new one.
-            critFind.revealCurrent();
           });
         },
       });
@@ -2628,6 +2625,9 @@
       // file's body; Pierre's estimate must include it or scroll positions
       // drift 1px per open file. The top border replaces the header's own.
       itemMetrics: { paddingTop: 0, paddingBottom: 1 },
+      // Load lazy files once there is something to find (not on an empty open).
+      onSearchStateChange: function(state) { if (state && state.text) pierreFindLoadPending(); },
+      onItemCollapsedChange: pierreFindOpenedFile,
       annotations: pierreAnnotationsFor,
       prepareHunks: pierrePreparedHunks,
       isDocumentView: function(file) { return pierreIsDocumentView(file) || !!pierrePlaceholderText(file); },
@@ -2655,7 +2655,6 @@
     if (pierreUnsubscribeTree) pierreUnsubscribeTree();
     let treeSyncQueued = false;
     pierreUnsubscribeTree = pierreView.viewer.subscribeToScroll(function() {
-      critFind.rowsChanged();
       rememberPierreReaderAnchor();
       if (treeSyncQueued) return;
       treeSyncQueued = true;
@@ -3064,96 +3063,102 @@
     return container;
   }
 
-  // ----- Find in diff (Cmd/Ctrl+F) -----
-  // Pierre only mounts rows near the viewport, so the browser's find misses
-  // the rest. crit-find.js searches the model and jumps with Pierre's scroll
-  // API. Rows match what Pierre shows: the prepared hunks for diffs, the
-  // whole file in files mode. Collapsed (and viewed) files, rendered
-  // documents and placeholders show no code rows and are skipped.
-  // Rows are cached per file while what they are built from is unchanged,
-  // so re-searching (as lazy files land) does not rebuild every file. Hunks
-  // are compared one by one: comment and small-gap expansion splice merged
-  // hunks into the same array.
-  const pierreFindRowCache = new WeakMap();
-  function pierreFindRows(file) {
-    if (!file || file.lazy || file.orphaned || file.collapsed) return [];
-    if (pierreIsDocumentView(file) || pierrePlaceholderText(file)) return [];
-    const fileView = pierreIsFileView(file);
-    const hunks = fileView ? [] : pierrePreparedHunks(file);
-    const cached = pierreFindRowCache.get(file);
-    if (cached && cached.fileView === fileView && cached.content === file.content &&
-        cached.hunks.length === hunks.length && cached.hunks.every(function(h, i) { return h === hunks[i]; })) {
-      return cached.rows;
-    }
-    const rows = fileView ? pierreFileFindRows(file) : pierreDiffFindRows(hunks);
-    pierreFindRowCache.set(file, { fileView: fileView, content: file.content, hunks: hunks.slice(), rows: rows });
-    return rows;
+  // ----- Find in the review list (Cmd/Ctrl+F) -----
+  // Pierre's CodeView search panel searches, highlights and steps through
+  // matches; it also opens collapsed files and hidden context when it lands
+  // on a match (pierreFindOpenedFile keeps Crit's state in step). Two gaps
+  // are Crit's:
+  // - Its Cmd/Ctrl+F only listens inside the CodeView, so the page opens
+  //   the panel. With nothing to search (only rendered documents, a plan
+  //   review), or settings or the diagram overlay up, Cmd+F is left to the
+  //   browser, as is a second press inside the panel. On macOS Ctrl+F is
+  //   left alone: it moves the caret in text fields.
+  // - It only searches text already in an item, and lazy files are blank
+  //   placeholders until loaded. While the panel is open they are loaded
+  //   one at a time; Pierre rescans each item as it updates.
+  function pierreFindActive() {
+    return !!pierreView && pierreViewActive() && !settingsPanelOpen &&
+      !document.querySelector('.diagram-overlay.active') &&
+      files.some(function(f) { return !f.orphaned && !pierreIsDocumentView(f) && !pierrePlaceholderText(f); });
   }
 
-  function pierreFileFindRows(file) {
-    const lines = (file.content || '').split('\n');
-    return lines.map(function(text, i) { return { side: '', line: i + 1, text: text }; });
+  function pierreFindOpen() {
+    return !!pierreView && pierreView.viewer.isSearchOpen();
   }
 
-  function pierreDiffFindRows(hunks) {
-    const rows = [];
-    for (let h = 0; h < hunks.length; h++) {
-      const lines = hunks[h].Lines || [];
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i];
-        if (l.Type === 'del') rows.push({ side: 'old', line: l.OldNum, text: l.Content || '' });
-        else rows.push({ side: '', line: l.NewNum, text: l.Content || '' });
+  let pierreFindLoadRun = null;
+  function pierreFindLoadPending() {
+    if (pierreFindLoadRun || !pierreFindOpen()) return;
+    // One run per view: a rebuilt list starts its own (disposePierreView
+    // drops this one), and the loop stops when the view it loads into goes.
+    const view = pierreView;
+    const tried = new Set();
+    const step = function() {
+      const file = pierreView === view && pierreFindOpen() &&
+        files.find(function(f) { return f.lazy && !f.orphaned && !tried.has(f.path); });
+      if (!file) { if (pierreFindLoadRun && pierreView === view) pierreFindLoadRun = null; return null; }
+      tried.add(file.path);
+      return Promise.resolve(view.ensureLoaded(file.path)).catch(function() { return null; }).then(step);
+    };
+    pierreFindLoadRun = Promise.resolve().then(step);
+  }
+
+  function pierreFindOpenedFile(path, collapsed) {
+    const file = getFileByPath(path);
+    if (!file || !!file.collapsed === collapsed) return;
+    file.collapsed = collapsed;
+    renderFileByPath(path);
+  }
+
+  (function() {
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+    document.addEventListener('keydown', function(e) {
+      // While search is open Pierre closes it on any Esc inside the
+      // CodeView and stops the event, so a comment form there could not
+      // cancel. Pierre skips events already marked handled: do that for
+      // text fields in the review list (the panel's own input shows up as
+      // the panel host here, so it is not one of them).
+      if (e.key === 'Escape') {
+        const t = e.target;
+        const list = document.getElementById('filesContainer');
+        const textField = t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && /^(text|search|url|email|)$/.test(t.type || '')));
+        if (pierreFindOpen() && textField && list && list.contains(t)) e.preventDefault();
+        return;
       }
-    }
-    return rows;
-  }
-
-  const critFind = window.crit.find.createFind({
-    // Story chapters are Pierre hosts too; only the review list is searched.
-    hostSelector: '#filesContainer diffs-container',
-    // Esc from here (or the page body) closes the bar.
-    scopeSelector: '#filesContainer',
-    files: function() { return files; },
-    linesFor: pierreFindRows,
-    // With only rendered documents (a plan review) there is nothing to
-    // search; leave Cmd+F to the browser.
-    isActive: function() {
-      // The diagram overlay (z-index 500) covers the bar (300).
-      return !!pierreView && pierreViewActive() && !settingsPanelOpen &&
-        !document.querySelector('.diagram-overlay.active') &&
-        files.some(function(f) { return !f.orphaned && !pierreIsDocumentView(f) && !pierrePlaceholderText(f); });
-    },
-    isPending: function(file) { return !!file.lazy && !file.collapsed; },
-    // Start from the file at the top of the list, like the browser's find
-    // starts from the viewport.
-    startFile: function() {
-      const viewer = pierreView && pierreView.viewer;
-      const paths = pierreView ? pierreView.renderedPaths() : [];
-      if (!viewer || paths.length === 0) return null;
-      const top = viewer.getScrollTop();
-      let topPath = paths[0];
-      for (let i = 0; i < paths.length; i++) {
-        if (viewer.getTopForItem(paths[i]) <= top + 60) topPath = paths[i];
+      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      if (!mod || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'f' && !e.shiftKey) {
+        if (!pierreFindActive()) return;
+        const active = document.activeElement;
+        if (pierreFindOpen() && active && active.closest && active.closest('[data-search-panel-overlay]')) return;
+        e.preventDefault();
+        pierreView.viewer.openSearch();
+      } else if (key === 'g' && pierreFindOpen() && pierreFindActive()) {
+        // Pierre's find-again also only listens inside the CodeView.
+        e.preventDefault();
+        e.stopPropagation();
+        pierreView.viewer.navigateSearch(e.shiftKey ? 'previous' : 'next');
       }
-      return topPath;
-    },
-    load: function(path) { return pierreView ? pierreView.ensureLoaded(path) : null; },
-    reveal: function(match, isCurrent) {
-      if (!pierreView) return null;
-      return pierreView.ensureLoaded(match.path).then(function() {
-        if (!pierreView || !isCurrent()) return null;
-        pinTreeActive(match.path);
-        return pierreView.scrollToLine(match.path, match.line, match.side, 'center');
-      });
-    },
-  });
+    }, true);
+  })();
 
+  // The search panel and its match highlights take Crit's colours; the
+  // override variables are Pierre's documented hooks.
+  const PIERRE_FIND_CSS = ':host {' +
+    '--diffs-bg-search-match-override: var(--crit-find-bg);' +
+    '--diffs-bg-search-match-current-override: var(--crit-find-current-bg);' +
+    '--diffs-fg-search-match-current-override: var(--crit-find-current-fg);' +
+    '--diffs-widget-bg: var(--crit-bg-card);' +
+    '--diffs-widget-fg: var(--crit-fg-primary);' +
+    '--diffs-widget-border: var(--crit-border);' +
+    '}';
   // ----- Quote highlights inside Pierre (CSS Custom Highlight API) -----
   // Comments created from a text selection carry `quote` (+ quote_offset).
   // Pierre owns the code DOM (shadow roots, virtualized), so instead of
   // wrapping text in <mark> we register Ranges with CSS.highlights; the
   // ::highlight(crit-quote) rule is injected into Pierre via unsafeCSS.
-  const PIERRE_UNSAFE_CSS = window.crit.pierreDOM.unsafeCSS + window.crit.find.unsafeCSS;
+  const PIERRE_UNSAFE_CSS = window.crit.pierreDOM.unsafeCSS + PIERRE_FIND_CSS;
   const pierreDecorations = window.crit.pierreDOM.createDecorations();
 
   function pierreQuotedComments(file) {
@@ -3214,7 +3219,6 @@
   function onPierrePostRender(filePath, node, phase) {
     const host = window.crit.pierreDOM.hostFor(node);
     if (!host) return;
-    critFind.rowsChanged();
     if (phase === 'unmount') { pierreDecorations.unmount(host); return; }
     host.toggleAttribute('data-crit-file-view', session.mode === 'files' && pierreIsFileView(getFileByPath(filePath)));
     pierreDecorations.mount(host, filePath, pierreQuotedComments(getFileByPath(filePath)));
@@ -3361,6 +3365,7 @@
       container.parentNode.insertBefore(conversation, container);
     }
     if (pierreView) { pierreView.destroy(); pierreView = null; }
+    pierreFindLoadRun = null;
     // The next view creates its own ResizeObserver. Ours must be created after
     // it to run after Pierre's scroll fix, so drop it with the view.
     if (pierreDocumentResizeObserver) { pierreDocumentResizeObserver.disconnect(); pierreDocumentResizeObserver = null; }
@@ -3397,12 +3402,17 @@
     // setItems replaces every row. Pierre drops its scroll anchor when the
     // row it was holding is replaced, which throws the reader down the file.
     // Put the scroll back before the document is redrawn, so the line-number
-    // retarget only has to account for lines inserted above it.
-    if (savedScroll !== null) scroller.scrollTop = savedScroll;
+    // retarget only has to account for lines inserted above it. The reader
+    // anchor owns this scroll: drop any hold setFiles asked Pierre for, or
+    // Pierre applies it a frame later, on top of the retarget.
+    if (savedScroll !== null) {
+      view.viewer.cancelScroll();
+      scroller.scrollTop = savedScroll;
+    }
     files.forEach(function(f) { if (pierreIsDocumentView(f)) refreshPierreDocument(f.path); });
     rebuildNavList();
     applyHideResolved();
-    critFind.filesChanged();
+    pierreFindLoadPending();
   }
 
   // Re-publish one file after a comment/form change. Thread cards are
@@ -3415,7 +3425,7 @@
     for (let i = 0; i < file.comments.length; i++) keys.push(pierreThreadKey(file.comments[i].id));
     keys.push('outdated:' + filePath, 'placeholder:' + filePath);
     pierreView.refreshFile(file, keys);
-    critFind.filesChanged();
+    pierreFindLoadPending();
     // The document keeps its element; its contents (line comments, forms,
     // typed text via saveOpenFormContent) are rebuilt in place.
     refreshPierreDocument(filePath);
@@ -8282,6 +8292,10 @@
 
   // Scroll the review list so `el` sits `offset` px below its top edge.
   function scrollReviewToElement(el, offset, behavior) {
+    // Pierre keeps a jump it was asked for (tree click, collapse) until it
+    // settles, and only wheel, pointer or key input cancels it; a scroll made
+    // here in the meantime would be undone on its next frame.
+    if (pierreView) pierreView.viewer.cancelScroll();
     const scroller = reviewScroller();
     const delta = el.getBoundingClientRect().top - reviewScrollerTop() - offset;
     if (scroller === window) window.scrollTo({ top: window.scrollY + delta, behavior: behavior });
@@ -10036,8 +10050,13 @@
   });
 
   document.addEventListener('keydown', function(e) {
-    const tag = document.activeElement.tagName;
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || document.activeElement.isContentEditable) {
+    // Follow focus into shadow roots: Pierre's search input sits in one, and
+    // document.activeElement only names its host, so typed letters would
+    // fire shortcuts.
+    let focused = document.activeElement;
+    while (focused && focused.shadowRoot && focused.shadowRoot.activeElement) focused = focused.shadowRoot.activeElement;
+    const tag = focused ? focused.tagName : '';
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || (focused && focused.isContentEditable)) {
       if (e.key === 'Escape' && activeForms.length > 0) {
         e.preventDefault();
         const ta = document.activeElement;
@@ -10288,9 +10307,6 @@
       }
       case 'Escape': {
         e.preventDefault();
-        // The find bar is the top layer, unless the diagram overlay or the
-        // stack chip popover (their own Esc handlers run after this one) is.
-        if (!document.querySelector('.diagram-overlay.active') && !isStackChipOpen() && critFind.closeFromEscape(e)) break;
         if (reviewCommentFormActive) {
           if (confirmDiscardReviewCommentForm()) cancelReviewCommentForm();
         }

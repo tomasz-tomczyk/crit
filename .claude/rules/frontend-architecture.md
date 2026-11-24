@@ -54,7 +54,6 @@ All custom JS uses the IIFE + dual-export pattern:
 | `crit-line-blocks.js` | `window.crit.lineBlocks` | buildLineBlocks (markdown → commentable line blocks) |
 | `crit-renderers.js` | `window.crit.renderers` | Pluggable renderer registry (fence + file renderers, render targets, anchorFor clicks). See `docs/renderers.md` |
 | `crit-diagram-overlay.js` | `window.crit.diagramOverlay` | Fullscreen pan/zoom view for rendered SVG output |
-| `crit-find.js` | `window.crit.find` | Find bar for the review list (Cmd/Ctrl+F): searches the file model, highlights matches in Pierre's shadow roots |
 | `crit-renderer-mermaid.js` | (registers `mermaid` twice) | Built-in Mermaid renderer: a fence registration for ```` ```mermaid ````, a file registration for `*.mermaid` / `*.mmd` |
 | `crit-renderer-excalidraw.js` | (registers `excalidraw` twice) | Built-in Excalidraw renderer: draws scenes with rough.js, freedraw with perfect-freehand / laser-pointer (`freehand.min.js`), text in Excalidraw's fonts (`web/fonts/excalidraw`), sticky notes and current arrowheads, dark theme per color; also `window.crit.excalidraw.renderScene` for the preview canvas; a fence registration for ```` ```excalidraw ````, a file registration for `*.excalidraw` / `*.excalidraw.json` (click an element to comment on its JSON lines) |
 | `crit-excalidraw-canvas.js` | (preview iframe page) | Canvas page for a lone Excalidraw scene in preview mode (`excalidraw-canvas.html`): Excalidraw-style infinite canvas (pan/zoom, grid, hand tool, islands), per-element anchors for the agent |
