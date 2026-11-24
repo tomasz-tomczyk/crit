@@ -6586,11 +6586,13 @@ body.crit-story-active #storyRoot {
 }
 /* When story view is active, hide the flat file layout + its tree,
    but keep header, comments panel, PR panel functional.
-   #fileTreeToggle stays visible — it toggles the chapter rail instead. */
+   #fileTreeToggle stays visible — it toggles the chapter rail instead.
+   The mobile file picker jumps through the flat list, so it goes too. */
 body.crit-story-active #filesContainer,
 body.crit-story-active #reviewConversation,
 body.crit-story-active .file-tree-panel,
-body.crit-story-active #fileTreeResizer { display: none !important; }
+body.crit-story-active #fileTreeResizer,
+body.crit-story-active #mobileFilePickerBar { display: none !important; }
 
 body.crit-story-active #compareRail,
 body.crit-story-active #scopeToggle,
@@ -6951,7 +6953,13 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 
 /* ---------- Mobile pass ---------- */
 @media (max-width: 768px) {
-  body.crit-story-active #storyRoot { display: flex; flex-direction: column; }
+  /* dvh follows the phone browser's toolbar, so the pane's end isn't
+     hidden behind it. A browser without dvh drops this height and keeps
+     the 100vh from the base #storyRoot rule. */
+  body.crit-story-active #storyRoot {
+    display: flex; flex-direction: column;
+    height: calc(100dvh - var(--header-height, 49px));
+  }
   body.crit-story-active .crit-story-rail-resizer { display: none !important; }
   .crit-story-rail {
     position: fixed; top: var(--header-height, 44px); bottom: 0; left: 0; width: 82vw !important; max-width: 320px; z-index: 40;
