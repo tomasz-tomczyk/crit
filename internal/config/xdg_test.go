@@ -69,3 +69,33 @@ func TestCustomCSSPath_FreshInstallUsesXDGConfig(t *testing.T) {
 		t.Fatalf("CustomCSSPath = %q, want %q", got, want)
 	}
 }
+
+// A ~/.crit.config.json left behind after moving to the XDG config is not
+// read as project config when crit runs in the home directory: its prompts,
+// hooks and settings stay ignored, as the README says.
+func TestLoadConfig_LeftoverLegacyConfigInHomeIsNotProjectConfig(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetFreshHome(t, home)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(xdg, "crit"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "crit", "config.json"), []byte(`{"author":"xdg"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"author":"stale","prompts":{"on_finish":"inline:stale"},"hooks":{"on_finish_approved":"inline:echo stale"}}`
+	if err := os.WriteFile(filepath.Join(home, ".crit.config.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := LoadConfig(home).Author; got != "xdg" {
+		t.Errorf("author = %q, want %q", got, "xdg")
+	}
+	if _, project := LoadPromptMaps(home); len(project) != 0 {
+		t.Errorf("project prompts = %v, want none", project)
+	}
+	if _, project := LoadHookMaps(home); len(project) != 0 {
+		t.Errorf("project hooks = %v, want none", project)
+	}
+}

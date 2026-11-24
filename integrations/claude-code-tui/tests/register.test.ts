@@ -184,6 +184,71 @@ describe('chat comments in a crit plan', () => {
   })
 })
 
+/**
+ * A crit whose `crit comments --plan` call breaks: it exits non-zero or prints
+ * something that is not JSON. The review file still has one code comment.
+ */
+function brokenCommentsWorld(on: On, broken: 'fails' | 'bad json') {
+  const timeouts: (number | undefined)[] = []
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'ABCDEF12-3456' }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__crit-tui__${e.name}` } }))
+  on('process.run', ($, e) => {
+    const out = (stdout: string, exitCode = 0, stderr = '') => ({
+      value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
+    })
+    const [bin, verb] = e.argv
+    if (bin === 'crit' && verb === 'status') return out(JSON.stringify({ review_file: '/reviews/r.json' }))
+    if (bin === 'crit' && verb === 'plan' && e.argv.includes('--help')) return out('  --no-wait   Save the version and exit')
+    if (bin === 'crit' && verb === 'comments') {
+      timeouts.push(e.init?.timeoutMs)
+      return broken === 'fails' ? out('', 1, 'crit: cannot read plan') : out('not json {')
+    }
+    if (bin === 'crit') return out('')
+    if (e.argv.includes('rev-parse')) return out('true\n')
+    if (e.argv.includes('ls-files')) return out('')
+    if (e.argv.includes('diff')) return out(DIFF)
+    return out('')
+  })
+  on('fs.read', () => ({
+    value: JSON.stringify({
+      files: { 'a.go': { comments: [{ id: 'c_code1', start_line: 1, end_line: 1, body: 'check this line', author: 'Tomasz' }] } },
+    }),
+  }))
+  on('session.messages', () => ({ value: MESSAGES }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  return { timeouts }
+}
+
+describe('a broken crit comments call', () => {
+  for (const broken of ['fails', 'bad json'] as const) {
+    test(`when crit comments ${broken}, the pane still opens with the code threads`, async ($, on) => {
+      const { timeouts } = brokenCommentsWorld(on, broken)
+      await $.session.start(SESSION)
+      await $.command.run(ct('diff'))
+      const ui = await $.ui.mount(MOUNT)
+      await ui.resize({ columns: 100, rows: 24, in: 'review' })
+
+      // The read-only call that runs before the pane opens has a short timeout.
+      expect(timeouts.length).toBeGreaterThan(0)
+      expect(timeouts.every(ms => ms === 3000)).toBe(true)
+
+      const drawn = textOf(await ui.drawn({ in: 'review' }))
+      expect(drawn).toContain('1 file changed')
+      expect(drawn).toMatch(/\+ new\s*\n\s+┌ Tomasz · draft\s+│ check this line/)
+
+      // No chat threads: the chat view shows the messages and no comment box.
+      await ui.key({ key: '1', in: 'review' })
+      const chat = textOf(await ui.drawn({ in: 'review' }))
+      expect(chat).toContain('2. patch it')
+      expect(chat).not.toContain('┌')
+    })
+  }
+})
+
 describe('crit-tui pane', () => {
   test('a partial selection in the diff goes to crit with quote and quote_offset', async ($, on) => {
     const { sent } = critWorld(on)

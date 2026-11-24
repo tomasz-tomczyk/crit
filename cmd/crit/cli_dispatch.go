@@ -47,7 +47,8 @@ Options:
 	{name: "config", handler: runConfig, bareHelp: true, helpFn: config.PrintConfigHelp},
 	{name: "check", handler: func([]string) { runCheck() }, help: `Usage: crit check
 
-Check installed integrations for missing or stale configuration.`},
+Check installed integrations for missing or stale configuration, and show
+where crit reads its config and keeps its state.`},
 	{name: "pr", handler: runPR, help: `Usage: crit pr [num|url]
 
 Open a GitHub pull request for review (default: the PR for the current branch).`},

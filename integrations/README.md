@@ -98,7 +98,8 @@ Supported values are `default`, `manual`, `acceptEdits`, `plan`, `auto`,
 ```
 
 `destination: "session"` keeps the change in memory for the current Claude Code
-session only. The setting is global-only (`~/.crit.config.json`); a repository's
+session only. The setting is global-only (the global config file, `~/.config/crit/config.json`,
+or `~/.crit.config.json` on existing installs); a repository's
 `.crit.config.json` cannot change your permission policy. Unset preserves the
 default hook behavior, and invalid values are ignored with a warning.
 

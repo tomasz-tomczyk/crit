@@ -255,6 +255,38 @@ func ReviewsDir() (string, error) {
 	return filepath.Join(userdirs.StateDir(home), "reviews"), nil
 }
 
+// AllReviewsDirs returns the reviews directory of every existing state root,
+// ReviewsDir first (see userdirs.StateDirs). Listing and cleanup read all of
+// them so reviews written under another root are not hidden.
+func AllReviewsDirs() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("finding home directory: %w", err)
+	}
+	roots := userdirs.StateDirs(home)
+	dirs := make([]string, 0, len(roots))
+	for _, root := range roots {
+		dirs = append(dirs, filepath.Join(root, "reviews"))
+	}
+	return dirs, nil
+}
+
+// FindReviewDir returns the review folder for key in the first state root
+// that has its review.json, or ok=false when none does.
+func FindReviewDir(key string) (string, bool) {
+	dirs, err := AllReviewsDirs()
+	if err != nil {
+		return "", false
+	}
+	for _, dir := range dirs {
+		folder := filepath.Join(dir, key)
+		if _, err := os.Stat(filepath.Join(folder, "review.json")); err == nil {
+			return folder, true
+		}
+	}
+	return "", false
+}
+
 // ReviewFilePath returns the v4 review identity path: a folder named <key>
 // (no extension) under ~/.crit/reviews/. The actual JSON files live inside as
 // <key>/review.json and <key>/snapshots.json — see reviewPathsFor.

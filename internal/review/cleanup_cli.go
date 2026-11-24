@@ -38,12 +38,18 @@ func RunCleanup(args []string) error {
 		}
 	}
 
-	revDir, err := daemon.ReviewsDir()
+	// Every state root, so reviews left in another layout (a partial move to
+	// the XDG folder, or a process that saw a different XDG_STATE_HOME) are
+	// listed too. The prompt below shows each path before anything goes.
+	revDirs, err := daemon.AllReviewsDirs()
 	if err != nil {
 		return err
 	}
 
-	stale := findStaleReviews(revDir, days)
+	var stale []staleReview
+	for _, revDir := range revDirs {
+		stale = append(stale, findStaleReviews(revDir, days)...)
+	}
 	if len(stale) == 0 {
 		fmt.Println("No stale review files found.")
 		return nil

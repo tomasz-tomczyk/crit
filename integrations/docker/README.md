@@ -64,7 +64,7 @@ Open `http://localhost:8080` for agent-a, `http://localhost:8081` for agent-b.
 ## What crit needs at runtime
 
 - The mounted repo (read/write - crit writes review files)
-- `~/.crit/reviews/<key>.json` - review storage. Persists inside the container; mount a volume at `/root/.crit` if you want reviews to survive `docker rm`.
+- Review storage, in crit's state folder (`/root/.local/state/crit/` in a fresh container). It persists inside the container. To keep reviews after `docker rm`, mount a volume at `/root/.crit`: crit keeps its legacy `~/.crit` layout when that folder exists. A volume at `/root/.local/state/crit` works too. See [Where Crit keeps its files](../../README.md#where-crit-keeps-its-files).
 - Network: nothing, unless you use `crit share` (which talks to the hosted relay at crit.md) or `crit pull/push` (which uses the `gh` CLI for GitHub PR sync - install it separately if needed).
 
 No daemon, no database, no background services. The `crit` binary is ~20 MB static Go, and reviews are plain JSON files.

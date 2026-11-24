@@ -84,16 +84,27 @@ func daemonArgsFromCliArgs(sessionKey string, cliArgs []string) []string {
 
 // resolveReconnectReviewDir picks the review folder for a dead-daemon reconnect.
 // Prefers the stale session registry's review_path (needed for --output reviews).
+// When that path is gone (the user moved ~/.crit to the XDG state folder) or
+// there is no registry entry, the review is looked up in every state root, so
+// a review written under another root (see userdirs.StateDirs) still resumes
+// from where it lives.
 func resolveReconnectReviewDir(key string, stale daemon.SessionEntry) (string, error) {
 	if stale.ReviewPath != "" {
 		critPath := ReviewPathsFor(stale.ReviewPath).Review
-		if _, err := os.Stat(critPath); err != nil {
-			if os.IsNotExist(err) {
-				return "", fmt.Errorf("no review found for session %s at %s", key, stale.ReviewPath)
-			}
+		_, err := os.Stat(critPath)
+		if err == nil {
+			return stale.ReviewPath, nil
+		}
+		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("stat review for session %s: %w", key, err)
 		}
-		return stale.ReviewPath, nil
+		if dir, ok := daemon.FindReviewDir(key); ok {
+			return dir, nil
+		}
+		return "", fmt.Errorf("no review found for session %s at %s", key, stale.ReviewPath)
+	}
+	if dir, ok := daemon.FindReviewDir(key); ok {
+		return dir, nil
 	}
 	return daemon.ReviewFilePath(key)
 }

@@ -401,7 +401,11 @@ Each path is resolved on its own:
 2. Otherwise the legacy location, if it exists.
 3. Otherwise, for a file Crit is about to create: the legacy location when this is an existing install (`~/.crit/` or `~/.crit.config.json` exists), the XDG location on a fresh one.
 
-Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`. The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. The recipe below moves files to the same directories Crit reads: `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` when they are absolute paths, the defaults otherwise. Each target must not exist yet, or `mv` nests the old directory inside it (`$state/.crit`) or overwrites the file; if one does, merge it by hand:
+Existing installs therefore keep working unchanged, and a fresh install never creates `~/.crit`.
+
+If you set `XDG_CONFIG_HOME` or `XDG_STATE_HOME`, set them where your agents and their hooks can see them too (for example in `~/.profile` or your desktop session, not only in an interactive shell's rc file). A process that does not see them uses the default folders, so its reviews land somewhere else. `crit check` prints the config file and state folder in use, and names any other state folder that still holds crit data; `crit resume` and `crit cleanup` read all of them.
+
+The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. The recipe below moves files to the same directories Crit reads: `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` when they are absolute paths, the defaults otherwise. Each target must not exist yet, or `mv` nests the old directory inside it (`$state/.crit`) or overwrites the file; if one does, merge it by hand:
 
 ```bash
 case "$XDG_CONFIG_HOME" in /*) config="$XDG_CONFIG_HOME/crit" ;; *) config="$HOME/.config/crit" ;; esac

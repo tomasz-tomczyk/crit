@@ -177,9 +177,9 @@ crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'Grok' 'Fixed the n
 In `--json` mode, set the `file` field on the entry. Review-level IDs (`r_…`) are globally unique.
 </important>
 
-<important if="you are responding to plan-mode comments (review file under ~/.crit/plans/)">
+<important if="you are responding to plan-mode comments (review file in crit's plans/ folder)">
 
-Plan reviews (via `crit plan` or the `exit_plan_mode` hook) store the review file in `~/.crit/plans/<slug>/`. **Always pass `--plan <slug>`** — without it `crit comment` looks in the project root and will not find the comments. The slug is shown in the review feedback prompt and in the output of `crit plan-hook`.
+Plan reviews (via `crit plan` or the `exit_plan_mode` hook) store the review file in `<state>/plans/<slug>/` (`<state>` is crit's state folder: `~/.local/state/crit/` on new installs, `~/.crit/` on existing ones). **Always pass `--plan <slug>`** — without it `crit comment` looks in the project root and will not find the comments. The slug is shown in the review feedback prompt and in the output of `crit plan-hook`.
 
 ```bash
 crit comment --plan my-plan-2026-05-14 --reply-to c_a1b2c3 --author 'Grok' 'Updated the plan'
@@ -226,8 +226,9 @@ crit unpublish --share-url <url> [file...]            # Unpublish from a specifi
 
 ## Review file location quick reference
 
-- Normal git/files mode: `~/.crit/reviews/<key>.json`
-- Plan mode (via `crit plan` or hook): `~/.crit/plans/<slug>/review.json` (the `current.md` symlink points at the latest plan version)
+- `<state>` is crit's state folder: `~/.local/state/crit/` on new installs, `~/.crit/` on existing ones.
+- Normal git/files mode: `<state>/reviews/<key>.json`
+- Plan mode (via `crit plan` or hook): `<state>/plans/<slug>/review.json` (the `current.md` symlink points at the latest plan version)
 - The exact path is always printed by the `crit` command and by `crit status --json`.
 
 Use `read_file` on the printed path, then act on the `review_comments` and per-file `comments` arrays as described above.

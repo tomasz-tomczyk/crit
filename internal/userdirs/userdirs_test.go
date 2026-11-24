@@ -172,3 +172,61 @@ func TestWindowsWithoutXDGVariablesKeepsLegacyLayout(t *testing.T) {
 		t.Fatalf("ConfigFile with XDG_CONFIG_HOME = %q, want %q", got, want)
 	}
 }
+
+func TestStateDirs(t *testing.T) {
+	setGOOS(t, "linux")
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, home string) (want []string)
+	}{
+		{"fresh install lists only the XDG state dir", func(t *testing.T, home string) []string {
+			return []string{filepath.Join(home, ".local", "state", "crit")}
+		}},
+		{"legacy only", func(t *testing.T, home string) []string {
+			mkdir(t, filepath.Join(home, ".crit"))
+			return []string{filepath.Join(home, ".crit")}
+		}},
+		{"XDG in use, legacy left behind", func(t *testing.T, home string) []string {
+			mkdir(t, filepath.Join(home, ".crit"))
+			mkdir(t, filepath.Join(home, ".local", "state", "crit"))
+			return []string{filepath.Join(home, ".local", "state", "crit"), filepath.Join(home, ".crit")}
+		}},
+		{"custom XDG_STATE_HOME also sees the default folder", func(t *testing.T, home string) []string {
+			custom := filepath.Join(t.TempDir(), "state")
+			t.Setenv("XDG_STATE_HOME", custom)
+			mkdir(t, filepath.Join(custom, "crit"))
+			mkdir(t, filepath.Join(home, ".local", "state", "crit"))
+			return []string{filepath.Join(custom, "crit"), filepath.Join(home, ".local", "state", "crit")}
+		}},
+		{"a file named .crit is not a state dir", func(t *testing.T, home string) []string {
+			mkdir(t, filepath.Join(home, ".local", "state", "crit"))
+			touch(t, filepath.Join(home, ".crit"))
+			return []string{filepath.Join(home, ".local", "state", "crit")}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := freshHome(t)
+			want := tt.setup(t, home)
+			got := StateDirs(home)
+			if len(got) != len(want) {
+				t.Fatalf("StateDirs = %q, want %q", got, want)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("StateDirs = %q, want %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestStateDirsWindowsWithoutXDG(t *testing.T) {
+	setGOOS(t, "windows")
+	home := freshHome(t)
+	mkdir(t, filepath.Join(home, ".crit"))
+	got := StateDirs(home)
+	if len(got) != 1 || got[0] != filepath.Join(home, ".crit") {
+		t.Fatalf("StateDirs = %q, want only the legacy dir", got)
+	}
+}

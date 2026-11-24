@@ -91,7 +91,8 @@ comments at it. Don't write full URLs: you don't know the reviewer's host.
 Only use `--resolve` when the user explicitly asks. The same restriction
 applies to the `resolve` field in JSON.
 
-Plan-mode reviews live under `~/.crit/plans/<slug>/`. Always use
+Plan-mode reviews live under `<state>/plans/<slug>/`
+(`<state>` is crit's state folder: `~/.local/state/crit/` on new installs, `~/.crit/` on existing ones). Always use
 `--plan <slug>` when replying; the slug is in the feedback prompt.
 
 ```bash

@@ -79,6 +79,45 @@ func StateDir(home string) string {
 	return pick(home, StateBaseDir(home), LegacyDir(home))
 }
 
+// StateDirs is every state root that exists, StateDir first. A process that
+// does not see the user's XDG_STATE_HOME (an agent hook started outside the
+// shell, say) writes to a different root, and a partial move can leave data
+// in both layouts; commands that list or clean up reviews read all of them so
+// nothing is hidden. StateDir is included even when it does not exist yet.
+func StateDirs(home string) []string {
+	dirs := []string{StateDir(home)}
+	candidates := []string{
+		StateBaseDir(home),
+		LegacyDir(home),
+	}
+	if goos != "windows" {
+		// The default XDG location, in case this process sees a custom
+		// XDG_STATE_HOME that another process did not.
+		candidates = append(candidates, filepath.Join(home, ".local", "state", appName))
+	}
+	for _, dir := range candidates {
+		if dir == "" || !isDir(dir) || containsPath(dirs, dir) {
+			continue
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func containsPath(list []string, path string) bool {
+	for _, p := range list {
+		if filepath.Clean(p) == filepath.Clean(path) {
+			return true
+		}
+	}
+	return false
+}
+
 func xdgDir(home, envVar, defaultRel string) string {
 	if v := os.Getenv(envVar); v != "" && filepath.IsAbs(v) {
 		return filepath.Join(v, appName)
@@ -100,6 +139,12 @@ func join(dir, name string) string {
 // directory or a ~/.crit.config.json file.
 func IsLegacyInstall(home string) bool {
 	return exists(LegacyDir(home)) || exists(legacyConfigFile(home))
+}
+
+// LegacyConfigFile is the pre-XDG global config file, ~/.crit.config.json. It
+// is never a project config, even when crit runs in the home directory.
+func LegacyConfigFile(home string) string {
+	return legacyConfigFile(home)
 }
 
 func legacyConfigFile(home string) string {

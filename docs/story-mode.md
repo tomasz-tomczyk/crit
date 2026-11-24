@@ -93,8 +93,12 @@ it or `--clear` to remove it.
 The story is stored on the existing review file under `story`:
 
 ```text
-~/.crit/reviews/<session-key>/review.json
+<state>/reviews/<session-key>/review.json
 ```
+
+`<state>` is crit's state folder: `~/.local/state/crit/` on new installs,
+`~/.crit/` on existing ones. See
+[Where Crit keeps its files](../README.md#where-crit-keeps-its-files).
 
 There is no separate story cache or sidecar file in v1. Because story data
 lives in the review JSON, it follows the same per-branch or per-range session
@@ -216,8 +220,10 @@ Run that from a repo root to create a project prompt:
 Run it from your home directory to create a global prompt:
 
 ```text
-~/.crit/prompts/on_story_generate.md
+~/.config/crit/prompts/on_story_generate.md
 ```
+
+(`~/.crit/prompts/` on existing installs.)
 
 You can also point config at a custom file:
 
@@ -233,9 +239,9 @@ You can also point config at a custom file:
 diff scopes. Resolution order is:
 
 1. Project `.crit.config.json` `prompts.on_story_generate`
-2. Global `~/.crit.config.json` `prompts.on_story_generate`
+2. Global config file (`~/.config/crit/config.json`, or `~/.crit.config.json` on existing installs) `prompts.on_story_generate`
 3. Project `.crit/prompts/on_story_generate.md`
-4. Global `~/.crit/prompts/on_story_generate.md`
+4. Global `~/.config/crit/prompts/on_story_generate.md` (`~/.crit/prompts/` on existing installs)
 5. Stock Crit template
 
 Overrides replace the entire prompt. If you customize

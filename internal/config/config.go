@@ -558,13 +558,11 @@ func LoadConfig(projectDir string) Config { //nolint:gocyclo // Config precedenc
 		fmt.Fprintf(os.Stderr, "Warning: reading global config: %v\n", err)
 	}
 
-	// 2. Project config (skip if same file as global config, e.g. when CWD is home dir)
+	// 2. Project config (skip a user-level config file, e.g. when CWD is home dir)
 	var project Config
 	var projectPresence ConfigPresence
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	globalAbs, _ := filepath.Abs(GlobalConfigPath())
-	projectAbs, _ := filepath.Abs(projectConfigPath)
-	if globalAbs != projectAbs {
+	if !isUserConfigFile(projectConfigPath) {
 		project, projectPresence, err = LoadConfigFile(projectConfigPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
@@ -641,9 +639,7 @@ func LoadPromptMaps(projectDir string) (global, project map[string]string) {
 	global = globalCfg.Prompts
 
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	globalAbs, _ := filepath.Abs(GlobalConfigPath())
-	projectAbs, _ := filepath.Abs(projectConfigPath)
-	if globalAbs != projectAbs {
+	if !isUserConfigFile(projectConfigPath) {
 		projectCfg, _, err := LoadConfigFile(projectConfigPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
@@ -664,9 +660,7 @@ func LoadHookMaps(projectDir string) (global, project map[string]string) {
 	global = globalCfg.Hooks
 
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	globalAbs, _ := filepath.Abs(GlobalConfigPath())
-	projectAbs, _ := filepath.Abs(projectConfigPath)
-	if globalAbs != projectAbs {
+	if !isUserConfigFile(projectConfigPath) {
 		projectCfg, _, err := LoadConfigFile(projectConfigPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
@@ -686,6 +680,27 @@ func GlobalConfigPath() string {
 		return ""
 	}
 	return userdirs.ConfigFile(home)
+}
+
+// isUserConfigFile reports whether path is a user-level config file rather
+// than a project one: the global config in use, or the legacy
+// ~/.crit.config.json. Run from the home directory, crit would otherwise load
+// ~/.crit.config.json as project config once the global config is the XDG
+// file (a copy left behind after a move, say).
+func isUserConfigFile(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	if global, err := filepath.Abs(GlobalConfigPath()); err == nil && global == abs {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	legacy, err := filepath.Abs(userdirs.LegacyConfigFile(home))
+	return err == nil && legacy == abs
 }
 
 // GlobalConfigDisplayPath is GlobalConfigPath for user-facing text, with the

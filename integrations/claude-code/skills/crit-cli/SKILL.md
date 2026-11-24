@@ -179,8 +179,8 @@ crit comment --reply-to c_a1b2c3 --path src/auth.go --author 'Claude Code' 'Fixe
 In `--json` mode, set the `file` field on the entry. Review-level IDs (`r_…`) are globally unique and never need this.
 </important>
 
-<important if="you are responding to plan-mode comments (review file under ~/.crit/plans/)">
-Plan reviews (via `crit plan` or the ExitPlanMode hook) store the review file in `~/.crit/plans/<slug>/`. **Always pass `--plan <slug>`** — without it, `crit comment` looks in the project root and won't find the comments. The slug is shown in the review feedback prompt.
+<important if="you are responding to plan-mode comments (review file in crit's plans/ folder)">
+Plan reviews (via `crit plan` or the ExitPlanMode hook) store the review file in `<state>/plans/<slug>/` (`<state>` is crit's state folder: `~/.local/state/crit/` on new installs, `~/.crit/` on existing ones). **Always pass `--plan <slug>`** — without it, `crit comment` looks in the project root and won't find the comments. The slug is shown in the review feedback prompt.
 
 ```bash
 crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Claude Code' 'Updated the plan'
