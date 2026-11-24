@@ -3,8 +3,8 @@
 // users towards `crit migrate-xdg` on startup.
 //
 // It is transitional: once legacy installs are rare, remove this package, the
-// migrate-xdg command and the startup hint (the legacy fallback in
-// internal/userdirs is a separate decision).
+// migrate-xdg command and the startup hint (tracked in GitHub issue #1227; the
+// legacy fallback in internal/userdirs is a separate decision).
 package migrate
 
 import (
