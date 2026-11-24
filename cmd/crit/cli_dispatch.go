@@ -70,6 +70,7 @@ Options:
       --viewed           Also sync files marked viewed to the PR (GitHub only)
   -e, --event <type>     comment, approve, or request-changes
   -m, --message <text>   Review-level message
+      --commit <sha>     Pin the review to the commit that was reviewed (useful in CI)
   -o, --output <dir>     Crit data root for reviews`},
 	{name: "comment", handler: runComment, help: `Usage: crit comment [options] <body>
        crit comment [options] <path> <body>

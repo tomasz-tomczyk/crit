@@ -193,6 +193,7 @@ When you are in a Grok plan-mode session, the plan file itself lives at `~/.grok
 crit pull [number|url]                                   # Fetch PR/MR review comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [n]    # Post review comments to a PR/MR
 crit push --viewed [n]                                   # Also tick files marked viewed on the GitHub PR
+crit push --commit <sha> [n]                             # Pin the review to the commit that was reviewed (useful in CI)
 crit pull --viewed [n]                                   # Also fetch files ticked viewed on the GitHub PR
 crit pull --forge gitlab 42                              # Force GitLab when auto-detect is ambiguous
 ```

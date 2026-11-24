@@ -169,7 +169,7 @@ func TestMergeGHComments_SkipsNoLineComments(t *testing.T) {
 
 func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
-	data, err := buildReviewPayload(comments, "", "COMMENT")
+	data, err := buildReviewPayload(comments, "", "COMMENT", "")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestBuildReviewPayload_EmptyMessageByDefault(t *testing.T) {
 
 func TestBuildReviewPayload_CustomMessage(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix"}}
-	data, err := buildReviewPayload(comments, "Round 2 review", "COMMENT")
+	data, err := buildReviewPayload(comments, "Round 2 review", "COMMENT", "")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestBuildReviewPayload_CustomMessage(t *testing.T) {
 
 func TestBuildReviewPayload_ApproveEvent(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "lgtm"}}
-	data, err := buildReviewPayload(comments, "", "APPROVE")
+	data, err := buildReviewPayload(comments, "", "APPROVE", "")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestBuildReviewPayload_ApproveEvent(t *testing.T) {
 
 func TestBuildReviewPayload_RequestChangesEvent(t *testing.T) {
 	comments := []map[string]any{{"path": "main.go", "line": 1, "side": "RIGHT", "body": "fix this"}}
-	data, err := buildReviewPayload(comments, "Needs work", "REQUEST_CHANGES")
+	data, err := buildReviewPayload(comments, "Needs work", "REQUEST_CHANGES", "")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}
@@ -1598,8 +1598,39 @@ func TestBulkAddCommentsToCritJSON_MultipleFiles(t *testing.T) {
 	}
 }
 
+func TestBuildReviewPayload_CommitID(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	tests := []struct {
+		name     string
+		commitID string
+		wantKey  bool
+	}{
+		{name: "pinned", commitID: sha, wantKey: true},
+		{name: "not pinned", commitID: "", wantKey: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := buildReviewPayload(nil, "", "APPROVE", tt.commitID)
+			if err != nil {
+				t.Fatalf("buildReviewPayload: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			got, ok := payload["commit_id"]
+			if ok != tt.wantKey {
+				t.Fatalf("commit_id present = %v, want %v (payload %s)", ok, tt.wantKey, data)
+			}
+			if tt.wantKey && got != tt.commitID {
+				t.Fatalf("commit_id = %v, want %q", got, tt.commitID)
+			}
+		})
+	}
+}
+
 func TestBuildReviewPayload_ApproveNoComments(t *testing.T) {
-	data, err := buildReviewPayload(nil, "Looks good!", "APPROVE")
+	data, err := buildReviewPayload(nil, "Looks good!", "APPROVE", "")
 	if err != nil {
 		t.Fatalf("buildReviewPayload: %v", err)
 	}

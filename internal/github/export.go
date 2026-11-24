@@ -44,7 +44,7 @@ func BucketsToGHComments(postable []scopedComment, rewrite bodyRewriter) []map[s
 }
 
 func CreateGHReview(prNumber int, comments []map[string]any, message, event string) (map[string]int64, error) {
-	return createGHReview(forge.ChangeID{Number: prNumber}, comments, message, event)
+	return createGHReview(forge.ChangeID{Number: prNumber}, comments, message, event, "")
 }
 
 func CollectNewRepliesForPush(cf CritJSONFile, rewrite bodyRewriter) []GhReplyForPush {

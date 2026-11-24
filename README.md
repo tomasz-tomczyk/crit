@@ -271,6 +271,7 @@ crit push --dry-run                            # preview without posting
 crit push --message "Round 2"                  # add a review summary
 crit push --event approve 42                   # approve
 crit push --event request-changes --forge gitlab 42
+crit push --commit "$REVIEWED_SHA" 42          # pin the review to the commit that was reviewed (useful in CI)
 ```
 
 #### Sync viewed files with GitHub

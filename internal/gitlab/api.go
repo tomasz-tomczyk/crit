@@ -83,6 +83,19 @@ func isNotFoundAPIError(err error) bool {
 		strings.Contains(msg, "Not Found")
 }
 
+// isConflictAPIError reports whether a glab api failure is HTTP 409, which
+// GitLab returns from /approve when the given sha is not the MR head.
+func isConflictAPIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Match the status text, not a bare "409": the endpoint in the message
+	// can contain an MR iid of 409.
+	msg := err.Error()
+	return strings.Contains(msg, "HTTP 409") || strings.Contains(msg, "409 Conflict") ||
+		strings.Contains(msg, "SHA does not match HEAD")
+}
+
 func projectEndpoint(id forge.ChangeID, suffix string) string {
 	project := ":fullpath"
 	if id.Project != "" {

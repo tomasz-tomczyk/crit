@@ -1252,7 +1252,9 @@ func parsePushEvent(flag string) (string, error) {
 }
 
 // buildReviewPayload constructs the JSON body for a GitHub PR review request.
-func buildReviewPayload(comments []map[string]any, message string, event string) ([]byte, error) {
+// commitID pins the review (and its line comments) to that commit; when empty
+// the key is left out and GitHub uses the PR's latest commit.
+func buildReviewPayload(comments []map[string]any, message, event, commitID string) ([]byte, error) {
 	if comments == nil {
 		comments = []map[string]any{}
 	}
@@ -1260,6 +1262,9 @@ func buildReviewPayload(comments []map[string]any, message string, event string)
 		"event":    event,
 		"body":     message,
 		"comments": comments,
+	}
+	if commitID != "" {
+		review["commit_id"] = commitID
 	}
 	return json.Marshal(review)
 }
@@ -1308,9 +1313,10 @@ func ghAPIErrorEntry(raw json.RawMessage) string {
 
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
+// commitID, when set, is sent as the review's commit_id.
 // Returns a map of "path:endLine" -> GitHubID for each created comment.
-func createGHReview(id forge.ChangeID, comments []map[string]any, message string, event string) (map[string]int64, error) {
-	data, err := buildReviewPayload(comments, message, event)
+func createGHReview(id forge.ChangeID, comments []map[string]any, message, event, commitID string) (map[string]int64, error) {
+	data, err := buildReviewPayload(comments, message, event, commitID)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling review: %w", err)
 	}

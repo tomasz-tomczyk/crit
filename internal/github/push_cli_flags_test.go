@@ -33,6 +33,7 @@ func TestParsePushFlags(t *testing.T) {
 		{name: "output", args: []string{"-o", "/tmp/x"}, want: pushFlags{outputDir: "/tmp/x"}},
 		{name: "event", args: []string{"-e", "approve"}, want: pushFlags{eventFlag: "approve"}},
 		{name: "pr number", args: []string{"99"}, want: pushFlags{spec: "99"}},
+		{name: "commit", args: []string{"--commit", "HEAD", "7"}, want: pushFlags{spec: "7", commit: "HEAD"}},
 		{
 			name: "all flags",
 			args: []string{"--dry-run", "--event", "request-changes", "-m", "msg", "-o", "/d", "12"},
@@ -41,6 +42,7 @@ func TestParsePushFlags(t *testing.T) {
 		{name: "message missing value", args: []string{"--message"}, wantErr: true},
 		{name: "output missing value", args: []string{"--output"}, wantErr: true},
 		{name: "event missing value", args: []string{"--event"}, wantErr: true},
+		{name: "commit missing value", args: []string{"--commit"}, wantErr: true},
 		{name: "non-numeric positional", args: []string{"bogus"}, wantErr: true},
 	}
 	for _, tt := range tests {

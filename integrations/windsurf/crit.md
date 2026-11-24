@@ -148,6 +148,7 @@ Always relay the full output (URL, QR) directly in your response — don't make 
 crit pull [number|url]                                   # Fetch PR/MR comments
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review as PR review
 crit push --viewed [pr]                                  # Also tick files marked viewed on the GitHub PR
+crit push --commit <sha> [pr]                            # Pin the review to the commit that was reviewed (useful in CI)
 crit pull --viewed [pr]                                  # Also fetch files ticked viewed on the GitHub PR
 ```
 

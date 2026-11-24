@@ -13,6 +13,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 type pushFlags struct {
@@ -23,6 +24,7 @@ type pushFlags struct {
 	configuredOutput string
 	sessionID        string
 	eventFlag        string
+	commit           string // --commit as given; resolved into pushContext.commitSHA
 	viewed           bool
 }
 
@@ -33,36 +35,12 @@ func parsePushFlags(args []string) (pushFlags, error) {
 		if setPushBoolFlag(&f, arg) {
 			continue
 		}
-		if arg == "--message" || arg == "-m" {
+		if target, missing := pushValueFlag(&f, arg); target != nil {
 			if i+1 >= len(args) {
-				return f, fmt.Errorf("--message requires a value")
+				return f, errors.New(missing)
 			}
 			i++
-			f.message = args[i]
-			continue
-		}
-		if arg == "--output" || arg == "-o" {
-			if i+1 >= len(args) {
-				return f, fmt.Errorf("--output requires a value")
-			}
-			i++
-			f.outputDir = args[i]
-			continue
-		}
-		if arg == "--session" {
-			if i+1 >= len(args) {
-				return f, fmt.Errorf("--session requires a value")
-			}
-			i++
-			f.sessionID = args[i]
-			continue
-		}
-		if arg == "--event" || arg == "-e" {
-			if i+1 >= len(args) {
-				return f, fmt.Errorf("--event requires a value (comment, approve, request-changes)")
-			}
-			i++
-			f.eventFlag = args[i]
+			*target = args[i]
 			continue
 		}
 		if err := setPushSpec(&f, arg); err != nil {
@@ -70,6 +48,24 @@ func parsePushFlags(args []string) (pushFlags, error) {
 		}
 	}
 	return f, nil
+}
+
+// pushValueFlag returns the field a value-taking flag fills and the error
+// text for when its value is missing. It returns nil for any other argument.
+func pushValueFlag(f *pushFlags, arg string) (*string, string) {
+	switch arg {
+	case "--message", "-m":
+		return &f.message, "--message requires a value"
+	case "--output", "-o":
+		return &f.outputDir, "--output requires a value"
+	case "--session":
+		return &f.sessionID, "--session requires a value"
+	case "--event", "-e":
+		return &f.eventFlag, "--event requires a value (comment, approve, request-changes)"
+	case "--commit":
+		return &f.commit, "--commit requires a value"
+	}
+	return nil, ""
 }
 
 func setPushBoolFlag(f *pushFlags, arg string) bool {
@@ -86,11 +82,11 @@ func setPushBoolFlag(f *pushFlags, arg string) bool {
 
 func setPushSpec(f *pushFlags, arg string) error {
 	if f.spec != "" {
-		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--commit <sha>] [--output <dir>] [number|url]\n")
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 	if _, err := ParsePRSpec(arg); err != nil {
-		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--commit <sha>] [--output <dir>] [number|url]\n")
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 	f.spec = arg
@@ -160,6 +156,9 @@ type pushContext struct {
 	prNumber int // id.Number; kept for call sites that only need the number
 	critPath string
 	cj       session.CritJSON
+	// commitSHA is the full SHA from --commit ("" when not given). The review
+	// is created against this commit instead of the PR's latest one.
+	commitSHA string
 }
 
 // loadPushContext parses flags, validates them, resolves the PR, and
@@ -183,6 +182,13 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, clicmd.ExitError{Code: 1, Err: errors.New("--event request-changes requires --message")}
 	}
 
+	commitSHA := ""
+	if f.commit != "" {
+		if commitSHA, err = vcs.ResolveCommitSHA("", f.commit); err != nil {
+			return pushContext{}, fmt.Errorf("--commit: %w", err)
+		}
+	}
+
 	id, err := resolvePullChangeID(f.spec)
 	if err != nil {
 		return pushContext{}, err
@@ -193,7 +199,7 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, err
 	}
 
-	return pushContext{flags: f, event: event, id: id, prNumber: id.Number, critPath: critPath, cj: cj}, nil
+	return pushContext{flags: f, event: event, id: id, prNumber: id.Number, critPath: critPath, cj: cj, commitSHA: commitSHA}, nil
 }
 
 func loadPushReview(f pushFlags, id forge.ChangeID) (string, session.CritJSON, error) {
@@ -239,6 +245,9 @@ func loadPushReview(f pushFlags, id forge.ChangeID) (string, session.CritJSON, e
 // runPushDryRun prints the bucket plan to stdout and returns. Does not write
 // the export file — dry-run is read-only by definition.
 func runPushDryRun(ctx pushContext, b PushBuckets) {
+	if ctx.commitSHA != "" {
+		fmt.Printf("Review pinned to commit %s.\n", ctx.commitSHA)
+	}
 	fmt.Println(SummarizeBuckets(ctx.prNumber, b))
 	fmt.Println()
 	fmt.Print(DetailedDryRun(b))
@@ -340,7 +349,7 @@ func runPushPostReview(ctx pushContext, b PushBuckets, rewrite BodyRewriter) (in
 		return 0, false, false, nil
 	}
 	ghComments := BucketsToGHComments(b.Postable, rewrite)
-	ids, err := createGHReview(ctx.id, ghComments, ctx.flags.message, ctx.event)
+	ids, err := createGHReview(ctx.id, ghComments, ctx.flags.message, ctx.event, ctx.commitSHA)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
 		return 0, true, errors.Is(err, ErrGHAuthFailed), nil
@@ -495,9 +504,19 @@ func RunPush(args []string) error {
 	}
 
 	inRange := ctx.cj.ActiveDiffScope != ""
-	currentHead, err := resolveCurrentPRHead(ctx.id, inRange, ctx.flags.dryRun)
-	if err != nil {
-		return err
+	// With --commit, the review is created against that commit, so a comment
+	// is postable only when it was written against that same commit: its line
+	// numbers then match the diff GitHub anchors them to. Comparing against the
+	// live PR head instead would mark every comment stale as soon as someone
+	// pushes after the review started, which is the race --commit exists for.
+	// GitHub rejects a commit_id that is not part of the PR.
+	currentHead := ctx.commitSHA
+	if currentHead == "" {
+		var err error
+		currentHead, err = resolveCurrentPRHead(ctx.id, inRange, ctx.flags.dryRun)
+		if err != nil {
+			return err
+		}
 	}
 
 	b := BucketCommentsForPush(ctx.cj, currentHead, inRange)
