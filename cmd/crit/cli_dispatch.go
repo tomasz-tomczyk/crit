@@ -114,7 +114,8 @@ Options:
 Review a running web application in live mode.
 
 Options:
-  -p, --port <port>        Port to listen on
+  -p, --port <port>        Port or range (e.g. 47800-47819) to listen on;
+                           live mode uses two ports: the API and the proxy
       --host <host>        Host to listen on
       --public-url <url>   Advertised base URL
       --allow-unauthenticated-network
@@ -131,7 +132,7 @@ Review a local HTML file in preview mode. An Excalidraw scene opens as a
 canvas: hover an element to outline it, click it to comment on it.
 
 Options:
-  -p, --port <port>       Port to listen on
+  -p, --port <port>       Port or range (e.g. 47800-47819) to listen on
       --host <host>       Host to listen on
       --public-url <url>  Advertised base URL
       --allow-unauthenticated-network
@@ -154,7 +155,7 @@ Options:
       --public-url <url>  Advertised base URL
       --allow-unauthenticated-network
                           Allow non-loopback --host or --public-url
-  -p, --port <port>       Port to listen on
+  -p, --port <port>       Port or range (e.g. 47800-47819) to listen on
       --share-url <url>   Share service URL
       --no-open           Do not open a browser
       --no-wait           Save the version and exit; do not start a review
@@ -355,7 +356,7 @@ Setup & management:
   Agents: %s, all
 
 Options:
-  -p, --port <port>           Port to listen on (default: random)
+  -p, --port <port>           Port or range (e.g. 47800-47819) to listen on (default: random)
       --host <host>           Listen host (default: 127.0.0.1)
       --public-url <url>      Advertised base URL (e.g. https://machine.ts.net via tailscale serve)
       --allow-unauthenticated-network
@@ -376,7 +377,7 @@ Options:
 Environment:
   CRIT_SHARE_URL              Override the share service URL
   CRIT_PUBLIC_URL             Override the advertised review URL (listen address unchanged)
-  CRIT_PORT                   Override the default port
+  CRIT_PORT                   Override the default port or range
   CRIT_HOST                   Override the listen host (default 127.0.0.1)
   CRIT_ALLOW_UNAUTHENTICATED_NETWORK
                               Same as --allow-unauthenticated-network (1/true/yes/on)

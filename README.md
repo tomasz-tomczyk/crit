@@ -381,7 +381,7 @@ All keys are optional — omit any you don't need.
 
 | Key                    | Type     | Default                    | Description                                                                                                                                                                             |
 | ---------------------- | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `port`                 | int      | `0` (random)               | Port for the local server. `0` picks a random available port.                                                                                                                           |
+| `port`                 | int or string | `0` (random)          | Port for the local server. `0` picks a random available port. A range such as `"47800-47819"` uses the first free port in it (live mode needs two ports next to each other: the API and the proxy). |
 | `host`                 | string   | `"127.0.0.1"`              | Listen host (global/CLI/env only). Non-loopback values also require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`. Prefer loopback + SSH/Tailscale/Docker host-loopback publish. |
 | `no_open`              | bool     | `false`                    | Don't auto-open the browser when starting a review.                                                                                                                                     |
 | `quiet`                | bool     | `false`                    | On success, suppress daemon connect/start lines, integration tips, and the session summary. Errors, `approved:`, and the finish prompt are unchanged. |
@@ -464,7 +464,7 @@ This covers the review page itself. The HTML file shown by `crit preview` and th
 
 | Flag            | Short | Equivalent config key | Description                            |
 | --------------- | ----- | --------------------- | -------------------------------------- |
-| `--port`        | `-p`  | `port`                | Port to listen on                      |
+| `--port`        | `-p`  | `port`                | Port or range (`47800-47819`) to listen on |
 | `--host`        |       | `host`                | Listen host (default `127.0.0.1`)      |
 | `--public-url`  |       | `public_url`          | Advertised review URL (listen unchanged) |
 | `--allow-unauthenticated-network` | | — | Required with non-loopback `--host` or any `--public-url` |
@@ -533,7 +533,7 @@ Code diffs are drawn inside shadow roots, which page CSS cannot reach with selec
 
 | Variable                    | Description                                       |
 | --------------------------- | ------------------------------------------------- |
-| `CRIT_PORT`                 | Default port for the local server                 |
+| `CRIT_PORT`                 | Default port or range (`47800-47819`) for the local server |
 | `CRIT_HOST`                 | Listen host (default `127.0.0.1`)                 |
 | `CRIT_PUBLIC_URL`           | Advertised review URL (e.g. tailscale serve)      |
 | `CRIT_ALLOW_UNAUTHENTICATED_NETWORK` | Allow non-loopback host / public_url (`1`/`true`/`yes`/`on`) |

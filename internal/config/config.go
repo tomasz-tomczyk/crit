@@ -21,7 +21,7 @@ const defaultShareURL = DefaultShareURL
 
 // Config holds all configuration values from config files.
 type Config struct {
-	Port               int           `json:"port,omitempty"`
+	Port               PortRange     `json:"port,omitzero"`
 	Host               string        `json:"host,omitempty"`       // listen host (default 127.0.0.1)
 	PublicURL          string        `json:"public_url,omitempty"` // advertised base URL (global-only; e.g. tailscale serve)
 	NoOpen             bool          `json:"no_open,omitempty"`
@@ -321,6 +321,19 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 	_, presence.NotifyOnRoundReady = raw["notify_on_round_ready"]
 	_, presence.ShareConsented = raw["share_consented"]
 
+	// encoding/json stops at the first error from a custom unmarshaler, so a
+	// bad port would drop every key after it. Check it alone and drop it.
+	if rawPort, ok := raw["port"]; ok {
+		var port PortRange
+		if portErr := port.UnmarshalJSON(rawPort); portErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: invalid port %s in %s (%v); ignoring\n", rawPort, path, portErr)
+			delete(raw, "port")
+			if data, err = json.Marshal(raw); err != nil {
+				return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
+			}
+		}
+	}
+
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 	}
@@ -343,7 +356,7 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// Sharing destinations and all credentials are global-only.
 	merged.shareURLPresent = global.shareURLPresent
 	merged.shareTargetsPresent = global.shareTargetsPresent
-	if project.Port != 0 {
+	if !project.Port.IsZero() {
 		merged.Port = project.Port
 	}
 	// Security: host is intentionally NOT merged from project config.

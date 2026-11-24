@@ -12,7 +12,7 @@ func TestBuildPreviewStartArgs(t *testing.T) {
 	unsetEnvForTest(t, "CRIT_SHARE_URL")
 	tests := []struct {
 		name           string
-		port           int
+		port           config.PortRange
 		host           string
 		publicURL      string
 		allowUnauthNet bool
@@ -44,8 +44,26 @@ func TestBuildPreviewStartArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "port range",
+			port: config.PortRange{First: 47800, Last: 47819},
+			want: []string{
+				"--preview-file", "/tmp/page.html",
+				"--port", "47800-47819",
+				"--share-url", "https://crit.md",
+			},
+		},
+		{
+			name: "config port range",
+			cfg:  config.Config{Port: config.PortRange{First: 47800, Last: 47819}},
+			want: []string{
+				"--preview-file", "/tmp/page.html",
+				"--port", "47800-47819",
+				"--share-url", "https://crit.md",
+			},
+		},
+		{
 			name: "all explicit flags",
-			port: 4242, host: "0.0.0.0", publicURL: "https://preview.example/base/",
+			port: config.SinglePort(4242), host: "0.0.0.0", publicURL: "https://preview.example/base/",
 			allowUnauthNet: true, noOpen: true, quiet: true,
 			shareURL: "https://share.example/",
 			want: []string{

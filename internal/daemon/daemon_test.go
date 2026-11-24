@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
@@ -2047,7 +2048,7 @@ func TestAppendCommonDaemonFlags(t *testing.T) {
 		{
 			name: "all flags set",
 			f: commonDaemonFlags{
-				Port:                        3456,
+				Port:                        config.SinglePort(3456),
 				Host:                        "0.0.0.0",
 				PublicURL:                   "https://mymac.ts.net",
 				AllowUnauthenticatedNetwork: true,
@@ -2071,8 +2072,13 @@ func TestAppendCommonDaemonFlags(t *testing.T) {
 		},
 		{
 			name: "port only",
-			f:    commonDaemonFlags{Port: 8080},
+			f:    commonDaemonFlags{Port: config.SinglePort(8080)},
 			want: []string{"--preview-file", "/tmp/x.html", "--port", "8080"},
+		},
+		{
+			name: "port range",
+			f:    commonDaemonFlags{Port: config.PortRange{First: 47800, Last: 47819}},
+			want: []string{"--preview-file", "/tmp/x.html", "--port", "47800-47819"},
 		},
 	}
 	for _, tt := range tests {

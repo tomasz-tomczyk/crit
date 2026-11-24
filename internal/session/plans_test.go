@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 func TestResolveSlug_FromHeading(t *testing.T) {
@@ -225,7 +227,17 @@ func TestPlanSessionKey(t *testing.T) {
 }
 
 func TestBuildPlanDaemonArgs(t *testing.T) {
-	args := BuildPlanDaemonArgs("/tmp/plans/auth-flow/current.md", "/tmp/plans/auth-flow", "auth-flow", PlanDaemonFlags{Port: 3000})
+	args := BuildPlanDaemonArgs("/tmp/plans/auth-flow/current.md", "/tmp/plans/auth-flow", "auth-flow", PlanDaemonFlags{Port: config.PortRange{First: 47800, Last: 47819}})
+
+	foundPort := false
+	for i, a := range args {
+		if a == "--port" && i+1 < len(args) && args[i+1] == "47800-47819" {
+			foundPort = true
+		}
+	}
+	if !foundPort {
+		t.Errorf("expected --port 47800-47819 in daemon args, got %v", args)
+	}
 
 	found := false
 	for _, a := range args {

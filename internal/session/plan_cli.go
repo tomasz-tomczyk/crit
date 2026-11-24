@@ -21,7 +21,7 @@ type planConfig struct {
 	name                        string
 	filePath                    string
 	stdinExpected               bool
-	port                        int
+	port                        config.PortRange
 	host                        string
 	publicURL                   string
 	allowUnauthenticatedNetwork bool
@@ -34,8 +34,9 @@ type planConfig struct {
 func resolvePlanConfig(args []string) planConfig {
 	fs := flag.NewFlagSet("plan", flag.ExitOnError)
 	name := fs.String("name", "", "Plan name/slug for session identification")
-	port := fs.Int("port", 0, "Port to listen on")
-	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	var port config.PortRange
+	fs.Var(&port, "port", "Port or port range (first-last) to listen on")
+	fs.Var(&port, "p", "Port or port range (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
@@ -56,7 +57,7 @@ func resolvePlanConfig(args []string) planConfig {
 
 	pc := planConfig{
 		name:                        *name,
-		port:                        *port,
+		port:                        port,
 		host:                        *host,
 		publicURL:                   *publicURL,
 		allowUnauthenticatedNetwork: *allowUnauthNet,

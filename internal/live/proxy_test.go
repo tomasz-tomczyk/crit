@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -917,64 +916,22 @@ func TestProxyErrorHandler_Returns502JSON(t *testing.T) {
 	}
 }
 
-func TestBindProxyServer_PortIsAPIPlusOne(t *testing.T) {
-	const maxAttempts = 20
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		apiLn, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		apiPort := apiLn.Addr().(*net.TCPAddr).Port
-
-		ln, srv, err := BindProxyServer("127.0.0.1", "", "http://127.0.0.1:19997", apiPort, "")
-		if err != nil {
-			apiLn.Close()
-			if attempt < maxAttempts-1 && strings.Contains(err.Error(), "already in use") {
-				continue
-			}
-			t.Fatalf("BindProxyServer: %v", err)
-		}
-		defer ln.Close()
-		apiLn.Close()
-		_ = srv
-		if ln.Addr().(*net.TCPAddr).Port != apiPort+1 {
-			t.Errorf("proxy port = %d, want %d", ln.Addr().(*net.TCPAddr).Port, apiPort+1)
-		}
-		return
-	}
-	t.Fatalf("could not bind proxy after %d attempts", maxAttempts)
-}
-
-func TestBindProxyServer_AllowsPublicURLHost(t *testing.T) {
+func TestNewProxyServer_AllowsPublicURLHost(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	for attempt := 0; attempt < 20; attempt++ {
-		apiLn, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		apiPort := apiLn.Addr().(*net.TCPAddr).Port
-		ln, srv, err := BindProxyServer("", "http://box.example:4190", upstream.URL, apiPort, "")
-		apiLn.Close()
-		if err != nil {
-			if attempt < 19 && strings.Contains(err.Error(), "already in use") {
-				continue
-			}
-			t.Fatal(err)
-		}
-		defer ln.Close()
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Host = "box.example:4191"
-		rec := httptest.NewRecorder()
-		srv.Handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusNoContent {
-			t.Fatalf("proxy response = %d, want %d", rec.Code, http.StatusNoContent)
-		}
-		return
+	srv, err := NewProxyServer("", "http://box.example:4190", upstream.URL, 4190, "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("could not bind proxy after 20 attempts")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "box.example:4191"
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("proxy response = %d, want %d", rec.Code, http.StatusNoContent)
+	}
 }
 
 func TestProxyModifyResponse_MidBodyReadFailureReturns502(t *testing.T) {

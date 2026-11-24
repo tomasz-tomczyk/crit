@@ -109,6 +109,7 @@ Two-level JSON config files, merged (project overrides global):
 
 Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`, `base_branch`, `ignore_patterns`, `auto_viewed_patterns`, `default_markdown_view`, `agent_cmd`, `auth_token`, `auth_user_name`, `auth_user_email`, `auth_user_id`, `plan_approve_mode`, `cleanup_on_approve`, `notify_on_round_ready`, `disable_stats`, `no_update_check`, `no_integration_check`, `vcs`, `proxy_auth`, `live_cookie`, `live_cookie_file`, `live_cdp_url`, `close_on_approve_after_ms`, `stale_review_days`, `remote_images`, `languages`.
 
+- `port` is a number or a `"first-last"` range string (also accepted by `--port` and `CRIT_PORT`); with a range the daemon binds the first free port, and live mode binds the first free pair N, N+1 inside the range
 - `base_branch` overrides auto-detected default branch (used as diff base in git mode, and by `crit pull`/`crit push`/`crit comment`)
 - `author` falls back to the configured VCS user name if not set
 - `agent_cmd`, `auth_token`, `share_url`, `proxy_auth`, `plan_approve_mode`, `close_on_approve_after_ms`, `stale_review_days`, and `remote_images` are **global config only**; project-level config cannot override (security — prevents malicious repos from hijacking the agent command, redirecting share requests to an attacker-controlled host, weakening Claude Code permissions, or forcing a reviewer's tab to auto-close, or shortening review retention for every project, or making the reviewer's browser fetch agent-chosen URLs)

@@ -99,21 +99,84 @@ func serveCLIArgs(sc *server.DaemonCLIConfig) []string {
 	}
 }
 
-func bindListener(host string, port int) (net.Listener, error) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	var listener net.Listener
-	var err error
+// bindPorts binds the API listener for the requested port. In live mode
+// (withProxy) it also binds the live proxy listener on the API port + 1, so
+// both ports are held before anything else can take the second one.
+func bindPorts(host string, req config.PortRange, withProxy bool) (api, proxy net.Listener, err error) {
+	switch {
+	case req.IsRange():
+		return bindPortsInRange(host, req, withProxy)
+	case req.IsZero():
+		return bindPortPair(host, 0, withProxy)
+	default:
+		return bindFixedPort(host, req.First, withProxy)
+	}
+}
+
+// bindFixedPort tries one port (and its proxy port) 3 times, 500 ms apart,
+// so a restarting daemon has time to release both.
+func bindFixedPort(host string, port int, withProxy bool) (api, proxy net.Listener, err error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		listener, err = net.Listen("tcp", addr)
-		if err == nil {
-			return listener, nil
+		if attempt > 0 {
+			time.Sleep(500 * time.Millisecond)
 		}
-		if port == 0 {
+		api, proxy, err = bindPortPair(host, port, withProxy)
+		if err == nil {
+			return api, proxy, nil
+		}
+	}
+	return nil, nil, err
+}
+
+// bindPortsInRange makes one pass over the range and takes the first free
+// port (or, in live mode, the first free pair N, N+1 with N+1 in the range).
+// Any listen error moves on to the next port: sandbox denials and OS error
+// codes differ, so it does not only look for "address in use".
+func bindPortsInRange(host string, req config.PortRange, withProxy bool) (api, proxy net.Listener, err error) {
+	var lastErr error
+	for port := req.First; port <= req.Last; port++ {
+		if withProxy && port+1 > req.Last {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		api, proxy, lastErr = bindPortPair(host, port, withProxy)
+		if lastErr == nil {
+			return api, proxy, nil
+		}
 	}
-	return nil, err
+	if withProxy {
+		return nil, nil, fmt.Errorf("no two consecutive free ports in %s for the API and live proxy (last error: %w)", req, lastErr)
+	}
+	return nil, nil, fmt.Errorf("no free port in %s (last error: %w)", req, lastErr)
+}
+
+// bindPortPair binds the API on port (0 = random) and, in live mode, the
+// proxy on the bound API port + 1. If the proxy bind fails, the API
+// listener is closed.
+func bindPortPair(host string, port int, withProxy bool) (api, proxy net.Listener, err error) {
+	api, err = listenTCP(host, port)
+	if err != nil || !withProxy {
+		return api, nil, err
+	}
+	proxyPort := api.Addr().(*net.TCPAddr).Port + 1
+	proxy, err = listenTCP(proxyListenHost(host), proxyPort)
+	if err != nil {
+		_ = api.Close()
+		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
+	}
+	return api, proxy, nil
+}
+
+func listenTCP(host string, port int) (net.Listener, error) {
+	return net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+}
+
+// proxyListenHost is the host the live proxy binds: the API host, or
+// 127.0.0.1 when the API host is empty.
+func proxyListenHost(host string) string {
+	if host == "" {
+		return "127.0.0.1"
+	}
+	return host
 }
 
 // resolveServeReviewPath computes the daemon's review folder so that
@@ -149,7 +212,7 @@ func runServe(args []string) {
 	}
 	sc.Quiet = true
 
-	listener, err := bindListener(sc.Host, sc.Port)
+	listener, proxyLn, err := bindPorts(sc.Host, sc.Port, sc.LiveOrigin != "")
 	if err != nil {
 		daemonFatal(pipe, "Error starting server: %v", err)
 	}
@@ -211,19 +274,17 @@ func runServe(args []string) {
 		daemonFatal(pipe, "Error writing session file: %v", err)
 	}
 
-	var proxyLn net.Listener
 	var proxySrv *http.Server
-	if sc.LiveOrigin != "" {
-		pl, ps, err := bindProxyServer(sc.Host, sc.PublicURL, sc.LiveOrigin, addr.Port, sc.LiveCookie)
+	if proxyLn != nil {
+		ps, err := newProxyServer(sc.Host, sc.PublicURL, sc.LiveOrigin, addr.Port, sc.LiveCookie)
 		if err != nil {
 			daemonFatal(pipe, "Error starting proxy server: %v", err)
 		}
-		proxyLn = pl
 		proxySrv = ps
 		go func() {
-			if err := proxySrv.Serve(pl); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := proxySrv.Serve(proxyLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Printf("Proxy server error: %v", err)
-				_ = pl.Close()
+				_ = proxyLn.Close()
 			}
 		}()
 	}

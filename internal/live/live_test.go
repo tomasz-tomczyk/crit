@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
 )
@@ -431,6 +432,46 @@ func TestMergeGHComments_LivePinNotDeduped(t *testing.T) {
 	}
 }
 
+func TestParseLiveCLIFlags_Port(t *testing.T) {
+	rng := config.PortRange{First: 47800, Last: 47819}
+	tests := []struct {
+		args []string
+		want config.PortRange
+	}{
+		{args: []string{"--port", "47800-47819", "http://localhost:3000"}, want: rng},
+		{args: []string{"-p", "47800-47819", "http://localhost:3000"}, want: rng},
+		{args: []string{"-p", "4100", "http://localhost:3000"}, want: config.SinglePort(4100)},
+		{args: []string{"http://localhost:3000"}, want: config.PortRange{}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			if got := parseLiveCLIFlags(tt.args).port; got != tt.want {
+				t.Fatalf("port = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseServerFlags_Port(t *testing.T) {
+	rng := config.PortRange{First: 47800, Last: 47819}
+	tests := []struct {
+		args []string
+		want config.PortRange
+	}{
+		{args: []string{"--port", "47800-47819", "plan.md"}, want: rng},
+		{args: []string{"-p", "47800-47819", "plan.md"}, want: rng},
+		{args: []string{"plan.md", "--port", "4100"}, want: config.SinglePort(4100)},
+		{args: []string{"plan.md"}, want: config.PortRange{}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			if got := parseServerFlags(tt.args).port; got != tt.want {
+				t.Fatalf("port = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseServerFlags_LiveOrigin(t *testing.T) {
 	f := parseServerFlags([]string{"--live-origin", "http://localhost:3000"})
 	if f.liveOrigin != "http://localhost:3000" {
@@ -486,7 +527,7 @@ func TestParseLiveCLIFlags(t *testing.T) {
 	if f.origin != "https://example.com/app" {
 		t.Fatalf("origin = %q", f.origin)
 	}
-	if f.port != 8080 || f.host != "0.0.0.0" || f.publicURL != "https://mymac.ts.net" || !f.noOpen || !f.quiet {
+	if f.port != config.SinglePort(8080) || f.host != "0.0.0.0" || f.publicURL != "https://mymac.ts.net" || !f.noOpen || !f.quiet {
 		t.Fatalf("flags = %+v", f)
 	}
 	if f.shareURL != "https://share.example" || f.cookieFile != "/tmp/jar.txt" || f.cdpURL != "http://127.0.0.1:9222" {
@@ -498,8 +539,8 @@ func TestParseLiveCLIFlags(t *testing.T) {
 }
 
 func TestBuildLiveDaemonArgs(t *testing.T) {
-	f := liveCLIFlags{port: 9000, host: "127.0.0.1", publicURL: "https://mymac.ts.net", quiet: true}
-	cfg := Config{Port: 3000, Quiet: false, PublicURL: "https://ignored.example.com"}
+	f := liveCLIFlags{port: config.SinglePort(9000), host: "127.0.0.1", publicURL: "https://mymac.ts.net", quiet: true}
+	cfg := Config{Port: config.SinglePort(3000), Quiet: false, PublicURL: "https://ignored.example.com"}
 
 	withCookie := buildLiveDaemonArgs("http://localhost:3000/dashboard", "sess=abc", f, cfg, true)
 	if !containsArgPair(withCookie, "--live-origin", "http://localhost:3000/dashboard") {

@@ -64,7 +64,7 @@ var (
 	detectPRInfo   = github.DetectPRInfo
 	CurrentBranch  = vcs.CurrentBranch
 
-	bindProxyServer    = live.BindProxyServer
+	newProxyServer     = live.NewProxyServer
 	recordSessionStats = session.RecordSessionStats
 	atomicWriteFile    = session.AtomicWriteFile
 )

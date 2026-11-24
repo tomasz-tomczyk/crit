@@ -6,24 +6,29 @@ import (
 )
 
 func TestResolvePortPrecedence(t *testing.T) {
+	rng := PortRange{First: 47800, Last: 47819}
 	tests := []struct {
 		name     string
-		flagPort int
+		flagPort PortRange
 		envPort  string
-		cfgPort  int
-		want     int
+		cfgPort  PortRange
+		want     PortRange
 	}{
-		{name: "flag beats environment", flagPort: 4100, envPort: "4200", cfgPort: 4300, want: 4100},
-		{name: "environment beats config", envPort: "4200", cfgPort: 4300, want: 4200},
-		{name: "malformed environment falls back to config", envPort: "not-a-port", cfgPort: 4300, want: 4300},
-		{name: "config is final fallback", cfgPort: 4300, want: 4300},
+		{name: "flag beats environment", flagPort: SinglePort(4100), envPort: "4200", cfgPort: SinglePort(4300), want: SinglePort(4100)},
+		{name: "environment beats config", envPort: "4200", cfgPort: SinglePort(4300), want: SinglePort(4200)},
+		{name: "malformed environment falls back to config", envPort: "not-a-port", cfgPort: SinglePort(4300), want: SinglePort(4300)},
+		{name: "reversed environment range falls back to config", envPort: "47819-47800", cfgPort: SinglePort(4300), want: SinglePort(4300)},
+		{name: "config is final fallback", cfgPort: SinglePort(4300), want: SinglePort(4300)},
+		{name: "flag range beats environment", flagPort: rng, envPort: "4200", want: rng},
+		{name: "environment range beats config", envPort: "47800-47819", cfgPort: SinglePort(4300), want: rng},
+		{name: "config range is final fallback", cfgPort: rng, want: rng},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CRIT_PORT", tt.envPort)
 			if got := ResolvePort(tt.flagPort, tt.cfgPort); got != tt.want {
-				t.Fatalf("ResolvePort(%d, %d) = %d, want %d", tt.flagPort, tt.cfgPort, got, tt.want)
+				t.Fatalf("ResolvePort(%v, %v) = %v, want %v", tt.flagPort, tt.cfgPort, got, tt.want)
 			}
 		})
 	}
