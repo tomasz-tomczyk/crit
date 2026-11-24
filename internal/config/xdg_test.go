@@ -99,3 +99,29 @@ func TestLoadConfig_LeftoverLegacyConfigInHomeIsNotProjectConfig(t *testing.T) {
 		t.Errorf("project hooks = %v, want none", project)
 	}
 }
+
+func TestGlobalConfigDisplayPath(t *testing.T) {
+	t.Run("fresh install", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows keeps the legacy layout without XDG variables")
+		}
+		testutil.SetFreshHome(t, t.TempDir())
+		if got := GlobalConfigDisplayPath(); got != "~/.config/crit/config.json" {
+			t.Errorf("got %q", got)
+		}
+	})
+	t.Run("legacy install", func(t *testing.T) {
+		testutil.SetHome(t, t.TempDir())
+		if got := GlobalConfigDisplayPath(); got != "~/.crit.config.json" {
+			t.Errorf("got %q", got)
+		}
+	})
+	t.Run("config folder outside home", func(t *testing.T) {
+		testutil.SetFreshHome(t, t.TempDir())
+		elsewhere := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", elsewhere)
+		if got, want := GlobalConfigDisplayPath(), filepath.Join(elsewhere, "crit", "config.json"); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+}

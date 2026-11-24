@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -312,5 +313,63 @@ func TestMaybeHint_FreshInstallStaysQuiet(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".crit")); !os.IsNotExist(err) {
 		t.Errorf("hint created ~/.crit (err=%v)", err)
+	}
+}
+
+// actAcrossFileSystems makes every rename fail as it does between disks.
+func actAcrossFileSystems(t *testing.T) {
+	t.Helper()
+	orig := rename
+	rename = func(oldpath, newpath string) error {
+		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+	}
+	t.Cleanup(func() { rename = orig })
+}
+
+func TestRun_AcrossFileSystemsCopiesThenRemoves(t *testing.T) {
+	home := legacyHome(t)
+	noRunningReviews(t)
+	actAcrossFileSystems(t)
+
+	if err := run(&bytes.Buffer{}, home, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(home, ".local", "state", "crit", "reviews", "aaaaaaaaaaaa", "review.json")); got != "{}" {
+		t.Errorf("review = %q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".crit")); !os.IsNotExist(err) {
+		t.Errorf("~/.crit left behind (err=%v)", err)
+	}
+}
+
+func TestRunMigrateXDG_Args(t *testing.T) {
+	if err := RunMigrateXDG([]string{"--bogus"}); err == nil || !strings.Contains(err.Error(), "Usage: crit migrate-xdg") {
+		t.Errorf("err = %v, want usage", err)
+	}
+	home := t.TempDir()
+	testutil.SetFreshHome(t, home)
+	for _, args := range [][]string{nil, {"--dry-run"}, {"-n"}} {
+		if err := RunMigrateXDG(args); err != nil {
+			t.Errorf("RunMigrateXDG(%q) on a fresh home: %v", args, err)
+		}
+	}
+}
+
+func TestExecute_RefusesConflicts(t *testing.T) {
+	if _, err := Execute(Plan{Conflicts: []Move{{From: "a", To: "b"}}}); err == nil {
+		t.Fatal("Execute ran a plan with conflicts")
+	}
+}
+
+func TestTilde(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator), "home", "me")
+	for path, want := range map[string]string{
+		home:                                   "~",
+		filepath.Join(home, ".config", "crit"): "~/.config/crit",
+		filepath.Join(string(filepath.Separator), "opt", "crit"): filepath.Join(string(filepath.Separator), "opt", "crit"),
+	} {
+		if got := Tilde(home, path); got != want {
+			t.Errorf("Tilde(%q) = %q, want %q", path, got, want)
+		}
 	}
 }

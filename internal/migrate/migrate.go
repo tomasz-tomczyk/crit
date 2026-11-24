@@ -25,6 +25,10 @@ import (
 // to: Windows without XDG_CONFIG_HOME and XDG_STATE_HOME.
 var ErrNoXDG = errors.New("the XDG folders are not in use here; set XDG_CONFIG_HOME and XDG_STATE_HOME to absolute paths to use them")
 
+// rename is os.Rename; tests replace it to act as if the folders were on
+// different file systems.
+var rename = os.Rename
+
 // configNames are the ~/.crit entries that belong in the config folder.
 // Everything else in ~/.crit is state.
 var configNames = map[string]bool{"prompts": true, "hooks": true, "custom.css": true}
@@ -152,7 +156,7 @@ func move(from, to string) error {
 			return err
 		}
 	}
-	err := os.Rename(from, to)
+	err := rename(from, to)
 	if err == nil || !errors.Is(err, syscall.EXDEV) {
 		return err
 	}
