@@ -134,6 +134,9 @@ func githubPushArgs(request forge.PushRequest) ([]string, error) {
 	if request.Message != "" {
 		prefix = append(prefix, "--message", request.Message)
 	}
+	if request.Commit != "" {
+		prefix = append(prefix, "--commit", request.Commit)
+	}
 	return append(prefix, args...), nil
 }
 

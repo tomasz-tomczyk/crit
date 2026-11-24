@@ -131,11 +131,13 @@ crit pull --viewed [number-or-url]
 crit push --event comment [-m '<body>'] [number-or-url]
 crit push --event approve [number-or-url]
 crit push --event request-changes [number-or-url]
+crit push --commit <sha> [number-or-url]
 crit pull --forge gitlab <iid>
 ```
 
 Use authenticated `gh` for GitHub or `glab` for GitLab. The current branch
 can supply the PR/MR number. Only post reviews when the user asks.
+`--commit <sha>` pins the review to the reviewed commit; in CI pass the PR/MR head SHA, not the merge commit. With `--commit`, GitHub records the review (approval included) on the pinned commit; GitLab refuses `--event approve` unless the pin is still the MR head.
 
 ## Sharing
 

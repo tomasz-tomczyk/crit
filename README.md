@@ -271,7 +271,10 @@ crit push --dry-run                            # preview without posting
 crit push --message "Round 2"                  # add a review summary
 crit push --event approve 42                   # approve
 crit push --event request-changes --forge gitlab 42
+crit push --commit "$HEAD_SHA" 42              # pin the review to the commit that was reviewed
 ```
+
+`--commit` pins the review to the commit you reviewed, so a push that lands mid-review can't receive your approval. In CI, pass the PR/MR head SHA: `${{ github.event.pull_request.head.sha }}` on GitHub Actions, `$CI_MERGE_REQUEST_SOURCE_BRANCH_SHA` in GitLab merged results pipelines (`$CI_COMMIT_SHA` in plain merge request pipelines). In a GitHub `pull_request` run, `HEAD` and `$GITHUB_SHA` are a synthetic merge commit that is not part of the PR. GitHub records the review, approval included, on the pinned commit; GitLab refuses `--event approve` unless the pin is still the MR head.
 
 #### Sync viewed files with GitHub
 

@@ -12,7 +12,7 @@ import (
 
 func TestPrintPushSummary_NoWork(t *testing.T) {
 	out := captureStdout(t, func() {
-		printPushSummary(0, 0, 0, 0, "")
+		printPushSummary("", 0, 0, 0, 0, "")
 	})
 	if !strings.Contains(out, "No comments to push") {
 		t.Errorf("got %q", out)
@@ -21,7 +21,7 @@ func TestPrintPushSummary_NoWork(t *testing.T) {
 
 func TestPrintPushSummary_WithExport(t *testing.T) {
 	out := captureStdout(t, func() {
-		printPushSummary(2, 1, 1, 3, "/tmp/orphans.md")
+		printPushSummary("", 2, 1, 1, 3, "/tmp/orphans.md")
 	})
 	for _, want := range []string{"Posted 2 comments", "edited 1", "deleted 1", "/tmp/orphans.md"} {
 		if !strings.Contains(out, want) {

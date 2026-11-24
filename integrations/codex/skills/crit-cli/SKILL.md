@@ -188,13 +188,14 @@ crit comment --plan my-plan-2026-03-23 --reply-to c_a1b2c3 --author 'Codex' 'Upd
 crit pull [number|url]                                   # Fetch PR/MR review comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [n]    # Post review comments to a PR/MR
 crit push --viewed [n]                                   # Also tick files marked viewed on the GitHub PR
+crit push --commit <sha> [n]                             # Pin the review to the reviewed commit; in CI pass the PR/MR head SHA, not the merge commit
 crit pull --viewed [n]                                   # Also fetch files ticked viewed on the GitHub PR
 crit pull --forge gitlab 42                              # Force GitLab when auto-detect is ambiguous
 ```
 
 Requires `gh` CLI installed and authenticated. PR number is auto-detected from the current branch.
 
-`--event` values: `comment` (default), `approve`, `request-changes`. `-m` adds a review-level body message.
+`--event` values: `comment` (default), `approve`, `request-changes`. `-m` adds a review-level body message. With `--commit`, GitHub records the review (approval included) on the pinned commit; GitLab refuses `--event approve` unless the pin is still the MR head.
 
 ## Sharing
 

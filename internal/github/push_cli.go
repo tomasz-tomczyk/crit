@@ -13,6 +13,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 type pushFlags struct {
@@ -23,6 +24,7 @@ type pushFlags struct {
 	configuredOutput string
 	sessionID        string
 	eventFlag        string
+	commit           string // --commit as given; resolved into pushContext.commitSHA
 	viewed           bool
 }
 
@@ -33,36 +35,12 @@ func parsePushFlags(args []string) (pushFlags, error) {
 		if setPushBoolFlag(&f, arg) {
 			continue
 		}
-		if arg == "--message" || arg == "-m" {
+		if target, missing := pushValueFlag(&f, arg); target != nil {
 			if i+1 >= len(args) {
-				return f, fmt.Errorf("--message requires a value")
+				return f, errors.New(missing)
 			}
 			i++
-			f.message = args[i]
-			continue
-		}
-		if arg == "--output" || arg == "-o" {
-			if i+1 >= len(args) {
-				return f, fmt.Errorf("--output requires a value")
-			}
-			i++
-			f.outputDir = args[i]
-			continue
-		}
-		if arg == "--session" {
-			if i+1 >= len(args) {
-				return f, fmt.Errorf("--session requires a value")
-			}
-			i++
-			f.sessionID = args[i]
-			continue
-		}
-		if arg == "--event" || arg == "-e" {
-			if i+1 >= len(args) {
-				return f, fmt.Errorf("--event requires a value (comment, approve, request-changes)")
-			}
-			i++
-			f.eventFlag = args[i]
+			*target = args[i]
 			continue
 		}
 		if err := setPushSpec(&f, arg); err != nil {
@@ -70,6 +48,24 @@ func parsePushFlags(args []string) (pushFlags, error) {
 		}
 	}
 	return f, nil
+}
+
+// pushValueFlag returns the field a value-taking flag fills and the error
+// text for when its value is missing. It returns nil for any other argument.
+func pushValueFlag(f *pushFlags, arg string) (*string, string) {
+	switch arg {
+	case "--message", "-m":
+		return &f.message, "--message requires a value"
+	case "--output", "-o":
+		return &f.outputDir, "--output requires a value"
+	case "--session":
+		return &f.sessionID, "--session requires a value"
+	case "--event", "-e":
+		return &f.eventFlag, "--event requires a value (comment, approve, request-changes)"
+	case "--commit":
+		return &f.commit, "--commit requires a value"
+	}
+	return nil, ""
 }
 
 func setPushBoolFlag(f *pushFlags, arg string) bool {
@@ -86,11 +82,11 @@ func setPushBoolFlag(f *pushFlags, arg string) bool {
 
 func setPushSpec(f *pushFlags, arg string) error {
 	if f.spec != "" {
-		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--commit <sha>] [--output <dir>] [number|url]\n")
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 	if _, err := ParsePRSpec(arg); err != nil {
-		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--output <dir>] [number|url]\n")
+		fmt.Fprintf(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--viewed] [--event <type>] [--message <msg>] [--commit <sha>] [--output <dir>] [number|url]\n")
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 	f.spec = arg
@@ -150,6 +146,37 @@ func resolveCurrentPRHead(id forge.ChangeID, inRange, dryRun bool) (string, erro
 	return info.HeadRefOid, nil
 }
 
+// checkPinnedCommit fails when --commit names a commit that is not part of
+// the PR. GitHub would only reject the review (422) after the push started,
+// with edits and deletes still to run, so this runs before anything is
+// posted, on dry runs too. GitHub lists at most prCommitsListLimit commits;
+// past that a miss is a warning, not an error.
+func checkPinnedCommit(ctx pushContext) error {
+	if ctx.commitSHA == "" {
+		return nil
+	}
+	shas, err := fetchPRCommitSHAs(ctx.id)
+	if err != nil {
+		if ctx.flags.dryRun {
+			fmt.Fprintf(os.Stderr, "Note: could not list PR #%d commits; --commit not checked in this dry-run: %v\n", ctx.id.Number, err)
+			return nil
+		}
+		return fmt.Errorf("checking --commit against PR #%d: %w", ctx.id.Number, err)
+	}
+	for _, sha := range shas {
+		if strings.EqualFold(sha, ctx.commitSHA) {
+			return nil
+		}
+	}
+	short := shortSHAString(ctx.commitSHA)
+	if len(shas) >= prCommitsListLimit {
+		fmt.Fprintf(os.Stderr, "Warning: PR #%d has %d or more commits and GitHub lists only the first %d; could not check that %s is one of them\n",
+			ctx.id.Number, prCommitsListLimit, prCommitsListLimit, short)
+		return nil
+	}
+	return fmt.Errorf("commit %s is not part of PR #%d; nothing was posted", short, ctx.id.Number)
+}
+
 // pushContext captures everything runPush needs after parsing flags +
 // loading the review file. Splitting this out keeps runPush itself short
 // and the cyclomatic complexity inside Go Report Card limits.
@@ -160,6 +187,9 @@ type pushContext struct {
 	prNumber int // id.Number; kept for call sites that only need the number
 	critPath string
 	cj       session.CritJSON
+	// commitSHA is the full SHA from --commit ("" when not given). The review
+	// is created against this commit instead of the PR's latest one.
+	commitSHA string
 }
 
 // loadPushContext parses flags, validates them, resolves the PR, and
@@ -183,6 +213,13 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, clicmd.ExitError{Code: 1, Err: errors.New("--event request-changes requires --message")}
 	}
 
+	commitSHA := ""
+	if f.commit != "" {
+		if commitSHA, err = vcs.ResolveCommitSHA("", f.commit); err != nil {
+			return pushContext{}, fmt.Errorf("--commit: %w", err)
+		}
+	}
+
 	id, err := resolvePullChangeID(f.spec)
 	if err != nil {
 		return pushContext{}, err
@@ -193,7 +230,7 @@ func loadPushContext(args []string) (pushContext, error) {
 		return pushContext{}, err
 	}
 
-	return pushContext{flags: f, event: event, id: id, prNumber: id.Number, critPath: critPath, cj: cj}, nil
+	return pushContext{flags: f, event: event, id: id, prNumber: id.Number, critPath: critPath, cj: cj, commitSHA: commitSHA}, nil
 }
 
 func loadPushReview(f pushFlags, id forge.ChangeID) (string, session.CritJSON, error) {
@@ -239,9 +276,15 @@ func loadPushReview(f pushFlags, id forge.ChangeID) (string, session.CritJSON, e
 // runPushDryRun prints the bucket plan to stdout and returns. Does not write
 // the export file — dry-run is read-only by definition.
 func runPushDryRun(ctx pushContext, b PushBuckets) {
+	if ctx.commitSHA != "" {
+		fmt.Printf("Review pinned to commit %s.\n", ctx.commitSHA)
+	}
 	fmt.Println(SummarizeBuckets(ctx.prNumber, b))
 	fmt.Println()
 	fmt.Print(DetailedDryRun(b))
+	if len(b.Postable) == 0 && pushHasVerdictOrBody(ctx) {
+		fmt.Printf("Would submit %s with no inline comments.\n", reviewAction(ctx))
+	}
 	fmt.Printf("Use `crit push --pr %d` to confirm.\n", ctx.prNumber)
 }
 
@@ -301,12 +344,47 @@ func RunPushLive(ctx pushContext, b PushBuckets) int { //nolint:gocyclo // CLI p
 		return 1
 	}
 
-	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
+	reviewed := !postFailed && pushPostsReview(ctx, b)
+	verdict := ""
+	if reviewed && pushHasVerdictOrBody(ctx) {
+		verdict = "Submitted " + reviewAction(ctx)
+	}
+	printPushSummary(verdict, posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
 
-	if pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
+	// With --commit the review is the point of the push: a rejected review
+	// (e.g. GitHub's 422 for a commit_id outside the PR) must fail CI even
+	// when edits, deletes, or an orphan export succeeded.
+	if postFailed && ctx.commitSHA != "" {
+		return 1
+	}
+	if !reviewed && pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
 		return 1
 	}
 	return 0
+}
+
+// pushHasVerdictOrBody reports whether the review carries something besides
+// inline comments: an approve / request-changes verdict or a -m body. Such a
+// review is posted even with no inline comments, like GitLab's bulk publish.
+// An empty event (tests building pushContext directly) means COMMENT.
+func pushHasVerdictOrBody(ctx pushContext) bool {
+	return (ctx.event != "" && ctx.event != "COMMENT") || ctx.flags.message != ""
+}
+
+// pushPostsReview reports whether this push creates a GitHub review.
+func pushPostsReview(ctx pushContext, b PushBuckets) bool {
+	return len(b.Postable) > 0 || pushHasVerdictOrBody(ctx)
+}
+
+// reviewAction names what the review submits, for summary and dry-run text.
+func reviewAction(ctx pushContext) string {
+	switch ctx.event {
+	case "APPROVE":
+		return "approval"
+	case "REQUEST_CHANGES":
+		return "change request"
+	}
+	return "review message"
 }
 
 // writePushOrphanExport writes the off-PR (full-stack + unmapped) bucket
@@ -336,11 +414,11 @@ func writePushOrphanExport(ctx pushContext, b PushBuckets) string {
 // the failure was specifically an auth-rotation 401, and the path-to-id
 // mapping for body-hash bookkeeping.
 func runPushPostReview(ctx pushContext, b PushBuckets, rewrite BodyRewriter) (int, bool, bool, map[string]int64) {
-	if len(b.Postable) == 0 {
+	if !pushPostsReview(ctx, b) {
 		return 0, false, false, nil
 	}
 	ghComments := BucketsToGHComments(b.Postable, rewrite)
-	ids, err := createGHReview(ctx.id, ghComments, ctx.flags.message, ctx.event)
+	ids, err := createGHReview(ctx.id, ghComments, ctx.flags.message, ctx.event, ctx.commitSHA)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
 		return 0, true, errors.Is(err, ErrGHAuthFailed), nil
@@ -373,12 +451,24 @@ func pushShouldExitFailure(posted, patched, deleted int, exportPath string, post
 
 // printPushSummary writes the one-line stdout summary describing what
 // happened. Adapts wording to the actual outcome (no orphans, no posts, etc).
-func printPushSummary(posted, patched, deleted, orphans int, exportPath string) {
-	if posted == 0 && patched == 0 && deleted == 0 && orphans == 0 {
+// verdict is non-empty when a review with a verdict or body was submitted
+// (e.g. "Submitted approval"); it leads the line.
+func printPushSummary(verdict string, posted, patched, deleted, orphans int, exportPath string) {
+	if verdict == "" && posted == 0 && patched == 0 && deleted == 0 && orphans == 0 {
 		fmt.Println("No comments to push.")
 		return
 	}
-	parts := []string{fmt.Sprintf("Posted %d comments", posted)}
+	var parts []string
+	if verdict != "" {
+		parts = append(parts, verdict)
+	}
+	if posted > 0 || verdict == "" {
+		verb := "Posted"
+		if verdict != "" {
+			verb = "posted"
+		}
+		parts = append(parts, fmt.Sprintf("%s %d comments", verb, posted))
+	}
 	if patched > 0 {
 		parts = append(parts, fmt.Sprintf("edited %d", patched))
 	}
@@ -494,10 +584,24 @@ func RunPush(args []string) error {
 		return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 	}
 
-	inRange := ctx.cj.ActiveDiffScope != ""
-	currentHead, err := resolveCurrentPRHead(ctx.id, inRange, ctx.flags.dryRun)
-	if err != nil {
+	if err := checkPinnedCommit(ctx); err != nil {
 		return err
+	}
+
+	inRange := ctx.cj.ActiveDiffScope != ""
+	// With --commit, the review is created against that commit, so a comment
+	// is postable only when it was written against that same commit: its line
+	// numbers then match the diff GitHub anchors them to. Comparing against the
+	// live PR head instead would mark every comment stale as soon as someone
+	// pushes after the review started, which is the race --commit exists for.
+	// GitHub rejects a commit_id that is not part of the PR.
+	currentHead := ctx.commitSHA
+	if currentHead == "" {
+		var err error
+		currentHead, err = resolveCurrentPRHead(ctx.id, inRange, ctx.flags.dryRun)
+		if err != nil {
+			return err
+		}
 	}
 
 	b := BucketCommentsForPush(ctx.cj, currentHead, inRange)

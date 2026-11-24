@@ -244,51 +244,59 @@ func parsePushRequest(args []string) (PushRequest, error) {
 		if setPushBoolFlag(&request, args[i]) {
 			continue
 		}
-		switch args[i] {
-		case "--message", "-m":
+		if target := pushValueFlag(&request, args[i]); target != nil {
 			val, next, err := requireFlagValue(args, i)
 			if err != nil {
 				return request, err
 			}
 			i = next
-			request.Message = val
-		case "--output", "-o":
-			val, next, err := requireFlagValue(args, i)
-			if err != nil {
-				return request, err
-			}
-			i = next
-			request.OutputDir = val
-		case "--session":
+			*target = val
+			continue
+		}
+		if args[i] == "--session" {
 			id, next, err := parseSessionFlag(args, i)
 			if err != nil {
 				return request, err
 			}
 			i = next
 			request.SessionID = id
-		case "--event", "-e":
-			val, next, err := requireFlagValue(args, i)
-			if err != nil {
-				return request, err
-			}
-			i = next
-			request.Event = strings.ToLower(val)
-		default:
-			if request.ChangeSpec != "" {
-				return request, fmt.Errorf("usage: crit push [--forge <provider>] [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [number|url]")
-			}
-			request.ChangeSpec = args[i]
+			continue
 		}
+		if request.ChangeSpec != "" {
+			return request, fmt.Errorf("usage: crit push [--forge <provider>] [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--commit <sha>] [--output <dir>] [number|url]")
+		}
+		request.ChangeSpec = args[i]
 	}
+	request.Event = strings.ToLower(request.Event)
+	return request, validatePushEvent(request)
+}
+
+// pushValueFlag returns the PushRequest field a value-taking push flag fills,
+// or nil for any other argument.
+func pushValueFlag(request *PushRequest, arg string) *string {
+	switch arg {
+	case "--message", "-m":
+		return &request.Message
+	case "--output", "-o":
+		return &request.OutputDir
+	case "--event", "-e":
+		return &request.Event
+	case "--commit":
+		return &request.Commit
+	}
+	return nil
+}
+
+func validatePushEvent(request PushRequest) error {
 	switch request.Event {
 	case "comment", "approve", "request-changes":
 	default:
-		return request, fmt.Errorf("invalid --event %q (expected comment, approve, or request-changes)", request.Event)
+		return fmt.Errorf("invalid --event %q (expected comment, approve, or request-changes)", request.Event)
 	}
 	if request.Event == "request-changes" && request.Message == "" {
-		return request, fmt.Errorf("--event request-changes requires --message")
+		return fmt.Errorf("--event request-changes requires --message")
 	}
-	return request, nil
+	return nil
 }
 
 func requireFlagValue(args []string, i int) (string, int, error) {

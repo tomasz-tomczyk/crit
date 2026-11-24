@@ -103,6 +103,7 @@ type PushRequest struct {
 	DryRun     bool
 	Message    string
 	Event      string
+	Commit     string   // commit the review was made for (--commit); empty = latest
 	Viewed     bool     // also sync viewed files (GitHub only)
 	Args       []string // compatibility path for direct provider callers
 }

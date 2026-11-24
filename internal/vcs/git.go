@@ -747,6 +747,30 @@ func HeadSHAInDir(dir string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+var fullSHARe = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+
+// ResolveCommitSHA resolves ref (a SHA, short SHA, branch, or HEAD) to a full
+// commit SHA with git in dir. When git cannot resolve ref but it is already a
+// full 40- or 64-character hex SHA (for example a shallow CI clone that lacks
+// the object), ref is returned as-is, lowercased.
+func ResolveCommitSHA(dir, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", errors.New("empty commit")
+	}
+	// A leading dash would be read as a git option.
+	if !strings.HasPrefix(ref, "-") {
+		out, err := RunGitInDir(dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+		if sha := strings.TrimSpace(out); err == nil && fullSHARe.MatchString(sha) {
+			return strings.ToLower(sha), nil
+		}
+	}
+	if fullSHARe.MatchString(ref) {
+		return strings.ToLower(ref), nil
+	}
+	return "", fmt.Errorf("cannot resolve %q to a commit in this repository", ref)
+}
+
 // RunGitInDir runs `git <args...>` in dir and returns the stdout. Mirrors the
 // existing inline exec.Command pattern used elsewhere in git.go.
 func RunGitInDir(dir string, args ...string) (string, error) {

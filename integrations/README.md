@@ -213,7 +213,7 @@ All integrations follow the same pattern:
 Each integration also teaches the agent about:
 - **`crit comment`** - leave inline review comments programmatically without opening the browser
 - **review file format** - how to read comments, resolve them with threaded replies
-- **`crit pull/push`** - sync reviews with GitHub PRs (push supports `--event approve|request-changes|comment`)
+- **`crit pull/push`** - sync reviews with GitHub PRs (push supports `--event approve|request-changes|comment`, and `--commit <sha>` to pin the review to the commit that was reviewed)
 
 ## Next steps
 

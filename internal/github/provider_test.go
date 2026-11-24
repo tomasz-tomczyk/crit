@@ -127,11 +127,11 @@ func TestGitHubProviderArgumentTranslation(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(pull, compat) {
 		t.Fatalf("compat pull args = (%v, %v)", pull, err)
 	}
-	push, err := githubPushArgs(forge.PushRequest{ChangeSpec: "12", OutputDir: "reviews", DryRun: true, Event: "approve", Message: "ship"})
+	push, err := githubPushArgs(forge.PushRequest{ChangeSpec: "12", OutputDir: "reviews", DryRun: true, Event: "approve", Message: "ship", Commit: "abc1234"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPush := []string{"--dry-run", "--event", "approve", "--message", "ship", "--output", "reviews", "12"}
+	wantPush := []string{"--dry-run", "--event", "approve", "--message", "ship", "--commit", "abc1234", "--output", "reviews", "12"}
 	if !reflect.DeepEqual(push, wantPush) {
 		t.Fatalf("push args = %v, want %v", push, wantPush)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 type pushFlags struct {
@@ -25,6 +26,7 @@ type pushFlags struct {
 	outputDir string
 	sessionID string
 	event     string
+	commit    string // --commit as given; resolved with vcs.ResolveCommitSHA
 }
 
 func parsePushFlags(args []string) (pushFlags, error) {
@@ -57,6 +59,12 @@ func parsePushFlags(args []string) (pushFlags, error) {
 			}
 			i++
 			flags.event = strings.ToLower(args[i])
+		case "--commit":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--commit requires a value")
+			}
+			i++
+			flags.commit = args[i]
 		default:
 			if flags.spec != "" {
 				return flags, usagePushError()
@@ -64,19 +72,23 @@ func parsePushFlags(args []string) (pushFlags, error) {
 			flags.spec = args[i]
 		}
 	}
+	return flags, validatePushEvent(flags)
+}
+
+func validatePushEvent(flags pushFlags) error {
 	switch flags.event {
 	case "comment", "approve", "request-changes":
 	default:
-		return flags, fmt.Errorf("invalid --event %q (expected comment, approve, or request-changes)", flags.event)
+		return fmt.Errorf("invalid --event %q (expected comment, approve, or request-changes)", flags.event)
 	}
 	if flags.event == "request-changes" && flags.message == "" {
-		return flags, fmt.Errorf("--event request-changes requires --message")
+		return fmt.Errorf("--event request-changes requires --message")
 	}
-	return flags, nil
+	return nil
 }
 
 func usagePushError() error {
-	fmt.Fprintln(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--output <dir>] [mr-iid|url]")
+	fmt.Fprintln(os.Stderr, "Usage: crit push [--session <id>] [--dry-run] [--event <type>] [--message <msg>] [--commit <sha>] [--output <dir>] [mr-iid|url]")
 	return clicmd.ExitError{Code: 1, Err: errors.New("exit")}
 }
 
@@ -122,7 +134,7 @@ func splitLocalMarker(body string) (string, string) {
 }
 
 func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, error) { //nolint:gocyclo
-	flags := pushFlags{spec: request.ChangeSpec, dryRun: request.DryRun, message: request.Message, outputDir: request.OutputDir, sessionID: request.SessionID, event: request.Event}
+	flags := pushFlags{spec: request.ChangeSpec, dryRun: request.DryRun, message: request.Message, outputDir: request.OutputDir, sessionID: request.SessionID, event: request.Event, commit: request.Commit}
 	if flags.event == "" {
 		flags.event = "comment"
 	}
@@ -131,6 +143,13 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		flags, err = parsePushFlags(request.Args)
 		if err != nil {
 			return forge.PushResult{}, err
+		}
+	}
+	commitSHA := ""
+	if flags.commit != "" {
+		var err error
+		if commitSHA, err = vcs.ResolveCommitSHA("", flags.commit); err != nil {
+			return forge.PushResult{}, fmt.Errorf("--commit: %w", err)
 		}
 	}
 	id, err := resolveChangeID(ctx, request.Repo, flags.spec)
@@ -158,8 +177,19 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 	if err != nil {
 		return forge.PushResult{}, err
 	}
-	candidates, skipped := collectPushCandidates(cj, mr.DiffRefs.HeadSHA)
+	// Checked before any edit, delete, or draft so a bad --commit posts nothing.
+	refs, err := pushDiffRefs(ctx, repo, id, mr, commitSHA, flags.event)
+	if err != nil {
+		return forge.PushResult{}, err
+	}
+	// refs.HeadSHA is the pinned commit when --commit is set: only comments
+	// written against that commit have line numbers that fit its diff, the
+	// same rule GitHub's push uses (see github.RunPush).
+	candidates, skipped := collectPushCandidates(cj, refs.HeadSHA)
 	if flags.dryRun {
+		if commitSHA != "" {
+			fmt.Printf("Review pinned to commit %s.\n", commitSHA)
+		}
 		fmt.Printf("GitLab MR !%d: %d new comments/replies, %d skipped; event=%s\n", id.Number, len(candidates), skipped, flags.event)
 		return forge.PushResult{}, nil
 	}
@@ -198,7 +228,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		}
 	}
 
-	created, replies, err := stageDraftNotes(ctx, repo, id, mr.DiffRefs, candidates, existingDrafts)
+	created, replies, err := stageDraftNotes(ctx, repo, id, refs, candidates, existingDrafts)
 	if err != nil {
 		return result, fmt.Errorf("GitLab draft review remains unpublished: %w", err)
 	}
@@ -254,7 +284,13 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		}
 	}
 	if flags.event == "approve" {
-		if _, err := runAPI(ctx, repo.Host, projectEndpoint(id, "/approve"), "POST", map[string]any{"sha": mr.DiffRefs.HeadSHA}); err != nil {
+		// GitLab answers 409 when sha is no longer the MR head, so an approval
+		// never lands on commits nobody reviewed. pushDiffRefs already checked
+		// this; the 409 covers a push that lands while drafts are published.
+		if _, err := runAPI(ctx, repo.Host, projectEndpoint(id, "/approve"), "POST", map[string]any{"sha": refs.HeadSHA}); err != nil {
+			if isConflictAPIError(err) {
+				return result, fmt.Errorf("comments published, but MR !%d head moved past %s; approval not submitted: %w", id.Number, shortSHA(refs.HeadSHA), err)
+			}
 			return result, fmt.Errorf("comments published, but GitLab approval failed: %w", err)
 		}
 	}
@@ -265,6 +301,70 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 			result.Created, result.Replied, result.Edited, result.Deleted, result.Resolved, id.Number)
 	}
 	return result, nil
+}
+
+// mrVersion is one entry of GitLab's merge request versions API: the diff
+// GitLab recorded for each push to the MR.
+type mrVersion struct {
+	HeadCommitSHA  string `json:"head_commit_sha"`
+	BaseCommitSHA  string `json:"base_commit_sha"`
+	StartCommitSHA string `json:"start_commit_sha"`
+}
+
+// pushDiffRefs returns the diff_refs that new diff notes are positioned
+// against. Without --commit (commitSHA == "") that is the MR's current diff.
+// With --commit it is the MR version whose head is that commit, so line
+// numbers from the review land on the diff that was reviewed. An approval
+// must be for the current head: approving an older commit would approve code
+// nobody reviewed, so that fails here, before anything is posted.
+func pushDiffRefs(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, mr mrRaw, commitSHA, event string) (diffRefs, error) {
+	if commitSHA == "" {
+		return mr.DiffRefs, nil
+	}
+	if strings.EqualFold(commitSHA, mr.DiffRefs.HeadSHA) {
+		return mr.DiffRefs, nil
+	}
+	if event == "approve" {
+		return diffRefs{}, fmt.Errorf("MR !%d head moved past %s (now %s); approval not submitted and nothing was posted",
+			id.Number, shortSHA(commitSHA), shortSHA(mr.DiffRefs.HeadSHA))
+	}
+	version, err := findMRVersion(ctx, repo, id, commitSHA)
+	if err != nil {
+		return diffRefs{}, err
+	}
+	return diffRefs{BaseSHA: version.BaseCommitSHA, StartSHA: version.StartCommitSHA, HeadSHA: version.HeadCommitSHA}, nil
+}
+
+// findMRVersion pages through the MR's versions (newest first) for the one
+// whose head is commitSHA.
+func findMRVersion(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, commitSHA string) (mrVersion, error) {
+	const perPage = 100
+	for page := 1; ; page++ {
+		endpoint := fmt.Sprintf("%s/versions?per_page=%d&page=%d", projectEndpoint(id, ""), perPage, page)
+		out, err := runAPI(ctx, repo.Host, endpoint, "GET", nil)
+		if err != nil {
+			return mrVersion{}, fmt.Errorf("listing MR !%d versions: %w", id.Number, err)
+		}
+		var batch []mrVersion
+		if err := json.Unmarshal(out, &batch); err != nil {
+			return mrVersion{}, fmt.Errorf("parsing GitLab merge request versions: %w", err)
+		}
+		for _, version := range batch {
+			if strings.EqualFold(version.HeadCommitSHA, commitSHA) && version.BaseCommitSHA != "" && version.StartCommitSHA != "" {
+				return version, nil
+			}
+		}
+		if len(batch) < perPage {
+			return mrVersion{}, fmt.Errorf("commit %s is not a version of MR !%d; nothing was posted", shortSHA(commitSHA), id.Number)
+		}
+	}
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 func savePartialGitLabPush(saved *pushReview, cj session.CritJSON, operationErr error) error {

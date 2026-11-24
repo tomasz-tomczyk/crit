@@ -200,13 +200,13 @@ func TestRunPullSelectsGitHubFromPRURLBeforeRemoteDetection(t *testing.T) {
 func TestRunPushSelectsExplicitProviderAndDispatches(t *testing.T) {
 	provider := &cliTestProvider{kind: GitHub}
 	selected := withCLIProvider(t, provider)
-	if err := RunPush([]string{"--forge=github", "--dry-run", "--event", "approve", "--message", "ship it", "42"}); err != nil {
+	if err := RunPush([]string{"--forge=github", "--dry-run", "--event", "approve", "--message", "ship it", "--commit", "HEAD", "42"}); err != nil {
 		t.Fatal(err)
 	}
 	if *selected != GitHub {
 		t.Fatalf("selected provider = %q, want github", *selected)
 	}
-	want := PushRequest{ChangeSpec: "42", DryRun: true, Event: "approve", Message: "ship it"}
+	want := PushRequest{ChangeSpec: "42", DryRun: true, Event: "approve", Message: "ship it", Commit: "HEAD"}
 	if !reflect.DeepEqual(provider.pushRequest, want) {
 		t.Fatalf("push request = %+v, want %+v", provider.pushRequest, want)
 	}
@@ -280,7 +280,7 @@ func TestCLIParsingRejectsMissingAndDuplicateValues(t *testing.T) {
 			t.Errorf("parsePullRequest(%v) unexpectedly succeeded", args)
 		}
 	}
-	for _, args := range [][]string{{"--message"}, {"--output"}, {"--event"}, {"1", "2"}, {"--event", "bogus"}, {"--session"}} {
+	for _, args := range [][]string{{"--message"}, {"--output"}, {"--event"}, {"1", "2"}, {"--event", "bogus"}, {"--session"}, {"--commit"}} {
 		if _, err := parsePushRequest(args); err == nil {
 			t.Errorf("parsePushRequest(%v) unexpectedly succeeded", args)
 		}
