@@ -8,8 +8,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func cspDirective(policy, name string) string {
@@ -84,9 +87,43 @@ func TestIndexHTMLCarriesRemoteImagesAllowlist(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
-	want := `<meta name="crit-remote-images" content="[&#34;img.shields.io&#34;]">`
+	want := `<meta name="crit-remote-images" content="[&#34;img.shields.io&#34;]" data-hint="`
 	if !strings.Contains(w.Body.String(), want) {
 		t.Errorf("index.html lacks %s", want)
+	}
+}
+
+// The click-to-load hint names the global config file crit actually reads:
+// the XDG file on a fresh install, the legacy one on an existing install.
+func TestIndexHTMLRemoteImagesHintNamesConfigInUse(t *testing.T) {
+	tests := []struct {
+		name   string
+		legacy bool
+		want   string
+	}{
+		{"fresh install", false, "~/.config/crit/config.json"},
+		{"legacy install", true, "~/.crit.config.json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !tt.legacy && runtime.GOOS == "windows" {
+				t.Skip("Windows keeps the legacy layout without XDG variables")
+			}
+			s, _ := newTestServer(t)
+			home := t.TempDir()
+			if tt.legacy {
+				testutil.SetHome(t, home)
+			} else {
+				testutil.SetFreshHome(t, home)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, req)
+			want := `data-hint="Add the host to remote_images in ` + tt.want + ` to load images`
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("index.html lacks %s", want)
+			}
+		})
 	}
 }
 

@@ -688,6 +688,24 @@ func GlobalConfigPath() string {
 	return userdirs.ConfigFile(home)
 }
 
+// GlobalConfigDisplayPath is GlobalConfigPath for user-facing text, with the
+// home directory shortened to "~". It falls back to the legacy name when the
+// home directory is unknown.
+func GlobalConfigDisplayPath() string {
+	path := GlobalConfigPath()
+	if path == "" {
+		return "~/.crit.config.json"
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "~/" + filepath.ToSlash(rel)
+	}
+	return path
+}
+
 // CustomCSSPath is where crit looks for the user's own stylesheet:
 // ~/.config/crit/custom.css (or the legacy ~/.crit/custom.css). It lives in
 // the user's config directory, so a project repo

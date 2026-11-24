@@ -404,7 +404,11 @@ func TestResolveHookSlug_SeparatesSessionsWithTheSameHeading(t *testing.T) {
 func TestResolveHookSlug_SeparatesSessionsWithoutTheMapping(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	// A file where ~/.crit should be makes every save fail.
+	// A file where ~/.crit should be makes every save fail. setHome seeds
+	// ~/.crit as a directory (an existing install), so replace it.
+	if err := os.RemoveAll(filepath.Join(home, ".crit")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(home, ".crit"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
