@@ -153,3 +153,31 @@ func TestInitTestRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestSetHomeSeedsLegacyLayout(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/elsewhere/config")
+	t.Setenv("XDG_STATE_HOME", "/elsewhere/state")
+	home := t.TempDir()
+	SetHome(t, home)
+	if got := os.Getenv("HOME"); got != home {
+		t.Errorf("HOME = %q, want %q", got, home)
+	}
+	if os.Getenv("XDG_CONFIG_HOME") != "" || os.Getenv("XDG_STATE_HOME") != "" {
+		t.Error("XDG variables not cleared")
+	}
+	if info, err := os.Stat(filepath.Join(home, ".crit")); err != nil || !info.IsDir() {
+		t.Errorf("~/.crit not seeded: %v", err)
+	}
+}
+
+func TestSetFreshHomeCreatesNothing(t *testing.T) {
+	home := t.TempDir()
+	SetFreshHome(t, home)
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("fresh home has %d entries, want none", len(entries))
+	}
+}

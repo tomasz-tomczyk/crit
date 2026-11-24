@@ -590,7 +590,7 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 	})
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Chdir(t.TempDir())
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -667,7 +667,7 @@ func TestConnectToLiveDaemon_LaunchesBrowserWhenNoneAttached(t *testing.T) {
 		openLiveBrowser = originalOpenBrowser
 	})
 
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": false})
 	}))
@@ -730,7 +730,7 @@ func TestConnectToLiveDaemon_RespectsNoOpen(t *testing.T) {
 		launchLiveBrowser = originalLaunchBrowser
 	})
 
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": false})
 	}))
@@ -1516,7 +1516,7 @@ func TestConnectToLiveDaemon_QuietSuppressesStatus(t *testing.T) {
 		launchLiveBrowser = originalLaunchBrowser
 	})
 
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "browser_clients": true})
 	}))

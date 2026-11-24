@@ -9,6 +9,7 @@ import {
   claudeIdsOf,
   clientPropsOf,
   critThreadsOf,
+  critThreadsOfList,
   emptyDoc,
   feedbackOf,
   fileDoc,
@@ -51,7 +52,6 @@ let diffTimer: Timer | null = null
 // Chat comments live in a crit plan when the crit CLI has `plan --no-wait`.
 let hasChatPlans: boolean | null = null
 let chatSlug: string | null = null
-let chatPlanFile: string | null = null
 let savedChat = ''
 
 // ── Loading documents ─────────────────────────────────────────────────
@@ -131,8 +131,8 @@ async function refreshSource($: $, source: Source) {
 
 // ── crit's review file ────────────────────────────────────────────────
 
-async function crit($: $, argv: string[], stdin?: string) {
-  const run = await $.process.run([critBin, ...argv], { timeoutMs: 15000, ...(stdin ? { stdin } : {}) })
+async function crit($: $, argv: string[], { stdin, timeoutMs = 15000 }: { stdin?: string; timeoutMs?: number } = {}) {
+  const run = await $.process.run([critBin, ...argv], { timeoutMs, ...(stdin ? { stdin } : {}) })
   if (run.exitCode !== 0) {
     throw new Error((run.stderr || run.stdout).trim() || `crit ${argv[0]} failed`)
   }
@@ -168,8 +168,6 @@ async function chatPlanReady($: $): Promise<boolean> {
   }
   if (hasChatPlans && !chatSlug) {
     chatSlug = chatPlanSlug(await $.session.id())
-    const home = await $.env.get('HOME')
-    chatPlanFile = home ? `${home}/.crit/plans/${chatSlug}/.crit/review.json` : null
   }
   return hasChatPlans
 }
@@ -183,23 +181,26 @@ async function saveChatPlan($: $) {
   if (markdown === savedChat) {
     return
   }
-  await crit($, ['plan', '--name', chatSlug, '--no-wait', '--quiet'], markdown)
+  await crit($, ['plan', '--name', chatSlug, '--no-wait', '--quiet'], { stdin: markdown })
   savedChat = markdown
 }
 
 async function readChatPlanThreads($: $): Promise<Thread[]> {
-  if (!(await chatPlanReady($)) || !chatPlanFile) {
+  if (!(await chatPlanReady($)) || !chatSlug) {
     return []
   }
-  const json = await $.fs.read(chatPlanFile).catch(() => '')
-  if (json === '') {
+  // crit knows where the plan lives (XDG state dir or legacy ~/.crit).
+  // A short timeout: this read runs before the pane opens.
+  const json = await crit($, ['comments', '--plan', chatSlug, '--json', '--all'], { timeoutMs: 3000 }).catch(() => '')
+  const threads = critThreadsOfList(json)
+  if (threads.length === 0) {
     return []
   }
   // A plan from earlier in this session: keep saving it each turn.
   if (savedChat === '') {
     savedChat = 'saved'
   }
-  return chatThreadsFromPlan(critThreadsOf(json), (await read($, docsA)).chat.rows)
+  return chatThreadsFromPlan(threads, (await read($, docsA)).chat.rows)
 }
 
 /** `crit comment` arguments that point at the chat plan for a chat thread. */
@@ -322,7 +323,7 @@ async function addComment($: $, start: number, end: number, body: string, cols?:
       ...(picked.isExact && picked.quote ? { quote: picked.quote } : {}),
       ...(offset !== undefined ? { quote_offset: offset } : {}),
     }
-    await crit($, ['comment', '--plan', chatSlug, '--json'], JSON.stringify([entry]))
+    await crit($, ['comment', '--plan', chatSlug, '--json'], { stdin: JSON.stringify([entry]) })
     await refreshCrit($)
     return
   }
@@ -340,7 +341,7 @@ async function addComment($: $, start: number, end: number, body: string, cols?:
       ...(picked.isExact && picked.quote ? { quote: picked.quote } : {}),
       ...(offset !== undefined ? { quote_offset: offset } : {}),
     }
-    await crit($, ['comment', '--json'], JSON.stringify([entry]))
+    await crit($, ['comment', '--json'], { stdin: JSON.stringify([entry]) })
     await refreshCrit($)
     return
   }

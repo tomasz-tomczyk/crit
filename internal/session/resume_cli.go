@@ -106,38 +106,44 @@ func parseResumeArgs(args []string) (listOnly bool, id string, passthrough []str
 	return listOnly, id, passthrough, nil
 }
 
-// listResumableReviews reads every review folder under ~/.crit/reviews, newest
-// first. Reviews stored elsewhere (crit plan, or --output) are not listed:
-// their identity path cannot be discovered from the reviews directory.
+// listResumableReviews reads every review folder under the reviews directory
+// of each state root (see daemon.AllReviewsDirs), newest first. A key found in
+// more than one root is listed once, from the first root, which is the one
+// reconnect reads. Reviews stored elsewhere (crit plan, or --output) are not
+// listed: their identity path cannot be discovered from the reviews directory.
 func listResumableReviews() ([]resumableReview, error) {
-	dir, err := daemon.ReviewsDir()
+	dirs, err := daemon.AllReviewsDirs()
 	if err != nil {
 		return nil, err
 	}
-	entries, err := readReviewsDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reading reviews directory: %w", err)
-	}
 
 	running := runningSessionKeys()
+	seen := make(map[string]bool)
 	var reviews []resumableReview
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	for _, dir := range dirs {
+		entries, err := readReviewsDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("reading reviews directory: %w", err)
 		}
-		key := strings.TrimSuffix(entry.Name(), ".json")
-		if !daemon.ValidSessionKey(key) {
-			continue
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			key := strings.TrimSuffix(entry.Name(), ".json")
+			if !daemon.ValidSessionKey(key) || seen[key] {
+				continue
+			}
+			review, ok := readResumableReview(filepath.Join(dir, entry.Name()), key)
+			if !ok {
+				continue
+			}
+			seen[key] = true
+			review.running = running[key]
+			reviews = append(reviews, review)
 		}
-		review, ok := readResumableReview(filepath.Join(dir, entry.Name()), key)
-		if !ok {
-			continue
-		}
-		review.running = running[key]
-		reviews = append(reviews, review)
 	}
 	sort.Slice(reviews, func(i, j int) bool {
 		return reviews[i].updatedAt.After(reviews[j].updatedAt)

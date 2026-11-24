@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 )
 
 type CommonDaemonFlags struct {
@@ -225,13 +226,14 @@ func InvalidSessionIDError(id string) error {
 	return fmt.Errorf("invalid session ID %q (expected 12-character hex)", id)
 }
 
-// sessionsDir returns the path to ~/.crit/sessions/.
+// sessionsDir returns the sessions directory under the crit state root
+// (~/.local/state/crit/sessions, or the legacy ~/.crit/sessions).
 func sessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "sessions"), nil
+	return filepath.Join(userdirs.StateDir(home), "sessions"), nil
 }
 
 // sessionFilePath returns the full path for a session file.
@@ -243,13 +245,74 @@ func sessionFilePath(key string) (string, error) {
 	return filepath.Join(dir, key+".json"), nil
 }
 
-// reviewsDir returns the path to ~/.crit/reviews/.
+// ReviewsDir returns the reviews directory under the crit state root
+// (~/.local/state/crit/reviews, or the legacy ~/.crit/reviews).
 func ReviewsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("finding home directory: %w", err)
 	}
-	return filepath.Join(home, ".crit", "reviews"), nil
+	return filepath.Join(userdirs.StateDir(home), "reviews"), nil
+}
+
+// AllReviewsDirs returns the reviews directory of every existing state root,
+// ReviewsDir first (see userdirs.StateDirs). Listing and cleanup read all of
+// them so reviews written under another root are not hidden.
+func AllReviewsDirs() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("finding home directory: %w", err)
+	}
+	roots := userdirs.StateDirs(home)
+	dirs := make([]string, 0, len(roots))
+	for _, root := range roots {
+		dirs = append(dirs, filepath.Join(root, "reviews"))
+	}
+	return dirs, nil
+}
+
+// LiveSessionsIn returns the sessions in sessionsDir whose daemon is still
+// running. Unlike ListAllSessions it takes the folder (any state root) and
+// leaves dead session files alone.
+func LiveSessionsIn(sessionsDir string) []SessionEntry {
+	dirEntries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return nil
+	}
+	var alive []SessionEntry
+	for _, de := range dirEntries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(sessionsDir, de.Name()))
+		if err != nil {
+			continue
+		}
+		var entry SessionEntry
+		if json.Unmarshal(data, &entry) != nil {
+			continue
+		}
+		if isDaemonAlive(entry) {
+			alive = append(alive, entry)
+		}
+	}
+	return alive
+}
+
+// FindReviewDir returns the review folder for key in the first state root
+// that has its review.json, or ok=false when none does.
+func FindReviewDir(key string) (string, bool) {
+	dirs, err := AllReviewsDirs()
+	if err != nil {
+		return "", false
+	}
+	for _, dir := range dirs {
+		folder := filepath.Join(dir, key)
+		if _, err := os.Stat(filepath.Join(folder, "review.json")); err == nil {
+			return folder, true
+		}
+	}
+	return "", false
 }
 
 // ReviewFilePath returns the v4 review identity path: a folder named <key>

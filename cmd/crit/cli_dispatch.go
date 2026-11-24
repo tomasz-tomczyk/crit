@@ -47,7 +47,8 @@ Options:
 	{name: "config", handler: runConfig, bareHelp: true, helpFn: config.PrintConfigHelp},
 	{name: "check", handler: func([]string) { runCheck() }, help: `Usage: crit check
 
-Check installed integrations for missing or stale configuration.`},
+Check installed integrations for missing or stale configuration, and show
+where crit reads its config and keeps its state.`},
 	{name: "pr", handler: runPR, help: `Usage: crit pr [num|url]
 
 Open a GitHub pull request for review (default: the PR for the current branch).`},
@@ -202,7 +203,8 @@ Show active session IDs and review paths, daemon status, and comment counts.`},
 	{name: "resume", handler: runResume, help: `Usage: crit resume [--list | <id>] [review options]
 
 Pick a stored review to reopen. Without arguments this shows an interactive
-list of every review in ~/.crit/reviews, newest first, and reconnects to the
+list of every review in crit's state directory (~/.local/state/crit/reviews,
+or ~/.crit/reviews on existing installs), newest first, and reconnects to the
 one you choose — restarting its daemon in the directory it came from when that
 daemon has stopped. Pass a session ID to skip the picker.
 
@@ -210,7 +212,7 @@ Options:
   -l, --list               Print the list instead of opening the picker
 
 Any other option is passed through to the review, so flags like --no-open work.
-Reviews stored outside ~/.crit/reviews are not listed: reopen a plan with
+Reviews stored elsewhere are not listed: reopen a plan with
 crit plan --name <slug>, and an --output review with crit --session <id>.`},
 	{name: "stats", handler: runStats, help: `Usage: crit stats [--json]
 
@@ -218,6 +220,20 @@ Show lifetime review statistics.`},
 	{name: "cleanup", handler: runCleanup, help: `Usage: crit cleanup [--days N] [--force]
 
 Delete stale review files. The default age is seven days.`},
+	{name: "migrate-xdg", handler: runMigrateXDG, help: `Usage: crit migrate-xdg [--dry-run]
+
+Move crit's files from the old location (~/.crit.config.json and ~/.crit/)
+to the XDG folders: config, prompts, hooks and custom.css to
+$XDG_CONFIG_HOME/crit (~/.config/crit), and reviews, sessions, plans and
+stats to $XDG_STATE_HOME/crit (~/.local/state/crit). ~/.crit is removed
+once it is empty.
+
+Nothing is overwritten: if a file already exists in the new folders, nothing
+moves and crit lists what to merge by hand. Stop running reviews first
+(crit stop --all). Safe to run again.
+
+Options:
+  -n, --dry-run   Show what would move, without moving anything`},
 	{name: "plan-hook", handler: runPlanHookCommand, help: `Usage: crit plan-hook [--mode claude|codex]
 
 Run the internal plan hook.`, hidden: true},
@@ -354,6 +370,7 @@ Setup & management:
   crit stats [--json]                        Show lifetime review statistics
   crit stop [--all]                          Stop the daemon
   crit cleanup [--days N] [--force]          Delete stale review files (default: 7 days)
+  crit migrate-xdg [--dry-run]               Move crit's files from ~/.crit to the XDG folders
   crit config [--generate]                   Show resolved configuration
   crit auth login|logout|whoami              Manage crit-web authentication
 
@@ -365,7 +382,7 @@ Options:
       --public-url <url>      Advertised base URL (e.g. https://machine.ts.net via tailscale serve)
       --allow-unauthenticated-network
                               Allow non-loopback --host or --public-url (trusted network only; Crit has no network auth)
-  -o, --output <dir>          Crit data root for reviews (default: ~/.crit)
+  -o, --output <dir>          Crit data root for reviews (default: crit state dir)
       --no-open               Don't auto-open browser
       --no-ignore             Disable all file ignore patterns
   -q, --quiet                 On success, suppress connect/start status, tips, and session summary
@@ -390,7 +407,9 @@ Environment:
   CRIT_NO_INTEGRATION_CHECK   Disable staleness check and agent detection on startup
 
 Configuration:
-  Global: ~/.crit.config.json   Project: .crit.config.json (in repo root)
+  Global: ~/.config/crit/config.json (legacy: ~/.crit.config.json)
+  Project: .crit.config.json (in repo root)
+  Config honours $XDG_CONFIG_HOME, state (reviews, sessions) $XDG_STATE_HOME.
   Run 'crit config' to see all keys and resolved values.
 
 Learn more: https://crit.md

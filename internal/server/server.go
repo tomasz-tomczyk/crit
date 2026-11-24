@@ -565,6 +565,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 		resp["close_on_approve_after_ms"] = ms
 	}
 
+	// Where the global config lives (XDG or legacy), for settings-panel hints.
+	resp["global_config_path"] = config.GlobalConfigDisplayPath()
+
 	// The user's own stylesheet, for the settings panel's Custom CSS card.
 	if path := config.CustomCSSPath(); path != "" {
 		resp["custom_css_path"] = path

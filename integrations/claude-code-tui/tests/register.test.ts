@@ -94,14 +94,21 @@ function critWorld(on: On) {
   return { sent }
 }
 
-/** A crit with `plan --no-wait`: chat comments go to the session's plan. */
+/**
+ * A crit with `plan --no-wait`: chat comments go to the session's plan. Like
+ * crit on a fresh install with XDG_STATE_HOME set, it keeps the plan under
+ * $XDG_STATE_HOME/crit/plans, not ~/.crit/plans.
+ */
 function planWorld(on: On) {
   const saved: string[] = []
   const comments: { argv: readonly string[]; stdin: string }[] = []
-  let planReview = ''
+  const lists: (readonly string[])[] = []
+  const reads: string[] = []
+  const planFile = '/xdg/state/crit/plans/claude-chat-abcdef12/.crit/review.json'
+  const files = new Map<string, string>()
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'ABCDEF12-3456' }))
-  mock.env(on, { HOME: '/home/t' })
+  mock.env(on, { HOME: '/home/t', XDG_STATE_HOME: '/xdg/state' })
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__crit-tui__${e.name}` } }))
   on('process.run', ($, e) => {
@@ -119,33 +126,35 @@ function planWorld(on: On) {
       comments.push({ argv: e.argv, stdin: e.init?.stdin ?? '' })
       const entry = JSON.parse(e.init?.stdin ?? '[{}]')[0] as { line: number | string; body: string; quote?: string }
       const [from, to = from] = String(entry.line).split('-').map(Number)
-      planReview = JSON.stringify({
-        files: {
-          'claude-chat-abcdef12.md': {
-            comments: [{ id: 'c_plan1', start_line: from, end_line: to, body: entry.body, quote: entry.quote, author: 'Tomasz' }],
-          },
-        },
-      })
+      files.set(
+        planFile,
+        JSON.stringify([
+          { scope: 'line', path: 'claude-chat-abcdef12.md', id: 'c_plan1', start_line: from, end_line: to, body: entry.body, quote: entry.quote, author: 'Tomasz' },
+        ]),
+      )
       return out('Added 1 comment')
+    }
+    if (bin === 'crit' && verb === 'comments') {
+      lists.push(e.argv)
+      // `crit comments --plan <slug> --json` prints [] for a plan with no comments yet.
+      return out(e.argv[2] === '--plan' && e.argv[3] === 'claude-chat-abcdef12' ? (files.get(planFile) ?? '[]') : '[]')
     }
     return out('')
   })
   on('fs.read', ($, e) => {
-    if (e.path === '/home/t/.crit/plans/claude-chat-abcdef12/.crit/review.json') {
-      return planReview ? { value: planReview } : { deny: 'ENOENT' }
-    }
+    reads.push(e.path)
     return { value: '{"files":{}}' }
   })
   on('session.messages', () => ({ value: MESSAGES }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
-  return { saved, comments }
+  return { saved, comments, lists, reads }
 }
 
 describe('chat comments in a crit plan', () => {
   test('a chat comment saves the conversation as a plan and comments on its lines', async ($, on) => {
-    const { saved, comments } = planWorld(on)
+    const { saved, comments, lists, reads } = planWorld(on)
     await $.session.start(SESSION)
     await $.command.run(ct('chat'))
     const ui = await $.ui.mount(MOUNT)
@@ -166,10 +175,78 @@ describe('chat comments in a crit plan', () => {
       { file: 'claude-chat-abcdef12.md', line: 5, body: 'w', quote: 'read', quote_offset: 3 },
     ])
 
-    // The thread comes back from the plan's review file, on its message.
+    // The thread comes back through crit, which picks the plan's directory
+    // (here the XDG state root); the plugin never reads a plan file itself.
+    expect(lists.at(-1)).toEqual(['crit', 'comments', '--plan', 'claude-chat-abcdef12', '--json', '--all'])
+    expect(reads.filter(path => path.includes('/plans/'))).toEqual([])
     const drawn = textOf(await ui.drawn({ in: 'review' }))
     expect(drawn).toMatch(/1\. read a\.go\s*\n\s+┌ Tomasz · draft\s+│ w\s+└/)
   })
+})
+
+/**
+ * A crit whose `crit comments --plan` call breaks: it exits non-zero or prints
+ * something that is not JSON. The review file still has one code comment.
+ */
+function brokenCommentsWorld(on: On, broken: 'fails' | 'bad json') {
+  const timeouts: (number | undefined)[] = []
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'ABCDEF12-3456' }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__crit-tui__${e.name}` } }))
+  on('process.run', ($, e) => {
+    const out = (stdout: string, exitCode = 0, stderr = '') => ({
+      value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
+    })
+    const [bin, verb] = e.argv
+    if (bin === 'crit' && verb === 'status') return out(JSON.stringify({ review_file: '/reviews/r.json' }))
+    if (bin === 'crit' && verb === 'plan' && e.argv.includes('--help')) return out('  --no-wait   Save the version and exit')
+    if (bin === 'crit' && verb === 'comments') {
+      timeouts.push(e.init?.timeoutMs)
+      return broken === 'fails' ? out('', 1, 'crit: cannot read plan') : out('not json {')
+    }
+    if (bin === 'crit') return out('')
+    if (e.argv.includes('rev-parse')) return out('true\n')
+    if (e.argv.includes('ls-files')) return out('')
+    if (e.argv.includes('diff')) return out(DIFF)
+    return out('')
+  })
+  on('fs.read', () => ({
+    value: JSON.stringify({
+      files: { 'a.go': { comments: [{ id: 'c_code1', start_line: 1, end_line: 1, body: 'check this line', author: 'Tomasz' }] } },
+    }),
+  }))
+  on('session.messages', () => ({ value: MESSAGES }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  return { timeouts }
+}
+
+describe('a broken crit comments call', () => {
+  for (const broken of ['fails', 'bad json'] as const) {
+    test(`when crit comments ${broken}, the pane still opens with the code threads`, async ($, on) => {
+      const { timeouts } = brokenCommentsWorld(on, broken)
+      await $.session.start(SESSION)
+      await $.command.run(ct('diff'))
+      const ui = await $.ui.mount(MOUNT)
+      await ui.resize({ columns: 100, rows: 24, in: 'review' })
+
+      // The read-only call that runs before the pane opens has a short timeout.
+      expect(timeouts.length).toBeGreaterThan(0)
+      expect(timeouts.every(ms => ms === 3000)).toBe(true)
+
+      const drawn = textOf(await ui.drawn({ in: 'review' }))
+      expect(drawn).toContain('1 file changed')
+      expect(drawn).toMatch(/\+ new\s*\n\s+┌ Tomasz · draft\s+│ check this line/)
+
+      // No chat threads: the chat view shows the messages and no comment box.
+      await ui.key({ key: '1', in: 'review' })
+      const chat = textOf(await ui.drawn({ in: 'review' }))
+      expect(chat).toContain('2. patch it')
+      expect(chat).not.toContain('┌')
+    })
+  }
 })
 
 describe('crit-tui pane', () => {

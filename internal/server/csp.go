@@ -98,8 +98,9 @@ func reviewPageCSP(scriptHashes, remoteImages []string) string {
 }
 
 // injectRemoteImagesMeta fills index.html's crit-remote-images meta tag with
-// the allowlist as JSON.
-func injectRemoteImagesMeta(page []byte, remoteImages []string) []byte {
+// the allowlist as JSON, and a data-hint naming the global config file in use
+// (XDG or legacy), so the click-to-load placeholder points at the right file.
+func injectRemoteImagesMeta(page []byte, remoteImages []string, configPath string) []byte {
 	if remoteImages == nil {
 		remoteImages = []string{}
 	}
@@ -107,7 +108,9 @@ func injectRemoteImagesMeta(page []byte, remoteImages []string) []byte {
 	if err != nil {
 		return page
 	}
-	tag := `<meta name="crit-remote-images" content="` + html.EscapeString(string(data)) + `">`
+	hint := "Add the host to remote_images in " + configPath + " to load images from it automatically."
+	tag := `<meta name="crit-remote-images" content="` + html.EscapeString(string(data)) +
+		`" data-hint="` + html.EscapeString(hint) + `">`
 	return bytes.Replace(page, []byte(remoteImagesMeta), []byte(tag), 1)
 }
 
@@ -126,7 +129,7 @@ func (s *Server) serveShell(w http.ResponseWriter, name string) {
 	}
 	remoteImages := s.cfg.RemoteImages
 	if name == "index.html" {
-		page = injectRemoteImagesMeta(page, remoteImages)
+		page = injectRemoteImagesMeta(page, remoteImages, config.GlobalConfigDisplayPath())
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", reviewPageCSP(inlineScriptHashes(page), remoteImages))

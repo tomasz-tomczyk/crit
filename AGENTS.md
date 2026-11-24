@@ -38,10 +38,10 @@ crit/
 8. **Real-time output** — review file written on every comment change (200ms debounce)
 9. **File watching** — git mode polls `git status --porcelain`; files mode polls mtimes; reloads via SSE
 10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Non-loopback `--host` / `CRIT_HOST` / global `host`, or any `public_url`, require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1` (Crit has no network auth).
-11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd`, `auth_token`, `share_url`, and `plan_approve_mode` are global-only (prevents malicious repos from hijacking agent commands, redirecting share requests, or weakening Claude Code permissions)
+11. **Two-level config** — global config (`~/.config/crit/config.json`, legacy `~/.crit.config.json`; resolved by `internal/userdirs`) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd`, `auth_token`, `share_url`, and `plan_approve_mode` are global-only (prevents malicious repos from hijacking agent commands, redirecting share requests, or weakening Claude Code permissions)
 12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
-14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
+14. **Centralized review storage** — `<state>/reviews/<key>/` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
 16. **Pluggable renderers** — `web/crit-renderers.js` registry; two registration kinds: `kind: 'fence'` (by info string, `langs`) and `kind: 'file'` (by glob, `paths`, `<label> / Source` toggle, `viewMode: 'rendered'`). Built-in mermaid (`crit-renderer-mermaid.js`) covers ```` ```mermaid ````, `*.mermaid`, `*.mmd`, and injects `mermaid.min.js` only on the first diagram (not in `index.html`); built-in excalidraw (`crit-renderer-excalidraw.js`) covers ```` ```excalidraw ````, `*.excalidraw`, `*.excalidraw.json`, drawing with `rough.min.js` and `freehand.min.js` (freedraw) in Excalidraw's fonts; a lone scene opens in preview mode as a canvas page (`excalidraw-canvas.html` + `crit-excalidraw-canvas.js`, served by `servePreviewExcalidraw`) where the agent's hover box and pins work per element (`#excalidraw-<id>`) (`web/fonts/excalidraw`, copied from the Excalidraw repo; `SHA256SUMS` + `LICENSES.txt` there), all loaded on first use. New renderers ship in `web/` (no external script loading). See `docs/renderers.md`.
 17. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
@@ -77,7 +77,8 @@ crit preview <file.html>      # Review a local HTML file in preview mode (also: 
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit resume [--list | <id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)
-crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
+crit cleanup [--days N] [--force]  # Delete stale review files from every state folder's reviews/
+crit migrate-xdg [--dry-run]       # Move ~/.crit.config.json and ~/.crit/ to the XDG folders (transitional)
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [--commit <sha>] [pr]  # Post review comments as a GitHub PR review
 crit pr [num|url]             # Thin shim — forwards to `crit review --pr <n>`; no arg = PR for current branch
@@ -103,6 +104,8 @@ crit help | --help | -h       # Show help
 <important if="you are working with config files (~/.crit.config.json or .crit.config.json) or adding a config key">
 
 Two-level JSON config files, merged (project overrides global):
+
+User-level paths (global config, `prompts/`, `hooks/`, `custom.css`, and the state root holding `sessions/`, `reviews/`, `plans/`, `plan-sessions.json`, `stats.json`, `exports/`) are resolved only through `internal/userdirs`: XDG location if it exists, else the legacy `~/.crit.config.json` / `~/.crit/` one if it exists, else legacy on an existing install and XDG (`$XDG_CONFIG_HOME/crit`, `$XDG_STATE_HOME/crit`) on a fresh one. Never join `".crit"` onto the home directory directly. `testutil.SetHome` seeds `~/.crit` so tests see the legacy layout; use `testutil.SetFreshHome` for XDG cases.
 
 - **Global**: `~/.crit.config.json` — user-wide defaults
 - **Project**: `.crit.config.json` in repo root — per-project overrides

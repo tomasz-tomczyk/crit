@@ -724,6 +724,9 @@ func runCheck() {
 
 	fmt.Fprintln(os.Stderr)
 	printForgeCLIHints(forgeCLIs)
+
+	fmt.Fprintln(os.Stderr)
+	printUserDirs(os.Stderr, home)
 }
 
 type forgeCLIStatus struct {

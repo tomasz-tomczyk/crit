@@ -7,12 +7,12 @@ Crit can run **your** shell scripts when a review finishes or is approved - dete
 - **What:** user-defined shell commands/scripts executed at the same finish lifecycle points as prompt templates (`on_finish_unresolved` / `on_finish_approved`, optionally mode-suffixed `:files` / `:diff` / `:live` / `:preview`).
 - **Why:** deterministic side effects the agent prompt can't reliably do itself - snapshot commented-on files to a dataset, write an audit log, notify Slack, etc.
 - **How:** `inline:<cmd>` (run via `sh -c`) or `file:<path>` (exec'd directly, shebang respected). Crit pipes a JSON payload to the hook's stdin and sets `CRIT_*` env vars (review path, session key, mode, counts, files-with-comments, …).
-- **Opt-in:** Crit runs zero command hooks by default. You configure them in the `hooks` map of `~/.crit.config.json` / `.crit.config.json` or drop scripts at `.crit/hooks/*.sh`.
+- **Opt-in:** Crit runs zero command hooks by default. You configure them in the `hooks` map of the global config file or `.crit.config.json`, or drop scripts at `.crit/hooks/*.sh`.
 - **Trust:** project-level hooks run arbitrary code and go through the same trust gate as project prompts - Finish is blocked until you trust the project's hook config/files. Global hooks (user-installed) run without the gate.
 - **Timeout:** each hook is capped at 60 seconds (killed and warned on timeout). Network-bound or long-running work should fork-and-detach from the hook.
 - **Failure never blocks finish:** a hook that errors, times out, or exits non-zero is logged as a warning; the review flow proceeds regardless.
 
-Command hooks are **opt-in and not used by default** - Crit runs zero command hooks out of the box. Config lives under the `hooks` map (`~/.crit.config.json` and/or `.crit.config.json`) and/or conventional files under `.crit/hooks/` (project) and `~/.crit/hooks/` (global). They reuse the same hook names, mode suffixes, resolution order, and project trust flow as prompt templates.
+Command hooks are **opt-in and not used by default** - Crit runs zero command hooks out of the box. Config lives under the `hooks` map (global config file and/or `.crit.config.json`) and/or conventional files under `.crit/hooks/` (project) and `~/.config/crit/hooks/` (global; `~/.crit/hooks/` on existing installs). They reuse the same hook names, mode suffixes, resolution order, and project trust flow as prompt templates.
 
 ## When hooks fire
 
@@ -37,7 +37,7 @@ Only **one** hook fires per finish: the most specific key that resolves wins (mo
 
 ## Configuration
 
-**Global:** `~/.crit.config.json` `hooks` map and/or `~/.crit/hooks/`
+**Global:** the global config file's `hooks` map and/or the user hooks directory: `~/.config/crit/hooks/` (honouring `$XDG_CONFIG_HOME`), or `~/.crit/hooks/` on existing installs. See [Where Crit keeps its files](../README.md#where-crit-keeps-its-files).
 **Project:** `.crit.config.json` `hooks` map and/or `.crit/hooks/` in the repo root (committable, team-shared)
 
 ### How paths are resolved
@@ -45,16 +45,16 @@ Only **one** hook fires per finish: the most specific key that resolves wins (mo
 Precedence for each hook (e.g. `on_finish_unresolved` in a PR review) is identical to prompts:
 
 1. **Project** `.crit.config.json` `hooks` entry (mode-specific key, then generic)
-2. **Global** `~/.crit.config.json` `hooks` entry (same fallback order)
+2. **Global** config file `hooks` entry (same fallback order)
 3. **Project** conventional file under `.crit/hooks/` (e.g. `on_finish_unresolved.diff.sh`, then `on_finish_unresolved.sh`)
-4. **Global** conventional file under `~/.crit/hooks/` (same naming)
+4. **Global** conventional file under the user hooks directory, `~/.config/crit/hooks/` or `~/.crit/hooks/` (same naming)
 5. Nothing - no stock command hook is run.
 
 Config `file:` paths and conventional filenames both use `.` instead of `:` for mode suffixes (`on_finish_unresolved:diff` → `on_finish_unresolved.diff.sh`).
 
 You do **not** need a `hooks` map entry when the script already lives at the conventional path. Copy the example scripts from `docs/example-hooks/` into place:
 
-- **Global:** `cp docs/example-hooks/*.sh ~/.crit/hooks/` (create the dir first)
+- **Global:** `cp docs/example-hooks/*.sh ~/.config/crit/hooks/` (create the dir first; once it exists it is used even on a legacy install)
 - **Project:** `cp docs/example-hooks/*.sh .crit/hooks/` (from your repo root)
 
 The example scripts are **reference material** - copying them does not enable behavior until you edit them (or add a `hooks` config map entry) to opt in.
@@ -90,7 +90,7 @@ Config keys use `:` for mode suffixes; filenames use `.` instead.
   "hooks": {
     "on_finish_approved": "file:.crit/hooks/on_finish_approved.sh",
     "on_finish_unresolved": "file:.crit/hooks/on_finish_unresolved.sh",
-    "on_finish_unresolved:diff": "inline:echo \"unresolved diff finish\" >> ~/.crit/reviews/finishes.log"
+    "on_finish_unresolved:diff": "inline:echo \"unresolved diff finish\" >> ~/crit-finishes.log"
   }
 }
 ```
@@ -105,7 +105,7 @@ All `CRIT_*` env vars are strings (shell env vars can only carry strings). Numer
 
 | Variable | Description |
 | --- | --- |
-| `CRIT_REVIEW_PATH` | Path to the review JSON file (`~/.crit/reviews/<key>.json`) |
+| `CRIT_REVIEW_PATH` | Path to the review JSON file (`<state>/reviews/<key>.json`; `<state>` is `~/.local/state/crit` on new installs, `~/.crit` on existing ones) |
 | `CRIT_SESSION_KEY` | Daemon session key |
 | `CRIT_MODE` | `files`, `diff`, `live`, or `preview` |
 | `CRIT_APPROVED` | `true` or `false` |
@@ -153,7 +153,7 @@ Project-level **command hooks run arbitrary code**, so they are gated by the *sa
    - **Use Crit defaults** - ignore project prompts *and* project hooks for this repo
 3. The trust dialog lists every source file (including `.crit/hooks/*.sh`).
 
-The trust decision is stored in global config under `trusted_project_prompts` (keyed by repo root hash) - the same store already used for prompt trust, extended to cover hooks. **Global** hooks (`~/.crit.config.json` / `~/.crit/hooks/`) are user-installed and run without the trust dialog.
+The trust decision is stored in global config under `trusted_project_prompts` (keyed by repo root hash) - the same store already used for prompt trust, extended to cover hooks. **Global** hooks (global config file / user hooks directory) are user-installed and run without the trust dialog.
 
 ## Examples
 
@@ -182,7 +182,7 @@ done
 echo "crit: snapshotted $CRIT_UNRESOLVED_COUNT comment(s) to $dest" >&2
 ```
 
-This mirrors the example shipped at `docs/example-hooks/on_finish_unresolved.sh` - copy it into `.crit/hooks/` or `~/.crit/hooks/` and edit to taste.
+This mirrors the example shipped at `docs/example-hooks/on_finish_unresolved.sh` - copy it into `.crit/hooks/` or `~/.config/crit/hooks/` (`~/.crit/hooks/` on existing installs) and edit to taste.
 
 ($PWD is the repo root, so `$CRIT_FILES_WITH_COMMENTS` entries are repo-relative and copy directly. When there are no per-file comments - e.g. file-level / review-level comments only - the script falls back to deriving paths from the stdin JSON via `jq` if available.)
 
@@ -190,7 +190,7 @@ This mirrors the example shipped at `docs/example-hooks/on_finish_unresolved.sh`
 
 ```sh
 #!/usr/bin/env sh
-# ~/.crit/hooks/on_finish_approved.sh
+# ~/.config/crit/hooks/on_finish_approved.sh (~/.crit/hooks/ on existing installs)
 : "${CRIT_REVIEW_PATH:?}"
 log="$HOME/.crit/reviews/approved.log"
 mkdir -p "$(dirname "$log")"
@@ -204,7 +204,7 @@ printf '%s\t%s\t%s\t%s\n' \
 ```json
 {
   "hooks": {
-    "on_finish_unresolved:diff": "inline:~/.crit/hooks/post-to-slack \"crit review finished\" \"unresolved=$CRIT_UNRESOLVED_COUNT mode=$CRIT_MODE\""
+    "on_finish_unresolved:diff": "inline:~/.config/crit/hooks/post-to-slack \"crit review finished\" \"unresolved=$CRIT_UNRESOLVED_COUNT mode=$CRIT_MODE\""
   }
 }
 ```

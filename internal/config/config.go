@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/userdirs"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -557,13 +558,11 @@ func LoadConfig(projectDir string) Config { //nolint:gocyclo // Config precedenc
 		fmt.Fprintf(os.Stderr, "Warning: reading global config: %v\n", err)
 	}
 
-	// 2. Project config (skip if same file as global config, e.g. when CWD is home dir)
+	// 2. Project config (skip a user-level config file, e.g. when CWD is home dir)
 	var project Config
 	var projectPresence ConfigPresence
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	globalAbs, _ := filepath.Abs(GlobalConfigPath())
-	projectAbs, _ := filepath.Abs(projectConfigPath)
-	if globalAbs != projectAbs {
+	if !isUserConfigFile(projectConfigPath) {
 		project, projectPresence, err = LoadConfigFile(projectConfigPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
@@ -640,9 +639,7 @@ func LoadPromptMaps(projectDir string) (global, project map[string]string) {
 	global = globalCfg.Prompts
 
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	globalAbs, _ := filepath.Abs(GlobalConfigPath())
-	projectAbs, _ := filepath.Abs(projectConfigPath)
-	if globalAbs != projectAbs {
+	if !isUserConfigFile(projectConfigPath) {
 		projectCfg, _, err := LoadConfigFile(projectConfigPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
@@ -663,9 +660,7 @@ func LoadHookMaps(projectDir string) (global, project map[string]string) {
 	global = globalCfg.Hooks
 
 	projectConfigPath := filepath.Join(projectDir, ".crit.config.json")
-	globalAbs, _ := filepath.Abs(GlobalConfigPath())
-	projectAbs, _ := filepath.Abs(projectConfigPath)
-	if globalAbs != projectAbs {
+	if !isUserConfigFile(projectConfigPath) {
 		projectCfg, _, err := LoadConfigFile(projectConfigPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: reading project config: %v\n", err)
@@ -676,24 +671,66 @@ func LoadHookMaps(projectDir string) (global, project map[string]string) {
 	return global, project
 }
 
-// GlobalConfigPath returns the path to the global config file.
+// GlobalConfigPath returns the path to the global config file:
+// ~/.config/crit/config.json, or the legacy ~/.crit.config.json when that is
+// the one in use (see internal/userdirs).
 func GlobalConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".crit.config.json")
+	return userdirs.ConfigFile(home)
+}
+
+// isUserConfigFile reports whether path is a user-level config file rather
+// than a project one: the global config in use, or the legacy
+// ~/.crit.config.json. Run from the home directory, crit would otherwise load
+// ~/.crit.config.json as project config once the global config is the XDG
+// file (a copy left behind after a move, say).
+func isUserConfigFile(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	if global, err := filepath.Abs(GlobalConfigPath()); err == nil && global == abs {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	legacy, err := filepath.Abs(userdirs.LegacyConfigFile(home))
+	return err == nil && legacy == abs
+}
+
+// GlobalConfigDisplayPath is GlobalConfigPath for user-facing text, with the
+// home directory shortened to "~". It falls back to the legacy name when the
+// home directory is unknown.
+func GlobalConfigDisplayPath() string {
+	path := GlobalConfigPath()
+	if path == "" {
+		return "~/.crit.config.json"
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "~/" + filepath.ToSlash(rel)
+	}
+	return path
 }
 
 // CustomCSSPath is where crit looks for the user's own stylesheet:
-// ~/.crit/custom.css. It lives in the home directory, so a project repo
+// ~/.config/crit/custom.css (or the legacy ~/.crit/custom.css). It lives in
+// the user's config directory, so a project repo
 // cannot supply or redirect it. Empty when the home directory is unknown.
 func CustomCSSPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".crit", "custom.css")
+	return userdirs.CustomCSS(home)
 }
 
 // SaveGlobalConfig performs a read-modify-write on ~/.crit.config.json.
