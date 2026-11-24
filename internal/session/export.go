@@ -72,7 +72,7 @@ func LookupPlanSlug(sessionID string) (string, bool) {
 	return lookupPlanSlug(sessionID)
 }
 
-func SavePlanSlug(sessionID, slug string) error {
+func SavePlanSlug(sessionID, slug string) (string, error) {
 	return savePlanSlug(sessionID, slug)
 }
 

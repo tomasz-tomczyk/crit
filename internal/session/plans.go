@@ -258,30 +258,46 @@ func readPlanSessions(path string) (map[string]planSessionMapping, error) {
 	return m, nil
 }
 
-// savePlanSlug pins a slug to a session_id. Prunes entries older than 7 days.
-// Uses advisory file locking to prevent concurrent read-modify-write races,
-// and returns an error if the existing file contains corrupt JSON rather than
-// silently overwriting it.
-func savePlanSlug(sessionID, slug string) error {
+// sessionSlugSuffix is a short, stable hash of a session_id, for when the
+// plan-sessions mapping cannot keep two sessions' slugs apart.
+func sessionSlugSuffix(sessionID string) string {
+	hash := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(hash[:])[:6]
+}
+
+// isPlanSessionsParseError reports whether err from readPlanSessions means the
+// file exists but is not a valid mapping.
+func isPlanSessionsParseError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
+}
+
+// savePlanSlug pins a slug to a session_id and returns the slug it stored: a slug
+// another session holds gets a -2, -3, ... suffix. Prunes entries older than 7 days.
+// Uses advisory file locking to prevent concurrent read-modify-write races.
+// A file that does not parse is replaced with a new mapping: writes go through
+// AtomicWriteFile under the lock, so such a file holds nothing to recover, and
+// failing every call would move each session onto the fallback slug.
+func savePlanSlug(sessionID, slug string) (string, error) {
 	path, err := planSessionsFile()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	lock, err := acquirePlanSessionsLock(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer releasePlanSessionsLock(lock)
 
 	m, err := readPlanSessions(path)
 	if err != nil {
-		return err
-	}
-
-	m[sessionID] = planSessionMapping{
-		Slug:      slug,
-		CreatedAt: time.Now().Format(time.RFC3339),
+		if !isPlanSessionsParseError(err) {
+			return "", err
+		}
+		fmt.Fprintf(os.Stderr, "crit: warning: %v; starting a new plan-sessions mapping\n", err)
+		m = make(map[string]planSessionMapping)
 	}
 
 	// Prune stale entries
@@ -292,9 +308,25 @@ func savePlanSlug(sessionID, slug string) error {
 		}
 	}
 
+	taken := make(map[string]bool, len(m))
+	for id, v := range m {
+		if id != sessionID {
+			taken[v.Slug] = true
+		}
+	}
+	pinned := slug
+	for n := 2; taken[pinned]; n++ {
+		pinned = fmt.Sprintf("%s-%d", slug, n)
+	}
+
+	m[sessionID] = planSessionMapping{
+		Slug:      pinned,
+		CreatedAt: time.Now().Format(time.RFC3339),
+	}
+
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Route through AtomicWriteFile (atomic_write.go) so we get fsync
@@ -302,9 +334,9 @@ func savePlanSlug(sessionID, slug string) error {
 	// kernel flushing the data block leaves a zero-byte file on disk
 	// (the inode is renamed but the data was never written).
 	if err := AtomicWriteFile(path, out, 0o644); err != nil {
-		return fmt.Errorf("writing plan sessions: %w", err)
+		return "", fmt.Errorf("writing plan sessions: %w", err)
 	}
-	return nil
+	return pinned, nil
 }
 
 // isStdinPipe returns true if stdin is a pipe (not a terminal).

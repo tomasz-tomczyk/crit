@@ -322,7 +322,7 @@ func TestSavePlanSlug_RoundTrip(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 
-	if err := savePlanSlug("session-1", "auth-flow-2026-03-30"); err != nil {
+	if _, err := savePlanSlug("session-1", "auth-flow-2026-03-30"); err != nil {
 		t.Fatalf("savePlanSlug: %v", err)
 	}
 
@@ -366,6 +366,45 @@ func TestSavePlanSlug_StableAcrossHeadingChanges(t *testing.T) {
 	}
 	if pinned != slug1 {
 		t.Errorf("pinned slug = %q, want original %q", pinned, slug1)
+	}
+}
+
+// Two sessions whose plans share a first heading and a date must get different
+// slugs, or their reviews share one storage directory.
+func TestResolveHookSlug_SeparatesSessionsWithTheSameHeading(t *testing.T) {
+	setHome(t, t.TempDir())
+	content := []byte("# Implementation Plan\n\nSteps")
+
+	first := resolveHookSlug("session-a", content)
+	second := resolveHookSlug("session-b", content)
+	if second != first+"-2" {
+		t.Fatalf("slugs = %q and %q, want the second to be the first with -2", first, second)
+	}
+	if again := resolveHookSlug("session-b", content); again != second {
+		t.Errorf("session-b slug changed from %q to %q", second, again)
+	}
+	if again := resolveHookSlug("session-a", content); again != first {
+		t.Errorf("session-a slug changed from %q to %q", first, again)
+	}
+}
+
+// When the mapping cannot be saved, the slugs must still differ and stay stable.
+func TestResolveHookSlug_SeparatesSessionsWithoutTheMapping(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	// A file where ~/.crit should be makes every save fail.
+	if err := os.WriteFile(filepath.Join(home, ".crit"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("# Implementation Plan\n\nSteps")
+
+	first := resolveHookSlug("session-a", content)
+	second := resolveHookSlug("session-b", content)
+	if first == second {
+		t.Fatalf("both sessions got slug %q", first)
+	}
+	if again := resolveHookSlug("session-a", content); again != first {
+		t.Errorf("session-a slug changed from %q to %q", first, again)
 	}
 }
 
@@ -413,16 +452,105 @@ func TestSavePlanSlug_CorruptJSON(t *testing.T) {
 	os.MkdirAll(filepath.Dir(path), 0755)
 	os.WriteFile(path, []byte("{corrupt json!!!"), 0644)
 
-	// savePlanSlug should return an error instead of silently overwriting
-	err = savePlanSlug("session-1", "my-plan")
-	if err == nil {
-		t.Fatal("expected error for corrupt JSON, got nil")
+	// savePlanSlug replaces the unreadable file with a new mapping.
+	got, err := savePlanSlug("session-1", "my-plan")
+	if err != nil {
+		t.Fatalf("savePlanSlug with corrupt file: %v", err)
 	}
+	if got != "my-plan" {
+		t.Errorf("slug = %q, want %q", got, "my-plan")
+	}
+	m, err := readPlanSessions(path)
+	if err != nil {
+		t.Fatalf("mapping still unreadable after save: %v", err)
+	}
+	if len(m) != 1 || m["session-1"].Slug != "my-plan" {
+		t.Errorf("mapping = %+v, want only session-1 -> my-plan", m)
+	}
+}
 
-	// The corrupt file should not have been overwritten
-	data, _ := os.ReadFile(path)
-	if string(data) != "{corrupt json!!!" {
-		t.Errorf("corrupt file was overwritten: got %q", string(data))
+// A session pinned before the mapping file broke keeps its slug.
+func TestResolveHookSlug_PinnedSessionSurvivesCorruptMapping(t *testing.T) {
+	setHome(t, t.TempDir())
+	content := []byte("# Implementation Plan\n\nSteps")
+	first := resolveHookSlug("session-a", content)
+
+	path, err := planSessionsFile()
+	if err != nil {
+		t.Fatalf("planSessionsFile: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{corrupt json!!!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again := resolveHookSlug("session-a", content); again != first {
+		t.Errorf("session-a slug changed from %q to %q after the mapping broke", first, again)
+	}
+}
+
+func TestSavePlanSlug_Dedup(t *testing.T) {
+	now := time.Now().Format(time.RFC3339)
+	old := time.Now().Add(-8 * 24 * time.Hour).Format(time.RFC3339)
+	tests := []struct {
+		name    string
+		seed    map[string]planSessionMapping
+		session string
+		slug    string
+		want    string
+	}{
+		{"free slug", nil, "s", "plan", "plan"},
+		{"taken once", map[string]planSessionMapping{"a": {"plan", now}}, "s", "plan", "plan-2"},
+		{"taken twice", map[string]planSessionMapping{"a": {"plan", now}, "b": {"plan-2", now}}, "s", "plan", "plan-3"},
+		{"gap is reused", map[string]planSessionMapping{"a": {"plan", now}, "b": {"plan-3", now}}, "s", "plan", "plan-2"},
+		{"own entry is not a collision", map[string]planSessionMapping{"s": {"plan", now}}, "s", "plan", "plan"},
+		{"pruned entry frees its slug", map[string]planSessionMapping{"a": {"plan", old}}, "s", "plan", "plan"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setHome(t, t.TempDir())
+			path, err := planSessionsFile()
+			if err != nil {
+				t.Fatalf("planSessionsFile: %v", err)
+			}
+			if tt.seed != nil {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				data, _ := json.Marshal(tt.seed)
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := savePlanSlug(tt.session, tt.slug)
+			if err != nil {
+				t.Fatalf("savePlanSlug: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("slug = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// Sessions saving the same slug at once must each get a different one.
+func TestSavePlanSlug_ConcurrentSameSlug(t *testing.T) {
+	setHome(t, t.TempDir())
+	const n = 10
+	slugs := make(chan string, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			s, err := savePlanSlug(fmt.Sprintf("session-%d", i), "plan")
+			if err != nil {
+				t.Error(err)
+			}
+			slugs <- s
+		}(i)
+	}
+	seen := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		seen[<-slugs] = true
+	}
+	if len(seen) != n {
+		t.Errorf("%d sessions got %d distinct slugs: %v", n, len(seen), seen)
 	}
 }
 
@@ -435,7 +563,8 @@ func TestSavePlanSlug_ConcurrentWrites(t *testing.T) {
 	errs := make(chan error, n)
 	for i := 0; i < n; i++ {
 		go func(i int) {
-			errs <- savePlanSlug(fmt.Sprintf("session-%d", i), fmt.Sprintf("plan-%d", i))
+			_, err := savePlanSlug(fmt.Sprintf("session-%d", i), fmt.Sprintf("plan-%d", i))
+			errs <- err
 		}(i)
 	}
 	for i := 0; i < n; i++ {
