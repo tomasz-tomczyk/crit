@@ -271,6 +271,34 @@ func AllReviewsDirs() ([]string, error) {
 	return dirs, nil
 }
 
+// LiveSessionsIn returns the sessions in sessionsDir whose daemon is still
+// running. Unlike ListAllSessions it takes the folder (any state root) and
+// leaves dead session files alone.
+func LiveSessionsIn(sessionsDir string) []SessionEntry {
+	dirEntries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return nil
+	}
+	var alive []SessionEntry
+	for _, de := range dirEntries {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(sessionsDir, de.Name()))
+		if err != nil {
+			continue
+		}
+		var entry SessionEntry
+		if json.Unmarshal(data, &entry) != nil {
+			continue
+		}
+		if isDaemonAlive(entry) {
+			alive = append(alive, entry)
+		}
+	}
+	return alive
+}
+
 // FindReviewDir returns the review folder for key in the first state root
 // that has its review.json, or ok=false when none does.
 func FindReviewDir(key string) (string, bool) {

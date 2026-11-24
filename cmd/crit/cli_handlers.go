@@ -7,28 +7,30 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/live"
+	"github.com/tomasz-tomczyk/crit/internal/migrate"
 	"github.com/tomasz-tomczyk/crit/internal/preview"
 	"github.com/tomasz-tomczyk/crit/internal/review"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/share"
 )
 
-func runShare(args []string)     { clicmd.Exit(share.RunShare(args)) }
-func runFetch(args []string)     { clicmd.Exit(share.RunFetch(args)) }
-func runUnpublish(args []string) { clicmd.Exit(share.RunUnpublish(args)) }
-func runConfig(args []string)    { clicmd.Exit(config.RunConfig(args)) }
-func runPull(args []string)      { clicmd.Exit(forge.RunPull(args)) }
-func runPush(args []string)      { clicmd.Exit(forge.RunPush(args)) }
-func runComment(args []string)   { clicmd.Exit(comment.RunComment(args)) }
-func runComments(args []string)  { clicmd.Exit(comment.RunComments(args)) }
-func runReview(args []string)    { clicmd.Exit(runReviewWithResolvedChange(args)) }
-func runResume(args []string)    { clicmd.Exit(session.RunResume(args)) }
-func runPlan(args []string)      { clicmd.Exit(session.RunPlan(args)) }
-func runStop(args []string)      { clicmd.Exit(session.RunStop(args)) }
-func runStatus(args []string)    { clicmd.Exit(session.RunStatus(args)) }
-func runCleanup(args []string)   { clicmd.Exit(review.RunCleanup(args)) }
-func runPR(args []string)        { clicmd.Exit(forge.RunChange(forge.GitHub, args)) }
-func runMR(args []string)        { clicmd.Exit(forge.RunChange(forge.GitLab, args)) }
+func runShare(args []string)      { clicmd.Exit(share.RunShare(args)) }
+func runFetch(args []string)      { clicmd.Exit(share.RunFetch(args)) }
+func runUnpublish(args []string)  { clicmd.Exit(share.RunUnpublish(args)) }
+func runConfig(args []string)     { clicmd.Exit(config.RunConfig(args)) }
+func runPull(args []string)       { clicmd.Exit(forge.RunPull(args)) }
+func runPush(args []string)       { clicmd.Exit(forge.RunPush(args)) }
+func runComment(args []string)    { clicmd.Exit(comment.RunComment(args)) }
+func runComments(args []string)   { clicmd.Exit(comment.RunComments(args)) }
+func runReview(args []string)     { clicmd.Exit(runReviewWithResolvedChange(args)) }
+func runResume(args []string)     { clicmd.Exit(session.RunResume(args)) }
+func runPlan(args []string)       { clicmd.Exit(session.RunPlan(args)) }
+func runStop(args []string)       { clicmd.Exit(session.RunStop(args)) }
+func runStatus(args []string)     { clicmd.Exit(session.RunStatus(args)) }
+func runCleanup(args []string)    { clicmd.Exit(review.RunCleanup(args)) }
+func runMigrateXDG(args []string) { clicmd.Exit(migrate.RunMigrateXDG(args)) }
+func runPR(args []string)         { clicmd.Exit(forge.RunChange(forge.GitHub, args)) }
+func runMR(args []string)         { clicmd.Exit(forge.RunChange(forge.GitLab, args)) }
 
 func runLive(args []string)    { live.RunLive(args) }
 func runPreview(args []string) { preview.RunPreview(args) }

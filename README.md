@@ -381,7 +381,7 @@ crit config --generate > ~/.config/crit/config.json   # fresh installs: scaffold
 crit config                                           # view resolved config (merged global + project)
 ```
 
-Already have `~/.crit.config.json`? Move it rather than generating a second file: when both exist, `~/.config/crit/config.json` wins and the old file (with your `agent_cmd`, `share_targets` and login tokens) is ignored. See [Where Crit keeps its files](#where-crit-keeps-its-files).
+Already have `~/.crit.config.json`? Run `crit migrate-xdg` rather than generating a second file: when both exist, `~/.config/crit/config.json` wins and the old file (with your `agent_cmd`, `share_targets` and login tokens) is ignored. See [Where Crit keeps its files](#where-crit-keeps-its-files).
 
 ### Where Crit keeps its files
 
@@ -405,16 +405,17 @@ Existing installs therefore keep working unchanged, and a fresh install never cr
 
 If you set `XDG_CONFIG_HOME` or `XDG_STATE_HOME`, set them where your agents and their hooks can see them too (for example in `~/.profile` or your desktop session, not only in an interactive shell's rc file). A process that does not see them uses the default folders, so its reviews land somewhere else. `crit check` prints the config file and state folder in use, and names any other state folder that still holds crit data; `crit resume` and `crit cleanup` read all of them.
 
-The `output` key and `--output` flag still choose where reviews go. To move an existing install over, stop running reviews (`crit stop --all`) and move what you want; anything you move to its XDG location takes over from the legacy one. The recipe below moves files to the same directories Crit reads: `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` when they are absolute paths, the defaults otherwise. Each target must not exist yet, or `mv` nests the old directory inside it (`$state/.crit`) or overwrites the file; if one does, merge it by hand:
+The `output` key and `--output` flag still choose where reviews go.
+
+To move an existing install to the XDG folders, stop running reviews and run:
 
 ```bash
-case "$XDG_CONFIG_HOME" in /*) config="$XDG_CONFIG_HOME/crit" ;; *) config="$HOME/.config/crit" ;; esac
-case "$XDG_STATE_HOME" in /*) state="$XDG_STATE_HOME/crit" ;; *) state="$HOME/.local/state/crit" ;; esac
-mkdir -p "$config" "$(dirname "$state")"   # parents only; not "$state" itself
-mv ~/.crit.config.json "$config/config.json"
-mv ~/.crit/prompts ~/.crit/hooks ~/.crit/custom.css "$config/" 2>/dev/null
-mv ~/.crit "$state"
+crit stop --all
+crit migrate-xdg --dry-run   # show what would move
+crit migrate-xdg
 ```
+
+It moves `~/.crit.config.json` to `config.json`, and `prompts/`, `hooks/` and `custom.css` to the config folder. Everything else in `~/.crit/` goes to the state folder, and `~/.crit/` is removed once it is empty. It honours `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME`. Nothing is overwritten: if a target already exists, nothing moves and crit lists what to merge by hand. A relative link, or a `~/.crit` that is itself a link (a dotfiles setup), is left for you to move. Running it again is safe. When you start a review in a terminal on an existing install, crit reminds you about the command, at most once a week.
 
 ### Config keys
 

@@ -220,6 +220,20 @@ Show lifetime review statistics.`},
 	{name: "cleanup", handler: runCleanup, help: `Usage: crit cleanup [--days N] [--force]
 
 Delete stale review files. The default age is seven days.`},
+	{name: "migrate-xdg", handler: runMigrateXDG, help: `Usage: crit migrate-xdg [--dry-run]
+
+Move crit's files from the old location (~/.crit.config.json and ~/.crit/)
+to the XDG folders: config, prompts, hooks and custom.css to
+$XDG_CONFIG_HOME/crit (~/.config/crit), and reviews, sessions, plans and
+stats to $XDG_STATE_HOME/crit (~/.local/state/crit). ~/.crit is removed
+once it is empty.
+
+Nothing is overwritten: if a file already exists in the new folders, nothing
+moves and crit lists what to merge by hand. Stop running reviews first
+(crit stop --all). Safe to run again.
+
+Options:
+  -n, --dry-run   Show what would move, without moving anything`},
 	{name: "plan-hook", handler: runPlanHookCommand, help: `Usage: crit plan-hook [--mode claude|codex]
 
 Run the internal plan hook.`, hidden: true},
@@ -356,6 +370,7 @@ Setup & management:
   crit stats [--json]                        Show lifetime review statistics
   crit stop [--all]                          Stop the daemon
   crit cleanup [--days N] [--force]          Delete stale review files (default: 7 days)
+  crit migrate-xdg [--dry-run]               Move crit's files from ~/.crit to the XDG folders
   crit config [--generate]                   Show resolved configuration
   crit auth login|logout|whoami              Manage crit-web authentication
 

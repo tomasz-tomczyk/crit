@@ -23,4 +23,7 @@ func printUserDirs(w io.Writer, home string) {
 		fmt.Fprintln(w, "    → crit resume and crit cleanup read every folder above; new reviews go to state.")
 		fmt.Fprintln(w, "      If a hook or agent writes to the other folder, give it the same XDG_STATE_HOME as your shell.")
 	}
+	if userdirs.IsLegacyInstall(home) && userdirs.ConfigDir(home) != "" && userdirs.StateBaseDir(home) != "" {
+		fmt.Fprintln(w, "  → run crit migrate-xdg to move the old ~/.crit files to the XDG folders.")
+	}
 }

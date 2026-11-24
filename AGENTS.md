@@ -77,7 +77,8 @@ crit preview <file.html>      # Review a local HTML file in preview mode (also: 
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
 crit status [--json]          # Show review file path, daemon status, comment stats
 crit resume [--list | <id>]   # Pick a stored review to reopen (interactive list of ~/.crit/reviews)
-crit cleanup [--days N] [--force]  # Delete stale review files from ~/.crit/reviews/
+crit cleanup [--days N] [--force]  # Delete stale review files from every state folder's reviews/
+crit migrate-xdg [--dry-run]       # Move ~/.crit.config.json and ~/.crit/ to the XDG folders (transitional)
 crit pull [pr-number]         # Fetch GitHub PR comments into the review file
 crit push [--dry-run] [--event <type>] [-m <msg>] [--commit <sha>] [pr]  # Post review comments as a GitHub PR review
 crit pr [num|url]             # Thin shim — forwards to `crit review --pr <n>`; no arg = PR for current branch

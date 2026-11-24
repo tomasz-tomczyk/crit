@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/browser"
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/migrate"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
+	"golang.org/x/term"
 )
 
 var (
@@ -32,6 +35,7 @@ func RunReview(args []string) error {
 	if sc == nil {
 		return nil // --version
 	}
+	maybeMigrateHint(sc.Quiet)
 
 	cwd, _ := daemon.ResolvedCWD()
 
@@ -109,4 +113,18 @@ func RunReview(args []string) error {
 	approved := runReviewClientForReview(entry, key, sc.Quiet)
 	stopDaemonOnApproval(approved, entry, key, config.LoadConfig(cwd).CleanupOnApproveEnabled())
 	return nil
+}
+
+// maybeMigrateHint nudges a person on a legacy ~/.crit install towards
+// crit migrate-xdg. Only when stderr is a terminal: agents run crit without
+// one and never see it. Transitional, like the migrate package.
+func maybeMigrateHint(quiet bool) {
+	if quiet || !term.IsTerminal(int(os.Stderr.Fd())) {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	migrate.MaybeHint(os.Stderr, home, time.Now())
 }
