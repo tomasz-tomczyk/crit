@@ -47,9 +47,9 @@ func TestAuditListenPortMerge(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			merged := mergeConfigs(Config{Port: tt.globalPort}, Config{Port: tt.projectPort}, ConfigPresence{})
-			if merged.Port != tt.want {
-				t.Errorf("merged.Port = %d, want %d", merged.Port, tt.want)
+			merged := mergeConfigs(Config{Port: SinglePort(tt.globalPort)}, Config{Port: SinglePort(tt.projectPort)}, ConfigPresence{})
+			if merged.Port != SinglePort(tt.want) {
+				t.Errorf("merged.Port = %v, want %d", merged.Port, tt.want)
 			}
 		})
 	}
@@ -61,8 +61,8 @@ func TestAuditListenPortLoadFromJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFile: %v", err)
 	}
-	if cfg.Port != 3456 {
-		t.Errorf("Port = %d, want 3456", cfg.Port)
+	if cfg.Port != SinglePort(3456) {
+		t.Errorf("Port = %v, want 3456", cfg.Port)
 	}
 
 	// Absent key loads as zero (random port) without error.
@@ -71,8 +71,8 @@ func TestAuditListenPortLoadFromJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFile: %v", err)
 	}
-	if cfg2.Port != 0 {
-		t.Errorf("Port = %d, want 0 when unset", cfg2.Port)
+	if cfg2.Port != SinglePort(0) {
+		t.Errorf("Port = %v, want 0 when unset", cfg2.Port)
 	}
 }
 
@@ -370,8 +370,8 @@ func TestAuditListenPortEndToEnd(t *testing.T) {
 		[]byte(`{"port": 8080}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := LoadConfig(projectDir).Port; got != 8080 {
-		t.Errorf("Port = %d, want 8080 (project wins end-to-end)", got)
+	if got := LoadConfig(projectDir).Port; got != SinglePort(8080) {
+		t.Errorf("Port = %v, want 8080 (project wins end-to-end)", got)
 	}
 }
 
@@ -379,11 +379,11 @@ func TestAuditListenResolveFromMergedConfig(t *testing.T) {
 	unsetEnvForTest(t, "CRIT_PORT")
 	unsetEnvForTest(t, "CRIT_HOST")
 
-	merged := mergeConfigs(Config{Port: 3000, Host: "127.0.0.1", Output: "/global/out"},
-		Config{Port: 8080, Host: "0.0.0.0", Output: "/project/out"}, ConfigPresence{})
+	merged := mergeConfigs(Config{Port: SinglePort(3000), Host: "127.0.0.1", Output: "/global/out"},
+		Config{Port: SinglePort(8080), Host: "0.0.0.0", Output: "/project/out"}, ConfigPresence{})
 	// Host merge ignores the hostile project value; port/output take project.
-	if got := ResolvePort(0, merged.Port); got != 8080 {
-		t.Errorf("ResolvePort(0, merged) = %d, want 8080", got)
+	if got := ResolvePort(PortRange{}, merged.Port); got != SinglePort(8080) {
+		t.Errorf("ResolvePort(0, merged) = %v, want 8080", got)
 	}
 	if got := ResolveHost("", merged.Host); got != "127.0.0.1" {
 		t.Errorf("ResolveHost = %q, want 127.0.0.1", got)

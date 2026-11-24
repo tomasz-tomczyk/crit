@@ -434,29 +434,24 @@ func rewriteCookies(resp *http.Response) {
 	resp.Header["Set-Cookie"] = out
 }
 
-// BindProxyServer creates a TCP listener on listenHost:(apiPort+1), the same
-// host as the API server (127.0.0.1 when empty), and returns a proxy server.
-// The server is not yet started; caller calls srv.Serve(ln).
-func BindProxyServer(listenHost, publicURL, upstreamOrigin string, apiPort int, upstreamCookies string) (net.Listener, *http.Server, error) {
+// NewProxyServer returns the live proxy server for the API on apiPort. The
+// caller binds the proxy listener (on apiPort+1, same host as the API server,
+// 127.0.0.1 when empty) and calls srv.Serve(ln). listenHost is the API host;
+// it decides which request Host headers the proxy accepts.
+func NewProxyServer(listenHost, publicURL, upstreamOrigin string, apiPort int, upstreamCookies string) (*http.Server, error) {
 	if listenHost == "" {
 		listenHost = "127.0.0.1"
 	}
-	proxyPort := apiPort + 1
-	ln, err := net.Listen("tcp", net.JoinHostPort(listenHost, strconv.Itoa(proxyPort)))
-	if err != nil {
-		return nil, nil, fmt.Errorf("proxy port %d already in use: %w", proxyPort, err)
-	}
 	proxy, err := newLiveProxy(upstreamOrigin, apiPort, upstreamCookies)
 	if err != nil {
-		ln.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	srv := &http.Server{
 		Handler:     checkProxyHost(listenHost, config.PublicURLHost(publicURL), proxy),
 		ReadTimeout: 15 * time.Second,
 		IdleTimeout: 60 * time.Second,
 	}
-	return ln, srv, nil
+	return srv, nil
 }
 
 // checkProxyHost rejects malformed Host headers and, on a loopback listener,

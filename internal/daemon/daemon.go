@@ -23,7 +23,7 @@ import (
 )
 
 type CommonDaemonFlags struct {
-	Port                        int
+	Port                        config.PortRange
 	Host                        string
 	PublicURL                   string
 	AllowUnauthenticatedNetwork bool
@@ -33,8 +33,8 @@ type CommonDaemonFlags struct {
 }
 
 func AppendCommonDaemonFlags(args []string, f CommonDaemonFlags) []string {
-	if f.Port != 0 {
-		args = append(args, "--port", strconv.Itoa(f.Port))
+	if !f.Port.IsZero() {
+		args = append(args, "--port", f.Port.String())
 	}
 	if f.Host != "" && f.Host != "127.0.0.1" {
 		args = append(args, "--host", f.Host)

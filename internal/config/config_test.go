@@ -28,8 +28,8 @@ func TestLoadConfigFromFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Port != 3456 {
-		t.Errorf("port = %d, want 3456", cfg.Port)
+	if cfg.Port != SinglePort(3456) {
+		t.Errorf("port = %v, want 3456", cfg.Port)
 	}
 	if !cfg.NoOpen {
 		t.Error("no_open should be true")
@@ -71,7 +71,7 @@ func TestLoadConfigFileMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing file should not error: %v", err)
 	}
-	if cfg.Port != 0 {
+	if cfg.Port != SinglePort(0) {
 		t.Errorf("expected zero config")
 	}
 	if presence.ShareURL || presence.IgnorePatterns {
@@ -149,15 +149,15 @@ func TestLoadConfigFilePresenceEmptyValues(t *testing.T) {
 }
 
 func TestMergeConfigs(t *testing.T) {
-	global := Config{Port: 3000, ShareURL: "https://global.example.com"}
+	global := Config{Port: SinglePort(3000), ShareURL: "https://global.example.com"}
 	global.IgnorePatterns = []string{"*.lock"}
 
-	project := Config{Port: 8080}
+	project := Config{Port: SinglePort(8080)}
 	project.IgnorePatterns = []string{"*.pb.go"}
 
 	merged := mergeConfigs(global, project, ConfigPresence{})
-	if merged.Port != 8080 {
-		t.Errorf("port = %d, want 8080 (project override)", merged.Port)
+	if merged.Port != SinglePort(8080) {
+		t.Errorf("port = %v, want 8080 (project override)", merged.Port)
 	}
 	if merged.ShareURL != "https://global.example.com" {
 		t.Errorf("share_url lost")
@@ -281,11 +281,11 @@ func TestBaseBranchConfig(t *testing.T) {
 }
 
 func TestMergeConfigsZeroValues(t *testing.T) {
-	global := Config{Port: 3000, NoOpen: true, Quiet: true}
+	global := Config{Port: SinglePort(3000), NoOpen: true, Quiet: true}
 	project := Config{} // all zero — should not override
 
 	merged := mergeConfigs(global, project, ConfigPresence{})
-	if merged.Port != 3000 {
+	if merged.Port != SinglePort(3000) {
 		t.Errorf("port should stay 3000")
 	}
 	if !merged.NoOpen {
@@ -324,8 +324,8 @@ func TestLoadConfig(t *testing.T) {
 
 	cfg := LoadConfig(projectDir)
 
-	if cfg.Port != 8080 {
-		t.Errorf("port = %d, want 8080 (project override)", cfg.Port)
+	if cfg.Port != SinglePort(8080) {
+		t.Errorf("port = %v, want 8080 (project override)", cfg.Port)
 	}
 	if cfg.ShareURL != "https://global.example.com" {
 		t.Errorf("share_url = %q, want global value", cfg.ShareURL)
@@ -427,7 +427,7 @@ func TestFilterPathsIgnored(t *testing.T) {
 }
 
 func TestConfigString(t *testing.T) {
-	cfg := Config{Port: 3456, IgnorePatterns: []string{"*.lock"}}
+	cfg := Config{Port: SinglePort(3456), IgnorePatterns: []string{"*.lock"}}
 	s := cfg.String()
 	if s == "{}" {
 		t.Error("expected non-empty JSON output")
@@ -691,8 +691,8 @@ func TestSaveGlobalConfig_PreservesExistingKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadConfigFile: %v", err)
 	}
-	if cfg.Port != 3456 {
-		t.Errorf("Port = %d, want 3456 (should be preserved)", cfg.Port)
+	if cfg.Port != SinglePort(3456) {
+		t.Errorf("Port = %v, want 3456 (should be preserved)", cfg.Port)
 	}
 	if !cfg.Quiet {
 		t.Error("Quiet should be preserved as true")
@@ -896,7 +896,7 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 
 	if cfg.Port != 0 {
-		t.Errorf("Port = %d, want 0", cfg.Port)
+		t.Errorf("Port = %v, want 0", cfg.Port)
 	}
 	if cfg.NoOpen {
 		t.Error("NoOpen should be false")

@@ -111,8 +111,8 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.Port != 6000 {
-			t.Errorf("port = %d, want 6000 (CLI flag)", sc.Port)
+		if sc.Port != config.SinglePort(6000) {
+			t.Errorf("port = %v, want 6000 (CLI flag)", sc.Port)
 		}
 	})
 
@@ -133,8 +133,8 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.Port != 5000 {
-			t.Errorf("port = %d, want 5000 (env var)", sc.Port)
+		if sc.Port != config.SinglePort(5000) {
+			t.Errorf("port = %v, want 5000 (env var)", sc.Port)
 		}
 	})
 
@@ -155,8 +155,8 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.Port != 4000 {
-			t.Errorf("port = %d, want 4000 (config file)", sc.Port)
+		if sc.Port != config.SinglePort(4000) {
+			t.Errorf("port = %v, want 4000 (config file)", sc.Port)
 		}
 	})
 
@@ -176,8 +176,8 @@ func TestResolveServerConfig_PortPrecedence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.Port != 0 {
-			t.Errorf("port = %d, want 0 (default)", sc.Port)
+		if sc.Port != config.SinglePort(0) {
+			t.Errorf("port = %v, want 0 (default)", sc.Port)
 		}
 	})
 }
@@ -695,9 +695,16 @@ func TestParseDaemonFlags_Session(t *testing.T) {
 	}
 }
 
+func TestParseDaemonFlags_PortRange(t *testing.T) {
+	sf := parseDaemonFlagsForTest([]string{"plan.md", "--port", "47800-47819"})
+	if want := (config.PortRange{First: 47800, Last: 47819}); sf.port != want {
+		t.Fatalf("port = %v, want %v", sf.port, want)
+	}
+}
+
 func TestParseDaemonFlags_FlagsAfterFile(t *testing.T) {
 	sf := parseDaemonFlagsForTest([]string{"plan.md", "-p", "51573", "--no-open", "--quiet"})
-	if sf.port != 51573 || !sf.noOpen || !sf.quiet {
+	if sf.port != config.SinglePort(51573) || !sf.noOpen || !sf.quiet {
 		t.Fatalf("flags after file not applied: %+v", sf)
 	}
 	if len(sf.fileArgs) != 1 || sf.fileArgs[0] != "plan.md" {

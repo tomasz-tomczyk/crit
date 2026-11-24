@@ -4,10 +4,11 @@ import (
 	"flag"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/config"
 )
 
 type serverFlagSet struct {
-	port        int
+	port        config.PortRange
 	host        string
 	noOpen      bool
 	showVersion bool
@@ -31,8 +32,9 @@ type serverFlagSet struct {
 
 func parseServerFlags(args []string) serverFlagSet {
 	fs := flag.NewFlagSet("crit", flag.ExitOnError)
-	port := fs.Int("port", 0, "")
-	fs.IntVar(port, "p", 0, "")
+	var port config.PortRange
+	fs.Var(&port, "port", "")
+	fs.Var(&port, "p", "")
 	host := fs.String("host", "", "")
 	noOpen := fs.Bool("no-open", false, "")
 	showVersion := fs.Bool("version", false, "")
@@ -67,7 +69,7 @@ func parseServerFlags(args []string) serverFlagSet {
 	fs.Parse(args)
 
 	return serverFlagSet{
-		port:        *port,
+		port:        port,
 		host:        *host,
 		noOpen:      *noOpen,
 		showVersion: *showVersion,

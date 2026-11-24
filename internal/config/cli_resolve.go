@@ -1,9 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
@@ -43,15 +43,18 @@ func ResolveOutputDir(explicit string, cfg Config) string {
 	return cfg.Output
 }
 
-// ResolvePort returns the effective listen port (flag > env > config).
-func ResolvePort(flagPort, cfgPort int) int {
-	if flagPort != 0 {
+// ResolvePort returns the effective requested port or port range
+// (flag > env > config). An invalid CRIT_PORT is ignored with a warning.
+func ResolvePort(flagPort, cfgPort PortRange) PortRange {
+	if !flagPort.IsZero() {
 		return flagPort
 	}
 	if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil {
+		p, err := ParsePortRange(envPort)
+		if err == nil {
 			return p
 		}
+		fmt.Fprintf(os.Stderr, "Warning: ignoring CRIT_PORT: %v\n", err)
 	}
 	return cfgPort
 }

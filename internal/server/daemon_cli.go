@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
 	"github.com/tomasz-tomczyk/crit/internal/config"
@@ -23,7 +22,7 @@ var PrintVersionFn func()
 
 // DaemonCLIConfig holds resolved daemon configuration from CLI flags, env, and config files.
 type DaemonCLIConfig struct {
-	Port                        int
+	Port                        config.PortRange
 	Host                        string
 	PublicURL                   string
 	AllowUnauthenticatedNetwork bool
@@ -58,7 +57,7 @@ type DaemonCLIConfig struct {
 }
 
 type daemonFlagSet struct {
-	port                        int
+	port                        config.PortRange
 	host                        string
 	publicURL                   string
 	allowUnauthenticatedNetwork bool
@@ -89,8 +88,9 @@ type daemonFlagSet struct {
 
 func parseDaemonFlags(args []string) daemonFlagSet {
 	fs := flag.NewFlagSet("crit", flag.ExitOnError)
-	port := fs.Int("port", 0, "Port to listen on (default: random available port)")
-	fs.IntVar(port, "p", 0, "Port to listen on (shorthand)")
+	var port config.PortRange
+	fs.Var(&port, "port", "Port or port range (first-last) to listen on (default: random available port)")
+	fs.Var(&port, "p", "Port or port range to listen on (shorthand)")
 	host := fs.String("host", "", "Host to listen on (default: 127.0.0.1)")
 	publicURL := fs.String("public-url", "", "Advertised base URL for browser/stderr (overrides CRIT_PUBLIC_URL; e.g. https://machine.ts.net for tailscale serve)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication (trusted network only)")
@@ -156,7 +156,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	})
 
 	return daemonFlagSet{
-		port:                        *port,
+		port:                        port,
 		host:                        *host,
 		publicURL:                   *publicURL,
 		allowUnauthenticatedNetwork: *allowUnauthNet,
@@ -407,17 +407,4 @@ func FocusKeyArgs(sc *DaemonCLIConfig) []string {
 		return []string{session.PRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
 	}
 	return []string{fmt.Sprintf("range:%s..%s", sc.Focus.BaseSHA, sc.Focus.HeadSHA)}
-}
-
-// ResolvePortFromEnv mirrors config.ResolvePort for tests that assemble DaemonCLIConfig manually.
-func ResolvePortFromEnv(flagPort, cfgPort int) int {
-	if flagPort != 0 {
-		return flagPort
-	}
-	if envPort := os.Getenv("CRIT_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil {
-			return p
-		}
-	}
-	return cfgPort
 }

@@ -61,8 +61,9 @@ func connectToPreviewDaemon(key string, noOpen bool, openCmd string, quiet bool)
 func RunPreview(args []string) {
 	fs := flag.NewFlagSet("preview", flag.ExitOnError)
 	noOpen := fs.Bool("no-open", false, "Don't auto-open browser")
-	port := fs.Int("port", 0, "Port to listen on")
-	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	var port config.PortRange
+	fs.Var(&port, "port", "Port or port range (first-last) to listen on")
+	fs.Var(&port, "p", "Port or port range (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
@@ -117,7 +118,7 @@ func RunPreview(args []string) {
 		return
 	}
 
-	daemonArgs := buildPreviewStartArgs(absPath, *port, *host, *publicURL, *allowUnauthNet || config.EnvAllowsUnauthenticatedNetwork(), noOpenResolved, quietResolved, *shareURL, cfg)
+	daemonArgs := buildPreviewStartArgs(absPath, port, *host, *publicURL, *allowUnauthNet || config.EnvAllowsUnauthenticatedNetwork(), noOpenResolved, quietResolved, *shareURL, cfg)
 	entry, err := daemon.StartDaemon(key, daemonArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not start preview daemon: %v\n", err)
@@ -136,7 +137,7 @@ func RunPreview(args []string) {
 	daemon.RunReviewClient(entry, key, quietResolved)
 }
 
-func buildPreviewStartArgs(absPath string, port int, host, publicURL string, allowUnauthNet, noOpen, quiet bool, shareURL string, cfg config.Config) []string {
+func buildPreviewStartArgs(absPath string, port config.PortRange, host, publicURL string, allowUnauthNet, noOpen, quiet bool, shareURL string, cfg config.Config) []string {
 	daemonArgs := []string{"--preview-file", absPath}
 	return daemon.AppendCommonDaemonFlags(daemonArgs, daemon.CommonDaemonFlags{
 		Port:                        config.ResolvePort(port, cfg.Port),

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/focus"
 )
@@ -486,7 +487,7 @@ func TestParseLiveCLIFlags(t *testing.T) {
 	if f.origin != "https://example.com/app" {
 		t.Fatalf("origin = %q", f.origin)
 	}
-	if f.port != 8080 || f.host != "0.0.0.0" || f.publicURL != "https://mymac.ts.net" || !f.noOpen || !f.quiet {
+	if f.port != config.SinglePort(8080) || f.host != "0.0.0.0" || f.publicURL != "https://mymac.ts.net" || !f.noOpen || !f.quiet {
 		t.Fatalf("flags = %+v", f)
 	}
 	if f.shareURL != "https://share.example" || f.cookieFile != "/tmp/jar.txt" || f.cdpURL != "http://127.0.0.1:9222" {
@@ -498,8 +499,8 @@ func TestParseLiveCLIFlags(t *testing.T) {
 }
 
 func TestBuildLiveDaemonArgs(t *testing.T) {
-	f := liveCLIFlags{port: 9000, host: "127.0.0.1", publicURL: "https://mymac.ts.net", quiet: true}
-	cfg := Config{Port: 3000, Quiet: false, PublicURL: "https://ignored.example.com"}
+	f := liveCLIFlags{port: config.SinglePort(9000), host: "127.0.0.1", publicURL: "https://mymac.ts.net", quiet: true}
+	cfg := Config{Port: config.SinglePort(3000), Quiet: false, PublicURL: "https://ignored.example.com"}
 
 	withCookie := buildLiveDaemonArgs("http://localhost:3000/dashboard", "sess=abc", f, cfg, true)
 	if !containsArgPair(withCookie, "--live-origin", "http://localhost:3000/dashboard") {

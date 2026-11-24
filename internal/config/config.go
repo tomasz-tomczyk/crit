@@ -21,7 +21,7 @@ const defaultShareURL = DefaultShareURL
 
 // Config holds all configuration values from config files.
 type Config struct {
-	Port               int           `json:"port,omitempty"`
+	Port               PortRange     `json:"port,omitzero"`
 	Host               string        `json:"host,omitempty"`       // listen host (default 127.0.0.1)
 	PublicURL          string        `json:"public_url,omitempty"` // advertised base URL (global-only; e.g. tailscale serve)
 	NoOpen             bool          `json:"no_open,omitempty"`
@@ -343,7 +343,7 @@ func mergeConfigs(global, project Config, projectPresence ConfigPresence) Config
 	// Sharing destinations and all credentials are global-only.
 	merged.shareURLPresent = global.shareURLPresent
 	merged.shareTargetsPresent = global.shareTargetsPresent
-	if project.Port != 0 {
+	if !project.Port.IsZero() {
 		merged.Port = project.Port
 	}
 	// Security: host is intentionally NOT merged from project config.

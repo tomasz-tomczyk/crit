@@ -167,7 +167,7 @@ func connectToLiveDaemon(key string, noOpen bool, openCmd string, quiet bool) bo
 }
 
 type liveCLIFlags struct {
-	port                        int
+	port                        config.PortRange
 	host                        string
 	publicURL                   string
 	allowUnauthenticatedNetwork bool
@@ -182,8 +182,9 @@ type liveCLIFlags struct {
 
 func parseLiveCLIFlags(args []string) liveCLIFlags {
 	fs := flag.NewFlagSet("live", flag.ExitOnError)
-	port := fs.Int("port", 0, "Port to listen on")
-	fs.IntVar(port, "p", 0, "Port (shorthand)")
+	var port config.PortRange
+	fs.Var(&port, "port", "Port or port range (first-last) to listen on")
+	fs.Var(&port, "p", "Port or port range (shorthand)")
 	host := fs.String("host", "", "Host to listen on")
 	publicURL := fs.String("public-url", "", "Advertised base URL (overrides CRIT_PUBLIC_URL)")
 	allowUnauthNet := fs.Bool(config.AllowUnauthenticatedNetworkFlag, false, "Allow non-loopback listen or public_url without authentication")
@@ -223,7 +224,7 @@ func parseLiveCLIFlags(args []string) liveCLIFlags {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return liveCLIFlags{
-		port:                        *port,
+		port:                        port,
 		host:                        *host,
 		publicURL:                   *publicURL,
 		allowUnauthenticatedNetwork: *allowUnauthNet,

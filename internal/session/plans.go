@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -93,7 +92,7 @@ func latestPlanVersion(dir string) int {
 
 // PlanDaemonFlags carries daemon CLI flags for plan-mode spawns.
 type PlanDaemonFlags struct {
-	Port                        int
+	Port                        config.PortRange
 	Host                        string
 	PublicURL                   string
 	AllowUnauthenticatedNetwork bool
@@ -112,8 +111,8 @@ func BuildPlanDaemonArgs(currentPath, storageDir, slug string, flags PlanDaemonF
 }
 
 func appendPlanDaemonFlags(args []string, f PlanDaemonFlags) []string {
-	if f.Port != 0 {
-		args = append(args, "--port", strconv.Itoa(f.Port))
+	if !f.Port.IsZero() {
+		args = append(args, "--port", f.Port.String())
 	}
 	if f.Host != "" && f.Host != "127.0.0.1" {
 		args = append(args, "--host", f.Host)
