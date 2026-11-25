@@ -69,6 +69,21 @@ func TestIsGenerated(t *testing.T) {
 		{"order matters earlier wins not", "api/keep.pb.go -linguist-generated\n*.pb.go linguist-generated\n", "api/keep.pb.go", true},
 		{"linguist-generated=true form", "foo.go linguist-generated=true\n", "foo.go", true},
 		{"linguist-generated=false form", "*.pb.go linguist-generated\nfoo.pb.go linguist-generated=false\n", "foo.pb.go", false},
+		// "**" matches whole path segments only (git check-attr semantics):
+		// it must not bleed into the text of an adjacent segment.
+		{"doublestar leading zero dirs", "**/foo linguist-generated\n", "foo", true},
+		{"doublestar leading nested", "**/foo linguist-generated\n", "x/y/foo", true},
+		{"doublestar leading no suffix bleed", "**/foo linguist-generated\n", "barfoo", false},
+		{"doublestar leading no prefix bleed", "**/foo linguist-generated\n", "xfoo", false},
+		{"doublestar leading nested no bleed", "**/foo linguist-generated\n", "x/barfoo", false},
+		{"doublestar middle zero dirs", "a/**/b linguist-generated\n", "a/b", true},
+		{"doublestar middle one dir", "a/**/b linguist-generated\n", "a/x/b", true},
+		{"doublestar middle deep", "a/**/b linguist-generated\n", "a/x/y/b", true},
+		{"doublestar middle no partial segment", "a/**/b linguist-generated\n", "a/xb", false},
+		{"doublestar middle no suffix bleed", "a/**/b linguist-generated\n", "a/x/zb", false},
+		{"doublestar trailing nested", "a/** linguist-generated\n", "a/x/y/b", true},
+		{"doublestar trailing no match outside", "a/** linguist-generated\n", "x/a/b", false},
+		{"doublestar non-segment is plain stars", "a**/b linguist-generated\n", "axx/xb", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

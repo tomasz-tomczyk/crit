@@ -114,17 +114,35 @@ func compileGitattrPattern(pattern string) (*regexp.Regexp, error) {
 	for i < len(pat) {
 		c := pat[i]
 		switch {
-		case c == '*' && i+1 < len(pat) && pat[i+1] == '*':
-			// ** — any number of path segments
-			sb.WriteString(".*")
-			i += 2
-			// consume an optional following slash so "**/" doesn't force one
-			if i < len(pat) && pat[i] == '/' {
-				i++
-			}
 		case c == '*':
-			sb.WriteString("[^/]*")
-			i++
+			// Measure the run of consecutive asterisks. A run of two or more
+			// is the recursive wildcard "**" only when it forms a complete
+			// path segment — preceded by the start or a slash and followed by
+			// the end or a slash. Any other consecutive asterisks are plain
+			// single-star wildcards (gitignore semantics), so "a**/b" behaves
+			// like "a*/b" and cannot cross into neighboring segments.
+			j := i
+			for j < len(pat) && pat[j] == '*' {
+				j++
+			}
+			fullSegment := (i == 0 || pat[i-1] == '/') && (j == len(pat) || pat[j] == '/')
+			if j-i >= 2 && fullSegment {
+				if j < len(pat) && pat[j] == '/' {
+					// "**/" — zero or more whole directories; the slash is
+					// folded in so the zero-directory case needs no separator.
+					sb.WriteString("(?:.*/)?")
+					i = j + 1
+				} else {
+					// trailing "**" — everything below this point
+					sb.WriteString(".*")
+					i = j
+				}
+			} else {
+				for range j - i {
+					sb.WriteString("[^/]*")
+				}
+				i = j
+			}
 		case c == '?':
 			sb.WriteString("[^/]")
 			i++
