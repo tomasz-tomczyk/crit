@@ -84,6 +84,15 @@ func TestIsGenerated(t *testing.T) {
 		{"doublestar trailing nested", "a/** linguist-generated\n", "a/x/y/b", true},
 		{"doublestar trailing no match outside", "a/** linguist-generated\n", "x/a/b", false},
 		{"doublestar non-segment is plain stars", "a**/b linguist-generated\n", "axx/xb", false},
+		{"doublestar non-segment matches like star", "a**/b linguist-generated\n", "axx/b", true},
+		{"doublestar middle end anchored", "a/**/b linguist-generated\n", "a/x/b/c", false},
+		{"doublestar alone matches all", "** linguist-generated\n", "x/y/z.go", true},
+		{"triplestar segment is recursive", "***/foo linguist-generated\n", "x/y/foo", true},
+		{"doublestar repeated segments", "a/**/**/b linguist-generated\n", "a/b", true},
+		{"doublestar both sides nested", "**/x/** linguist-generated\n", "p/x/q", true},
+		{"doublestar both sides not the dir", "**/x/** linguist-generated\n", "x", false},
+		{"basename doublestar stays in segment", "foo** linguist-generated\n", "foo/bar", false},
+		{"basename doublestar nested", "foo** linguist-generated\n", "d/foobar", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

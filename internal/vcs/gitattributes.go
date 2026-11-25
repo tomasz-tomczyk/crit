@@ -89,7 +89,8 @@ func parseGeneratedRuleLine(line string) (GeneratedRule, bool) {
 
 // compileGitattrPattern translates a gitignore-style pattern into a regex
 // anchored to the full repo-relative path. Supported syntax:
-//   - **        — any number of path segments (including zero)
+//   - **        — any number of path segments (including zero), but only as a
+//     whole segment ("**/x", "a/**/b", "a/**"); other runs act like "*"
 //   - *         — any run of non-slash chars
 //   - ?         — single non-slash char
 //   - dir/      — match anything under dir
@@ -115,34 +116,7 @@ func compileGitattrPattern(pattern string) (*regexp.Regexp, error) {
 		c := pat[i]
 		switch {
 		case c == '*':
-			// Measure the run of consecutive asterisks. A run of two or more
-			// is the recursive wildcard "**" only when it forms a complete
-			// path segment — preceded by the start or a slash and followed by
-			// the end or a slash. Any other consecutive asterisks are plain
-			// single-star wildcards (gitignore semantics), so "a**/b" behaves
-			// like "a*/b" and cannot cross into neighboring segments.
-			j := i
-			for j < len(pat) && pat[j] == '*' {
-				j++
-			}
-			fullSegment := (i == 0 || pat[i-1] == '/') && (j == len(pat) || pat[j] == '/')
-			if j-i >= 2 && fullSegment {
-				if j < len(pat) && pat[j] == '/' {
-					// "**/" — zero or more whole directories; the slash is
-					// folded in so the zero-directory case needs no separator.
-					sb.WriteString("(?:.*/)?")
-					i = j + 1
-				} else {
-					// trailing "**" — everything below this point
-					sb.WriteString(".*")
-					i = j
-				}
-			} else {
-				for range j - i {
-					sb.WriteString("[^/]*")
-				}
-				i = j
-			}
+			i = writeStarRun(&sb, pat, i)
 		case c == '?':
 			sb.WriteString("[^/]")
 			i++
@@ -156,6 +130,35 @@ func compileGitattrPattern(pattern string) (*regexp.Regexp, error) {
 	}
 	sb.WriteString("$")
 	return regexp.Compile(sb.String())
+}
+
+// writeStarRun writes the regex for the run of asterisks that starts at
+// pat[i] and returns the index just past what it consumed. A run of two or
+// more is the recursive wildcard "**" only when it forms a complete path
+// segment — preceded by the start or a slash and followed by the end or a
+// slash. Any other consecutive asterisks are plain single-star wildcards
+// (gitignore semantics), so "a**/b" behaves like "a*/b" and cannot cross
+// into neighboring segments.
+func writeStarRun(sb *strings.Builder, pat string, i int) int {
+	j := i
+	for j < len(pat) && pat[j] == '*' {
+		j++
+	}
+	fullSegment := (i == 0 || pat[i-1] == '/') && (j == len(pat) || pat[j] == '/')
+	switch {
+	case j-i >= 2 && fullSegment && j < len(pat):
+		// "**/" — zero or more whole directories; the slash is folded in
+		// so the zero-directory case needs no separator.
+		sb.WriteString("(?:.*/)?")
+		return j + 1
+	case j-i >= 2 && fullSegment:
+		// trailing "**" — everything below this point
+		sb.WriteString(".*")
+		return j
+	default:
+		sb.WriteString("[^/]*")
+		return j
+	}
 }
 
 // IsGenerated returns true if path matches at least one linguist-generated
