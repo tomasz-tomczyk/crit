@@ -10,6 +10,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -183,6 +184,53 @@ func TestCommentScopeOverrideFromFlag(t *testing.T) {
 		}
 		if got != c.want {
 			t.Errorf("%q: got %q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestResolveCommentScopeKeepsChangeIdentity guards #1234: the scope must
+// carry the project and host of the daemon's change, so comments stamped from
+// it get the same focus key as the daemon view.
+func TestResolveCommentScopeKeepsChangeIdentity(t *testing.T) {
+	foci := []struct {
+		name  string
+		focus Focus
+	}{
+		{"gitlab.com merge request", Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 7, HeadSHA: "h", BaseSHA: "b",
+			RemoteBaseProject: "group/project", RemoteHost: "gitlab.com"}},
+		{"self-managed gitlab merge request", Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 7, HeadSHA: "h", BaseSHA: "b",
+			RemoteBaseProject: "group/project", RemoteHost: "gitlab.example.com"}},
+		{"url-qualified github pull request", Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, HeadSHA: "h", BaseSHA: "b",
+			RemoteBaseProject: "owner/repo", RemoteHost: "github.com"}},
+		{"bare github pull request", Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, HeadSHA: "h", BaseSHA: "b"}},
+	}
+	overrides := []struct {
+		override CommentFocusOverride
+		scope    DiffScope
+	}{
+		{ScopeOverrideUnset, DiffScopeLayer},
+		{ScopeOverrideLayer, DiffScopeLayer},
+		{ScopeOverrideFullStack, DiffScopeFullStack},
+	}
+	for _, fc := range foci {
+		for _, ov := range overrides {
+			t.Run(fc.name+"/"+string(ov.override), func(t *testing.T) {
+				daemonFocus := fc.focus
+				daemonFocus.DiffScope = ov.scope
+				restore := setProbeDaemonFocusForTest(func() *Focus { f := daemonFocus; return &f })
+				t.Cleanup(restore)
+
+				scope, err := resolveCommentScopeForTest(ov.override, t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := session.StampWithFocus(session.Comment{}, scope.AsFocus())
+				want := session.StampWithFocus(session.Comment{}, daemonFocus)
+				if got.FocusKey != want.FocusKey || got.DiffScope != want.DiffScope {
+					t.Fatalf("stamped (key %q, scope %q), daemon shows (key %q, scope %q)",
+						got.FocusKey, got.DiffScope, want.FocusKey, want.DiffScope)
+				}
+			})
 		}
 	}
 }

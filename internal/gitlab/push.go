@@ -267,7 +267,7 @@ func runPush(ctx context.Context, request forge.PushRequest) (forge.PushResult, 
 		}
 		return result, fmt.Errorf("publishing GitLab draft review: %w", err)
 	}
-	if err := refreshGitLabIDs(ctx, repo, id, saved, &cj); err != nil {
+	if err := refreshGitLabIDs(ctx, repo, id, mr, saved, &cj); err != nil {
 		return result, err
 	}
 	resolved, err := syncGitLabResolution(ctx, repo, id, &cj)
@@ -604,7 +604,7 @@ func reviewerState(event string) string {
 	return "reviewed"
 }
 
-func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, saved *pushReview, cj *session.CritJSON) error {
+func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.ChangeID, mr mrRaw, saved *pushReview, cj *session.CritJSON) error {
 	discussions, err := fetchAllDiscussions(ctx, repo, id)
 	if err != nil {
 		return fmt.Errorf("review published but could not refresh GitLab discussion IDs: %w", err)
@@ -612,13 +612,18 @@ func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.Chan
 	// Stamp imported threads with this MR's focus key even when no daemon is
 	// probing (headless `crit push`). Falling back to ResolvePullScope alone
 	// can yield DiffScope-only scope and stamp foreign notes as range:.. .
-	scope := session.InheritedScope{
-		Forge:        string(forge.GitLab),
-		ChangeNumber: id.Number,
-		DiffScope:    "layer",
-	}
-	if probed := session.ResolvePullScope(cj); probed.ChangeNumber > 0 || probed.HeadSHA != "" {
-		scope = probed
+	scope := session.ResolvePullScope(cj)
+	if scope.ChangeNumber == 0 && scope.HeadSHA == "" {
+		// Rebuild the key the way the daemon's MR focus does (Provider.Get):
+		// target project path on the same host, or the page hides the notes.
+		target := projectRef(ctx, repo.Host, mr.TargetProjectID)
+		scope = session.InheritedScope{
+			Forge:             string(forge.GitLab),
+			ChangeNumber:      id.Number,
+			DiffScope:         "layer",
+			RemoteBaseProject: target.Project,
+			RemoteHost:        target.Host,
+		}
 	}
 	mergeDiscussions(cj, discussions, scope)
 	return saved.save(cj)

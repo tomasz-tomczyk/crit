@@ -181,18 +181,36 @@ func visibleInFocusKey(c Comment, key string, f Focus) bool {
 	return c.DiffScope == ""
 }
 
+// ScopeFromFocus returns the scope for comments written against f from
+// outside the daemon (crit comment, pull, push, hosted merge), stamped with
+// diffScope. It copies every field focusKeyFor reads, so the comments get
+// the same focus key as the daemon's view of f.
+func ScopeFromFocus(f Focus, diffScope string) InheritedScope {
+	return InheritedScope{
+		HeadSHA:           f.HeadSHA,
+		BaseSHA:           f.BaseSHA,
+		Forge:             f.Forge,
+		ChangeNumber:      f.ChangeNumber,
+		DiffScope:         diffScope,
+		RemoteBaseProject: f.RemoteBaseProject,
+		RemoteHost:        f.RemoteHost,
+	}
+}
+
 // AsFocus returns a synthetic Focus that produces the same stamping as this scope.
 func (s InheritedScope) AsFocus() Focus {
 	if s.DiffScope == "" {
 		return Focus{Kind: FocusWorkingTree}
 	}
 	return Focus{
-		Kind:         FocusRange,
-		HeadSHA:      s.HeadSHA,
-		BaseSHA:      s.BaseSHA,
-		Forge:        s.Forge,
-		ChangeNumber: s.ChangeNumber,
-		DiffScope:    DiffScope(s.DiffScope),
+		Kind:              FocusRange,
+		HeadSHA:           s.HeadSHA,
+		BaseSHA:           s.BaseSHA,
+		Forge:             s.Forge,
+		ChangeNumber:      s.ChangeNumber,
+		DiffScope:         DiffScope(s.DiffScope),
+		RemoteBaseProject: s.RemoteBaseProject,
+		RemoteHost:        s.RemoteHost,
 	}
 }
 

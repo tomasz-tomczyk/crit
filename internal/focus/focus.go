@@ -373,13 +373,7 @@ func ResolveCommentScope(override CommentFocusOverride, outputDir string) (Inher
 // must match either the running daemon's diff scope or the on-disk ActiveDiffScope.
 func resolveExplicitScope(daemon *Focus, outputDir string, want DiffScope, wantStr, errMsg string) (InheritedScope, error) {
 	if daemon != nil && daemon.Kind == FocusRange && daemon.DiffScope == want {
-		return InheritedScope{
-			HeadSHA:      daemon.HeadSHA,
-			BaseSHA:      daemon.BaseSHA,
-			Forge:        daemon.Forge,
-			ChangeNumber: daemon.ChangeNumber,
-			DiffScope:    wantStr,
-		}, nil
+		return session.ScopeFromFocus(*daemon, wantStr), nil
 	}
 	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope == wantStr {
 		return InheritedScope{DiffScope: wantStr}, nil
@@ -392,13 +386,7 @@ func resolveExplicitScope(daemon *Focus, outputDir string, want DiffScope, wantS
 // InheritedScope when neither is available.
 func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 	if daemon != nil && daemon.Kind == FocusRange {
-		return InheritedScope{
-			HeadSHA:      daemon.HeadSHA,
-			BaseSHA:      daemon.BaseSHA,
-			Forge:        daemon.Forge,
-			ChangeNumber: daemon.ChangeNumber,
-			DiffScope:    string(daemon.DiffScope),
-		}
+		return session.ScopeFromFocus(*daemon, string(daemon.DiffScope))
 	}
 	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope != "" {
 		fmt.Fprintf(os.Stderr,

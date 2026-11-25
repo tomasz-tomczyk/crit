@@ -91,8 +91,9 @@ func fetchSessionFocus(client *http.Client, host string, port int) *Focus {
 }
 
 // ResolvePullScope reconstructs the active change-request layer for imported
-// remote comments. Forge + ChangeNumber preserve the provider-specific focus
-// key (pr:N or mr:N); BaseSHA + HeadSHA preserve range identity as a fallback.
+// remote comments. Forge, ChangeNumber, RemoteBaseProject and RemoteHost
+// preserve the provider-specific focus key (pr:N, mr:<project>#N, ...);
+// BaseSHA + HeadSHA preserve range identity as a fallback.
 func ResolvePullScope(cj *CritJSON) InheritedScope {
 	return PullScopeFor(ProbeDaemonFocus(), cj)
 }
@@ -101,13 +102,7 @@ func ResolvePullScope(cj *CritJSON) InheritedScope {
 // callers that must not make the HTTP call while holding the review lock.
 func PullScopeFor(focus *Focus, cj *CritJSON) InheritedScope {
 	if focus != nil && focus.Kind == FocusRange {
-		return InheritedScope{
-			HeadSHA:      focus.HeadSHA,
-			BaseSHA:      focus.BaseSHA,
-			Forge:        focus.Forge,
-			ChangeNumber: focus.ChangeNumber,
-			DiffScope:    "layer",
-		}
+		return ScopeFromFocus(*focus, "layer")
 	}
 	if cj != nil && cj.ActiveDiffScope != "" {
 		return InheritedScope{DiffScope: "layer"}
