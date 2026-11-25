@@ -2,9 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"net"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/tomasz-tomczyk/crit/internal/comment"
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	sesspkg "github.com/tomasz-tomczyk/crit/internal/session"
+	"github.com/tomasz-tomczyk/crit/internal/testutil"
 )
 
 func getAllFileComments(t *testing.T, s *Server, url string) map[string][]Comment {
@@ -45,6 +52,52 @@ func TestHandleAllFileComments_GroupsByPathAndHidesOtherFocus(t *testing.T) {
 	}
 	if cs := got["lazy.go"]; len(cs) != 1 || cs[0].ID != "c3" || !cs[0].Resolved {
 		t.Errorf("lazy.go: expected resolved c3, got %+v", cs)
+	}
+}
+
+func TestRunComment_VisibleInRemoteReview(t *testing.T) {
+	tests := []struct {
+		name, forge, host string
+		scopeFlag         []string
+	}{
+		{name: "GitLab MR", forge: "gitlab", host: "gitlab.com"},
+		{name: "self-hosted GitLab MR with explicit scope", forge: "gitlab", host: "gitlab.example.com", scopeFlag: []string{"--scope", "layer"}},
+		{name: "GitHub Enterprise PR", forge: "github", host: "github.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testutil.SetHome(t, t.TempDir())
+			s, sess := newTestServer(t)
+			t.Chdir(sess.RepoRoot)
+			sess.Mode = "git"
+			sess.Focus = sesspkg.Focus{
+				Kind:              sesspkg.FocusRange,
+				Forge:             tt.forge,
+				ChangeNumber:      17,
+				RemoteBaseProject: "group/project",
+				RemoteHost:        tt.host,
+				DiffScope:         sesspkg.DiffScopeLayer,
+			}
+			srv := httptest.NewServer(s)
+			t.Cleanup(srv.Close)
+			if err := daemon.WriteSessionFile(sess.SessionKey, daemon.SessionEntry{
+				PID: os.Getpid(), Port: srv.Listener.Addr().(*net.TCPAddr).Port,
+				CWD: sess.RepoRoot, ReviewPath: sess.CritJSONPath(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"--session", sess.SessionKey}, tt.scopeFlag...)
+			if err := comment.RunComment(append(args, "test.md:2", "line feedback")); err != nil {
+				t.Fatal(err)
+			}
+			if !sess.SyncCommentsFromDisk() {
+				t.Fatal("expected the CLI comment to be loaded from the review file")
+			}
+			got := getAllFileComments(t, s, "/api/files/comments")["test.md"]
+			if len(got) != 1 || got[0].Body != "line feedback" || got[0].StartLine != 2 {
+				t.Fatalf("visible comments = %+v, want line feedback on line 2", got)
+			}
+		})
 	}
 }
 

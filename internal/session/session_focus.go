@@ -187,12 +187,14 @@ func (s InheritedScope) AsFocus() Focus {
 		return Focus{Kind: FocusWorkingTree}
 	}
 	return Focus{
-		Kind:         FocusRange,
-		HeadSHA:      s.HeadSHA,
-		BaseSHA:      s.BaseSHA,
-		Forge:        s.Forge,
-		ChangeNumber: s.ChangeNumber,
-		DiffScope:    DiffScope(s.DiffScope),
+		Kind:              FocusRange,
+		HeadSHA:           s.HeadSHA,
+		BaseSHA:           s.BaseSHA,
+		Forge:             s.Forge,
+		ChangeNumber:      s.ChangeNumber,
+		RemoteBaseProject: s.RemoteBaseProject,
+		RemoteHost:        s.RemoteHost,
+		DiffScope:         DiffScope(s.DiffScope),
 	}
 }
 

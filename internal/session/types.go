@@ -16,9 +16,11 @@ type (
 
 // InheritedScope is focus metadata stamped on comments authored via CLI tools.
 type InheritedScope struct {
-	HeadSHA      string
-	BaseSHA      string
-	Forge        string
-	ChangeNumber int
-	DiffScope    string // "layer" | "full_stack" | ""
+	HeadSHA           string
+	BaseSHA           string
+	Forge             string
+	ChangeNumber      int
+	RemoteBaseProject string
+	RemoteHost        string
+	DiffScope         string // "layer" | "full_stack" | ""
 }
