@@ -617,6 +617,9 @@ func refreshGitLabIDs(ctx context.Context, repo forge.RepoContext, id forge.Chan
 		// Rebuild the key the way the daemon's MR focus does (Provider.Get):
 		// target project path on the same host, or the page hides the notes.
 		target := projectRef(ctx, repo.Host, mr.TargetProjectID)
+		if target.Project == "" {
+			fmt.Fprintf(os.Stderr, "Warning: could not read the GitLab project for MR !%d; imported notes may not show in a later `crit --mr %d` review\n", id.Number, id.Number)
+		}
 		scope = session.InheritedScope{
 			Forge:             string(forge.GitLab),
 			ChangeNumber:      id.Number,

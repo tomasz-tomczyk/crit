@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,16 +21,40 @@ import (
 )
 
 // init runs before TestMain swaps HOME for a temp dir (testutil.RunWithTempHome).
-// Point glab at the real config dir so its stored auth still works.
+// glab keeps its login in its config dir under HOME and, by default, in the OS
+// keyring, which it cannot open under a temp HOME. Put a `glab` wrapper first
+// on PATH that runs the real glab with the real HOME (and XDG_CONFIG_HOME), so
+// both this test and the crit binaries it spawns reach the stored login while
+// crit's own state stays in the temp HOME.
 func init() {
-	if os.Getenv("GLAB_CONFIG_DIR") != "" {
+	if runtime.GOOS == "windows" {
 		return
 	}
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		os.Setenv("GLAB_CONFIG_DIR", filepath.Join(xdg, "glab-cli"))
-	} else if home, err := os.UserHomeDir(); err == nil {
-		os.Setenv("GLAB_CONFIG_DIR", filepath.Join(home, ".config", "glab-cli"))
+	realGlab, err := exec.LookPath("glab")
+	if err != nil {
+		return // newGitLabRoundtripEnv skips the test
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir, err := os.MkdirTemp("", "crit-glab-wrapper-")
+	if err != nil {
+		return
+	}
+	script := "#!/bin/sh\nHOME=" + shellQuote(home) + "\nexport HOME\n"
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		script += "XDG_CONFIG_HOME=" + shellQuote(xdg) + "\nexport XDG_CONFIG_HOME\n"
+	}
+	script += "exec " + shellQuote(realGlab) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "glab"), []byte(script), 0o755); err != nil {
+		return
+	}
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 type gitLabRoundtripEnv struct {
@@ -157,9 +182,20 @@ func (e *gitLabRoundtripEnv) runCrit(args ...string) string {
 	return out.String()
 }
 
+// reviewPath finds the review that `--output <dir>` writes, at
+// <dir>/reviews/<key>/review.json (the key is derived from cwd and branch).
+func (e *gitLabRoundtripEnv) reviewPath() string {
+	e.t.Helper()
+	matches, err := filepath.Glob(filepath.Join(e.outputDir, "reviews", "*", "review.json"))
+	if err != nil || len(matches) != 1 {
+		e.t.Fatalf("want one review under %s, found %v (err %v)", e.outputDir, matches, err)
+	}
+	return matches[0]
+}
+
 func (e *gitLabRoundtripEnv) reviewFile() CritJSON {
 	e.t.Helper()
-	path := ReviewPathsFor(filepath.Join(e.outputDir, ".crit")).Review
+	path := e.reviewPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		e.t.Fatalf("read review file %s: %v", path, err)
@@ -173,7 +209,7 @@ func (e *gitLabRoundtripEnv) reviewFile() CritJSON {
 
 func (e *gitLabRoundtripEnv) editReviewFile(mutate func(*CritJSON)) {
 	e.t.Helper()
-	path := ReviewPathsFor(filepath.Join(e.outputDir, ".crit")).Review
+	path := e.reviewPath()
 	cj := e.reviewFile()
 	mutate(&cj)
 	data, err := json.MarshalIndent(cj, "", "  ")
@@ -258,31 +294,69 @@ func TestGitLabRoundtrip_FullCommentLifecycle(t *testing.T) {
 // TestGitLabRoundtrip_CLICommentVisibleInMRSession reproduces #1234: on a
 // daemon started with --mr, `crit comment --session` must stamp the MR's
 // project-qualified focus key, so the page (GET /api/files/comments) shows the
-// comment that `crit push --dry-run` would post.
+// comment. `crit push --dry-run` must count that same comment (push does not
+// filter by focus key, so this half is a smoke check, not the regression).
 func TestGitLabRoundtrip_CLICommentVisibleInMRSession(t *testing.T) {
 	e := newGitLabRoundtripEnv(t)
 	entry, sessionID := e.startMRDaemon()
+	base := fmt.Sprintf("http://127.0.0.1:%d", entry.Port)
+
+	// The daemon must really be on the MR focus. A failed focus only logs a
+	// warning and leaves a working-tree session, where the page check below
+	// would pass without touching the MR key.
+	var sess struct {
+		Focus Focus `json:"focus"`
+	}
+	if err := gitLabRoundtripGetJSON(base+"/api/session", &sess); err != nil {
+		t.Fatalf("GET /api/session: %v", err)
+	}
+	if sess.Focus.Kind != FocusRange || sess.Focus.ChangeNumber != e.mrIID || sess.Focus.RemoteBaseProject != e.project {
+		t.Fatalf("daemon focus = %+v, want range focus on %s!%d", sess.Focus, e.project, e.mrIID)
+	}
+	wantKey := focusKeyFor(sess.Focus)
 
 	e.runCrit("comment", "--session", sessionID, "--author", "Crit E2E", "crit_gitlab_roundtrip.go:3", "cli comment on MR session")
 
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/files/comments", entry.Port))
-	if err != nil {
-		t.Fatalf("GET /api/files/comments: %v", err)
-	}
-	defer resp.Body.Close()
+	// crit comment only writes the review file; the daemon picks it up on its
+	// next watch tick, so poll.
 	var visible map[string][]Comment
-	if err := json.NewDecoder(resp.Body).Decode(&visible); err != nil {
-		t.Fatalf("decode /api/files/comments: %v", err)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		visible = nil
+		if err := gitLabRoundtripGetJSON(base+"/api/files/comments", &visible); err != nil {
+			t.Fatalf("GET /api/files/comments: %v", err)
+		}
+		if len(visible["crit_gitlab_roundtrip.go"]) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	comments := visible["crit_gitlab_roundtrip.go"]
 	if len(comments) != 1 || comments[0].Body != "cli comment on MR session" {
 		t.Fatalf("page shows %+v, want the CLI comment", visible)
+	}
+	if comments[0].FocusKey != wantKey || !strings.HasPrefix(wantKey, "mr:") || !strings.Contains(wantKey, e.project) {
+		t.Fatalf("comment focus key = %q, daemon focus key = %q, want the project-qualified MR key", comments[0].FocusKey, wantKey)
 	}
 
 	dryRun := e.runCrit("push", "--forge", "gitlab", "--session", sessionID, "--dry-run", fmt.Sprint(e.mrIID))
 	if !strings.Contains(dryRun, "1 new comments/replies") {
 		t.Fatalf("push --dry-run does not count the visible comment:\n%s", dryRun)
 	}
+}
+
+var gitLabRoundtripHTTP = &http.Client{Timeout: 5 * time.Second}
+
+func gitLabRoundtripGetJSON(url string, into any) error {
+	resp, err := gitLabRoundtripHTTP.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: status %d", url, resp.StatusCode)
+	}
+	return json.NewDecoder(resp.Body).Decode(into)
 }
 
 // startMRDaemon runs `crit --mr <iid> --no-open --remote` the way a user
@@ -308,7 +382,16 @@ func (e *gitLabRoundtripEnv) startMRDaemon() (daemon.SessionEntry, string) {
 	e.t.Cleanup(func() {
 		if entry.PID > 0 {
 			url := fmt.Sprintf("http://127.0.0.1:%d/api/shutdown?pid=%d", entry.Port, entry.PID)
-			if resp, err := http.Post(url, "application/json", nil); err == nil {
+			if resp, err := gitLabRoundtripHTTP.Post(url, "application/json", nil); err == nil {
+				resp.Body.Close()
+			}
+			// Wait for the daemon to exit so its last writes do not race the
+			// temp HOME removal.
+			for stop := time.Now().Add(5 * time.Second); time.Now().Before(stop); time.Sleep(100 * time.Millisecond) {
+				resp, err := gitLabRoundtripHTTP.Get(fmt.Sprintf("http://127.0.0.1:%d/api/health", entry.Port))
+				if err != nil {
+					break
+				}
 				resp.Body.Close()
 			}
 		}
@@ -330,7 +413,7 @@ func (e *gitLabRoundtripEnv) startMRDaemon() (daemon.SessionEntry, string) {
 		e.t.Fatalf("crit --mr did not register a daemon\noutput:\n%s", out.String())
 	}
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", entry.Port))
+		resp, err := gitLabRoundtripHTTP.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", entry.Port))
 		if err == nil {
 			ready := resp.StatusCode == http.StatusOK
 			resp.Body.Close()
