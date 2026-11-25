@@ -198,6 +198,41 @@ func TestPreviewContent_SandboxedCSPOnEveryResponse(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/preview-content/", nil)
+		w := httptest.NewRecorder()
+		s.handlePreviewContent(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want 405", w.Code)
+		}
+		if w.Header().Get("Content-Security-Policy") != previewContentCSP {
+			t.Errorf("405 response lacks the sandbox CSP")
+		}
+	})
+}
+
+// /files/ serves repo files on the daemon origin. They are loaded as <img>
+// by the review page; opened directly, HTML or SVG must not run script.
+func TestHandleFiles_SandboxedNoScript(t *testing.T) {
+	dir := t.TempDir()
+	htmlFile := filepath.Join(dir, "page.html")
+	if err := os.WriteFile(htmlFile, []byte("<script>alert(1)</script>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := newPreviewContentTestServer(t, htmlFile)
+	req := httptest.NewRequest(http.MethodGet, "/files/page.html", nil)
+	w := httptest.NewRecorder()
+	s.handleFiles(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("Content-Security-Policy"); got != "sandbox" {
+		t.Errorf("Content-Security-Policy = %q, want a sandbox with nothing allowed", got)
+	}
+	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q", got)
+	}
 }
 
 func TestPreviewContent_RefusesHiddenFilesAndSymlinkEscapes(t *testing.T) {
@@ -221,7 +256,9 @@ func TestPreviewContent_RefusesHiddenFilesAndSymlinkEscapes(t *testing.T) {
 	mustWrite(outside, "secret")
 	symlinks := os.Symlink(outside, filepath.Join(dir, "assets", "leak.txt")) == nil &&
 		os.Symlink(root, filepath.Join(dir, "up")) == nil &&
-		os.Symlink(filepath.Join(dir, "assets", "app.css"), filepath.Join(dir, "inside.css")) == nil
+		os.Symlink(filepath.Join(dir, "assets", "app.css"), filepath.Join(dir, "inside.css")) == nil &&
+		os.Symlink(filepath.Join(dir, ".git"), filepath.Join(dir, "cfg")) == nil &&
+		os.Symlink(filepath.Join(dir, ".env"), filepath.Join(dir, "env.txt")) == nil
 	s := newPreviewContentTestServer(t, htmlFile)
 
 	cases := []struct {
@@ -237,6 +274,8 @@ func TestPreviewContent_RefusesHiddenFilesAndSymlinkEscapes(t *testing.T) {
 		{"/preview-content/assets/leak.txt", http.StatusNotFound, true},
 		{"/preview-content/up/secret.txt", http.StatusNotFound, true},
 		{"/preview-content/inside.css", http.StatusOK, true},
+		{"/preview-content/cfg/config", http.StatusNotFound, true},
+		{"/preview-content/env.txt", http.StatusNotFound, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {

@@ -30,12 +30,12 @@ const previewContentCSP = "sandbox allow-scripts allow-forms allow-modals allow-
 
 // handlePreviewContent serves the previewed HTML file and its sibling assets.
 func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Security-Policy", previewContentCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Security-Policy", previewContentCSP)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	sess := s.session.Load()
 	if sess == nil {
 		http.Error(w, "not ready", http.StatusServiceUnavailable)
@@ -103,6 +103,17 @@ func resolvePreviewAsset(baseDir, reqPath string) (string, bool) {
 	}
 	if !strings.HasPrefix(realPath, realBase+string(filepath.Separator)) {
 		return "", false
+	}
+	// Check again after links resolve: a link such as cfg -> .git, or a
+	// Windows 8.3 short name (GIT~1), reaches a hidden file under a plain name.
+	rel, err := filepath.Rel(realBase, realPath)
+	if err != nil {
+		return "", false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if strings.HasPrefix(part, ".") {
+			return "", false
+		}
 	}
 	return realPath, true
 }

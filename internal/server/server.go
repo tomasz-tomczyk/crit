@@ -3125,6 +3125,12 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Repo files are untrusted and share the daemon's origin. The review page
+	// loads them only as <img>, which this policy does not affect; an HTML or
+	// SVG file opened here directly (a link, or a sandboxed preview navigating
+	// its tab) renders without script and on an opaque origin.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, cleanPath)
 }
 

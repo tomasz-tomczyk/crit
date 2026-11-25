@@ -111,10 +111,23 @@
         raw = window.name.slice(VIEW_NAME_PREFIX.length);
       }
       if (typeof window.name === 'string' && window.name.indexOf(VIEW_NAME_PREFIX) === 0) window.name = '';
-      return raw ? JSON.parse(raw) : null;
+      return raw ? cleanView(JSON.parse(raw)) : null;
     } catch (_) {
       return null;
     }
+  }
+
+  // A page that held the frame before can set window.name, so keep only
+  // well-formed values.
+  function cleanView(v) {
+    if (!v || typeof v !== 'object') return null;
+    var finite = function (n) { return typeof n === 'number' && isFinite(n); };
+    var out = {};
+    if (v.theme === 'light' || v.theme === 'dark') out.theme = v.theme;
+    if (finite(v.zoom) && v.zoom > 0) out.zoom = v.zoom;
+    if (v.pan && finite(v.pan.x) && finite(v.pan.y)) out.pan = { x: v.pan.x, y: v.pan.y };
+    if (typeof v.grid === 'boolean') out.grid = v.grid;
+    return out;
   }
 
   function start() {

@@ -207,6 +207,24 @@ The same fields work in `--json` as `selector` and `route` (`css_selector`
 and `pathname` are accepted aliases). Replies are unchanged:
 `crit comment --reply-to <id> <body>`.
 
+## Preview mode runs the file in a sandbox
+
+`crit preview` treats the HTML file as untrusted: an agent or a cloned repo
+may have written it. Crit loads it in a sandboxed frame on its own opaque
+origin, so its scripts run, but cannot call Crit's API or touch the review
+page. Because of that, inside the previewed page:
+
+- `localStorage`, `sessionStorage`, IndexedDB and `document.cookie` throw.
+  Wrap them in `try`/`catch` if the page should still work.
+- `fetch()` of files next to the HTML file, ES module scripts
+  (`<script type="module" src="…">`) and local web fonts are cross-origin
+  requests and fail. Plain `<script src>`, `<link rel="stylesheet">` and
+  `<img>` work, and so do CDN resources that send CORS headers.
+- Links that open a new tab open it sandboxed too.
+
+To review a page that needs these, run it on a local server and use
+`crit live <url>` instead.
+
 ## Debugging checklist
 
 ```text

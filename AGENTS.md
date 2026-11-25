@@ -277,7 +277,8 @@ Static: `GET /files/<path>` — serve files from repo root (path traversal prote
 
 - Server binds to `127.0.0.1` by default. Non-loopback listen or any `public_url` refuses to start unless `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1` is set (CLI/env only — never project config). Prefer SSH `-L`, Tailscale Serve to loopback, or Docker `-p 127.0.0.1:port:port`.
 - State-changing requests (POST/PUT/PATCH/DELETE) with a `Sec-Fetch-Site` header must be `same-origin`. Missing header is allowed (CLI/curl/agent). `cross-site` is rejected — CSRF defense against malicious pages posting to loopback. Complements `checkHost` (DNS-rebinding); does not authenticate network clients.
-- `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root
+- `/files/` validates paths, blocks `..` traversal, verifies resolved path stays within repo root, and sends `Content-Security-Policy: sandbox` (no scripts, opaque origin) + `nosniff`: the review page only loads it as `<img>`, and a repo HTML/SVG opened there directly must not run on the daemon origin
+- The live/preview redirect notice ("Open in real browser") opens only http(s) URLs on another origin (`openableURL` in `live-mode.redirect-notice.js`): the URL comes from the untrusted framed page, and the chrome opens it unsandboxed
 - Body size: 10MB for comments, 1MB for share-url via `http.MaxBytesReader`
 - HTTP server: `ReadTimeout: 15s`, `IdleTimeout: 60s` (no `WriteTimeout` — SSE needs open connections)
 - Comment renderer uses `html: true` then DOMPurify with a pinned GitHub-compatible allowlist (`web/comment-html.js`) before `innerHTML` — never trust raw comment HTML

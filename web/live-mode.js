@@ -470,8 +470,9 @@
       state.agentTargetOrigin = state.proxyOrigin;
     }
     buildShell();
-    // Belt and braces with the CSP header: a response that somehow lacks
-    // it still loads without the daemon's origin.
+    // Pairs with the CSP header on /preview-content. The attribute also
+    // covers whatever the frame navigates to (a same-origin URL without the
+    // header, such as /files/), which the header alone cannot.
     if (state.isPreview && els && els.iframe) {
       els.iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
     }
@@ -2626,8 +2627,13 @@
           return;
         }
       } catch (_) { /* fall through to src reset */ }
+      // Preview frames are sandboxed (opaque origin), so reload() above
+      // always throws there. iframe.src is the first page crit loaded, not
+      // where the reviewer is; reload the route the agent last reported.
       try {
-        var url = els.iframe.src || proxyURL(state.currentRoute || '/');
+        var url = state.isPreview
+          ? proxyURL(state.currentRoute || '/')
+          : (els.iframe.src || proxyURL(state.currentRoute || '/'));
         var sep = url.indexOf('?') >= 0 ? '&' : '?';
         loadIframe(url + sep + '_critRoundReload=' + Date.now());
       } catch (_) { /* noop */ }
