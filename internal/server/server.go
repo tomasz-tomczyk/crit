@@ -777,6 +777,12 @@ func (s *Server) serveAssets(frontendFS embed.FS) http.Handler {
 		case "/themes.html":
 			themes(w, r)
 		default:
+			// The Excalidraw canvas in the sandboxed preview frame has an
+			// opaque origin, and FontFace loads are CORS requests. The fonts
+			// are public files from the binary, like the agent scripts.
+			if strings.HasPrefix(r.URL.Path, "/fonts/") {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
 			files.ServeHTTP(w, r)
 		}
 	})

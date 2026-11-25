@@ -285,7 +285,8 @@
         '</div>' +
         '<div class="crit-live-iframe-pane-inner">' +
         '<div class="crit-live-iframe-frame" id="critLiveFrame">' +
-        // No `sandbox` attribute by design — see spec security section.
+        // Live mode: no `sandbox` attribute by design — the proxy port keeps
+        // the app off the API origin. Preview mode adds one after buildShell().
         '<iframe id="critLiveIframe" title="Live target" referrerpolicy="no-referrer"></iframe>' +
         '<div class="crit-live-iframe-resizer" id="critLiveResizer" role="separator" aria-orientation="vertical" aria-label="Resize live viewport" tabindex="0"></div>' +
         '</div>' +
@@ -451,16 +452,29 @@
 
     // Capture proxyOrigin once for the message handler. The agent
     // posts from the proxy origin; the chrome lives on the API origin and
-    // accepts only that source+origin pair.
-    // Preview mode: same-origin (agent served from /preview-content/).
+    // accepts only that source+origin pair. agentTargetOrigin is where the
+    // chrome posts to.
+    // Preview mode: /preview-content is sandboxed (CSP `sandbox` without
+    // allow-same-origin, see preview_handlers.go), so its messages arrive
+    // with origin "null" and postMessage cannot target it by origin. The
+    // guard still pins ev.source to the iframe's window. Posting with '*'
+    // exposes nothing new: the previewed page's own scripts share that
+    // window with the agent and see every message anyway.
     var s = state.session || {};
     var proxyHost = window.location.hostname || 'localhost';
     if (state.isPreview) {
-      state.proxyOrigin = window.location.origin;
+      state.proxyOrigin = 'null';
+      state.agentTargetOrigin = '*';
     } else {
       state.proxyOrigin = 'http://' + proxyHost + ':' + (s.proxy_port || 0);
+      state.agentTargetOrigin = state.proxyOrigin;
     }
     buildShell();
+    // Belt and braces with the CSP header: a response that somehow lacks
+    // it still loads without the daemon's origin.
+    if (state.isPreview && els && els.iframe) {
+      els.iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
+    }
     state.promptChecks = shared.setupPromptChecks({}, function (cfg) {
       shared.applyProjectPromptTrustUI(cfg, document.getElementById('finishBtn'));
     });
@@ -2439,7 +2453,7 @@
       post: function (m) {
         var iw = state.iframeWindow;
         if (!iw) { _sender.requeue(m); return; }
-        try { iw.postMessage(m, state.proxyOrigin); } catch (_) { /* noop */ }
+        try { iw.postMessage(m, state.agentTargetOrigin); } catch (_) { /* noop */ }
       },
     });
 

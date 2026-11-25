@@ -55,6 +55,9 @@ func TestReviewPageShellsSendCSP(t *testing.T) {
 			if got := cspDirective(policy, "form-action"); got != "form-action 'self'" {
 				t.Errorf("form-action = %q", got)
 			}
+			if got := cspDirective(policy, "frame-ancestors"); got != "frame-ancestors 'self'" {
+				t.Errorf("frame-ancestors = %q, want only Crit to frame the review page", got)
+			}
 			if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
 				t.Errorf("Referrer-Policy = %q", got)
 			}
