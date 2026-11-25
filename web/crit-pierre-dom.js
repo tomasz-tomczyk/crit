@@ -4,6 +4,9 @@
   // Compatibility boundary for renderer-owned DOM. Keep all internal selectors
   // here and exercise them against the real dependency when upgrading.
   const PIERRE_QUOTE_HIGHLIGHT = 'crit-quote';
+  // A quote that a comment link jumped to (flashQuote), painted over it.
+  const PIERRE_QUOTE_FLASH = 'crit-quote-flash';
+  const QUOTE_FLASH_MS = 1200;
   // Styles injected into Pierre's shadow roots: quote highlights and on touch
   // (no hover, so no hover "+") the same "+" cue before commentable line
   // numbers as the classic views, with touch-action:none so the browser's
@@ -50,6 +53,10 @@
     // Highlight pseudos support text-decoration rather than border-bottom.
     '::highlight(' + PIERRE_QUOTE_HIGHLIGHT + ') { background-color: var(--crit-quote-highlight-bg);' +
     ' text-decoration: underline; text-decoration-color: var(--crit-quote-highlight-border); text-decoration-thickness: 1.5px; }' +
+    '::highlight(' + PIERRE_QUOTE_FLASH + ') { background-color: var(--crit-comment-ref-flash-bg); }' +
+    // Highlight pseudos can't set a cursor: a saved comment's quote under the
+    // pointer marks its host instead (quoteAt in app.js).
+    ':host([data-crit-quote-hover]) [data-content] { cursor: pointer; }' +
     '@media (pointer: coarse) {' +
     '  [data-gutter] > [data-column-number] { touch-action: none; }' +
     '  [data-gutter] > [data-column-number] [data-line-number-content]::before { content: "+"; display: inline-block; width: 1.2ch;' +
@@ -304,9 +311,9 @@
     function syncPierreQuoteHighlight() {
       if (typeof CSS === 'undefined' || !CSS.highlights || typeof Highlight === 'undefined') return;
       const all = [];
-      pierreQuoteRanges.forEach(function(ranges, host) {
+      pierreQuoteRanges.forEach(function(quotes, host) {
         if (!host.isConnected) { pierreQuoteRanges.delete(host); return; }
-        for (let i = 0; i < ranges.length; i++) all.push(ranges[i]);
+        for (let i = 0; i < quotes.length; i++) all.push(quotes[i].range);
       });
       if (all.length === 0) CSS.highlights.delete(PIERRE_QUOTE_HIGHLIGHT);
       else CSS.highlights.set(PIERRE_QUOTE_HIGHLIGHT, new Highlight(...all));
@@ -314,7 +321,7 @@
     function pierreQuoteRangesFor(host, quoted) {
       const root = host && host.shadowRoot;
       if (!root) return [];
-      const ranges = [];
+      const quotes = [];
       for (let q = 0; q < quoted.length; q++) {
         const item = quoted[q];
         const lineEls = [];
@@ -323,10 +330,23 @@
           if (el) lineEls.push(el);
         }
         const range = rangeForQuote(lineEls, item.quote, item.offset);
-        if (range) ranges.push(range);
+        // id is the saved comment's; an open form's quote has none.
+        if (range) quotes.push({ id: item.id || null, range: range });
       }
-      return ranges;
+      return quotes;
     }
+    // Each connected range of a saved comment's quote, in mount order.
+    function rangesForComment(id) {
+      const out = [];
+      pierreQuoteRanges.forEach(function(quotes, host) {
+        if (!host.isConnected) return;
+        for (let i = 0; i < quotes.length; i++) {
+          if (quotes[i].id === id) out.push(quotes[i].range);
+        }
+      });
+      return out;
+    }
+    let flashTimer = null;
     return {
       setRangeCSS(value) { if (value !== css) { css = value; pierreRangeSheet.replaceSync(value); } },
       mount(host, path, quoted) {
@@ -336,13 +356,46 @@
         labelPierreControls(host.shadowRoot);
         syncNumberWidth(host);
         const had = pierreQuoteRanges.has(host);
-        const ranges = pierreQuoteRangesFor(host, quoted);
-        if (ranges.length) pierreQuoteRanges.set(host, ranges); else pierreQuoteRanges.delete(host);
+        const quotes = pierreQuoteRangesFor(host, quoted);
+        if (quotes.length) pierreQuoteRanges.set(host, quotes); else pierreQuoteRanges.delete(host);
         if (had || pierreQuoteRanges.size) schedulePierreQuoteHighlight();
       },
       unmount(host) {
         unwatchNumberWidth(host);
         if (pierreQuoteRanges.delete(host)) schedulePierreQuoteHighlight();
+      },
+      // The saved comment whose quote in `host` covers the viewport point
+      // (x, y), or null. Highlights are ranges, not elements, so a click or
+      // hover on one is found from the ranges' boxes.
+      quoteAt(host, x, y) {
+        const quotes = pierreQuoteRanges.get(host) || [];
+        for (let i = 0; i < quotes.length; i++) {
+          if (!quotes[i].id) continue;
+          const rects = quotes[i].range.getClientRects();
+          for (let r = 0; r < rects.length; r++) {
+            const b = rects[r];
+            if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return quotes[i].id;
+          }
+        }
+        return null;
+      },
+      // The first drawn range of a saved comment's quote, or null when its
+      // lines are not mounted (or the quote is gone from them).
+      quoteRange(id) {
+        return rangesForComment(id)[0] || null;
+      },
+      // Paint a comment's quote in the flash colour for a moment. A highlight
+      // pseudo can't animate, so the flash is on, then off.
+      flashQuote(id) {
+        if (typeof CSS === 'undefined' || !CSS.highlights || typeof Highlight === 'undefined') return false;
+        const ranges = rangesForComment(id);
+        if (ranges.length === 0) return false;
+        const flash = new Highlight(...ranges);
+        flash.priority = 1;
+        CSS.highlights.set(PIERRE_QUOTE_FLASH, flash);
+        clearTimeout(flashTimer);
+        flashTimer = setTimeout(function() { CSS.highlights.delete(PIERRE_QUOTE_FLASH); }, QUOTE_FLASH_MS);
+        return true;
       },
     };
   }

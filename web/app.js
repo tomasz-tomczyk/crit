@@ -161,12 +161,50 @@
     if (e.defaultPrevented || e.detail !== 1 || !e.target.closest) return;
     if (e.target.closest('a[href]')) return;
     const mark = e.target.closest('mark.quote-highlight');
-    if (mark && !mark.dataset.commentId.startsWith('draft-')) {
+    const quoteId = mark ? (!mark.dataset.commentId.startsWith('draft-') && mark.dataset.commentId) : pierreQuoteAt(e);
+    if (quoteId) {
       setTimeout(function() {
-        if (window.getSelection().isCollapsed) scrollToCommentRef(mark.dataset.commentId);
+        if (window.getSelection().isCollapsed) scrollToCommentRef(quoteId);
       }, 300);
     }
   });
+
+  // Code view and story view paint quotes inside Pierre's shadow roots as
+  // ranges, not elements: find the saved comment whose quote is under the
+  // pointer from the ranges' boxes. An open form's quote has no comment.
+  function pierreQuoteAt(e) {
+    const host = pierreHostOf(e);
+    return host ? pierreDecorations.quoteAt(host, e.clientX, e.clientY) : null;
+  }
+  // The Pierre host an event happened in, or null. Call it while the event
+  // is dispatching: composedPath() is empty afterwards.
+  function pierreHostOf(e) {
+    const inner = e.composedPath ? e.composedPath()[0] : null;
+    if (!inner || inner.nodeType !== 1 || inner.closest('a[href], button')) return null;
+    const root = inner.getRootNode();
+    return (root && root.host) || null;
+  }
+
+  // A highlight pseudo can't set a cursor, so the host under the pointer
+  // gets data-crit-quote-hover while a saved quote is under it (unsafeCSS).
+  // The ranges are checked at most once a frame, for the latest move.
+  let quoteHoverHost = null;
+  let quoteHoverMove = null;
+  document.addEventListener('pointermove', function(e) {
+    if (e.pointerType === 'touch') return;
+    if (!quoteHoverMove) {
+      requestAnimationFrame(function() {
+        const move = quoteHoverMove;
+        quoteHoverMove = null;
+        const host = move.host && pierreDecorations.quoteAt(move.host, move.x, move.y) ? move.host : null;
+        if (host === quoteHoverHost) return;
+        if (quoteHoverHost) quoteHoverHost.removeAttribute('data-crit-quote-hover');
+        if (host) host.setAttribute('data-crit-quote-hover', '');
+        quoteHoverHost = host;
+      });
+    }
+    quoteHoverMove = { host: pierreHostOf(e), x: e.clientX, y: e.clientY };
+  }, { passive: true });
 
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -176,11 +214,13 @@
     followCommentLink(link);
   });
 
-  // Scroll to and flash a comment's quote highlight in the rendered document.
-  // A diagram label's highlight is an SVG <tspan>, so match any element.
+  // Scroll to and flash a comment's quote. In a rendered document the quote
+  // is a highlight element (a diagram label's is an SVG <tspan>, so match any
+  // element). In code view and story view it is a range in Pierre's shadow
+  // DOM (goToPierreQuote).
   function goToQuote(commentId) {
     const marks = document.querySelectorAll('#filesContainer .quote-highlight[data-comment-id="' + CSS.escape(commentId) + '"]');
-    if (marks.length === 0) return;
+    if (marks.length === 0) { goToPierreQuote(commentId); return; }
     // Same alignment as scrollToCommentRef: a smooth scroll is cut short when
     // files mount on the way, and a newer jump supersedes this one.
     const seq = ++pierreJumpSeq;
@@ -188,19 +228,58 @@
     scrollPierreElementIntoView(marks[0], function() { return seq === pierreJumpSeq; });
   }
 
-  // In a rendered document, a quoted comment's line label links to its quote.
-  // Code view and story view have no highlight in #filesContainer to go to,
-  // and neither does a resolved comment (no highlight is drawn for it) or a
-  // drifted one (its quote is gone from the file).
+  function goToPierreQuote(commentId) {
+    const quoteStart = function() {
+      const range = pierreDecorations.quoteRange(commentId);
+      if (!range) return null;
+      const node = range.startContainer;
+      return node.nodeType === 1 ? node : node.parentElement;
+    };
+    const show = function(el) {
+      if (storyActive()) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      else {
+        const seq = ++pierreJumpSeq;
+        scrollPierreElementIntoView(el, function() { return seq === pierreJumpSeq; });
+      }
+      pierreDecorations.flashQuote(commentId);
+    };
+    const el = quoteStart();
+    if (el) { show(el); return; }
+    // The card is under the quote's last line, so the quote is nearly always
+    // mounted. A long range in the review list can start above what Pierre
+    // has drawn: scroll its first line in, then wait for the range.
+    if (storyActive() || !pierreView) return;
+    const owner = files.find(function(f) { return (f.comments || []).some(function(c) { return c.id === commentId; }); });
+    const comment = owner && owner.comments.find(function(c) { return c.id === commentId; });
+    if (!comment) return;
+    pierreView.scrollToLine(owner.path, comment.start_line, comment.side, 'center').then(function() {
+      whenMounted(quoteStart, show);
+    });
+  }
+
+  // A quoted comment's line label links to its quote: in a rendered document,
+  // in code view and in a story chapter. A resolved comment has no quote
+  // drawn, and a drifted one's quote is gone from the file. The comments
+  // panel's copy of the card keeps a plain label (scrollToCommentRef covers
+  // it, and the panel is not where the quote is).
   function linkLineRefToQuote(card, comment, filePath) {
     const file = getFileByPath(filePath);
-    if (!comment.quote || comment.resolved || comment.drifted) return;
-    if (!file || !pierreIsDocumentView(file) || storyActive()) return;
+    if (!comment.quote || comment.resolved || comment.drifted || comment.scope === 'file') return;
+    if (!file) return;
     const label = card.querySelector('.comment-line-ref');
     if (!label) return;
     label.tabIndex = 0;
     label.setAttribute('role', 'link');
     label.title = 'Go to the quoted text';
+  }
+
+  // An outdated comment's line is not in the view, so neither is its quote.
+  function unlinkLineRef(card) {
+    const label = card.querySelector('.comment-line-ref[role="link"]');
+    if (!label) return;
+    label.removeAttribute('tabindex');
+    label.removeAttribute('role');
+    label.removeAttribute('title');
   }
 
   // ===== Comment Links =====
@@ -2454,6 +2533,7 @@
       if (isHideResolved() && c.resolved) continue;
       const el = c.resolved ? createResolvedElement(c, filePath) : createCommentElement(c, filePath);
       el.classList.add('outdated-comment');
+      unlinkLineRef(el);
       const headerLeft = el.querySelector('.comment-header-left');
       if (headerLeft) {
         const badge = document.createElement('span');
@@ -3164,7 +3244,7 @@
   function pierreQuotedComments(file) {
     if (!file) return [];
     const quoted = (file.comments || []).filter(function(c) { return c.quote && !c.resolved && c.scope !== 'file'; })
-      .map(function(c) { return { start: c.start_line, end: c.end_line, side: c.side || '', quote: c.quote, offset: c.quote_offset }; })
+      .map(function(c) { return { id: c.id, start: c.start_line, end: c.end_line, side: c.side || '', quote: c.quote, offset: c.quote_offset }; })
       .concat(getFormsForFile(file.path).filter(function(f) { return f.quote && !f.editingId; })
         .map(function(f) { return { start: f.startLine, end: f.endLine, side: f.side || '', quote: f.quote, offset: f.quoteOffset }; }));
     return quoted;

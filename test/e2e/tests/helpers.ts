@@ -692,6 +692,27 @@ export async function selectInBlock(page: Page, block: Locator): Promise<string>
   return selected;
 }
 
+// Viewport centre of the painted quote range whose text is `text` (code view
+// and story view paint quotes as CSS Custom Highlight ranges, not elements).
+export async function quotePoint(page: Page, text: string): Promise<{ x: number; y: number }> {
+  let point: { x: number; y: number } | null = null;
+  await expect.poll(async () => {
+    point = await page.evaluate((quote) => {
+      const range = [...(CSS.highlights.get('crit-quote') || [])]
+        .find(r => r instanceof Range && r.startContainer.isConnected && r.toString() === quote) as Range | undefined;
+      const box = range && range.getClientRects()[0];
+      return box && box.width > 0 ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
+    }, text);
+    return point;
+  }).not.toBeNull();
+  return point!;
+}
+
+// Text of each range in the flash a comment label's jump paints on its quote.
+export function quoteFlash(page: Page): Promise<string[]> {
+  return page.evaluate(() => [...(CSS.highlights.get('crit-quote-flash') || [])].map(r => r.toString()));
+}
+
 // Mouse-select part of one diff line's text (inside Pierre's shadow root).
 // Returns the selected text.
 //
