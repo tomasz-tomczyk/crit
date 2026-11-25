@@ -780,6 +780,7 @@ test('runFinishReview: a broken prompt opens the error dialog and can be retried
     if (id === 'finishErrorMessage') return message;
     return getById(id);
   };
+  doc.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ copyPromptOnFinish: true }));
   let clipboard = '';
   win.navigator.clipboard.writeText = async (value) => { clipboard = value; };
   let waiting = false;
@@ -795,6 +796,34 @@ test('runFinishReview: a broken prompt opens the error dialog and can be retried
   assert.equal(els.promptEl.textContent, 'Fixed prompt');
   assert.equal(clipboard, 'Fixed prompt');
   assert.equal(waiting, true);
+});
+
+test('runFinishReview: does not copy the prompt by default', async () => {
+  for (const approved of [false, true]) {
+    const { shared: s, win } = makeAutoCloseSandbox(async () => ({
+      ok: true, json: async () => ({ approved, prompt: 'Some prompt', close_on_approve_after_ms: 0 }),
+    }));
+    let writes = 0;
+    win.navigator.clipboard.writeText = async () => { writes++; };
+    assert.equal((await s.runFinishReview({})).prompt, 'Some prompt');
+    assert.equal(writes, 0, 'approved=' + approved);
+  }
+});
+
+test('runFinishReview: copies the prompt when copyPromptOnFinish is on', async () => {
+  const { shared: s, doc, win } = makeAutoCloseSandbox(async () => ({
+    ok: true, json: async () => ({ approved: false, prompt: 'Some prompt' }),
+  }));
+  doc.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ copyPromptOnFinish: true }));
+  let clipboard = '';
+  win.navigator.clipboard.writeText = async (value) => { clipboard = value; };
+  await s.runFinishReview({});
+  assert.equal(clipboard, 'Some prompt');
+
+  doc.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ copyPromptOnFinish: false }));
+  clipboard = '';
+  await s.runFinishReview({});
+  assert.equal(clipboard, '');
 });
 
 test('runFinishReview: approved + close_on_approve_after_ms set schedules the countdown and eventual close', async () => {

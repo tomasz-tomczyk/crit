@@ -23,7 +23,7 @@ func TestStatusListening(t *testing.T) {
 func TestStatusRoundFinished_WithComments(t *testing.T) {
 	s, buf := testStatus()
 	s.RoundFinished(1, 3, true)
-	want := "→ Round 1: 3 comments added\n→ Finish review — prompt copied ✓\n"
+	want := "→ Round 1: 3 comments added\n→ Finish review — prompt ready ✓\n"
 	if got := buf.String(); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -32,7 +32,7 @@ func TestStatusRoundFinished_WithComments(t *testing.T) {
 func TestStatusRoundFinished_SingleComment(t *testing.T) {
 	s, buf := testStatus()
 	s.RoundFinished(2, 1, true)
-	want := "→ Round 2: 1 comment added\n→ Finish review — prompt copied ✓\n"
+	want := "→ Round 2: 1 comment added\n→ Finish review — prompt ready ✓\n"
 	if got := buf.String(); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

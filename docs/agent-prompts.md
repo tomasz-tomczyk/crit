@@ -253,7 +253,7 @@ When no project or global template matches, behavior is unchanged from stock Cri
 | Field | Consumer | Stock behavior |
 | ----- | -------- | -------------- |
 | `comments` | Structured consumers | Unresolved comment objects (empty on approve) |
-| `prompt` | Blocking stdout, finish modal, clipboard, plan hooks | Full rendered body (count line, embedded comments JSON, actions, reconnect) |
+| `prompt` | Blocking stdout, finish modal and its Copy button (also copied on finish when Settings > Copy prompt on finish is on), plan hooks | Full rendered body (count line, embedded comments JSON, actions, reconnect) |
 
 Custom templates choose what to include. Omit `{{.comments_unresolved_json}}` / `{{.comments_json}}` to keep comment data out of the prompt text; the API `comments` field is unchanged.
 
