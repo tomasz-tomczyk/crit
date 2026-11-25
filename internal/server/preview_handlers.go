@@ -6,6 +6,7 @@ import (
 	"html"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +14,24 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
 
+// previewContentCSP sandboxes everything /preview-content serves. The
+// previewed file is untrusted (an agent or a cloned repo may have written it),
+// and the daemon serves it on the same host:port as /api. Without the sandbox
+// its scripts would run same-origin with the API and the review page: they
+// could read repo files, grant project trust, press Finish and so run project
+// hooks, or reach into the parent page. `sandbox` without allow-same-origin
+// gives the document an opaque origin, so the browser rejects its API writes
+// (Sec-Fetch-Site is no longer same-origin), CORS hides API reads, and the
+// parent page is cross-origin. A header (not only the iframe attribute) also
+// covers the URL opened directly in a tab, and sibling files such as an SVG
+// with a script in it. The agent scripts keep working: they talk to the parent
+// with postMessage only.
+const previewContentCSP = "sandbox allow-scripts allow-forms allow-modals allow-popups"
+
 // handlePreviewContent serves the previewed HTML file and its sibling assets.
 func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Security-Policy", previewContentCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -34,16 +51,16 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 
 	if reqPath == "" || reqPath == "/" {
 		if session.IsExcalidrawScene(sess.Origin) {
-			s.servePreviewExcalidraw(w, sess.Origin)
+			s.servePreviewExcalidraw(w, r, sess.Origin)
 			return
 		}
 		s.servePreviewHTML(w, sess.Origin)
 		return
 	}
 
-	resolved := filepath.Join(baseDir, filepath.Clean(reqPath))
-	if !strings.HasPrefix(resolved, baseDir+string(filepath.Separator)) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	resolved, ok := resolvePreviewAsset(baseDir, reqPath)
+	if !ok {
+		http.NotFound(w, r)
 		return
 	}
 
@@ -65,6 +82,42 @@ func (s *Server) handlePreviewContent(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, resolved)
 }
 
+// resolvePreviewAsset maps a /preview-content sub-path to a file inside
+// baseDir (the previewed file's folder). It refuses hidden files and folders
+// (.env, .git/) and resolves symlinks before the containment check, so a link
+// in the folder cannot serve a file from elsewhere (~/.ssh, say).
+func resolvePreviewAsset(baseDir, reqPath string) (string, bool) {
+	clean := filepath.Clean("/" + reqPath)
+	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
+		if strings.HasPrefix(part, ".") {
+			return "", false
+		}
+	}
+	realBase, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		return "", false
+	}
+	realPath, err := filepath.EvalSymlinks(filepath.Join(realBase, clean))
+	if err != nil {
+		return "", false
+	}
+	if !strings.HasPrefix(realPath, realBase+string(filepath.Separator)) {
+		return "", false
+	}
+	// Check again after links resolve: a link such as cfg -> .git, or a
+	// Windows 8.3 short name (GIT~1), reaches a hidden file under a plain name.
+	rel, err := filepath.Rel(realBase, realPath)
+	if err != nil {
+		return "", false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if strings.HasPrefix(part, ".") {
+			return "", false
+		}
+	}
+	return realPath, true
+}
+
 func isPreviewHTMLPath(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".html" || ext == ".htm"
@@ -83,7 +136,7 @@ func (s *Server) servePreviewHTML(w http.ResponseWriter, filePath string) {
 // embedded excalidraw-canvas.html with the scene inlined, which
 // crit-renderer-excalidraw.js draws element by element, so the agent's hover
 // box and pins work on the drawing like on any previewed page.
-func (s *Server) servePreviewExcalidraw(w http.ResponseWriter, filePath string) {
+func (s *Server) servePreviewExcalidraw(w http.ResponseWriter, r *http.Request, filePath string) {
 	scene, err := os.ReadFile(filePath)
 	if err != nil {
 		http.Error(w, "failed to read preview file", http.StatusInternalServerError)
@@ -100,9 +153,34 @@ func (s *Server) servePreviewExcalidraw(w http.ResponseWriter, filePath string) 
 	sceneJSON, _ := json.Marshal(string(scene))
 	body := strings.NewReplacer(
 		"{{TITLE}}", html.EscapeString(filepath.Base(filePath)),
+		"{{THEME}}", reviewThemeFromCookie(r),
 		"{{SCENE}}", string(sceneJSON),
 	).Replace(string(page))
 	writePreviewPage(w, []byte(body))
+}
+
+// reviewThemeFromCookie returns "light" or "dark" when the reviewer picked
+// one in the crit-settings cookie, else "" (follow the system). The sandboxed
+// canvas cannot read the cookie itself, but the browser still sends it.
+func reviewThemeFromCookie(r *http.Request) string {
+	c, err := r.Cookie("crit-settings")
+	if err != nil {
+		return ""
+	}
+	raw, err := url.QueryUnescape(c.Value)
+	if err != nil {
+		return ""
+	}
+	var settings struct {
+		Theme string `json:"theme"`
+	}
+	if json.Unmarshal([]byte(raw), &settings) != nil {
+		return ""
+	}
+	if settings.Theme == "light" || settings.Theme == "dark" {
+		return settings.Theme
+	}
+	return ""
 }
 
 // writePreviewPage writes a preview page with the agent scripts injected.

@@ -69,29 +69,65 @@
     return { step: step, x: ((x % step) + step) % step, y: ((y % step) + step) % step };
   }
 
-  // The review page's theme from the crit-settings cookie (URL-encoded JSON).
+  // The review page's theme. The canvas runs in a sandboxed (opaque-origin)
+  // frame where document.cookie throws, so the server copies the theme from
+  // the crit-settings cookie into data-crit-review-theme. The cookie read is
+  // a fallback for hosts that serve the page unsandboxed.
   function reviewTheme() {
-    var m = /(?:^|;\s*)crit-settings=([^;]*)/.exec(document.cookie || '');
-    var theme = 'system';
-    try { theme = (m && JSON.parse(decodeURIComponent(m[1])).theme) || 'system'; } catch (_) { /* default */ }
+    var theme = document.documentElement.getAttribute('data-crit-review-theme') || '';
+    if (!theme) {
+      try {
+        var m = /(?:^|;\s*)crit-settings=([^;]*)/.exec(document.cookie || '');
+        theme = (m && JSON.parse(decodeURIComponent(m[1])).theme) || '';
+      } catch (_) { /* sandboxed or malformed: follow the system */ }
+    }
     if (theme === 'light' || theme === 'dark') return theme;
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 
-  // sessionStorage can be missing or throw (private windows, blocked
-  // storage); the view then just starts afresh.
+  // sessionStorage throws in the sandboxed (opaque-origin) preview frame, and
+  // can be missing elsewhere (private windows, blocked storage). window.name
+  // survives a reload of the same frame without any storage, so it carries
+  // the view then.
+  var VIEW_NAME_PREFIX = VIEW_KEY + ':';
+
   function saveView(view) {
-    try { window.sessionStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (_) { /* start afresh */ }
+    var json = JSON.stringify(view);
+    try {
+      window.sessionStorage.setItem(VIEW_KEY, json);
+      return;
+    } catch (_) { /* fall back to window.name */ }
+    try { window.name = VIEW_NAME_PREFIX + json; } catch (_) { /* start afresh */ }
   }
 
   function takeSavedView() {
+    var raw = null;
     try {
-      var raw = window.sessionStorage.getItem(VIEW_KEY);
+      raw = window.sessionStorage.getItem(VIEW_KEY);
       window.sessionStorage.removeItem(VIEW_KEY);
-      return raw ? JSON.parse(raw) : null;
+    } catch (_) { /* sandboxed: try window.name */ }
+    try {
+      if (!raw && typeof window.name === 'string' && window.name.indexOf(VIEW_NAME_PREFIX) === 0) {
+        raw = window.name.slice(VIEW_NAME_PREFIX.length);
+      }
+      if (typeof window.name === 'string' && window.name.indexOf(VIEW_NAME_PREFIX) === 0) window.name = '';
+      return raw ? cleanView(JSON.parse(raw)) : null;
     } catch (_) {
       return null;
     }
+  }
+
+  // A page that held the frame before can set window.name, so keep only
+  // well-formed values.
+  function cleanView(v) {
+    if (!v || typeof v !== 'object') return null;
+    var finite = function (n) { return typeof n === 'number' && isFinite(n); };
+    var out = {};
+    if (v.theme === 'light' || v.theme === 'dark') out.theme = v.theme;
+    if (finite(v.zoom) && v.zoom > 0) out.zoom = v.zoom;
+    if (v.pan && finite(v.pan.x) && finite(v.pan.y)) out.pan = { x: v.pan.x, y: v.pan.y };
+    if (typeof v.grid === 'boolean') out.grid = v.grid;
+    return out;
   }
 
   function start() {

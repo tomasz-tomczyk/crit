@@ -90,6 +90,9 @@ func reviewPageCSP(scriptHashes, remoteImages []string) string {
 		// sanitizers drop <iframe> from rendered content, so agent-written
 		// content can't add a frame.
 		"frame-src 'self' http: https:",
+		// Only Crit itself may frame the review page, so another site cannot
+		// load it in a hidden frame and trick the reviewer into clicks.
+		"frame-ancestors 'self'",
 		"form-action 'self'",
 		"object-src 'none'",
 		"base-uri 'self'",

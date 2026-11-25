@@ -777,6 +777,12 @@ func (s *Server) serveAssets(frontendFS embed.FS) http.Handler {
 		case "/themes.html":
 			themes(w, r)
 		default:
+			// The Excalidraw canvas in the sandboxed preview frame has an
+			// opaque origin, and FontFace loads are CORS requests. The fonts
+			// are public files from the binary, like the agent scripts.
+			if strings.HasPrefix(r.URL.Path, "/fonts/") {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
 			files.ServeHTTP(w, r)
 		}
 	})
@@ -3119,6 +3125,12 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Repo files are untrusted and share the daemon's origin. The review page
+	// loads them only as <img>, which this policy does not affect; an HTML or
+	// SVG file opened here directly (a link, or a sandboxed preview navigating
+	// its tab) renders without script and on an opaque origin.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, cleanPath)
 }
 

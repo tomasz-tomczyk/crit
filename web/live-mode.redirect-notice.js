@@ -15,6 +15,21 @@
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
 
+  // openableURL returns the URL to open from the notice, or '' when it must
+  // not be opened. The message comes from the framed page, which is
+  // untrusted (live app or previewed file). The chrome opens the URL as a
+  // top-level, unsandboxed window, so a URL on the daemon's own origin (say
+  // /files/<the previewed file>.html) would run the page's script with full
+  // API access, and a javascript: URL could run in a context the page chose.
+  // Only http(s) URLs on another origin are opened.
+  function openableURL(raw, selfOrigin) {
+    var u;
+    try { u = new URL(String(raw || ''), selfOrigin); } catch (_) { return ''; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+    if (u.origin === selfOrigin) return '';
+    return u.href;
+  }
+
   // install — wires the postMessage + Escape listeners.
   //
   // deps:
@@ -36,7 +51,8 @@
       // Source check guards against stray messages from other windows; the
       // chrome only trusts messages originating from its own iframe.
       if (els.iframe && e.source && e.source !== els.iframe.contentWindow) return;
-      var url = String(e.data.url || '');
+      var url = openableURL(e.data.url, window.location.origin);
+      if (!url) return;
       var existing = document.querySelector('.crit-live-redirect-notice');
       if (existing) existing.remove();
       var n = document.createElement('div');
@@ -64,5 +80,5 @@
     });
   }
 
-  return { install: install };
+  return { install: install, openableURL: openableURL };
 });
