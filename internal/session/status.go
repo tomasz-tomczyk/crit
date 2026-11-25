@@ -55,7 +55,7 @@ func (s *Status) RoundFinished(round, commentCount int, hasPrompt bool) {
 		fmt.Fprintf(s.w, "%s Round %d: %d %s added\n", s.arrow(), round, commentCount, noun)
 	}
 	if hasPrompt {
-		fmt.Fprintf(s.w, "%s Finish review — prompt copied %s\n", s.arrow(), s.green("✓"))
+		fmt.Fprintf(s.w, "%s Finish review — prompt ready %s\n", s.arrow(), s.green("✓"))
 	} else {
 		fmt.Fprintf(s.w, "%s Finish review\n", s.arrow())
 	}
