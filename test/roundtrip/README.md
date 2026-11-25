@@ -19,7 +19,7 @@ Each scenario:
 Use throwaway repositories named `<owner>/crit-roundtrip-sandbox`. The shared defaults are `crit-md/crit-roundtrip-sandbox` on both providers.
 
 - GitHub: export `CRIT_ROUNDTRIP_REPO=<owner>/crit-roundtrip-sandbox` and confirm `gh auth status`. The harness clones over SSH by default; set `CRIT_ROUNDTRIP_CLONE_URL` to override it.
-- GitLab: export `CRIT_GITLAB_ROUNDTRIP_PROJECT=<owner>/crit-roundtrip-sandbox` and confirm `glab auth status`. The authenticated user must be able to push branches, create/close MRs, comment, and resolve discussions. The project must have an initialized default branch. For self-managed GitLab, also set `CRIT_GITLAB_ROUNDTRIP_HOST=gitlab.example.com` and configure Crit's `gitlab_url` for that host.
+- GitLab: export `CRIT_GITLAB_ROUNDTRIP_PROJECT=<owner>/crit-roundtrip-sandbox` and confirm `glab auth status`. A keyring login (the default for `glab auth login --web`) works: the tests run glab through a wrapper that keeps your real HOME, while crit itself runs in a temp HOME. The authenticated user must be able to push branches, create/close MRs, comment, and resolve discussions. The project must have an initialized default branch. For self-managed GitLab, also set `CRIT_GITLAB_ROUNDTRIP_HOST=gitlab.example.com` and configure Crit's `gitlab_url` for that host.
 
 ## Running
 
@@ -34,7 +34,7 @@ make e2e-gitlab-roundtrip
 ## Adding a scenario
 
 - GitHub scenarios use `roundtrip_integration_test.go` and `roundtrip_helpers_test.go`; start with `e := newRoundtripEnv(t)`.
-- GitLab scenarios use `gitlab_roundtrip_integration_test.go`; start with `e := newGitLabRoundtripEnv(t)`.
+- GitLab scenarios use `gitlab_roundtrip_integration_test.go`; start with `e := newGitLabRoundtripEnv(t)`. For a scenario that needs the review page, `e.startMRDaemon()` runs `crit --mr <iid> --no-open --remote`, waits until `/api/session` is ready, and returns the daemon's session entry and ID (pass it to `crit comment --session` / `crit push --session`). Cleanup stops the daemon.
 - Keep provider API calls in harness helpers. Exercise Crit behavior through the compiled binary rather than calling provider implementation functions directly.
 - Assert remote IDs, thread/reply structure, resolution, deletion, and repeated pull/push idempotency where applicable.
 
@@ -42,4 +42,4 @@ make e2e-gitlab-roundtrip
 
 - These tests are intentionally excluded from default `go test ./...`: they are slow, networked, rate-limited, and mutate sandbox repositories.
 - Closed PR/MR history remains in the sandboxes, but temporary branches and open change requests should not remain after cleanup.
-- If a process is killed before `t.Cleanup`, inspect the sandbox for branches named `rt-*` or `crit-gitlab-e2e-*`.
+- If a process is killed before `t.Cleanup`, inspect the sandbox for branches named `rt-*` or `crit-gitlab-e2e-*`. A scenario that started a daemon may also leave a `crit _serve` process running.

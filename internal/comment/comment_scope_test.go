@@ -207,3 +207,61 @@ func TestRunComment_NoStampWithoutDaemonAndDisk(t *testing.T) {
 		t.Errorf("expected no stamping in working-tree mode, got %+v", cf.Comments[0])
 	}
 }
+
+// TestCommentScopeStampsCommentVisibleInDaemonFocus is the #1234 regression:
+// a comment written by `crit comment` against a running daemon must carry the
+// daemon's focus key, including the project and host of a URL-qualified or
+// GitLab change, or the review page hides it.
+func TestCommentScopeStampsCommentVisibleInDaemonFocus(t *testing.T) {
+	foci := []struct {
+		name    string
+		focus   Focus
+		wantKey string
+	}{
+		{"gitlab.com merge request", Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 7, HeadSHA: "h", BaseSHA: "b",
+			RemoteBaseProject: "group/project", RemoteHost: "gitlab.com"}, "mr:group/project#7"},
+		{"self-managed gitlab merge request", Focus{Kind: FocusRange, Forge: "gitlab", ChangeNumber: 7, HeadSHA: "h", BaseSHA: "b",
+			RemoteBaseProject: "group/project", RemoteHost: "gitlab.example.com"}, "mr:gitlab.example.com/group/project#7"},
+		{"url-qualified github pull request", Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, HeadSHA: "h", BaseSHA: "b",
+			RemoteBaseProject: "owner/repo", RemoteHost: "github.com"}, "pr:owner/repo#42"},
+		{"bare github pull request", Focus{Kind: FocusRange, Forge: "github", ChangeNumber: 42, HeadSHA: "h", BaseSHA: "b"}, "pr:42"},
+	}
+	overrides := []struct {
+		override CommentFocusOverride
+		scope    session.DiffScope
+	}{
+		{ScopeOverrideUnset, DiffScopeLayer},
+		{ScopeOverrideLayer, DiffScopeLayer},
+		{ScopeOverrideFullStack, DiffScopeFullStack},
+	}
+	for _, fc := range foci {
+		for _, ov := range overrides {
+			t.Run(fc.name+"/"+string(ov.scope)+"/"+string(ov.override), func(t *testing.T) {
+				dir := t.TempDir()
+				daemonFocus := fc.focus
+				daemonFocus.DiffScope = ov.scope
+				critPath, err := review.ResolveReviewPath(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				scope, err := resolveCommentScopeAtPathWithFocus(ov.override, critPath, &daemonFocus)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := addCommentToCritJSONScoped("main.go", 42, 42, "test", "tester", "", dir, scope); err != nil {
+					t.Fatal(err)
+				}
+				cj, err := loadCritJSON(critPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := cj.Files["main.go"].Comments[0]
+				want := session.StampWithFocus(session.Comment{}, daemonFocus)
+				if got.FocusKey != fc.wantKey || got.FocusKey != want.FocusKey || got.DiffScope != want.DiffScope {
+					t.Fatalf("stamped (key %q, scope %q), daemon shows (key %q, scope %q), want key %q",
+						got.FocusKey, got.DiffScope, want.FocusKey, want.DiffScope, fc.wantKey)
+				}
+			})
+		}
+	}
+}

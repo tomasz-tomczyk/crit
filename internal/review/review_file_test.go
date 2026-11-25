@@ -1058,3 +1058,29 @@ func TestLoadCritJSON_ExistingReviewKeepsRecordedCWD(t *testing.T) {
 		t.Errorf("CWD = %q, want the recorded directory to survive a load", cj.CWD)
 	}
 }
+
+// A daemon with no files yet saves "files": null. `crit comment` then assigns
+// into Files, so loading must not return a nil map (it used to panic, found by
+// the GitLab roundtrip against a fresh `crit --mr N --remote` daemon).
+func TestLoadCritJSON_NullFilesLoadsAsEmptyMap(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	identity := filepath.Join(t.TempDir(), "reviews", "aaaaaaaaaaaa")
+	if err := SaveCritJSON(identity, CritJSON{Branch: "feature"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(ReviewPathsFor(identity).Review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"files": null`)) {
+		t.Fatalf("fixture should store files as null, got:\n%s", data)
+	}
+
+	cj, err := LoadCritJSON(identity)
+	if err != nil {
+		t.Fatalf("LoadCritJSON: %v", err)
+	}
+	if cj.Files == nil {
+		t.Fatal("Files is nil; writers that assign into it would panic")
+	}
+}

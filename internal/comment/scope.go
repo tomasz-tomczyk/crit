@@ -107,13 +107,7 @@ func resolveCommentScopeAtPathWithFocus(override CommentFocusOverride, critPath 
 
 func resolveExplicitCommentScope(daemonFocus *session.Focus, critPath string, want session.DiffScope, wantStr, errMsg string) (session.InheritedScope, error) {
 	if daemonFocus != nil && daemonFocus.Kind == session.FocusRange && daemonFocus.DiffScope == want {
-		return session.InheritedScope{
-			HeadSHA:      daemonFocus.HeadSHA,
-			BaseSHA:      daemonFocus.BaseSHA,
-			Forge:        daemonFocus.Forge,
-			ChangeNumber: daemonFocus.ChangeNumber,
-			DiffScope:    wantStr,
-		}, nil
+		return session.ScopeFromFocus(*daemonFocus, wantStr), nil
 	}
 	if cj, ok := loadCritJSONForPath(critPath); ok && cj.ActiveDiffScope == wantStr {
 		return session.InheritedScope{DiffScope: wantStr}, nil
@@ -123,13 +117,7 @@ func resolveExplicitCommentScope(daemonFocus *session.Focus, critPath string, wa
 
 func resolveAutoCommentScope(daemonFocus *session.Focus, critPath string) session.InheritedScope {
 	if daemonFocus != nil && daemonFocus.Kind == session.FocusRange {
-		return session.InheritedScope{
-			HeadSHA:      daemonFocus.HeadSHA,
-			BaseSHA:      daemonFocus.BaseSHA,
-			Forge:        daemonFocus.Forge,
-			ChangeNumber: daemonFocus.ChangeNumber,
-			DiffScope:    string(daemonFocus.DiffScope),
-		}
+		return session.ScopeFromFocus(*daemonFocus, string(daemonFocus.DiffScope))
 	}
 	if cj, ok := loadCritJSONForPath(critPath); ok && cj.ActiveDiffScope != "" {
 		fmt.Fprintf(os.Stderr,

@@ -326,6 +326,11 @@ func LoadCritJSON(critPath string) (CritJSON, error) {
 		if err := json.Unmarshal(data, &cj); err != nil {
 			return cj, fmt.Errorf("invalid existing review file: %w", err)
 		}
+		// A daemon with no files yet (a fresh `crit --mr N --remote`) saves
+		// "files": null. Writers assign into Files, so never hand back nil.
+		if cj.Files == nil {
+			cj.Files = make(map[string]session.CritJSONFile)
+		}
 	} else if os.IsNotExist(err) {
 		branch := vcs.CurrentBranch()
 		cfg := config.LoadConfig(filepath.Dir(critPath))
