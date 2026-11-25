@@ -19,7 +19,7 @@ Each scenario:
 Use throwaway repositories named `<owner>/crit-roundtrip-sandbox`. The shared defaults are `crit-md/crit-roundtrip-sandbox` on both providers.
 
 - GitHub: export `CRIT_ROUNDTRIP_REPO=<owner>/crit-roundtrip-sandbox` and confirm `gh auth status`. The harness clones over SSH by default; set `CRIT_ROUNDTRIP_CLONE_URL` to override it.
-- GitLab: export `CRIT_GITLAB_ROUNDTRIP_PROJECT=<owner>/crit-roundtrip-sandbox` and confirm `glab auth status`. The authenticated user must be able to push branches, create/close MRs, comment, and resolve discussions. The project must have an initialized default branch. For self-managed GitLab, also set `CRIT_GITLAB_ROUNDTRIP_HOST=gitlab.example.com` and configure Crit's `gitlab_url` for that host.
+- GitLab: export `CRIT_GITLAB_ROUNDTRIP_PROJECT=<owner>/crit-roundtrip-sandbox` and confirm `glab auth status`. A keyring login (the default for `glab auth login --web`) works: the tests run glab through a wrapper that keeps your real HOME, while crit itself runs in a temp HOME. The authenticated user must be able to push branches, create/close MRs, comment, and resolve discussions. The project must have an initialized default branch. For self-managed GitLab, also set `CRIT_GITLAB_ROUNDTRIP_HOST=gitlab.example.com` and configure Crit's `gitlab_url` for that host.
 
 ## Running
 
