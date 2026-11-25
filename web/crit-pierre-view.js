@@ -20,7 +20,10 @@
   var adapter = (typeof window !== 'undefined' && window.crit && window.crit.pierreAdapter) ||
     (typeof require === 'function' ? require('./crit-pierre-adapter.js') : null);
 
-  var HYDRATE_CONCURRENCY = 4;
+  // Find hydrates lazy files while the search panel is open. Keep the work
+  // bounded, but avoid making a deep match wait behind the full lazy-file
+  // queue on slower runners.
+  var HYDRATE_CONCURRENCY = 12;
   var nextViewId = 0;
 
   function createPierreView(opts) {
