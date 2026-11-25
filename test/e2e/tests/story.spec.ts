@@ -6,6 +6,7 @@ import * as path from 'path';
 import {
   clearAllComments, loadPage, fileHeader, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile,
   submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC, readFixtureState, roundComplete, addFileComment,
+  recordClassAdditions, expectClassAddedTo, quotePoint, quoteFlash,
 } from './helpers';
 
 // Story mode fixtures live on top of the shared git-mode fixture repo (server.go,
@@ -245,6 +246,30 @@ test.describe('Story mode', () => {
     await railRow(page, 'overview').click();
     await tocItem(page, 'ch1').click();
     await expectPaintedQuote(page);
+  });
+
+  test('in a story chapter, the quote goes to its comment and the label goes back to the quote', async ({ page, request }) => {
+    await postStory(request, MERGED_HUNK_STORY);
+    await loadPage(page);
+    await tocItem(page, 'ch1').click();
+    const group = storyView(page, 'ch1').locator('.crit-story-file-group[data-story-file="server.go"]');
+    const selected = (await selectInLineAndPressC(page, group, 24)).trim();
+    const textarea = group.locator('.comment-form textarea');
+    await textarea.fill('Story quote link');
+    await textarea.press('Control+Enter');
+    const card = group.locator('.comment-card', { hasText: 'Story quote link' });
+    await expect(card).toBeVisible();
+    const id = (await card.getAttribute('data-comment-id'))!;
+    await expectPaintedQuote(page);
+    await recordClassAdditions(page, 'comment-ref-flash');
+
+    const point = await quotePoint(page, selected);
+    await expectClassAddedTo(page, 'comment-ref-flash', () => page.mouse.click(point.x, point.y), id);
+
+    const label = card.locator('.comment-line-ref');
+    await expect(label).toHaveAttribute('role', 'link');
+    await label.click();
+    await expect.poll(() => quoteFlash(page)).toEqual([selected]);
   });
 
   test('a review with no story renders the flat layout', async ({ page, request }) => {

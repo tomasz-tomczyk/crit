@@ -108,3 +108,66 @@ test('cached rendering retains quotes when the returned host attaches in the sam
   await Promise.resolve();
   assert.equal(CSS.highlights.has('crit-quote'), false);
 });
+
+test('a saved comment\'s quote can be found by point, looked up and flashed', async t => {
+  const globals = ['CSSStyleSheet', 'CSS', 'Highlight', 'Range', 'document', 'NodeFilter'];
+  const original = globals.map(key => Object.getOwnPropertyDescriptor(global, key));
+  t.after(() => globals.forEach((key, index) => {
+    if (original[index]) Object.defineProperty(global, key, original[index]);
+    else delete global[key];
+  }));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  global.CSSStyleSheet = class { replaceSync() {} };
+  global.CSS = { highlights: new Map() };
+  global.Highlight = class extends Set { constructor(...ranges) { super(ranges); } };
+  global.Range = class {
+    setStart(node, offset) { this.startContainer = node; this.startOffset = offset; }
+    setEnd(node, offset) { this.endContainer = node; this.endOffset = offset; }
+    // Each quote sits on its own 20px-high row, 100px wide.
+    getClientRects() { const top = this.startContainer.row * 20; return [{ left: 0, right: 100, top, bottom: top + 20 }]; }
+  };
+  global.NodeFilter = { SHOW_TEXT: 4 };
+  global.document = { createTreeWalker(line) {
+    let visited = false;
+    return { nextNode() { if (visited) return null; visited = true; return line.text; } };
+  } };
+  const lines = [1, 2, 3].map(n => ({ text: { textContent: 'word' + n + ' here', row: n } }));
+  const host = {
+    dataset: {}, isConnected: true, querySelector: () => null,
+    shadowRoot: {
+      adoptedStyleSheets: [], querySelectorAll: () => [],
+      querySelector: selector => { const m = selector.match(/data-line="(\d+)"/); return m ? lines[Number(m[1]) - 1] : null; },
+    },
+  };
+  const decorations = dom.createDecorations();
+  decorations.mount(host, 'a.go', [
+    { id: 'c1', start: 1, end: 1, quote: 'word1', offset: 0 },
+    { id: 'c2', start: 2, end: 2, quote: 'word2', offset: 0 },
+    // An open form's quote has no comment id.
+    { start: 3, end: 3, quote: 'word3', offset: 0 },
+  ]);
+
+  assert.equal(decorations.quoteAt(host, 50, 30), 'c1');
+  assert.equal(decorations.quoteAt(host, 50, 50), 'c2');
+  assert.equal(decorations.quoteAt(host, 50, 70), null, 'a form quote is not a link');
+  assert.equal(decorations.quoteAt(host, 150, 30), null);
+  assert.equal(decorations.quoteRange('c2').startContainer, lines[1].text);
+  assert.equal(decorations.quoteRange('missing'), null);
+
+  assert.equal(decorations.flashQuote('c1'), true);
+  const flash = CSS.highlights.get('crit-quote-flash');
+  assert.equal(flash.priority, 1);
+  assert.deepEqual([...flash].map(r => r.startContainer), [lines[0].text]);
+  t.mock.timers.tick(1200);
+  assert.equal(CSS.highlights.has('crit-quote-flash'), false);
+  assert.equal(decorations.flashQuote('missing'), false);
+
+  // A disconnected host's quotes are no longer found.
+  host.isConnected = false;
+  assert.equal(decorations.quoteRange('c1'), null);
+});
+
+test('the flash highlight and quote-hover cursor are styled inside Pierre', () => {
+  assert.match(dom.unsafeCSS, /::highlight\(crit-quote-flash\) \{ background-color: var\(--crit-comment-ref-flash-bg\); \}/);
+  assert.match(dom.unsafeCSS, /:host\(\[data-crit-quote-hover\]\) \[data-content\] \{ cursor: pointer; \}/);
+});

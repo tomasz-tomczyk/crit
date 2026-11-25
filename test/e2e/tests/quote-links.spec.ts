@@ -1,8 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, getMdPath, loadPage, switchToDocumentView, recordClassAdditions, expectClassAddedTo, classAdditions } from './helpers';
+import {
+  clearAllComments, getMdPath, loadPage, switchToDocumentView, recordClassAdditions, expectClassAddedTo, classAdditions,
+  goSection, selectInLineAndPressC, expectPaintedQuote, quotePoint, quoteFlash,
+} from './helpers';
 
-// A comment on selected text and its highlighted quote link to each other in
-// the rendered document. plan.md line 5 contains "API key authentication".
+// A comment on selected text and its highlighted quote link to each other, in
+// the rendered document and in code view. plan.md line 5 contains "API key
+// authentication".
 const FLASH = 'comment-ref-flash';
 
 async function seed(request: APIRequestContext, path: string, line: number, body: string, quote?: string) {
@@ -83,5 +87,32 @@ test.describe('Quoted text and its comment', () => {
     await expect(card).toBeAttached();
     await expect(doc.locator(`.quote-highlight[data-comment-id="${quoted.id}"]`)).toHaveCount(0);
     await expect(card.locator('.comment-line-ref')).not.toHaveAttribute('role', 'link');
+  });
+
+  test('in code view, the quote goes to its comment and the label goes back to the quote', async ({ page }) => {
+    await loadPage(page);
+    const item = await goSection(page);
+    const selected = (await selectInLineAndPressC(page, item, 24)).trim();
+    const textarea = item.locator('.comment-form textarea');
+    await textarea.fill('Code quote');
+    await textarea.press('Control+Enter');
+    const card = item.locator('.comment-card', { hasText: 'Code quote' });
+    await expect(card).toBeVisible();
+    const id = (await card.getAttribute('data-comment-id'))!;
+    await expectPaintedQuote(page);
+    await recordClassAdditions(page, FLASH);
+
+    // Pierre paints the quote as a range, so the pointer cursor comes from
+    // the host while the quote is under the mouse.
+    const point = await quotePoint(page, selected);
+    await page.mouse.move(point.x, point.y);
+    await expect(item).toHaveAttribute('data-crit-quote-hover', '');
+    await expectClassAddedTo(page, FLASH, () => page.mouse.click(point.x, point.y), id);
+
+    const label = card.locator('.comment-line-ref');
+    await expect(label).toHaveAttribute('role', 'link');
+    await label.click();
+    await expect.poll(() => quoteFlash(page)).toEqual([selected]);
+    await expect.poll(() => quoteFlash(page)).toEqual([]);
   });
 });
