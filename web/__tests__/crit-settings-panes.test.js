@@ -462,6 +462,21 @@ test('renderSettingsTab: custom CSS card shown in live mode', () => {
   assert.match(html, /id="customCSSToggle"/);
 });
 
+test('renderSettingsTab: copy prompt on finish switch is off by default in both modes', () => {
+  for (const mode of ['code-review', 'live']) {
+    const html = renderCustomCSS({}, { mode });
+    assert.match(html, /Copy prompt on finish/, mode);
+    assert.match(html, /id="copyPromptOnFinishToggle"/, mode);
+    assert.doesNotMatch(html, /id="copyPromptOnFinishToggle"[^>]* checked/, mode);
+  }
+});
+
+test('renderSettingsTab: copy prompt on finish switch reflects the saved setting', () => {
+  const cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ copyPromptOnFinish: true }));
+  const html = renderCustomCSS({}, { cookie });
+  assert.match(html, /id="copyPromptOnFinishToggle"[^>]* checked/);
+});
+
 test('renderSettingsTab: no custom CSS card, or Configuration section, without a path', () => {
   const html = renderCustomCSS({});
   assert.doesNotMatch(html, /Custom CSS/);

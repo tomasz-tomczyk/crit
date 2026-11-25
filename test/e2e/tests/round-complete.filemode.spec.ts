@@ -41,6 +41,42 @@ test.describe('Multi-Round — File Mode — Frontend', () => {
     await expect(copyBtn).not.toHaveClass(/copied/);
   });
 
+  test('finish leaves the clipboard alone by default', async ({ page, request }) => {
+    await addComment(request, await getTestFilePath(request), 1, 'Auto copy off test');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await loadPage(page);
+    await page.evaluate(() => navigator.clipboard.writeText('untouched'));
+
+    await page.click('#settingsToggle');
+    const pane = page.locator('.settings-pane[data-pane="settings"]');
+    await expect(pane.locator('#copyPromptOnFinishToggle')).not.toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
+
+    await page.locator('#finishBtn').click();
+    // "Waiting..." is set after the clipboard step, so a copy would have happened by now.
+    await expect(page.locator('#finishBtn')).toHaveText('Waiting...');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('untouched');
+  });
+
+  test('finish copies the prompt when Copy prompt on finish is on', async ({ page, request }) => {
+    await addComment(request, await getTestFilePath(request), 1, 'Auto copy on test');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await loadPage(page);
+    await page.evaluate(() => navigator.clipboard.writeText('untouched'));
+
+    await page.click('#settingsToggle');
+    const pane = page.locator('.settings-pane[data-pane="settings"]');
+    await pane.locator('.comments-panel-switch').filter({ has: page.locator('#copyPromptOnFinishToggle') }).click();
+    await expect(pane.locator('#copyPromptOnFinishToggle')).toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.settings-overlay')).not.toHaveClass(/active/);
+
+    await page.locator('#finishBtn').click();
+    await expect(page.locator('#finishBtn')).toHaveText('Waiting...');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('Auto copy on test');
+  });
+
   test('a triple click on Finish Review finishes once', async ({ page, request }) => {
     await addComment(request, await getTestFilePath(request), 1, 'Triple click test');
     await loadPage(page);

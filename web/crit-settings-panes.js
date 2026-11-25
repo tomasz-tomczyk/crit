@@ -256,6 +256,7 @@
         customCSS: true,      // ~/.crit/custom.css card and on/off switch
         hideResolved: true,
         ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
+        copyPromptOnFinish: true,
         account: true,
         agent: true,
         share: true,
@@ -268,6 +269,7 @@
       customCSS: true,      // ~/.crit/custom.css card and on/off switch
       hideResolved: true,
       ignoreWhitespace: false, // code-diff only; enabled per-call in git mode
+      copyPromptOnFinish: true,
       account: true,
       agent: true,
       share: true,
@@ -742,6 +744,16 @@
       html += '</div>';
     }
 
+    // Copy prompt on finish row (off by default; the waiting crit process
+    // already gets the prompt)
+    if (show.copyPromptOnFinish) {
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Copy prompt on finish'
+        + '<span class="settings-display-hint">Copy the prompt when you finish a review. The dialog\'s Copy button works either way.</span></span>';
+      html += switchHTML('copyPromptOnFinishToggle', 'Copy the prompt to the clipboard when you finish a review', getSetting('copyPromptOnFinish', false) === true);
+      html += '</div>';
+    }
+
     html += '</div>'; // close settings-display-group
 
     // ---------- Selection toolbar ----------
@@ -1005,6 +1017,13 @@
         setSetting('customCSS', cssToggle.checked);
         var palette = window.crit && window.crit.themePalette;
         if (palette && palette.applyCustomCSSSetting) palette.applyCustomCSSSetting();
+      });
+    }
+
+    var copyPromptToggle = pane.querySelector('#copyPromptOnFinishToggle');
+    if (copyPromptToggle) {
+      copyPromptToggle.addEventListener('change', function () {
+        setSetting('copyPromptOnFinish', copyPromptToggle.checked);
       });
     }
 

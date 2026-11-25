@@ -493,8 +493,10 @@
   // {approved, prompt}, drives the #waitingDialog modal (heading,
   // message, prompt body, "Copy prompt" affordance), replays the
   // approved-checkmark CSS animation via the offsetWidth reflow trick,
-  // and copies the prompt to the clipboard. The caller owns its own
-  // uiState transition via the onWaiting/onApproved callbacks.
+  // and copies the prompt to the clipboard when the copyPromptOnFinish
+  // setting is on (off by default: the waiting crit process already gets
+  // the prompt, so a copy would only overwrite the clipboard). The caller
+  // owns its own uiState transition via the onWaiting/onApproved callbacks.
   //
   // opts:
   //   onWaiting()        — called after a non-approved finish (caller flips uiState).
@@ -601,7 +603,9 @@
         }
       }
 
-      try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+      if (getSetting('copyPromptOnFinish', false) === true) {
+        try { await navigator.clipboard.writeText(prompt); } catch (_) {}
+      }
 
       var closeMs;
       if (approved) {
