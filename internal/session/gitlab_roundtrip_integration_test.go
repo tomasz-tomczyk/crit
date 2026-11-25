@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 )
 
 // init runs before TestMain swaps HOME for a temp dir (testutil.RunWithTempHome).
@@ -250,6 +253,95 @@ func TestGitLabRoundtrip_FullCommentLifecycle(t *testing.T) {
 	if !strings.Contains(deleteOut, "deleted 1") || len(e.discussions()) != 0 {
 		t.Fatalf("delete push mismatch:\n%s\nremote=%+v", deleteOut, e.discussions())
 	}
+}
+
+// TestGitLabRoundtrip_CLICommentVisibleInMRSession reproduces #1234: on a
+// daemon started with --mr, `crit comment --session` must stamp the MR's
+// project-qualified focus key, so the page (GET /api/files/comments) shows the
+// comment that `crit push --dry-run` would post.
+func TestGitLabRoundtrip_CLICommentVisibleInMRSession(t *testing.T) {
+	e := newGitLabRoundtripEnv(t)
+	entry, sessionID := e.startMRDaemon()
+
+	e.runCrit("comment", "--session", sessionID, "--author", "Crit E2E", "crit_gitlab_roundtrip.go:3", "cli comment on MR session")
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/files/comments", entry.Port))
+	if err != nil {
+		t.Fatalf("GET /api/files/comments: %v", err)
+	}
+	defer resp.Body.Close()
+	var visible map[string][]Comment
+	if err := json.NewDecoder(resp.Body).Decode(&visible); err != nil {
+		t.Fatalf("decode /api/files/comments: %v", err)
+	}
+	comments := visible["crit_gitlab_roundtrip.go"]
+	if len(comments) != 1 || comments[0].Body != "cli comment on MR session" {
+		t.Fatalf("page shows %+v, want the CLI comment", visible)
+	}
+
+	dryRun := e.runCrit("push", "--forge", "gitlab", "--session", sessionID, "--dry-run", fmt.Sprint(e.mrIID))
+	if !strings.Contains(dryRun, "1 new comments/replies") {
+		t.Fatalf("push --dry-run does not count the visible comment:\n%s", dryRun)
+	}
+}
+
+// startMRDaemon runs `crit --mr <iid> --no-open --remote` the way a user
+// does, waits until its daemon serves /api/session, and stops both in
+// cleanup. --remote reads files through the GitLab API, so the work dir needs
+// no fetched refs.
+func (e *gitLabRoundtripEnv) startMRDaemon() (daemon.SessionEntry, string) {
+	e.t.Helper()
+	cwd, err := filepath.EvalSymlinks(e.workDir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var out bytes.Buffer
+	client := exec.Command(e.critBinary, "--mr", fmt.Sprint(e.mrIID), "--no-open", "--remote")
+	client.Dir = e.workDir
+	client.Env = append(os.Environ(), "CRIT_NO_INTEGRATION_CHECK=1", "CRIT_NO_UPDATE_CHECK=1")
+	client.Stdout = &out
+	client.Stderr = &out
+	if err := client.Start(); err != nil {
+		e.t.Fatalf("start crit --mr: %v", err)
+	}
+	var entry daemon.SessionEntry
+	e.t.Cleanup(func() {
+		if entry.PID > 0 {
+			url := fmt.Sprintf("http://127.0.0.1:%d/api/shutdown?pid=%d", entry.Port, entry.PID)
+			if resp, err := http.Post(url, "application/json", nil); err == nil {
+				resp.Body.Close()
+			}
+		}
+		_ = client.Process.Kill()
+		_ = client.Wait()
+	})
+
+	var sessionID string
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) && sessionID == "" {
+		entries, keys, _ := daemon.ListSessionsForCWDWithKeys(cwd)
+		if len(entries) == 1 && entries[0].Port > 0 {
+			entry, sessionID = entries[0], keys[0]
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if sessionID == "" {
+		e.t.Fatalf("crit --mr did not register a daemon\noutput:\n%s", out.String())
+	}
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/session", entry.Port))
+		if err == nil {
+			ready := resp.StatusCode == http.StatusOK
+			resp.Body.Close()
+			if ready {
+				return entry, sessionID
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	e.t.Fatalf("MR daemon did not become ready\noutput:\n%s", out.String())
+	return entry, sessionID
 }
 
 func mustGitLabAPI(t *testing.T, host, endpoint, method string, payload any) []byte {

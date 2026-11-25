@@ -34,7 +34,7 @@ make e2e-gitlab-roundtrip
 ## Adding a scenario
 
 - GitHub scenarios use `roundtrip_integration_test.go` and `roundtrip_helpers_test.go`; start with `e := newRoundtripEnv(t)`.
-- GitLab scenarios use `gitlab_roundtrip_integration_test.go`; start with `e := newGitLabRoundtripEnv(t)`.
+- GitLab scenarios use `gitlab_roundtrip_integration_test.go`; start with `e := newGitLabRoundtripEnv(t)`. For a scenario that needs the review page, `e.startMRDaemon()` runs `crit --mr <iid> --no-open --remote`, waits until `/api/session` is ready, and returns the daemon's session entry and ID (pass it to `crit comment --session` / `crit push --session`). Cleanup stops the daemon.
 - Keep provider API calls in harness helpers. Exercise Crit behavior through the compiled binary rather than calling provider implementation functions directly.
 - Assert remote IDs, thread/reply structure, resolution, deletion, and repeated pull/push idempotency where applicable.
 
@@ -42,4 +42,4 @@ make e2e-gitlab-roundtrip
 
 - These tests are intentionally excluded from default `go test ./...`: they are slow, networked, rate-limited, and mutate sandbox repositories.
 - Closed PR/MR history remains in the sandboxes, but temporary branches and open change requests should not remain after cleanup.
-- If a process is killed before `t.Cleanup`, inspect the sandbox for branches named `rt-*` or `crit-gitlab-e2e-*`.
+- If a process is killed before `t.Cleanup`, inspect the sandbox for branches named `rt-*` or `crit-gitlab-e2e-*`. A scenario that started a daemon may also leave a `crit _serve` process running.
