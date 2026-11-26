@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Response } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
@@ -45,6 +45,52 @@ test.describe('Files changed mid-round — File Mode', () => {
 
   test.beforeEach(async ({ request }) => {
     await clearAllComments(request);
+  });
+
+  test('rejects a stale line comment and saves it after the reviewer reselects the line', async ({ page, request }) => {
+    await loadPageWithEvents(page);
+    const item = await jsSection(page);
+    const draft = 'Explain this validation';
+    const staleForm = await openLineComment(page, item, 5);
+    await staleForm.locator('textarea').fill(draft);
+    const isCommentPost = (response: Response) => response.url().includes('/api/file/comments?') && response.request().method() === 'POST';
+
+    write('handler.js', '// New first line\n' + originals['handler.js']);
+    try {
+      await expect(page.locator(TOAST)).toBeVisible();
+      const rejected = page.waitForResponse(isCommentPost);
+      await staleForm.getByRole('button', { name: 'Comment', exact: true }).click();
+      expect((await rejected).status()).toBe(409);
+      await expect(staleForm.locator('textarea')).toHaveValue(draft);
+      await expect(item.locator('.comment-card')).toHaveCount(0);
+      await expect(page.getByRole('alert').filter({ hasText: 'The file changed.' })).toBeVisible();
+
+      await page.locator(TOAST).getByRole('button', { name: 'Reload' }).click();
+      await expect(item.getByText('// New first line')).toBeAttached();
+      await expect(staleForm.locator('textarea')).toHaveValue(draft);
+      const stillStale = page.waitForResponse(isCommentPost);
+      await staleForm.getByRole('button', { name: 'Comment', exact: true }).click();
+      expect((await stillStale).status()).toBe(409);
+
+      await page.reload();
+      await jsSection(page);
+      await expect(staleForm.locator('textarea')).toHaveValue(draft);
+      const restoredStale = page.waitForResponse(isCommentPost);
+      await staleForm.getByRole('button', { name: 'Comment', exact: true }).click();
+      expect((await restoredStale).status()).toBe(409);
+      await staleForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+      const freshForm = await openLineComment(page, item, 6);
+      await freshForm.locator('textarea').fill(draft);
+      const accepted = page.waitForResponse(isCommentPost);
+      await freshForm.getByRole('button', { name: 'Comment', exact: true }).click();
+      const response = await accepted;
+      expect(response.status()).toBe(201);
+      expect(await response.json()).toMatchObject({ start_line: 6, end_line: 6, anchor: '  if (!userId || !message) {', body: draft });
+    } finally {
+      write('handler.js', originals['handler.js']);
+      await waitForServerCopy(request, 'handler.js');
+    }
   });
 
   test('toast shows, dismisses and returns; Reload keeps the reader\'s line and each file\'s view', async ({ page }) => {
