@@ -502,6 +502,50 @@ func TestPostFileComment(t *testing.T) {
 	}
 }
 
+func TestPostFileComment_RejectsStaleFileHash(t *testing.T) {
+	s, sess := newTestServer(t)
+	getFileHash := func() string {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/file?path=test.md", nil))
+		var file struct {
+			Hash string `json:"file_hash"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &file); err != nil || file.Hash == "" {
+			t.Fatalf("GET file: status %d, body %s, error %v", w.Code, w.Body.String(), err)
+		}
+		return file.Hash
+	}
+	postComment := func(line int, hash string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"start_line":%d,"end_line":%d,"body":"Fix this","file_hash":%q}`, line, line, hash)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/file/comments?path=test.md", strings.NewReader(body)))
+		return w
+	}
+
+	oldHash := getFileHash()
+	if err := os.WriteFile(filepath.Join(sess.RepoRoot, "test.md"), []byte("preface\nline1\nline2\nline3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sess.RefreshFileContent()
+
+	w := postComment(2, oldHash)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("stale POST: status %d, want 409, body %s", w.Code, w.Body.String())
+	}
+	if comments := sess.GetComments("test.md"); len(comments) != 0 {
+		t.Fatalf("stale POST persisted comments: %+v", comments)
+	}
+
+	w = postComment(3, getFileHash())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("fresh POST: status %d, want 201, body %s", w.Code, w.Body.String())
+	}
+	comments := sess.GetComments("test.md")
+	if len(comments) != 1 || comments[0].Anchor != "line2" || comments[0].StartLine != 3 {
+		t.Fatalf("fresh POST persisted wrong anchor: %+v", comments)
+	}
+}
+
 // TestPostFileComment_NormalizesSide verifies that GitHub-style "RIGHT"/"LEFT"
 // side values on the wire are normalized to crit's internal representation
 // ("" for new, "old" for deletion). Without this normalization the frontend's

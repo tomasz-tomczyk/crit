@@ -5092,8 +5092,18 @@
     toClose.forEach(function(f) { cancelComment(f); });
   }
 
+  // Returns the snapshot used by new-side line comments in file and plan reviews.
+  function commentFileHash(filePath, side) {
+    if (!session || side === 'old' || (session.mode !== 'files' && session.mode !== 'plan')) return '';
+    const file = getFileByPath(filePath);
+    return file ? file.fileHash : '';
+  }
+
   function openForm(newForm) {
     rememberKeyboardFocusFromForm(newForm);
+    if (!newForm.editingId && newForm.fileHash === undefined) {
+      newForm.fileHash = commentFileHash(newForm.filePath, newForm.side);
+    }
     const fk = formKey(newForm);
     const existing = activeForms.find(function(f) { return f.formKey === fk; });
     if (existing) {
@@ -5730,7 +5740,6 @@
   async function submitComment(body, formObj) {
     if (!body.trim() || !formObj) return null;
     rememberKeyboardFocusFromForm(formObj);
-    clearDraft(formObj);
     let created;
     const filePath = formObj.filePath;
     const file = getFileByPath(filePath);
@@ -5757,6 +5766,7 @@
         } else {
           payload.start_line = formObj.startLine;
           payload.end_line = formObj.endLine;
+          if (formObj.fileHash) payload.file_hash = formObj.fileHash;
         }
         if (formObj.quote) payload.quote = formObj.quote;
         if (formObj.quoteOffset !== null && formObj.quoteOffset !== undefined) payload.quote_offset = formObj.quoteOffset;
@@ -5767,6 +5777,11 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        if (res.status === 409 && formObj.fileHash) {
+          if (file.fileHash === formObj.fileHash) showFilesChangedToast();
+          window.crit.shared.showToast('The file changed. Copy your draft, reload if needed, and select the lines again.', { kind: 'error' });
+          return null;
+        }
         if (!res.ok) throw new Error('Server returned ' + res.status);
         const newComment = await res.json();
         file.comments.push(newComment);
@@ -5775,9 +5790,11 @@
       }
     } catch (err) {
       console.error('Error saving comment:', err);
+      window.crit.shared.showToast('Could not save the comment. Try again.', { kind: 'error' });
       return null;
     }
 
+    clearDraft(formObj);
     removeForm(formObj.formKey);
     if (getFormsForFile(filePath).length === 0) {
       if (activeFilePath === filePath) {
@@ -5837,6 +5854,7 @@
       afterBlockIndex: formObj.afterBlockIndex,
       editingId: formObj.editingId,
       side: formObj.side || '',
+      fileHash: formObj.fileHash,
       scope: formObj.scope || '',
       body: body,
       savedAt: Date.now()
@@ -5852,6 +5870,7 @@
       afterBlockIndex: formObj.afterBlockIndex,
       editingId: formObj.editingId,
       side: formObj.side || '',
+      fileHash: formObj.fileHash,
       scope: formObj.scope || '',
       body: body,
       savedAt: Date.now()
@@ -5915,6 +5934,7 @@
           endLine: draft.endLine,
           editingId: draft.editingId,
           side: draft.side || '',
+          fileHash: draft.fileHash || '',
           scope: draft.scope || '',
           draftBody: draft.body || ''
         };
@@ -10439,6 +10459,7 @@
         form: {
           filePath: sel.filePath, afterBlockIndex: null, startLine: sel.startLine, endLine: sel.endLine,
           editingId: null, side: sel.side || undefined, quote: sel.quote, quoteOffset: sel.quoteOffset,
+          fileHash: commentFileHash(sel.filePath, sel.side),
         },
       };
     }
@@ -10533,6 +10554,7 @@
         startLine: range.startLine,
         endLine: range.endLine,
         editingId: null,
+        fileHash: commentFileHash(range.filePath),
         quote: quote,
         quoteOffset: quoteOffset
       },
@@ -10566,9 +10588,8 @@
   // A pinned template comments the resolved selection in one click, as `c`
   // then typing the template would. The key is the comment's own, so no open
   // form or draft is touched.
-  async function submitPinnedTemplate(form, text) {
-    const created = await submitComment(text, Object.assign({}, form, { formKey: 'pinned:' + Date.now() }));
-    if (!created) window.crit.shared.showToast('Could not save the comment. Try again.', { kind: 'error' });
+  function submitPinnedTemplate(form, text) {
+    return submitComment(text, Object.assign({}, form, { formKey: 'pinned:' + Date.now() }));
   }
 
   // A template's own shortcut comments the current selection with it, mouse

@@ -265,7 +265,7 @@ File-scoped (require `?path=X`):
 
 - `GET  /api/file?path=X` — file content + metadata
 - `GET  /api/file/diff?path=X` — diff hunks (git diff for code; inter-round diff for markdown)
-- `GET|POST /api/file/comments?path=X` — list/add comments (10MB body limit on POST)
+- `GET|POST /api/file/comments?path=X` — list/add comments (10MB body limit on POST); a line comment with a stale `file_hash` returns 409
 - `PUT|DELETE /api/comment/{id}?path=X` — update or delete (10MB body limit on PUT)
 - `POST|PUT|DELETE /api/comment/{id}/replies[/{rid}]?path=X` — reply CRUD
 - `PUT /api/comment/{id}/resolve?path=X` — set resolved state

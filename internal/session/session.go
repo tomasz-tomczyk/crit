@@ -27,6 +27,9 @@ import (
 // user-friendly message instead of a generic init failure.
 var ErrNoChangedFiles = errors.New("no changed files detected (after applying ignore patterns)")
 
+// ErrCommentFileChanged indicates that a line comment targets an older file snapshot.
+var ErrCommentFileChanged = errors.New("file changed since the comment was opened")
+
 // lazyFileThreshold is the maximum number of files to eagerly load
 // content and diffs for. Files beyond this threshold are loaded on demand
 // when the user expands them in the UI. Kept modest so large doc PRs don't
@@ -1395,11 +1398,20 @@ func extractAnchor(content string, startLine, endLine int) string {
 
 // AddComment adds a comment to a specific file.
 func (s *Session) AddComment(filePath string, startLine, endLine int, side, body, quote, author, userID string) (Comment, bool) {
+	c, err := s.AddCommentWithFileHash(filePath, startLine, endLine, side, body, quote, author, userID, "")
+	return c, err == nil
+}
+
+// AddCommentWithFileHash adds a line comment if its optional file hash still matches.
+func (s *Session) AddCommentWithFileHash(filePath string, startLine, endLine int, side, body, quote, author, userID, expectedHash string) (Comment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.fileByPathLocked(filePath)
 	if f == nil {
-		return Comment{}, false
+		return Comment{}, os.ErrNotExist
+	}
+	if expectedHash != "" && f.FileHash != expectedHash {
+		return Comment{}, ErrCommentFileChanged
 	}
 
 	// For old-side comments, line numbers reference the base version of the file,
@@ -1435,7 +1447,7 @@ func (s *Session) AddComment(filePath string, startLine, endLine int, side, body
 	}, s.Focus)
 	f.Comments = append(f.Comments, c)
 	s.scheduleWrite()
-	return c, true
+	return c, nil
 }
 
 // AddFileComment adds a file-level comment (not tied to specific lines).

@@ -2005,6 +2005,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			Quote     string     `json:"quote"`
 			Author    string     `json:"author"`
 			Scope     string     `json:"scope"`
+			FileHash  string     `json:"file_hash"`
 			DOMAnchor *DOMAnchor `json:"dom_anchor"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2016,13 +2017,13 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		sess := s.session.Load()
 		// Live pin: route to AddLivePin before line validation.
 		if req.DOMAnchor != nil {
 			author := req.Author
 			if author == "" {
 				author = s.author
 			}
-			sess := s.session.Load()
 			c, ok := sess.AddLivePin(path, req.Body, author, s.authUserID(), req.DOMAnchor)
 			if !ok {
 				http.Error(w, "Live pin rejected", http.StatusBadRequest)
@@ -2042,10 +2043,10 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 		// Ensure the file is registered in the session. Files that appear after
 		// startup (e.g. user creates a new file while reviewing) may be visible in
 		// scoped views but not yet in s.Files.
-		s.session.Load().EnsureFileEntry(path)
+		sess.EnsureFileEntry(path)
 
 		if req.Scope == "file" {
-			c, ok := s.session.Load().AddFileComment(path, req.Body, req.Author, s.authUserID())
+			c, ok := sess.AddFileComment(path, req.Body, req.Author, s.authUserID())
 			if !ok {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
@@ -2059,8 +2060,12 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c, ok := s.session.Load().AddComment(path, req.StartLine, req.EndLine, normalizeCommentSide(req.Side), req.Body, req.Quote, req.Author, s.authUserID())
-		if !ok {
+		c, err := sess.AddCommentWithFileHash(path, req.StartLine, req.EndLine, normalizeCommentSide(req.Side), req.Body, req.Quote, req.Author, s.authUserID(), req.FileHash)
+		if errors.Is(err, session.ErrCommentFileChanged) {
+			http.Error(w, "File changed since the comment was opened", http.StatusConflict)
+			return
+		}
+		if err != nil {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
