@@ -305,6 +305,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 	if err != nil {
 		return nil, err
 	}
+	webassets.ValidateSettingsPalettes(cfg.Settings, config.GlobalConfigPath())
 
 	var ignorePatterns []string
 	if !sf.noIgnore {

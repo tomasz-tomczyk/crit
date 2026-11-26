@@ -77,10 +77,13 @@ test('review and theme preview apply saved palettes synchronously before first p
   for (const filename of ['index.html', 'themes.html']) {
     const source = fs.readFileSync(path.join(__dirname, '..', filename), 'utf8');
     const head = source.match(/<head>([\s\S]*?)<\/head>/)[1];
+    const settingsDefaults = head.indexOf('<script src="/settings-defaults.js"></script>');
     const palettes = head.indexOf('<script src="pierre/palettes.js"></script>');
     const paletteRuntime = head.indexOf('<script src="crit-theme-palette.js"></script>');
     const applySaved = head.indexOf('themePalette.applySaved()');
-    assert.ok(palettes >= 0 && paletteRuntime > palettes && applySaved > paletteRuntime,
-      filename + ' must load palettes and runtime before applying the saved theme in head');
+    assert.ok(
+      settingsDefaults >= 0 && palettes > settingsDefaults && paletteRuntime > palettes && applySaved > paletteRuntime,
+      filename + ' must load /settings-defaults.js before palettes, theme palette runtime, and applySaved() in head'
+    );
   }
 });

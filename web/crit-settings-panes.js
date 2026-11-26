@@ -754,6 +754,14 @@
       html += '</div>';
     }
 
+    if (show.resetDefaults !== false) {
+      html += '<div class="settings-display-row">';
+      html += '<span class="settings-display-label">Browser overrides'
+        + '<span class="settings-display-hint">Clear saved UI settings from this browser so defaults from <code>' + esc(cfg.global_config_path || '~/.crit.config.json') + '</code> apply.</span></span>';
+      html += '<button type="button" class="settings-reset-btn" id="resetSettingsBtn">Reset to defaults</button>';
+      html += '</div>';
+    }
+
     html += '</div>'; // close settings-display-group
 
     // ---------- Selection toolbar ----------
@@ -1024,6 +1032,25 @@
     if (copyPromptToggle) {
       copyPromptToggle.addEventListener('change', function () {
         setSetting('copyPromptOnFinish', copyPromptToggle.checked);
+      });
+    }
+
+    var resetSettingsBtn = pane.querySelector('#resetSettingsBtn');
+    if (resetSettingsBtn) {
+      resetSettingsBtn.addEventListener('click', function () {
+        var s = sharedApi();
+        if (s.resetConfigurableSettings) s.resetConfigurableSettings();
+        if (typeof hooks.onResetSettings === 'function') {
+          Promise.resolve(hooks.onResetSettings()).catch(function (err) {
+            console.error('Could not reset settings', err);
+          });
+        } else {
+          if (s.applyThemeFromCookie) s.applyThemeFromCookie();
+          if (s.applyCodeFontFromCookie) s.applyCodeFontFromCookie();
+          if (s.applyDisplayAttributes) s.applyDisplayAttributes();
+          renderSettingsTab(pane, opts);
+        }
+        if (s.showToast) s.showToast('Settings reset to defaults');
       });
     }
 

@@ -25,7 +25,8 @@ func TestAuditGlobalOnlyConfigProjectCannotOverride(t *testing.T) {
 		"stale_review_days":90,
 		"public_url":"https://global-public.example.com",
 		"open_cmd":"global-open",
-		"share_url":"https://global-share.example.com"
+		"share_url":"https://global-share.example.com",
+		"settings":{"theme":"dark","diffMode":"unified"}
 	}`)
 	writeAuditConfig(t, filepath.Join(projectDir, ".crit.config.json"), `{
 		"agent_cmd":"project-agent",
@@ -38,11 +39,15 @@ func TestAuditGlobalOnlyConfigProjectCannotOverride(t *testing.T) {
 		"stale_review_days":1,
 		"public_url":"https://project-public.example.com",
 		"open_cmd":"project-open",
-		"share_url":"https://project-share.example.com"
+		"share_url":"https://project-share.example.com",
+		"settings":{"theme":"light","width":"wide"}
 	}`)
 
 	cfg := LoadConfig(projectDir)
 	assertAuditGlobalValues(t, cfg)
+	if cfg.Settings["theme"] != "dark" || cfg.Settings["diffMode"] != "unified" || cfg.Settings["width"] != nil {
+		t.Errorf("settings affected by project config: got %#v", cfg.Settings)
+	}
 }
 
 func TestAuditGlobalOnlyConfigProjectCannotEnable(t *testing.T) {
@@ -61,7 +66,8 @@ func TestAuditGlobalOnlyConfigProjectCannotEnable(t *testing.T) {
 		"stale_review_days":1,
 		"public_url":"https://project-public.example.com",
 		"open_cmd":"project-open",
-		"share_url":"https://project-share.example.com"
+		"share_url":"https://project-share.example.com",
+		"settings":{"theme":"light","width":"wide"}
 	}`)
 
 	cfg := LoadConfig(projectDir)
@@ -88,6 +94,9 @@ func TestAuditGlobalOnlyConfigProjectCannotEnable(t *testing.T) {
 	}
 	if cfg.StaleReviewDays != nil {
 		t.Errorf("stale_review_days enabled by project config: got %d, want unset", *cfg.StaleReviewDays)
+	}
+	if len(cfg.Settings) != 0 {
+		t.Errorf("settings enabled by project config: got %#v, want empty", cfg.Settings)
 	}
 	if cfg.ShareURL != DefaultShareURL {
 		t.Errorf("share_url enabled by project config: got %q, want default %q", cfg.ShareURL, DefaultShareURL)

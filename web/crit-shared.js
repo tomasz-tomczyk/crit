@@ -77,21 +77,60 @@
 
   // The crit-settings cookie is JSON. getCookie URL-decodes for us, so we
   // hand the raw JSON straight to JSON.parse — same shape as app.js.
-  function readThemeFromSettings() {
-    const raw = getCookie('crit-settings');
-    if (!raw) return 'system';
+  const CONFIGURABLE_SETTINGS = Object.freeze([
+    'theme',
+    'lightPalette',
+    'darkPalette',
+    'boostContrast',
+    'codeFont',
+    'lineNumbers',
+    'codeOverflow',
+    'width',
+    'diffMode',
+    'inlineDiff',
+    'ignoreWhitespace',
+    'unchangedContext',
+    'diffScope',
+    'hideResolved',
+    'live_hideResolved',
+    'live_viewport',
+    'fileTree',
+    'toc',
+    'commentsPanel',
+    'shortcuts',
+  ]);
+
+  function isPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v);
+  }
+
+  function getSettingsDefaults() {
+    const d = window.crit && window.crit.settingsDefaults;
+    return isPlainObject(d) ? d : {};
+  }
+
+  function readSettingsCookie() {
     try {
-      const parsed = JSON.parse(raw);
-      return (parsed && parsed.theme) || 'system';
+      const raw = getCookie('crit-settings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      return isPlainObject(parsed) ? parsed : {};
     } catch (_) {
-      return 'system';
+      return {};
     }
   }
 
+  function writeSettingsCookie(settings) {
+    setCookie('crit-settings', JSON.stringify(settings));
+  }
+
+  function readThemeFromSettings() {
+    return getSetting('theme', 'system') || 'system';
+  }
+
   function applyThemeFromCookie() {
-    const t = readThemeFromSettings();
+    const theme = readThemeFromSettings();
     const html = document.documentElement;
-    if (t === 'light' || t === 'dark') html.setAttribute('data-theme', t);
+    if (theme === 'light' || theme === 'dark') html.setAttribute('data-theme', theme);
     else html.removeAttribute('data-theme');
     // UI palette for the chosen light/dark theme (crit-theme-palette.js).
     if (window.crit && window.crit.themePalette) window.crit.themePalette.applySaved(html);
@@ -107,24 +146,52 @@
     html.setAttribute('data-code-overflow', getSetting('codeOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll');
   }
 
-  // Generic crit-settings JSON cookie accessors (mirror app.js semantics).
-  function readSettings() {
-    const raw = getCookie('crit-settings');
-    if (!raw) return {};
-    try { return JSON.parse(raw) || {}; }
-    catch (_) { return {}; }
-  }
-  function writeSettings(obj) {
-    setCookie('crit-settings', JSON.stringify(obj || {}));
-  }
   function getSetting(key, fallback) {
-    const s = readSettings();
-    return Object.prototype.hasOwnProperty.call(s, key) ? s[key] : fallback;
+    const cookie = readSettingsCookie();
+    const defaults = getSettingsDefaults();
+    if (key === 'shortcuts') {
+      const hasConfig = Object.prototype.hasOwnProperty.call(defaults, 'shortcuts') && isPlainObject(defaults.shortcuts);
+      const hasCookie = Object.prototype.hasOwnProperty.call(cookie, 'shortcuts') && isPlainObject(cookie.shortcuts);
+      if (!hasConfig && !hasCookie) {
+        return Object.prototype.hasOwnProperty.call(cookie, 'shortcuts') && cookie.shortcuts !== undefined
+          ? cookie.shortcuts : fallback;
+      }
+      return Object.assign({}, hasConfig ? defaults.shortcuts : {}, hasCookie ? cookie.shortcuts : {});
+    }
+    if (Object.prototype.hasOwnProperty.call(cookie, key) && cookie[key] !== undefined) {
+      return cookie[key];
+    }
+    if (Object.prototype.hasOwnProperty.call(defaults, key) && defaults[key] !== undefined) {
+      return defaults[key];
+    }
+    return fallback;
   }
+
   function setSetting(key, value) {
-    const s = readSettings();
+    const s = readSettingsCookie();
     s[key] = value;
-    writeSettings(s);
+    writeSettingsCookie(s);
+  }
+
+  function deleteSetting(key) {
+    const s = readSettingsCookie();
+    if (!Object.prototype.hasOwnProperty.call(s, key)) return;
+    delete s[key];
+    writeSettingsCookie(s);
+  }
+
+  function resetConfigurableSettings() {
+    const s = readSettingsCookie();
+    let changed = false;
+    for (let i = 0; i < CONFIGURABLE_SETTINGS.length; i++) {
+      const key = CONFIGURABLE_SETTINGS[i];
+      if (Object.prototype.hasOwnProperty.call(s, key)) {
+        delete s[key];
+        changed = true;
+      }
+    }
+    if (changed) writeSettingsCookie(s);
+    return changed;
   }
 
   // ---- Code font ----
@@ -1259,8 +1326,13 @@
     readThemeFromSettings,
     applyThemeFromCookie,
     applyDisplayAttributes,
+    CONFIGURABLE_SETTINGS,
+    getSettingsDefaults,
+    readSettingsCookie,
     getSetting,
     setSetting,
+    deleteSetting,
+    resetConfigurableSettings,
     CODE_FONT_PRESETS,
     sanitizeCodeFont,
     applyCodeFont,

@@ -488,6 +488,7 @@ These keys can only be set in `~/.crit.config.json` (global). Project-level `.cr
 | `close_on_approve_after_ms` | int | unset (disabled)          | Auto-close the review tab this many milliseconds after you Approve with no unresolved comments. Unset means no auto-close (current behavior); negative values are treated as unset. A Cancel button during the countdown skips the close for that approval. |
 | `stale_review_days`    | int      | `14`                       | Delete reviews untouched for this many days in the background sweep that runs when a review starts. Unset or non-positive values use the default. `crit cleanup --days N` is unaffected. |
 | `remote_images`        | string[] | `[]`                       | Hosts whose remote (http/https) images load without a click: `"img.shields.io"`, `"*.githubusercontent.com"` (subdomains only), or `"*"` for any host. See [Remote images](#remote-images). |
+| `settings`             | object   | `{}`                       | Default browser UI settings (`theme`, `lightPalette`, `darkPalette`, `boostContrast`, `codeFont`, `lineNumbers`, `codeOverflow`, `width`, `diffMode`, `inlineDiff`, `ignoreWhitespace`, `unchangedContext`, `diffScope`, `hideResolved`, `live_hideResolved`, `live_viewport`, `fileTree`, `toc`, `commentsPanel`, `shortcuts`). Browser cookie overrides win per key (and per binding for `shortcuts`); use **Reset to defaults** in Settings to clear browser overrides so config values take effect. Unknown or invalid entries are skipped with a stderr warning. |
 
 ### Remote images
 

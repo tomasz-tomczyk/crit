@@ -86,15 +86,44 @@
       parts[parts.length - 1] === 'Enter' && (parts.indexOf('Ctrl') !== -1 || parts.indexOf('Meta') !== -1);
   }
 
-  function overrides() {
-    var helpers = shared();
-    var value = helpers && helpers.getSetting ? helpers.getSetting('shortcuts', {}) : {};
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    var candidates = {};
-    var valid = {};
-    Object.keys(value).forEach(function (id) {
-      if (byID[id] && typeof value[id] === 'string' && !isReservedBinding(value[id])) candidates[id] = value[id];
+  function isPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v);
+  }
+
+  function configDefaults() {
+    var d = typeof globalThis !== 'undefined' && globalThis.crit && globalThis.crit.settingsDefaults;
+    if (!isPlainObject(d) || !isPlainObject(d.shortcuts)) return {};
+    var out = {};
+    Object.keys(d.shortcuts).forEach(function (id) {
+      if (byID[id] && typeof d.shortcuts[id] === 'string' && !isReservedBinding(d.shortcuts[id])) {
+        out[id] = d.shortcuts[id];
+      }
     });
+    return out;
+  }
+
+  function cookieOverrides() {
+    var helpers = shared();
+    var value;
+    if (helpers && helpers.readSettingsCookie) {
+      value = helpers.readSettingsCookie().shortcuts;
+    } else if (helpers && helpers.getSetting) {
+      value = helpers.getSetting('shortcuts', {});
+    }
+    if (!isPlainObject(value)) return {};
+    var out = {};
+    Object.keys(value).forEach(function (id) {
+      if (byID[id] && typeof value[id] === 'string' && !isReservedBinding(value[id])) {
+        out[id] = value[id];
+      }
+    });
+    return out;
+  }
+
+  function overrides() {
+    // Merge per binding: config defaults under cookie overrides.
+    var candidates = Object.assign({}, configDefaults(), cookieOverrides());
+    var valid = {};
     Object.keys(candidates).forEach(function (id) {
       var binding = candidates[id];
       var conflict = false;
@@ -122,8 +151,10 @@
     if (!byID[id]) return false;
     if (binding && isReservedBinding(binding)) return false;
     if (binding && findConflict(id, binding)) return false;
-    var saved = overrides();
-    if (binding === byID[id].binding) delete saved[id];
+    var cfg = configDefaults();
+    var saved = cookieOverrides();
+    var baseBinding = Object.prototype.hasOwnProperty.call(cfg, id) ? cfg[id] : byID[id].binding;
+    if (binding === baseBinding) delete saved[id];
     else saved[id] = binding;
     var helpers = shared();
     if (!helpers || !helpers.setSetting) return false;
@@ -137,7 +168,9 @@
   }
 
   function isCustomized(id) {
-    return Object.prototype.hasOwnProperty.call(overrides(), id);
+    var shortcut = byID[id];
+    if (!shortcut) return false;
+    return getBinding(id) !== shortcut.binding;
   }
 
   function eventToBinding(ev) {
