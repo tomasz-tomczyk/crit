@@ -93,7 +93,12 @@ type Config struct {
 	// inline:/file: forms like prompts, but resolve to an executable instead of
 	// template text. Project-level hooks are gated by the same trust flow as
 	// project prompts (they run arbitrary code).
-	Hooks               map[string]string `json:"hooks,omitempty"`
+	Hooks map[string]string `json:"hooks,omitempty"`
+	// Settings provides default browser UI settings (theme, palettes, diff
+	// display, starting layout, and keyboard shortcuts). Global-only so an
+	// untrusted repo's .crit.config.json cannot alter the reviewer's personal
+	// UI preferences or keybindings.
+	Settings            map[string]any `json:"settings,omitempty"`
 	shareTargetsPresent bool
 	shareURLPresent     bool
 	RuntimeShareURL     *string `json:"-"`
@@ -324,19 +329,34 @@ func LoadConfigFile(path string) (Config, ConfigPresence, error) {
 
 	// encoding/json stops at the first error from a custom unmarshaler, so a
 	// bad port would drop every key after it. Check it alone and drop it.
+	rawModified := false
 	if rawPort, ok := raw["port"]; ok {
 		var port PortRange
 		if portErr := port.UnmarshalJSON(rawPort); portErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: invalid port %s in %s (%v); ignoring\n", rawPort, path, portErr)
 			delete(raw, "port")
-			if data, err = json.Marshal(raw); err != nil {
-				return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
-			}
+			rawModified = true
+		}
+	}
+
+	// Parse settings separately so a non-object "settings" value warns and is
+	// skipped instead of aborting the entire config file.
+	rawSettings, hasSettings := raw["settings"]
+	if hasSettings {
+		delete(raw, "settings")
+		rawModified = true
+	}
+	if rawModified {
+		if data, err = json.Marshal(raw); err != nil {
+			return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
 		}
 	}
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, presence, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if hasSettings {
+		cfg.Settings = parseAndValidateSettings(rawSettings, path)
 	}
 	if !validDefaultMarkdownView(cfg.DefaultMarkdownView) {
 		fmt.Fprintf(os.Stderr, "Warning: invalid default_markdown_view %q in %s (want \"diff\" or \"document\"); ignoring\n", cfg.DefaultMarkdownView, path)
@@ -571,6 +591,9 @@ func LoadConfig(projectDir string) Config { //nolint:gocyclo // Config precedenc
 
 	if len(project.RemoteImages) > 0 {
 		fmt.Fprintf(os.Stderr, "Warning: remote_images in %s is ignored; set it in %s (global-only)\n", projectConfigPath, GlobalConfigPath())
+	}
+	if len(project.Settings) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: settings in %s is ignored; set it in %s (global-only)\n", projectConfigPath, GlobalConfigPath())
 	}
 
 	// 3. Merge global + project

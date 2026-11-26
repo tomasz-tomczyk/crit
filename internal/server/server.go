@@ -155,6 +155,8 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 
 	// The user's own stylesheet, linked last from index.html and themes.html.
 	mux.HandleFunc("/custom.css", s.handleCustomCSS)
+	// Global UI setting defaults from ~/.crit.config.json, loaded in <head> before theming.
+	mux.HandleFunc("/settings-defaults.js", s.handleSettingsDefaults)
 
 	// Live-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/live", s.serveIndexHTML())
@@ -867,6 +869,27 @@ func (s *Server) handleCustomCSS(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	_, _ = w.Write(css)
+}
+
+// handleSettingsDefaults serves global UI setting defaults from
+// ~/.crit.config.json as a blocking classic script loaded before
+// crit-theme-palette.js so theme and palette defaults apply before first paint.
+func (s *Server) handleSettingsDefaults(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	payload := []byte("{}")
+	if len(s.cfg.Settings) > 0 {
+		if encoded, err := json.Marshal(s.cfg.Settings); err == nil {
+			payload = encoded
+		}
+	}
+	_, _ = w.Write([]byte("window.crit=window.crit||{};window.crit.settingsDefaults="))
+	_, _ = w.Write(payload)
+	_, _ = w.Write([]byte(";\n"))
 }
 
 // filterFilesAtRound returns the subset of files that have a snapshot recorded

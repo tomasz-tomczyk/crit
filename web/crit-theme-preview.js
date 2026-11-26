@@ -236,6 +236,15 @@
             renderDiff();
           }
         },
+        onResetSettings: function() {
+          shared.applyCodeFontFromCookie();
+          shared.applyDisplayAttributes();
+          var theme = shared.getSetting('theme', 'system');
+          var mode = theme === 'light' || theme === 'dark' ? theme
+            : window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          select(mode, savedId(mode));
+          renderSettingsPane();
+        },
       },
     });
   }

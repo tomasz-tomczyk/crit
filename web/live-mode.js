@@ -512,9 +512,9 @@
 
   function applyViewport(vp, opts) {
     state.viewport = { w: vp.w, h: vp.h, key: vp.key };
-    // Persist viewport key in crit-settings cookie. Skip 'custom'
-    // (drag-resize) so the next session restarts at the nearest preset.
-    if (vp.key && vp.key !== 'custom' && !isCanvasPreview() && shared && shared.setSetting) {
+    // Persist viewport key in crit-settings cookie on explicit user picks.
+    // Skip 'custom' (drag-resize) and initial/reflow/reset hydration.
+    if ((!opts || opts.persist !== false) && vp.key && vp.key !== 'custom' && !isCanvasPreview() && shared && shared.setSetting) {
       try { shared.setSetting('live_viewport', vp.key); } catch (_) { /* noop */ }
     }
     var paneRect = els.pane.getBoundingClientRect();
@@ -556,7 +556,7 @@
   function reflowFitViewport() {
     if (!state.viewport || state.viewport.key !== 'fit') return;
     if (!els.pane || !els.frame) return;
-    applyViewport({ key: 'fit', w: 0, h: 0, label: 'Fit' }, { silent: true });
+    applyViewport({ key: 'fit', w: 0, h: 0, label: 'Fit' }, { silent: true, persist: false });
   }
 
   registerInstaller(function installViewport() {
@@ -568,22 +568,22 @@
       var vp = VIEWPORTS.find(function (v) { return v.key === key; });
       if (vp) applyViewport(vp);
     });
-    // Hydrate persisted viewport (desktop default).
+    // Hydrate persisted or configured viewport (desktop default).
     var savedKey = isCanvasPreview() ? 'fit'
       : (shared && shared.getSetting) ? shared.getSetting('live_viewport', 'desktop') : 'desktop';
     var initial = VIEWPORTS.find(function (v) { return v.key === savedKey; })
       || VIEWPORTS.find(function (v) { return v.key === 'desktop'; });
-    applyViewport(initial);
+    applyViewport(initial, { persist: false });
 
     window.addEventListener('resize', function () {
-      if (state.viewport.key === 'fit') applyViewport({ key: 'fit', w: 0, h: 0, label: 'Fit' });
+      if (state.viewport.key === 'fit') applyViewport({ key: 'fit', w: 0, h: 0, label: 'Fit' }, { persist: false });
     });
 
     if (typeof ResizeObserver !== 'undefined') {
       var ro = new ResizeObserver(function () {
         if (state.viewport.key === 'fit') {
           var fit = VIEWPORTS.find(function (v) { return v.key === 'fit'; });
-          if (fit) applyViewport(fit);
+          if (fit) applyViewport(fit, { persist: false });
         }
       });
       if (els.pane) ro.observe(els.pane);
@@ -1790,6 +1790,19 @@
               // No file-list re-render in live mode; the body class
               // (toggled by setHideResolved) drives CSS visibility on pin
               // rows + comment cards.
+            },
+            onResetSettings: function () {
+              if (shared.applyThemeFromCookie) shared.applyThemeFromCookie();
+              if (shared.applyDisplayAttributes) shared.applyDisplayAttributes();
+              document.body.classList.toggle('hide-resolved', getHideResolved());
+              if (els.viewportToggle && !isCanvasPreview()) {
+                var vpKey = (shared && shared.getSetting) ? shared.getSetting('live_viewport', 'desktop') : 'desktop';
+                var vp = VIEWPORTS.find(function (v) { return v.key === vpKey; })
+                  || VIEWPORTS.find(function (v) { return v.key === 'desktop'; });
+                if (vp) applyViewport(vp, { persist: false });
+              }
+              updateModeHint();
+              renderAllPanes();
             },
           },
         });

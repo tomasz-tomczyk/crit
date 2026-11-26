@@ -562,8 +562,14 @@
   }
 
   function getSetting(key, fallback) {
-    const v = loadSettings()[key];
-    return v === undefined ? fallback : v;
+    if (window.crit && window.crit.shared && window.crit.shared.getSetting) {
+      return window.crit.shared.getSetting(key, fallback);
+    }
+    const s = loadSettings();
+    if (Object.prototype.hasOwnProperty.call(s, key) && s[key] !== undefined) return s[key];
+    const d = window.crit && window.crit.settingsDefaults;
+    if (d && typeof d === 'object' && Object.prototype.hasOwnProperty.call(d, key) && d[key] !== undefined) return d[key];
+    return fallback;
   }
 
   function setSetting(key, value) {
@@ -1320,11 +1326,9 @@
       window.crit.shared.applyDisplayAttributes();
     }
     initSidebarWidths();
-    setFileTreeCollapsed(getSetting('fileTree', 'open') === 'collapsed');
-    // Comments panel starts hidden (no persistence yet, unlike file tree).
-    // Animation mirrors the left sidebar slide; persistence can be added later
-    // by reading getSetting('commentsPanel') here.
-    setCommentsPanelCollapsed(true);
+    setFileTreeCollapsed(getSetting('fileTree', 'open') === 'collapsed', false, { persist: false });
+    // Comments panel starts hidden unless configured open via global settings.
+    setCommentsPanelCollapsed(getSetting('commentsPanel', 'collapsed') !== 'open');
 
     // Measure actual header height and set CSS variable for sticky offsets
     function updateHeaderHeight() {
@@ -2635,7 +2639,7 @@
   function pierreDisplayOptions() {
     return Object.assign(window.crit.pierreAdapter.displayOptions(getSetting), {
       theme: window.crit.themeBoost.themes(window.PierreDiffs,
-        window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
+        window.crit.themePalette.pair({ lightPalette: getSetting('lightPalette'), darkPalette: getSetting('darkPalette') }, window.crit.palettes),
         getSetting('boostContrast', 'off') === 'on'),
     });
   }
@@ -8519,9 +8523,9 @@
   // ===== Theme =====
   function initTheme() {
     const saved = getSetting('theme', 'system');
-    applyTheme(saved);
+    applyTheme(saved, { persist: false });
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function() {
-      if (getSetting('theme', 'system') === 'system') window.applyTheme('system');
+      if (getSetting('theme', 'system') === 'system') window.applyTheme('system', { persist: false });
     });
   }
 
@@ -8529,8 +8533,8 @@
     window.crit.themePalette.applySaved();
   }
 
-  window.applyTheme = function(choice) {
-    setSetting('theme', choice);
+  window.applyTheme = function(choice, opts) {
+    if (!opts || opts.persist !== false) setSetting('theme', choice);
     if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
@@ -8547,11 +8551,11 @@
   // ===== Width =====
   function initWidth() {
     const saved = getSetting('width', 'default');
-    applyWidth(saved);
+    applyWidth(saved, { persist: false });
   }
 
-  function applyWidth(choice) {
-    setSetting('width', choice);
+  function applyWidth(choice, opts) {
+    if (!opts || opts.persist !== false) setSetting('width', choice);
     if (choice === 'compact') document.documentElement.setAttribute('data-width', 'compact');
     else if (choice === 'wide') document.documentElement.setAttribute('data-width', 'wide');
     else document.documentElement.setAttribute('data-width', 'default');
@@ -9631,7 +9635,7 @@
     }
   }
 
-  function setFileTreeCollapsed(collapsed, animate) {
+  function setFileTreeCollapsed(collapsed, animate, opts) {
     const panel = document.getElementById('fileTreePanel');
     // Slide distance = the panel's own width, which the user can resize.
     // The negative margin shifts the panel without changing its width, so
@@ -9640,7 +9644,7 @@
     if (w > 0) document.body.style.setProperty('--file-tree-width', w + 'px');
     if (animate) startFileTreeAnimation();
     document.body.classList.toggle('file-tree-collapsed', collapsed);
-    setSetting('fileTree', collapsed ? 'collapsed' : 'open');
+    if (!opts || opts.persist !== false) setSetting('fileTree', collapsed ? 'collapsed' : 'open');
     syncSidebarToggleAria();
   }
 
@@ -10051,7 +10055,7 @@
         if (ctl) ctl.switchTab('templates');
       },
       themePalettes: window.crit.palettes,
-      paletteDefaults: window.crit.themePalette.pair(loadSettings(), window.crit.palettes),
+      paletteDefaults: window.crit.themePalette.pair({ lightPalette: getSetting('lightPalette'), darkPalette: getSetting('darkPalette') }, window.crit.palettes),
       onRendererSettingChange: async function(key, value) {
         setSetting(key, value);
         if (key === 'lightPalette' || key === 'darkPalette' || key === 'boostContrast') {
@@ -10065,6 +10069,56 @@
           if (key === 'inlineDiff' && pool) await pool.setRenderOptions({ lineDiffType: pierreDisplayOptions().lineDiffType });
           // Line numbers and long lines reach rendered markdown through CSS.
           window.crit.shared.applyDisplayAttributes();
+          renderAllFiles();
+          if (storyActive()) renderStory();
+        }
+      },
+      onResetSettings: async function() {
+        window.applyTheme(getSetting('theme', 'system'), { persist: false });
+        applyWidth(getSetting('width', 'default'), { persist: false });
+        if (window.crit && window.crit.shared) {
+          window.crit.shared.applyCodeFontFromCookie();
+          window.crit.shared.applyDisplayAttributes();
+        }
+        hideResolvedState = !!getSetting('hideResolved', false);
+        document.body.classList.toggle('hide-resolved', hideResolvedState);
+        refreshHideResolvedView();
+        ignoreWhitespace = !!getSetting('ignoreWhitespace', false);
+        const mobileMatch = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+        diffMode = mobileMatch ? 'unified' : getSetting('diffMode', 'split');
+        document.querySelectorAll('#diffModeToggle .toggle-btn').forEach(function (btn) {
+          btn.classList.toggle('active', btn.dataset.mode === diffMode);
+        });
+        if (isGit) {
+          const scopes = (session && session.available_scopes) || ['all'];
+          const configuredScope = getSetting('diffScope', null);
+          if (sessionInRangeFocus()) {
+            diffScope = 'all';
+          } else if (configuredScope && scopes.indexOf(configuredScope) !== -1) {
+            diffScope = configuredScope;
+          } else {
+            diffScope = scopes.indexOf('branch') !== -1 ? 'branch' : 'all';
+          }
+          updateScopePinIndicator();
+        }
+        setFileTreeCollapsed(getSetting('fileTree', 'open') === 'collapsed', false, { persist: false });
+        setCommentsPanelCollapsed(getSetting('commentsPanel', 'collapsed') !== 'open');
+        const tocEl = document.getElementById('toc');
+        const tocToggle = document.getElementById('tocToggle');
+        if (tocEl && tocToggle && tocToggle.style.display !== 'none') {
+          tocEl.classList.toggle('toc-hidden', getSetting('toc', 'closed') !== 'open');
+        }
+        const pool = await pierreWorkerPoolReady();
+        if (pool) {
+          const displayOpts = pierreDisplayOptions();
+          await pool.setRenderOptions({ theme: displayOpts.theme, lineDiffType: displayOpts.lineDiffType });
+        }
+        window.crit.codeHighlight.configure({ pool: pierreWorkerPoolReady });
+        renderSettingsPane(cfg);
+        renderShortcutsPane();
+        if (isGit) {
+          await reloadForScope();
+        } else {
           renderAllFiles();
           if (storyActive()) renderStory();
         }

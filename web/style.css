@@ -3148,6 +3148,27 @@ textarea.drag-active {
   align-items: center;
   gap: 12px;
 }
+.settings-reset-btn {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--crit-editor-fg);
+  background: transparent;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.settings-reset-btn:hover {
+  border-color: var(--crit-editor-fg-muted);
+  background: var(--crit-bg-elevated);
+}
+.settings-reset-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--crit-focus);
+}
 /* Advanced: folded settings, indented under their section. */
 .settings-advanced[hidden] { display: none; }
 .settings-advanced-summary {
